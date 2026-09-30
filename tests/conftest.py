@@ -4,13 +4,16 @@ Nothing here may touch the real ~/Library/Application Support/Slate, ~/Movies/Sl
 test may spend on a vendor. The film project (FILMROOT) is read-only for golden-data tests.
 """
 
+import atexit
 import os
+import shutil
 import tempfile
 from pathlib import Path
 
 import pytest
 
 _SESSION = Path(tempfile.mkdtemp(prefix="slate-tests-"))
+atexit.register(shutil.rmtree, _SESSION, ignore_errors=True)  # never leave a folder behind per run
 os.environ.setdefault("SLATE_DATA", str(_SESSION / "data"))
 os.environ.setdefault("SLATE_FILMS", str(_SESSION / "films"))
 os.environ.setdefault("SLATE_BRANDS", str(_SESSION / "brands"))

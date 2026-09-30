@@ -186,3 +186,31 @@ def test_child_path_prefers_arm64_homebrew_over_usr_local(monkeypatch):
     node = procs.which("node")
     if node and os.path.exists("/opt/homebrew/bin/node"):
         assert node == "/opt/homebrew/bin/node"
+
+
+def test_timeout_stops_the_whole_process_group(tmp_path):
+    # A child that starts its own grandchild; a timeout must stop both, not orphan the grandchild.
+    marker = tmp_path / "grandchild.pid"
+    script = f"import subprocess,sys,time; p=subprocess.Popen([sys.executable,'-c','import time; time.sleep(60)']); open(r'{marker}','w').write(str(p.pid)); time.sleep(60)"
+    import sys as _sys
+    with pytest.raises(Exception):
+        procs.run([_sys.executable, "-c", script], timeout=2)
+    import time as _time
+    for _ in range(50):
+        if marker.exists() and marker.read_text():
+            break
+        _time.sleep(0.1)
+    gpid = int(marker.read_text())
+    for _ in range(50):
+        if not procs.pid_alive(gpid):
+            break
+        _time.sleep(0.1)
+    assert not procs.pid_alive(gpid)
+
+
+def test_tls_context_always_verifies_with_real_cas():
+    from slate import http
+    ctx = http.ssl_context()
+    import ssl as _ssl
+    assert ctx.verify_mode == _ssl.CERT_REQUIRED and ctx.check_hostname
+    assert ctx.cert_store_stats()["x509_ca"] > 0

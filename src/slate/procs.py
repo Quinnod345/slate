@@ -12,6 +12,7 @@ import glob
 import os
 import re
 import shutil
+import signal
 import subprocess
 from pathlib import Path
 from typing import Mapping, Sequence
@@ -89,17 +90,27 @@ def run(argv: Sequence[str | os.PathLike], *, cwd: str | os.PathLike | None = No
         raise MissingPrerequisite(f"{args[0]} isn't installed or isn't on PATH.",
                                   hint="Run `slate doctor` to see what's missing.")
     args[0] = exe
-    kwargs: dict = {"cwd": os.fspath(cwd) if cwd else None, "env": child_env(env), "timeout": timeout, "text": text}
-    if capture:
-        kwargs["capture_output"] = True
-    if input is None:
-        kwargs["stdin"] = subprocess.DEVNULL
-    else:
-        kwargs["input"] = input
+    # Each child leads its own process group, so a timeout or an interrupt can stop everything it started (Chrome
+    # spawns a tree of helpers; killing only the leader used to orphan them).
     try:
-        proc = subprocess.run(args, **kwargs)
+        child = subprocess.Popen(
+            args, cwd=os.fspath(cwd) if cwd else None, env=child_env(env), text=text,
+            stdin=subprocess.PIPE if input is not None else subprocess.DEVNULL,
+            stdout=subprocess.PIPE if capture else None, stderr=subprocess.PIPE if capture else None,
+            start_new_session=True,
+        )
+    except FileNotFoundError as exc:
+        raise MissingPrerequisite(f"{Path(args[0]).name} couldn't be started: {exc.strerror}.",
+                                  hint="Run `slate doctor` to see what's missing.") from exc
+    try:
+        out, err = child.communicate(input=input, timeout=timeout)
     except subprocess.TimeoutExpired as exc:
+        stop_group(child)
         raise SlateError(f"{Path(args[0]).name} took longer than {timeout:.0f} s and was stopped.") from exc
+    except BaseException:
+        stop_group(child)
+        raise
+    proc = subprocess.CompletedProcess(args, child.returncode, out, err)
     if check and proc.returncode != 0:
         from slate.secrets import redact  # noqa: PLC0415
 
@@ -109,6 +120,26 @@ def run(argv: Sequence[str | os.PathLike], *, cwd: str | os.PathLike | None = No
         tail = redact(tail.strip()[-1500:])
         raise SlateError(f"{Path(args[0]).name} exited with {proc.returncode}." + (f"\n{tail}" if tail else ""))
     return proc
+
+
+def stop_group(child: subprocess.Popen, grace: float = 5.0) -> None:
+    """Stop a child and everything in its process group: SIGTERM, a grace period, then SIGKILL."""
+    try:
+        os.killpg(child.pid, signal.SIGTERM)
+    except (ProcessLookupError, PermissionError):
+        return
+    try:
+        child.wait(timeout=grace)
+    except subprocess.TimeoutExpired:
+        pass
+    try:
+        os.killpg(child.pid, signal.SIGKILL)  # stragglers still in the group after the leader exits
+    except (ProcessLookupError, PermissionError):
+        pass
+    try:
+        child.wait(timeout=grace)
+    except subprocess.TimeoutExpired:
+        pass
 
 
 def spawn_detached(argv: Sequence[str | os.PathLike], *, log_path: str | os.PathLike,

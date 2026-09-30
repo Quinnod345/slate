@@ -14,6 +14,7 @@ import json
 import mimetypes
 import os
 import random
+import ssl
 import time
 import urllib.error
 import urllib.parse
@@ -28,6 +29,28 @@ from slate.secrets import _seen_values, redact
 
 USER_AGENT = f"slate/{__version__} (video pipeline; +https://github.com/Quinnod345/slate)"
 RETRYABLE = {408, 425, 429, 500, 502, 503, 504}
+SYSTEM_CA_FILES = ("/etc/ssl/cert.pem", "/private/etc/ssl/cert.pem")
+
+_ssl_context: ssl.SSLContext | None = None
+
+
+def ssl_context() -> ssl.SSLContext:
+    """A verifying TLS context that works on every Python Slate may run under.
+
+    The python.org installer's Python ships with no CA certificates configured (until someone runs its "Install
+    Certificates" script), so a default context verifies nothing and every vendor call fails. When the default store is
+    empty, use the system's trust store instead. Verification is never switched off.
+    """
+    global _ssl_context
+    if _ssl_context is None:
+        ctx = ssl.create_default_context()
+        if not ctx.cert_store_stats().get("x509_ca"):
+            for path in (os.environ.get("SSL_CERT_FILE"), *SYSTEM_CA_FILES):
+                if path and os.path.exists(path):
+                    ctx.load_verify_locations(cafile=path)
+                    break
+        _ssl_context = ctx
+    return _ssl_context
 
 
 class HttpError(SlateError):
@@ -66,7 +89,7 @@ def request(method: str, url: str, *, headers: Mapping[str, str] | None = None, 
     for attempt in range(attempts):
         req = urllib.request.Request(url, data=body, method=method, headers=hdrs)
         try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
+            with urllib.request.urlopen(req, timeout=timeout, context=ssl_context()) as resp:
                 return resp.status, dict(resp.headers.items()), resp.read()
         except urllib.error.HTTPError as exc:
             payload = exc.read().decode("utf-8", "replace") if exc.fp else ""
@@ -110,7 +133,7 @@ def download(url: str, dest: str | os.PathLike, *, headers: Mapping[str, str] | 
     tmp = dest.with_name(f".{dest.name}.part")
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, **(headers or {})})
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp, tmp.open("wb") as fh:
+        with urllib.request.urlopen(req, timeout=timeout, context=ssl_context()) as resp, tmp.open("wb") as fh:
             while True:
                 block = resp.read(1 << 20)
                 if not block:
