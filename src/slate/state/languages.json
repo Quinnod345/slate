@@ -1,0 +1,40 @@
+{
+ "note": "Language tables for the film-state module: how a request or a set of notes is split into items, and which phrases mean a note asks for a new approach rather than a perfecting change. Keyed by BCP 47 language (film.json 'language'). Code never holds these words; add a language here, not in Python.",
+ "en": {
+  "name": "English",
+  "list_item": "^\\s*(?:[-*\\u2022\\u2013]|\\(?[0-9]{1,3}[.)]|\\(?[a-z][.)])\\s+",
+  "sentence_end": "[.!?][\"'\\u201d\\u2019)]*(\\s+)(?=[\"'\\u201c\\u2018(]?[A-Z0-9])",
+  "new_approach": [
+   "new approach",
+   "different approach",
+   "another approach",
+   "whole new",
+   "brand new",
+   "start over",
+   "start again",
+   "from scratch",
+   "redesign",
+   "re-design",
+   "rethink",
+   "re-think",
+   "rebuild it",
+   "rebuild the whole",
+   "replace it",
+   "replace the whole",
+   "replace everything",
+   "swap it for",
+   "swap in",
+   "something else entirely",
+   "completely different",
+   "totally different",
+   "entirely different",
+   "different kind of",
+   "different type of",
+   "scrap it",
+   "scrap the",
+   "throw it out",
+   "research",
+   "go back to the drawing board"
+  ]
+ }
+}

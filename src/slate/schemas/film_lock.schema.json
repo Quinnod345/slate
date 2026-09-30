@@ -1,0 +1,93 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "https://slate.local/schemas/film_lock.schema.json",
+ "x-slate-files": ["film.lock.json"],
+ "title": "Slate film lock",
+ "description": "film.lock.json: for every derived file, the command and tool version that made it, the hashes of its inputs, its own hash and whether it's locked; plus what froze (shot ids, the timeline). Written only by slate.state.lock; other modules call lock.record() after writing a file.",
+ "type": "object",
+ "required": ["schema", "files", "frozen"],
+ "additionalProperties": false,
+ "properties": {
+  "schema": {"const": 1},
+  "generated": {"type": "string"},
+  "files": {
+   "type": "object",
+   "description": "Keyed by the film-relative path of the derived file.",
+   "additionalProperties": {"$ref": "#/$defs/entry"}
+  },
+  "frozen": {
+   "type": "object",
+   "additionalProperties": false,
+   "properties": {
+    "shot_ids": {
+     "type": ["object", "null"],
+     "required": ["ids", "at"],
+     "properties": {
+      "ids": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+      "at": {"type": "string"},
+      "source": {"type": ["string", "null"]},
+      "sha256": {"type": ["string", "null"]},
+      "inherited_from": {"type": ["string", "null"]},
+      "history": {"type": "array"}
+     }
+    },
+    "timeline": {
+     "type": ["object", "null"],
+     "required": ["locked", "at"],
+     "properties": {
+      "locked": {"type": "boolean"},
+      "at": {"type": "string"},
+      "reason": {"type": ["string", "null"]},
+      "renders": {"type": "array"},
+      "history": {"type": "array"}
+     }
+    }
+   }
+  }
+ },
+ "$defs": {
+  "sha": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+  "entry": {
+   "type": "object",
+   "required": ["producer", "tool_version", "inputs", "sha256", "locked", "made_at"],
+   "additionalProperties": false,
+   "properties": {
+    "producer": {"type": "string", "minLength": 1,
+                 "description": "The command that made the file, starting with the CLI command (\"slate voice tts\", \"slate mix\"), so status and make can place it."},
+    "tool_version": {"type": ["string", "null"]},
+    "inputs": {
+     "type": "object",
+     "description": "{path: sha256 at the time the file was made}; film-relative or absolute. A missing input maps to null. Named inputs are allowed too: brand:<name> (the pack's brand.json), film:<dotted.key> (one film.json value), format:<name>; any other scheme keeps the producer's own marker and is reported as not checkable here.",
+     "additionalProperties": {"type": ["string", "null"], "maxLength": 200}
+    },
+    "sha256": {"$ref": "#/$defs/sha"},
+    "kind": {"type": ["string", "null"], "enum": ["file", "tree", null]},
+    "locked": {"type": "boolean"},
+    "lock": {
+     "type": ["object", "null"],
+     "properties": {
+      "reason": {"type": "string"},
+      "at": {"type": "string"},
+      "sha256": {"$ref": "#/$defs/sha"},
+      "by": {"type": ["string", "null"]}
+     }
+    },
+    "made_at": {"type": "string"},
+    "ref": {
+     "type": ["object", "null"],
+     "description": "A derived film's reuse of its parent's file, by reference: nothing is copied.",
+     "required": ["film", "dir", "path", "sha256"],
+     "properties": {
+      "film": {"type": "string"},
+      "dir": {"type": "string"},
+      "path": {"type": "string"},
+      "sha256": {"$ref": "#/$defs/sha"},
+      "kind": {"type": ["string", "null"]}
+     }
+    },
+    "note": {"type": ["string", "null"]},
+    "history": {"type": "array"}
+   }
+  }
+ }
+}

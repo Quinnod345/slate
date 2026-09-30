@@ -1,0 +1,12 @@
+{
+ "name": "fixture-explainer",
+ "note": "Test fixture: a neutral explainer-shaped format (sizes and rates chosen to be unlike any real film's).",
+ "width": 1280,
+ "height": 720,
+ "fps_num": 24000,
+ "fps_den": 1001,
+ "runtime_s": {"min": 60, "max": 120, "default": 90},
+ "loudness": {"lufs": -14, "true_peak": -1},
+ "budget": {"elevenlabs": {"vo": [1000, 5000], "score": [2500, 5000]}, "higgsfield": [0, 60]},
+ "safe_zones": {"youtube": {"title_safe": 0.9, "action_safe": 0.93}}
+}

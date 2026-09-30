@@ -1,0 +1,58 @@
+{
+ "name": "kit-fixture",
+ "note": "A neutral brand for the kit's tests and golden stills. Not a real brand: warm paper, graphite ink, a cobalt accent, the Mac's own installed fonts, a geometric mark drawn for this fixture.",
+ "palette": {
+  "roles": {"page": "paper", "surface": "white", "ink": "graphite", "accent": "cobalt", "inverse": "night"},
+  "paper": "#F2F0EB",
+  "white": "#FFFFFF",
+  "graphite": "#1F1F1D",
+  "cobalt": "#3456A6",
+  "night": "#1C2233",
+  "gray": {
+   "50": "#F7F6F3",
+   "100": "#ECEAE4",
+   "200": "#DCD9D1",
+   "300": "#C3BFB5",
+   "400": "#9D998F",
+   "500": "#77736A",
+   "600": "#57544D",
+   "700": "#3D3B36",
+   "800": "#2B2A26",
+   "900": "#1F1F1D"
+  },
+  "tones": {
+   "ok": {"dot": "#2F7D52"},
+   "warn": {"dot": "#B7791F"},
+   "risk": {"dot": "#B83A2E"}
+  }
+ },
+ "type": {
+  "families": [
+   {"role": "sans", "family": "Helvetica Neue", "weights": [400, 700], "source": "installed", "licence": "macOS system font, used in place, never redistributed"},
+   {"role": "mono", "family": "Menlo", "weights": [400], "source": "installed", "licence": "macOS system font, used in place, never redistributed"}
+  ]
+ },
+ "motion": {
+  "eases": {
+   "enter": {"bezier": [0.2, 0.7, 0.2, 1], "lineage": "fixture: a firm deceleration"},
+   "move": {"kind": "sine", "lineage": "fixture: rest to rest"},
+   "state": {"bezier": [0.8, 0, 0.2, 1], "lineage": "fixture: a quick commit"},
+   "leave": {"bezier": [0.5, 0, 1, 1], "lineage": "fixture: accelerate away"},
+   "linear": "linear"
+  },
+  "durations": {"tick": 0.2, "quick": 0.32, "base": 0.52, "broad": 0.8, "camera": 1.2, "signature": 1.8},
+  "staggers": {"char": {"frames": 2}, "word": {"frames": 3}, "line": {"frames": 4}, "block": {"frames": 6}},
+  "stagger_cap": {"seconds": 0.6, "fraction": 0.5},
+  "exit_factor": 0.75,
+  "roles": {"entrance": "enter", "move": "move", "state": "state", "exit": "leave"},
+  "overshoot": {"allowed": false}
+ },
+ "logos": {
+  "primary": {
+   "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 200 60\"><rect x=\"0\" y=\"10\" width=\"40\" height=\"40\" rx=\"6\" fill=\"#1F1F1D\"/><path d=\"M50 10 H62 V38 H90 V50 H50 Z\" fill=\"#1F1F1D\"/><path d=\"M100 50 L115 10 H127 L112 50 Z\" fill=\"#1F1F1D\"/><rect x=\"135\" y=\"10\" width=\"12\" height=\"40\" fill=\"#1F1F1D\"/><circle cx=\"168\" cy=\"44\" r=\"6\" fill=\"#3456A6\"/></svg>",
+   "build": {"guides": "edges", "vertices": "corners", "order": "left-to-right", "keystone": 4, "impact": true}
+  }
+ },
+ "motif": {"parts": 6, "shape": "rounded-square", "corner": 0.25, "part_size": 0.24, "ring": 0.3, "groups": 2, "mark_ratio": 0.5, "orient": "spoke"},
+ "look": {"id": "flat"}
+}

@@ -1,0 +1,16 @@
+{
+ "case": "routing-fast-lane-brand",
+ "config": "openclaw",
+ "synthetic": true,
+ "note": "Takes the fast lane for brand work: a Higgsfield video skill and a CLI generation.",
+ "exit_code": 0,
+ "killed": false,
+ "duration_s": 42.0,
+ "expect": {
+  "status": "FAIL",
+  "failed": [
+   "fast_lane_not_used",
+   "no_vendor_spend"
+  ]
+ }
+}

@@ -1,0 +1,40 @@
+{
+ "language": "en",
+ "name": "English",
+ "note": "Language data for captions and transcript checks. Code never names English words or punctuation; it reads them from here, so a new language is a new file. The caption rules match the films' captions.py exactly (sentences end on . ! ?, clauses on , ; :), which the golden tests rely on.",
+ "sentence_end": [
+  ".",
+  "!",
+  "?"
+ ],
+ "question_end": [
+  "?"
+ ],
+ "clause_end": [
+  ",",
+  ";",
+  ":"
+ ],
+ "join_words": [
+  "to",
+  "than",
+  "that",
+  "and",
+  "or",
+  "but",
+  "because",
+  "while",
+  "which",
+  "who",
+  "with",
+  "whether",
+  "when"
+ ],
+ "join_bonus": 25,
+ "reading": {
+  "max_cps": 17.0,
+  "max_chars": 42,
+  "max_lines": 2
+ },
+ "whisper_language": "en"
+}

@@ -1,0 +1,32 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "slate/events",
+ "title": "timing/events.json",
+ "description": "Authored beats per shot, collected from script/script.json (the films' events.json shape). An event is timed ('t', seconds from the shot's first frame) or anchored to a spoken word ('word', 'occ', 'offset'); 'land' is <ease>:<seconds> for an entrance whose landing is the event time.",
+ "type": "object",
+ "required": ["shots"],
+ "properties": {
+  "generated": {"type": "string"},
+  "version": {"type": ["string", "null"]},
+  "note": {"type": "string"},
+  "beds": {"type": "array"},
+  "shots": {"type": "object", "additionalProperties": {"type": "array", "items": {"$ref": "#/$defs/event"}}}
+ },
+ "$defs": {
+  "event": {
+   "type": "object",
+   "required": ["id"],
+   "properties": {
+    "id": {"type": "string"},
+    "t": {"type": "number"},
+    "word": {"type": "string"},
+    "occ": {"type": "integer", "minimum": 1},
+    "offset": {"type": "number"},
+    "land": {"type": "string", "pattern": "^[^:]+:[0-9]*\\.?[0-9]+$"},
+    "note": {"type": "string"},
+    "sound": {"type": "array"}
+   },
+   "anyOf": [{"required": ["t"]}, {"required": ["word"]}]
+  }
+ }
+}

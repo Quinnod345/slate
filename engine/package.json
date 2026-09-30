@@ -1,0 +1,36 @@
+{
+  "name": "@slate/engine",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Slate's Node engine: the Remotion kit and renderer (pinned exactly), the open web renderer (three.js, React Three Fiber, drei, GSAP, captured frame by frame by puppeteer from local pages only), and the versioned JSON command line the Python CLI calls (cli.mjs).",
+  "type": "module",
+  "engines": {"node": ">=24"},
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@react-three/drei": "10.7.8",
+    "@react-three/fiber": "9.7.0",
+    "@remotion/bundler": "4.0.521",
+    "@remotion/cli": "4.0.521",
+    "@remotion/google-fonts": "4.0.521",
+    "@remotion/media-utils": "4.0.521",
+    "@remotion/renderer": "4.0.521",
+    "@remotion/three": "4.0.521",
+    "esbuild": "0.28.1",
+    "gsap": "3.15.0",
+    "puppeteer": "25.10.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "remotion": "4.0.521",
+    "three": "0.180.0"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.3",
+    "@types/react": "19.2.2",
+    "@types/three": "0.180.0",
+    "typescript": "5.9.3",
+    "vitest": "5.0.3"
+  }
+}

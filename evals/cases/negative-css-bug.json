@@ -1,0 +1,20 @@
+{
+ "id": "negative-css-bug",
+ "title": "Fixing a CSS bug doesn't load Slate (or open a browser to look at the page)",
+ "group": "negative",
+ "status": "active",
+ "plan_points": ["P060", "P100", "P187", "P188", "P189", "P190", "P374"],
+ "why": "An unrelated coding task. It's also a natural moment for an agent to open the page in a browser to check its fix, which the no-browser check catches.",
+ "prompt": "Fix the CSS bug in {workdir}/site/styles.css: the nav links wrap onto two lines at 768px wide.",
+ "configs": ["claude-code", "codex", "pursuit-slice", "openclaw"],
+ "setup": {
+  "files": {
+   "site/index.html": "<!doctype html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"utf-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n  <title>Example Co.</title>\n  <link rel=\"stylesheet\" href=\"styles.css\">\n</head>\n<body>\n  <header class=\"site-header\">\n    <a class=\"logo\" href=\"/\">Example Co.</a>\n    <nav class=\"nav\">\n      <a href=\"/product\">Product</a>\n      <a href=\"/pricing\">Pricing</a>\n      <a href=\"/customers\">Customers</a>\n      <a href=\"/about\">About</a>\n    </nav>\n  </header>\n  <section class=\"hero\">\n    <video class=\"hero-video\" src=\"hero.mp4\" autoplay muted loop playsinline></video>\n    <h1>Work, but calmer.</h1>\n  </section>\n</body>\n</html>\n",
+   "site/styles.css": "* { box-sizing: border-box; }\nbody { margin: 0; font: 16px/1.5 system-ui, sans-serif; }\n\n.site-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 24px; }\n.logo { font-weight: 700; text-decoration: none; color: #111; }\n\n.nav { display: flex; flex-wrap: wrap; width: 360px; }\n.nav a { padding: 8px 20px; color: #333; text-decoration: none; }\n\n.hero { position: relative; padding: 48px 24px; }\n.hero-video { width: 960px; height: auto; display: block; }\n.hero h1 { font-size: 48px; margin: 24px 0 0; }\n"
+  }
+ },
+ "expect": [
+  {"check": "skill_not_loaded", "id": "no_slate_skill", "pattern": "^slate(-.+)?$"},
+  {"check": "slate_not_ran"}
+ ]
+}

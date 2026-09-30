@@ -18,17 +18,27 @@ from typing import Mapping, Sequence
 
 from slate.errors import MissingPrerequisite, SlateError
 
-EXTRA_PATH = ["/opt/homebrew/bin", "/usr/local/bin", str(Path.home() / ".local" / "bin"), "/usr/bin", "/bin",
-              "/usr/sbin", "/sbin"]
+# Searched first, in this order, whatever the caller's PATH says. macOS's default PATH (/etc/paths) puts /usr/local/bin
+# first, and on this kind of Mac that folder can hold stale Intel builds (an ffmpeg 7.1 and a Node 21 were found there),
+# which would fail Slate's floors or change results. Arm64 Homebrew and ~/.local/bin (Slate's own shim) win.
+PREFERRED_PATH = ["/opt/homebrew/bin", "/opt/homebrew/sbin", str(Path.home() / ".local" / "bin")]
+# Appended when missing, so a bare launchd or gateway PATH still finds the basics.
+FALLBACK_PATH = ["/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"]
+
+
+def child_path(current: str | None = None) -> str:
+    """The PATH every Slate child gets: preferred folders first, then the caller's, then fallbacks, no duplicates."""
+    parts: list[str] = []
+    for p in [*PREFERRED_PATH, *(current if current is not None else os.environ.get("PATH", "")).split(os.pathsep),
+              *FALLBACK_PATH]:
+        if p and p not in parts:
+            parts.append(p)
+    return os.pathsep.join(parts)
 
 
 def child_env(extra: Mapping[str, str] | None = None) -> dict[str, str]:
     env = dict(os.environ)
-    parts = [p for p in env.get("PATH", "").split(os.pathsep) if p]
-    for p in EXTRA_PATH:
-        if p not in parts:
-            parts.append(p)
-    env["PATH"] = os.pathsep.join(parts)
+    env["PATH"] = child_path(env.get("PATH", ""))
     env["BROWSER"] = "none"
     if extra:
         env.update({k: str(v) for k, v in extra.items()})

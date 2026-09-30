@@ -1,0 +1,13 @@
+{
+ "case": "routing-ui-recording",
+ "config": "codex",
+ "synthetic": true,
+ "note": "Routes the recording request to video-verifier and leaves Slate alone.",
+ "exit_code": 0,
+ "killed": false,
+ "duration_s": 42.0,
+ "expect": {
+  "status": "PASS",
+  "failed": []
+ }
+}

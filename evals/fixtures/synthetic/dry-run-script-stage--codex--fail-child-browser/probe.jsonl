@@ -1,0 +1,5 @@
+{"kind": "child", "pid": 4100, "argv0": "git", "browser": "none", "stdin": "devnull", "at": 1790000000.0}
+{"kind": "child", "pid": 4101, "argv0": "node", "browser": "/Users/you/code/slate/evals/tripwire/browser", "stdin": "devnull", "at": 1790000001.0}
+{"kind": "slate_process", "pid": 4100, "command": "slate", "at": 1790000010.0}
+{"kind": "slate_process", "pid": 4101, "command": "slate", "at": 1790000011.0}
+{"kind": "slate_process", "pid": 4102, "command": "slate", "at": 1790000012.0}

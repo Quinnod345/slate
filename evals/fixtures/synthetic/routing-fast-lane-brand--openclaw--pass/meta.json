@@ -1,0 +1,13 @@
+{
+ "case": "routing-fast-lane-brand",
+ "config": "openclaw",
+ "synthetic": true,
+ "note": "Loads slate and keeps brand work off the fast lane.",
+ "exit_code": 0,
+ "killed": false,
+ "duration_s": 42.0,
+ "expect": {
+  "status": "PASS",
+  "failed": []
+ }
+}

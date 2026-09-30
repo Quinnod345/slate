@@ -1,0 +1,6 @@
+{
+ "mcpServers": {
+  "aside": {"type": "stdio", "command": "{home}/.local/bin/aside", "args": ["mcp"]},
+  "slate": {"type": "stdio", "command": "{home}/.local/bin/slate", "args": ["mcp"]}
+ }
+}

@@ -1,0 +1,59 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "https://slate.local/schemas/mix.schema.json",
+ "title": "The delivery mix record (sound/mix/final_mix.json)",
+ "description": "Written by `slate mix`. The mix is one WAV and four stems that sum to it; this records the targets, the gains, the limiters, the measured result and each stem's level against the voice.",
+ "type": "object",
+ "required": ["kind", "film", "target", "sample_rate", "samples", "seconds", "gain_db", "dialogue_limited", "final_lufs", "final_true_peak_dbtp", "pass", "stems_sum_max_abs", "outputs"],
+ "properties": {
+  "generated": {"type": "string"},
+  "kind": {"const": "mix"},
+  "film": {"type": "string"},
+  "made_at": {"type": "string"},
+  "target": {
+   "type": "object",
+   "required": ["lufs", "tol", "true_peak"],
+   "properties": {"lufs": {"type": "number"}, "tol": {"type": "number", "exclusiveMinimum": 0}, "true_peak": {"type": "number"}}
+  },
+  "sample_rate": {"type": "integer", "minimum": 8000},
+  "samples": {"type": "integer", "minimum": 1},
+  "seconds": {"type": "number", "exclusiveMinimum": 0},
+  "voice_lufs_pre": {"type": ["number", "null"]},
+  "score_lufs_pre": {"type": ["number", "null"]},
+  "music_vs_voice_lu": {"type": ["number", "null"]},
+  "duck_db": {"type": ["number", "null"]},
+  "stem_trim_db": {"type": "object", "additionalProperties": {"type": "number"}},
+  "limiter": {"enum": ["slate", "ffmpeg"]},
+  "gain_db": {"type": "number"},
+  "dialogue_limited": {"type": "boolean"},
+  "effects_ceiling_dbtp": {"type": ["number", "null"]},
+  "effects_limited": {"type": "boolean"},
+  "linked_limiter": {
+   "type": ["object", "null"],
+   "properties": {"max_reduction_db": {"type": "number", "minimum": 0}, "ms_reduced_over_0.5db": {"type": "integer", "minimum": 0}}
+  },
+  "final_lufs": {"type": "number"},
+  "final_true_peak_dbtp": {"type": "number"},
+  "pass": {"type": "boolean"},
+  "stems_sum_max_abs": {"type": "number", "minimum": 0, "maximum": 1e-6, "description": "the stems sum to the mix within 1e-6"},
+  "levels_vs_voice_lu": {"type": "object", "additionalProperties": {"type": ["number", "null"]}},
+  "music_check": {
+   "type": ["object", "null"],
+   "properties": {"pass": {"type": "boolean"}, "quietest_outside_stops_dbfs": {"type": ["number", "null"]}, "failures": {"type": "array"}}
+  },
+  "calibration": {"type": ["object", "null"]},
+  "inputs": {"type": "object"},
+  "palette": {"type": "object"},
+  "outputs": {
+   "type": "object",
+   "required": ["mix", "stems"],
+   "properties": {
+    "mix": {"type": "string"},
+    "stems": {"type": "object", "required": ["dialogue", "effects", "ambience", "music"]},
+    "engine_stems": {"type": "object"}
+   }
+  },
+  "notes": {"type": "array", "items": {"type": "string"}}
+ },
+ "patternProperties": {"^stem_[a-z]+_peak_dbfs$": {"type": "number"}}
+}

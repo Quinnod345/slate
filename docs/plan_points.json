@@ -179,7 +179,7 @@
   "section": "What we're packaging",
   "text": "- **Visual engine.** One Remotion project with a shared kit: the film clock, the motion law, 2.5D paper cards, type, app UI primitives, the logo build, charts, and a character rig (Trudy's). `render_mb.mjs` renders true motion blur, 16 sub-frames averaged in 16-bit, straight into ProRes 422 HQ.",
   "id": "P023",
-  "owner": "engine",
+  "owner": "engine-kit",
   "status": "open",
   "evidence": ""
  },
@@ -251,7 +251,7 @@
   "section": "What we're packaging",
   "text": "- **QA.** Film-level gates: read time by OCR, sync, loudness, banned words, the frame-glitch scan, master-vs-render PSNR and more.",
   "id": "P032",
-  "owner": "qa",
+  "owner": "qa-core",
   "status": "open",
   "evidence": ""
  },
@@ -307,7 +307,7 @@
   "section": "How it fits together",
   "text": "5. **Gates, not vibes.** Every step with a measurable result is gated by a machine. The look, hero moments and final cut are judged by you. Nothing unchecked is ever reported as passed.",
   "id": "P039",
-  "owner": "qa",
+  "owner": "qa-core",
   "status": "open",
   "evidence": ""
  },
@@ -499,7 +499,7 @@
   "section": "2. Engine: what does the work",
   "text": "| **visual kit** (Remotion) | src/kit, c/kit, per-act helpers | Brand-token adapter; declarative fonts with a gate that fails on substitution; logo build from a spec; a motif rig generalized from Trudy's (N-part marks, ripples, pulses, waves); exact-endpoint eases and monotone splines; camera, world layer and fade card promoted from the acts; one `slate emit-events` replacing 22 emitters; C-style placeholder acts and kit review sheets |",
   "id": "P063",
-  "owner": "engine",
+  "owner": "engine-kit",
   "status": "open",
   "evidence": ""
  },
@@ -507,7 +507,7 @@
   "section": "2. Engine: what does the work",
   "text": "| **engine boundary** | the relative imports 4–5 levels deep | One versioned Node project (Remotion pinned exactly) under Slate's data folder. A film's scenes compile through a generated entry that aliases `@slate/kit` and `@film/data`, with a generated tsconfig so type checks run from the film folder. One bundle per film per source hash, reused for every act and still, then deleted. The Python CLI calls Node only through versioned JSON commands |",
   "id": "P064",
-  "owner": "engine",
+  "owner": "engine-core",
   "status": "open",
   "evidence": ""
  },
@@ -515,7 +515,7 @@
   "section": "2. Engine: what does the work",
   "text": "| **looks** | the \"homepage mix\"; the AE bridge's skills | Paper 2.5D is a library look, used only where a brand's own design language is papery. The AE bridge's 13 motion-design skills (for example depth and space, the transition kit, UI mastery, matte painting) join the library as AE looks. Every brand still gets its own look from onboarding (§4), built in whichever engine suits it |",
   "id": "P065",
-  "owner": "engine",
+  "owner": "engine-kit",
   "status": "open",
   "evidence": ""
  },
@@ -571,7 +571,7 @@
   "section": "2. Engine: what does the work",
   "text": "| **QA** | validate_film, glitch_scan, boundary_check, qa_shot, banned_words_scan, ocr tools, validate.jsx | `slate qa`: every tool takes the film folder. Adds `slate qa motion` and the new gates in \"Quality\". Fixes the known validator bugs (24-bit not gated, silent-stem threshold, duplicated banned lists, A-only boundary check) |",
   "id": "P072",
-  "owner": "qa",
+  "owner": "qa-core",
   "status": "open",
   "evidence": ""
  },
@@ -611,7 +611,7 @@
   "section": "2. Engine: what does the work",
   "text": "| **analyze** | reference-film analysis (shell commands today) | `slate analyze <video>`: Demucs split, transcript, scene cuts, OCR, measured eases |",
   "id": "P077",
-  "owner": "finish",
+  "owner": "formats",
   "status": "open",
   "evidence": ""
  },
@@ -939,7 +939,7 @@
   "section": "7. The production method",
   "text": "| 7 | Kit, builders' brief, act builds in Remotion or After Effects (in parallel where the agent can); captures | Hero moments, in the packet | Type check, empty word-miss list, bit-identical contracts, every act's events exported |",
   "id": "P118",
-  "owner": "engine",
+  "owner": "engine-core",
   "status": "open",
   "evidence": ""
  },
@@ -963,7 +963,7 @@
   "section": "7. The production method",
   "text": "| 10 | Render with true motion blur | | Frame counts, glitch scan triaged, act joins, motion checks |",
   "id": "P121",
-  "owner": "qa",
+  "owner": "qa-core",
   "status": "open",
   "evidence": ""
  },
@@ -1067,7 +1067,7 @@
   "section": "7. The production method",
   "text": "- REVIEW verdicts park the film with their evidence and never count as passes;",
   "id": "P134",
-  "owner": "qa",
+  "owner": "qa-core",
   "status": "open",
   "evidence": ""
  },
@@ -1099,7 +1099,7 @@
   "section": "7. The production method",
   "text": "- default output is a 15–45-second 9:16 reel;",
   "id": "P138",
-  "owner": "finish",
+  "owner": "formats",
   "status": "open",
   "evidence": ""
  },
@@ -1219,7 +1219,7 @@
   "section": "8. Formats and costs",
   "text": "- **Brand film:** 2–6 minutes, 16:9 (A, B and C's shape)",
   "id": "P153",
-  "owner": "finish",
+  "owner": "formats",
   "status": "open",
   "evidence": ""
  },
@@ -1227,7 +1227,7 @@
   "section": "8. Formats and costs",
   "text": "- **Explainer:** 60–120 seconds",
   "id": "P154",
-  "owner": "finish",
+  "owner": "formats",
   "status": "open",
   "evidence": ""
  },
@@ -1235,7 +1235,7 @@
   "section": "8. Formats and costs",
   "text": "- **Product demo:** real app captures through `slate capture`. Capture for truth and speed; rebuild in code when a shot needs camera moves, restaging, motion blur or exact type",
   "id": "P155",
-  "owner": "finish",
+  "owner": "formats",
   "status": "open",
   "evidence": ""
  },
@@ -1243,7 +1243,7 @@
   "section": "8. Formats and costs",
   "text": "- **Social reel:** 9:16, 15–45 seconds, captions burned in by Remotion in the brand's font (Inner Echo's reels, Instagram, TikTok, YouTube Shorts)",
   "id": "P156",
-  "owner": "finish",
+  "owner": "formats",
   "status": "open",
   "evidence": ""
  },
@@ -1251,7 +1251,7 @@
   "section": "8. Formats and costs",
   "text": "- **Ad:** 6, 15 or 30 seconds, in 16:9, 1:1 or 9:16",
   "id": "P157",
-  "owner": "finish",
+  "owner": "formats",
   "status": "open",
   "evidence": ""
  },
@@ -1259,7 +1259,7 @@
   "section": "8. Formats and costs",
   "text": "- **LinkedIn cut:** 1:1 and 4:5",
   "id": "P158",
-  "owner": "finish",
+  "owner": "formats",
   "status": "open",
   "evidence": ""
  },
@@ -1267,7 +1267,7 @@
   "section": "8. Formats and costs",
   "text": "- **Website hero loop and App Store preview:** each to its platform's specs",
   "id": "P159",
-  "owner": "finish",
+  "owner": "formats",
   "status": "open",
   "evidence": ""
  },
@@ -1275,7 +1275,7 @@
   "section": "8. Formats and costs",
   "text": "- **Launch teaser or feature announcement**",
   "id": "P160",
-  "owner": "finish",
+  "owner": "formats",
   "status": "open",
   "evidence": ""
  },
@@ -1283,7 +1283,7 @@
   "section": "8. Formats and costs",
   "text": "- **Kinetic type or logo sting**",
   "id": "P161",
-  "owner": "finish",
+  "owner": "engine-kit",
   "status": "open",
   "evidence": ""
  },
@@ -1291,7 +1291,7 @@
   "section": "8. Formats and costs",
   "text": "- **Character-led:** a brand motif or mark as a character, like Trudy",
   "id": "P162",
-  "owner": "finish",
+  "owner": "engine-kit",
   "status": "open",
   "evidence": ""
  },
@@ -1339,7 +1339,7 @@
   "section": "Quality: gates, tests and evals",
   "text": "- **Events complete:** every act in `shots.json` has a valid events file, or an explicit `silent: true` with a reason. Right now C's acts 1 and 2 have no events file, yet C's sync check passes.",
   "id": "P168",
-  "owner": "qa",
+  "owner": "qa-core",
   "status": "open",
   "evidence": ""
  },
@@ -1347,7 +1347,7 @@
   "section": "Quality: gates, tests and evals",
   "text": "- **Motion (`slate qa motion`):**",
   "id": "P169",
-  "owner": "qa",
+  "owner": "qa-motion",
   "status": "open",
   "evidence": ""
  },
@@ -1355,7 +1355,7 @@
   "section": "Quality: gates, tests and evals",
   "text": "- only the brand's named eases, with durations from its scale, and stagger spreads within their caps;",
   "id": "P170",
-  "owner": "qa",
+  "owner": "qa-motion",
   "status": "open",
   "evidence": ""
  },
@@ -1363,7 +1363,7 @@
   "section": "Quality: gates, tests and evals",
   "text": "- entrances start from at least 85% scale;",
   "id": "P171",
-  "owner": "qa",
+  "owner": "qa-motion",
   "status": "open",
   "evidence": ""
  },
@@ -1371,7 +1371,7 @@
   "section": "Quality: gates, tests and evals",
   "text": "- peak speed ≤ 30 px/frame and acceleration ≤ 8 px/frame² at 1080p;",
   "id": "P172",
-  "owner": "qa",
+  "owner": "qa-motion",
   "status": "open",
   "evidence": ""
  },
@@ -1379,7 +1379,7 @@
   "section": "Quality: gates, tests and evals",
   "text": "- no loop faster than a 16-frame period, and symmetry for mark rigs.",
   "id": "P173",
-  "owner": "qa",
+  "owner": "qa-motion",
   "status": "open",
   "evidence": ""
  },
@@ -1387,7 +1387,7 @@
   "section": "Quality: gates, tests and evals",
   "text": "- **Glitch triage:** flags within ±3 frames of a planned beat are skipped, so smooth fast moves stop drowning real glitches (1,442 flags on B).",
   "id": "P174",
-  "owner": "qa",
+  "owner": "qa-core",
   "status": "open",
   "evidence": ""
  },
@@ -1395,7 +1395,7 @@
   "section": "Quality: gates, tests and evals",
   "text": "- **Accessibility:**",
   "id": "P175",
-  "owner": "qa",
+  "owner": "qa-motion",
   "status": "open",
   "evidence": ""
  },
@@ -1403,7 +1403,7 @@
   "section": "Quality: gates, tests and evals",
   "text": "- at most 3 flashes a second;",
   "id": "P176",
-  "owner": "qa",
+  "owner": "qa-motion",
   "status": "open",
   "evidence": ""
  },
@@ -1411,7 +1411,7 @@
   "section": "Quality: gates, tests and evals",
   "text": "- text contrast from the brand's token pairs (4.5:1 for body text, 3:1 for large text);",
   "id": "P177",
-  "owner": "qa",
+  "owner": "qa-motion",
   "status": "open",
   "evidence": ""
  },
@@ -1419,7 +1419,7 @@
   "section": "Quality: gates, tests and evals",
   "text": "- captions at ≤ 17 characters a second as well as 2 lines of 42;",
   "id": "P178",
-  "owner": "qa",
+  "owner": "qa-motion",
   "status": "open",
   "evidence": ""
  },
@@ -1427,7 +1427,7 @@
   "section": "Quality: gates, tests and evals",
   "text": "- 9:16 platform safe zones, checked on the contact sheet.",
   "id": "P179",
-  "owner": "qa",
+  "owner": "qa-motion",
   "status": "open",
   "evidence": ""
  },
@@ -1435,7 +1435,7 @@
   "section": "Quality: gates, tests and evals",
   "text": "- **One OCR engine:** Apple Vision through the uv environment. When it's unavailable the gate is UNCHECKED, never a quiet pass from another engine.",
   "id": "P180",
-  "owner": "qa",
+  "owner": "qa-core",
   "status": "open",
   "evidence": ""
  },
@@ -1459,7 +1459,7 @@
   "section": "Quality: gates, tests and evals",
   "text": "3. **Cross-language vectors:** eases, T90 and spoken-number matching, checked by pytest, vitest and an ExtendScript runner against one shared vectors file.",
   "id": "P183",
-  "owner": "engine",
+  "owner": "engine-kit",
   "status": "open",
   "evidence": ""
  },
@@ -1467,7 +1467,7 @@
   "section": "Quality: gates, tests and evals",
   "text": "4. **Golden stills** per kit component on software GL, at PSNR ≥ 45 dB, with the two-baseline rule on GPU (the GPU raster isn't bit-exact run to run).",
   "id": "P184",
-  "owner": "engine",
+  "owner": "engine-kit",
   "status": "open",
   "evidence": ""
  },
@@ -1475,7 +1475,7 @@
   "section": "Quality: gates, tests and evals",
   "text": "5. **Regression tests** for the four known validator bugs.",
   "id": "P185",
-  "owner": "qa",
+  "owner": "qa-core",
   "status": "open",
   "evidence": ""
  },
@@ -1627,7 +1627,7 @@
   "section": "Build phases",
   "text": "| 8. Fast variants | 2–3 days | Benchmark Higgsedit against a Remotion cut-down on the same film for social channels. Keep it only if it's genuinely faster at acceptable quality | A measured yes or no |",
   "id": "P204",
-  "owner": "finish",
+  "owner": "formats",
   "status": "open",
   "evidence": ""
  },
@@ -1675,7 +1675,7 @@
   "section": "Risks and licences",
   "text": "| Fonts | Brand fonts are licensed per brand (Degular through TrueSpace's Adobe Fonts) | Fonts by reference only; the font gate fails on substitution |",
   "id": "P210",
-  "owner": "engine",
+  "owner": "engine-kit",
   "status": "open",
   "evidence": ""
  },
@@ -2003,7 +2003,7 @@
   "section": "Decisions for you",
   "text": "9. **Fast variants.**",
   "id": "P251",
-  "owner": "finish",
+  "owner": "formats",
   "status": "open",
   "evidence": ""
  },
@@ -2011,7 +2011,7 @@
   "section": "Decisions for you",
   "text": "- Variants sometimes, with quality depending on the channel: hero placements at master quality, social cut-downs fast.",
   "id": "P252",
-  "owner": "finish",
+  "owner": "formats",
   "status": "open",
   "evidence": ""
  },
@@ -2019,7 +2019,7 @@
   "section": "Decisions for you",
   "text": "- A second engine is fine if it's faster. Higgsedit gets benchmarked in phase 8 and is kept only if it wins.",
   "id": "P253",
-  "owner": "finish",
+  "owner": "formats",
   "status": "open",
   "evidence": ""
  },
@@ -2027,7 +2027,7 @@
   "section": "Decisions for you",
   "text": "- Channels: Instagram and TikTok, YouTube, LinkedIn, website and App Store.",
   "id": "P254",
-  "owner": "finish",
+  "owner": "formats",
   "status": "open",
   "evidence": ""
  },
@@ -2235,7 +2235,7 @@
   "section": "Appendix A: dependency ledger",
   "text": "| remotion, @remotion/bundler, renderer, cli | 4.0.521 | Keep, pinned exactly | The engine. Upgrade within 4.0.x only after the parity check; never 5.0 unplanned |",
   "id": "P280",
-  "owner": "engine",
+  "owner": "engine-core",
   "status": "open",
   "evidence": ""
  },
@@ -2243,7 +2243,7 @@
   "section": "Appendix A: dependency ledger",
   "text": "| @remotion/google-fonts | 4.0.521 | Keep | Open fonts |",
   "id": "P281",
-  "owner": "engine",
+  "owner": "engine-core",
   "status": "open",
   "evidence": ""
  },
@@ -2251,7 +2251,7 @@
   "section": "Appendix A: dependency ledger",
   "text": "| @remotion/motion-blur | Declared, unused | Learn from | Test HtmlInCanvasMotionBlur (≥ 4.0.529) against render_mb; render_mb stays the default |",
   "id": "P282",
-  "owner": "engine",
+  "owner": "engine-core",
   "status": "open",
   "evidence": ""
  },
@@ -2259,7 +2259,7 @@
   "section": "Appendix A: dependency ledger",
   "text": "| react, react-dom | 19.2.8 | Keep | |",
   "id": "P283",
-  "owner": "engine",
+  "owner": "engine-core",
   "status": "open",
   "evidence": ""
  },
@@ -2267,7 +2267,7 @@
   "section": "Appendix A: dependency ledger",
   "text": "| typescript | 5.9.3 | Keep | The type-check gate |",
   "id": "P284",
-  "owner": "engine",
+  "owner": "engine-core",
   "status": "open",
   "evidence": ""
  },
@@ -2275,7 +2275,7 @@
   "section": "Appendix A: dependency ledger",
   "text": "| esbuild | Used, not declared | Keep, declared | Every event emitter uses it |",
   "id": "P285",
-  "owner": "engine",
+  "owner": "engine-core",
   "status": "open",
   "evidence": ""
  },
@@ -2283,7 +2283,7 @@
   "section": "Appendix A: dependency ledger",
   "text": "| Chrome headless shell | 149 (Remotion-managed) | Keep | Doctor runs `remotion browser ensure` |",
   "id": "P286",
-  "owner": "engine",
+  "owner": "engine-core",
   "status": "open",
   "evidence": ""
  },
@@ -2315,7 +2315,7 @@
   "section": "Appendix A: dependency ledger",
   "text": "| postprocessing, @react-three/postprocessing, framer-motion | Declared, unused | Drop | Blank under Remotion; unused |",
   "id": "P290",
-  "owner": "engine",
+  "owner": "engine-core",
   "status": "open",
   "evidence": ""
  },
@@ -2355,7 +2355,7 @@
   "section": "Appendix A: dependency ledger",
   "text": "| demucs, librosa | uvx, analysis only | Keep, in the analyze extra | Reference analysis |",
   "id": "P295",
-  "owner": "finish",
+  "owner": "formats",
   "status": "open",
   "evidence": ""
  },
@@ -2363,7 +2363,7 @@
   "section": "Appendix A: dependency ledger",
   "text": "| ocrmac (Apple Vision) | uv cache | Keep | The one OCR engine |",
   "id": "P296",
-  "owner": "qa",
+  "owner": "qa-core",
   "status": "open",
   "evidence": ""
  },
@@ -2371,7 +2371,7 @@
   "section": "Appendix A: dependency ledger",
   "text": "| ocr_vision.swift | Compiled binary | Drop | One engine, and no swiftc build |",
   "id": "P297",
-  "owner": "qa",
+  "owner": "qa-core",
   "status": "open",
   "evidence": ""
  },
@@ -2379,7 +2379,7 @@
   "section": "Appendix A: dependency ledger",
   "text": "| tesseract | Installed | Drop for gates | A second engine would silently change results |",
   "id": "P298",
-  "owner": "qa",
+  "owner": "qa-core",
   "status": "open",
   "evidence": ""
  },
@@ -2395,7 +2395,7 @@
   "section": "Appendix A: dependency ledger",
   "text": "| fonttools, uharfbuzz | Higgsedit backend | Drop with Track A | |",
   "id": "P300",
-  "owner": "finish",
+  "owner": "formats",
   "status": "open",
   "evidence": ""
  },
@@ -2603,7 +2603,7 @@
   "section": "Appendix A: dependency ledger",
   "text": "| remotion-dev/skills (12) | Remotion (no licence file) | Depend, inside the engine folder | Overrides its old voice model and meme sounds; Studio never auto-opens |",
   "id": "P326",
-  "owner": "engine",
+  "owner": "engine-core",
   "status": "open",
   "evidence": ""
  },
@@ -2611,7 +2611,7 @@
   "section": "Appendix A: dependency ledger",
   "text": "| elevenlabs/skills (10) | ElevenLabs (MIT) | Depend, optional, inside the engine folder | |",
   "id": "P327",
-  "owner": "engine",
+  "owner": "engine-core",
   "status": "open",
   "evidence": ""
  },
@@ -2691,7 +2691,7 @@
   "section": "Appendix A: dependency ledger",
   "text": "| Higgsfield video analysis (0 credits) | Keep | `slate analyze` |",
   "id": "P337",
-  "owner": "finish",
+  "owner": "formats",
   "status": "open",
   "evidence": ""
  },
@@ -2707,7 +2707,7 @@
   "section": "Appendix A: dependency ledger",
   "text": "| Higgsedit (Track A) | Benchmark in phase 8 | Kept as the fast route for social cut-downs only if it wins (decision 9) |",
   "id": "P339",
-  "owner": "finish",
+  "owner": "formats",
   "status": "open",
   "evidence": ""
  },
@@ -2963,7 +2963,7 @@
   "text": "\"Any video\", in practice, is these templates. Each sets runtime, aspect, pace, structure, loudness target, caption defaults and per-platform safe zones.",
   "origin": "paragraph",
   "id": "P368",
-  "owner": "finish",
+  "owner": "formats",
   "status": "open",
   "evidence": ""
  },
@@ -2972,7 +2972,7 @@
   "text": "**Variants by channel.** Hero placements (website, App Store, YouTube masters) are derived films at master quality, through the full pipeline. Social cut-downs (Instagram, TikTok, Shorts, LinkedIn) can take a fast route. Higgsfield's Higgsedit becomes that route after the proofs, if a benchmark shows it's genuinely faster than a Remotion cut-down at acceptable quality.",
   "origin": "paragraph",
   "id": "P369",
-  "owner": "finish",
+  "owner": "formats",
   "status": "open",
   "evidence": ""
  },
@@ -3008,7 +3008,7 @@
   "text": "**Gate states.** PASS, FAIL, REVIEW (needs a person), UNCHECKED (couldn't run) and STALE (an input changed since the check). Nothing but PASS counts as passed. Each gate's evidence names the engine and version it used: the OCR engine and level, the Whisper model, the ffmpeg build.",
   "origin": "paragraph",
   "id": "P373",
-  "owner": "qa",
+  "owner": "qa-core",
   "status": "open",
   "evidence": ""
  },

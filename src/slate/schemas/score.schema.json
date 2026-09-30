@@ -1,0 +1,131 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "https://slate.local/schemas/score.schema.json",
+ "title": "Score files: the plan (sound/score/plan.json), a take record (sound/score/takes/<part>_s<seed>.json) and the assembly (sound/score/score.json)",
+ "description": "Written by `slate score plan`, `slate score compose` and `slate score assemble`. `kind` says which one a file is.",
+ "type": "object",
+ "required": ["kind"],
+ "properties": {
+  "kind": {"enum": ["plan", "take", "assembly"]},
+  "generated": {"type": "string"}
+ },
+ "allOf": [
+  {"if": {"properties": {"kind": {"const": "plan"}}}, "then": {"$ref": "#/$defs/plan"}},
+  {"if": {"properties": {"kind": {"const": "take"}}}, "then": {"$ref": "#/$defs/take"}},
+  {"if": {"properties": {"kind": {"const": "assembly"}}}, "then": {"$ref": "#/$defs/assembly"}}
+ ],
+ "$defs": {
+  "stop": {
+   "type": "object",
+   "required": ["from", "to"],
+   "properties": {"from": {"type": "number", "minimum": 0}, "to": {"type": "number", "minimum": 0}, "why": {"type": "string"}}
+  },
+  "styles": {"type": "array", "items": {"type": "string"}},
+  "section": {
+   "type": "object",
+   "required": ["section_name", "positive_local_styles", "negative_local_styles", "duration_ms", "lines"],
+   "properties": {
+    "section_name": {"type": "string", "minLength": 1},
+    "positive_local_styles": {"$ref": "#/$defs/styles"},
+    "negative_local_styles": {"$ref": "#/$defs/styles"},
+    "duration_ms": {"type": "integer", "minimum": 3000, "description": "Eleven Music's minimum section is 3 s"},
+    "lines": {"type": "array", "maxItems": 0, "description": "instrumental: no lyrics"}
+   },
+   "additionalProperties": false
+  },
+  "composition_plan": {
+   "type": "object",
+   "required": ["positive_global_styles", "negative_global_styles", "sections"],
+   "properties": {
+    "positive_global_styles": {"$ref": "#/$defs/styles"},
+    "negative_global_styles": {"$ref": "#/$defs/styles", "minItems": 1},
+    "sections": {"type": "array", "minItems": 2, "items": {"$ref": "#/$defs/section"}}
+   },
+   "additionalProperties": false
+  },
+  "part": {
+   "type": "object",
+   "required": ["id", "join", "end", "landing_s", "hand_over_s", "pre_roll_s", "tail_s", "seconds", "plan_file", "composition_plan"],
+   "properties": {
+    "id": {"type": "string", "pattern": "^[a-z0-9-]+$"},
+    "act": {"type": "string"},
+    "shots": {"type": "array", "items": {"type": "string"}},
+    "join": {"enum": ["start", "act", "bloom", "lift", "arrive"]},
+    "end": {"enum": ["handover", "stop"]},
+    "stop_before_s": {"type": ["number", "null"], "minimum": 0},
+    "landing_s": {"type": "number", "minimum": 0},
+    "landing_from": {"type": "string"},
+    "hand_over_s": {"type": "number", "exclusiveMinimum": 0},
+    "pre_roll_s": {"type": "number", "minimum": 3},
+    "tail_s": {"type": "number", "minimum": 3},
+    "seconds": {"type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 600},
+    "shape_db": {"type": "number"},
+    "plan_file": {"type": "string"},
+    "composition_plan": {"$ref": "#/$defs/composition_plan"}
+   }
+  },
+  "licence": {
+   "type": "object",
+   "required": ["broadcast", "needs_enterprise"],
+   "properties": {
+    "broadcast": {"type": "boolean"},
+    "needs_enterprise": {"type": "boolean"},
+    "recorded": {"type": ["string", "null"]},
+    "note": {"type": "string"}
+   }
+  },
+  "plan": {
+   "type": "object",
+   "required": ["film", "model_id", "sample_rate", "duration_s", "pre_roll_s", "max_part_s", "seeds", "licence", "planned_stops", "parts"],
+   "properties": {
+    "film": {"type": "string"},
+    "model_id": {"type": "string", "minLength": 1, "description": "always passed to the API (its default is an older model)"},
+    "sample_rate": {"type": "integer", "minimum": 8000},
+    "duration_s": {"type": "number", "exclusiveMinimum": 0},
+    "fps_num": {"type": "integer", "minimum": 1},
+    "fps_den": {"type": "integer", "minimum": 1},
+    "pre_roll_s": {"type": "number", "minimum": 3},
+    "max_part_s": {"type": "number", "exclusiveMinimum": 0},
+    "min_section_s": {"type": "number"},
+    "seeds": {"type": "array", "minItems": 1, "items": {"type": "integer"}},
+    "level_lufs": {"type": "number"},
+    "styles": {"type": "object"},
+    "licence": {"$ref": "#/$defs/licence"},
+    "planned_stops": {"type": "array", "items": {"$ref": "#/$defs/stop"}},
+    "parts": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/part"}}
+   }
+  },
+  "take": {
+   "type": "object",
+   "required": ["part", "seed", "model_id", "file", "plan_sha256", "replay", "qa"],
+   "properties": {
+    "part": {"type": "string"},
+    "seed": {"type": "integer"},
+    "model_id": {"type": "string", "minLength": 1},
+    "output_format": {"type": "string"},
+    "file": {"type": "string"},
+    "plan_file": {"type": "string"},
+    "plan_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "request_id": {"type": ["string", "null"]},
+    "replay": {"type": "boolean"},
+    "qa": {"type": "object", "required": ["problems", "score"]}
+   }
+  },
+  "assembly": {
+   "type": "object",
+   "required": ["film", "file", "sample_rate", "samples", "parts", "planned_stops", "music_gap_check", "assembled_qa", "pass"],
+   "properties": {
+    "film": {"type": "string"},
+    "file": {"type": "string"},
+    "sample_rate": {"type": "integer"},
+    "samples": {"type": "integer", "minimum": 1},
+    "parts": {"type": "object", "minProperties": 1},
+    "planned_stops": {"type": "array", "items": {"$ref": "#/$defs/stop"}},
+    "landings": {"type": "array"},
+    "music_gap_check": {"type": "object", "required": ["pass", "failures", "threshold_dbfs"]},
+    "assembled_qa": {"type": "object", "required": ["problems", "score"]},
+    "pass": {"type": "boolean"}
+   }
+  }
+ }
+}

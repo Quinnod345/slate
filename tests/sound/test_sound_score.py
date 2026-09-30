@@ -1,0 +1,365 @@
+"""The score: plans that follow the playbook, composing through the vendor client, take QA, measured assembly."""
+
+import json
+import sys
+
+import numpy as np
+import pytest
+
+from slate import jsonio
+from slate.cli import run_cli
+from slate.errors import MissingPrerequisite, SpendRefused, UsageError
+from slate.sound import audio, dsp, measure
+from slate.sound.score import assemble, compose, plan, qa
+
+import sound_helpers as H
+
+SR = 48000
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# plan
+
+
+def test_plan_follows_the_playbook(sound_film):
+    p = plan.build(sound_film)
+    assert [x["id"] for x in p["parts"]] == ["act1", "act2"]
+    a1, a2 = p["parts"]
+    assert (a1["join"], a1["landing_s"], a1["hand_over_s"]) == ("start", 0.0, 8.0)
+    assert (a2["join"], a2["landing_s"], a2["hand_over_s"]) == ("act", 8.0, 14.0)
+    for part in p["parts"]:
+        secs = part["composition_plan"]["sections"]
+        assert secs[0]["section_name"] == "pre-roll" and secs[0]["duration_ms"] == 3000  # cut away at assembly
+        assert secs[-1]["section_name"] == "tail" and secs[-1]["duration_ms"] >= 3000   # runs past the hand-over
+        assert all(s["duration_ms"] >= 3000 for s in secs)
+        assert sum(s["duration_ms"] for s in secs) == round(part["seconds"] * 1000)
+        assert part["seconds"] < 90
+    assert [s["section_name"] for s in a1["composition_plan"]["sections"]] == ["pre-roll", "S01", "S02", "tail"]
+    assert p["model_id"] == "music_v2_5"  # the registry's best, always passed
+    neg = p["styles"]["negative"]
+    for word in ("woodblock", "marimba", "bells", "chimes", "kazoo", "paper"):  # effects' materials, banned timbres
+        assert word in neg
+    pos = p["styles"]["positive"]
+    assert "in A minor" in pos and "70-80 BPM" in pos and "soft piano" in pos
+    assert jsonio.validate(jsonio.read(sound_film / "sound/score/plan.json"), "score") == []
+    assert jsonio.read(sound_film / "sound/score/plans/act1.json") == a1["composition_plan"]
+    assert p["licence"]["needs_enterprise"] is False
+
+
+def _long_film(slate_home, film_id="long", shot_s=20.0, shots=10, fps=(24, 1)):
+    H.brand(slate_home["brands"])
+    fd = slate_home["films"] / film_id
+    (fd / "timing").mkdir(parents=True)
+    num, den = fps
+    per = int(shot_s * num / den)
+    rows = [{"id": f"L{i + 1:02d}", "act": 1, "frame_in": i * per, "frame_out": (i + 1) * per,
+             "sec_in": i * per * den / num, "sec_out": (i + 1) * per * den / num} for i in range(shots)]
+    jsonio.write_atomic(fd / "timing/shots.json", {"fps_num": num, "fps_den": den, "total_frames": shots * per, "shots": rows})
+    (fd / "film.json").write_text(json.dumps({"id": film_id, "fps_num": num, "fps_den": den, "brand": "testbrand",
+                                              "format": "brand-film"}))
+    return fd
+
+
+def test_a_long_act_splits_at_shots_into_parts_under_90_seconds(slate_home):
+    fd = _long_film(slate_home)
+    p = plan.build(fd)
+    assert len(p["parts"]) >= 3
+    assert all(part["seconds"] < 90 for part in p["parts"])
+    assert [x["id"] for x in p["parts"]][:2] == ["act1a", "act1b"]
+    bounds = [part["landing_s"] for part in p["parts"]]
+    assert all(abs(b / 20.0 - round(b / 20.0)) < 1e-9 for b in bounds)  # splits fall on shot boundaries
+
+
+def test_short_shots_merge_into_sections_of_at_least_three_seconds(slate_home):
+    fd = _long_film(slate_home, "short", shot_s=1.0, shots=11)
+    p = plan.build(fd)
+    secs = p["parts"][0]["composition_plan"]["sections"]
+    assert all(s["duration_ms"] >= 3000 for s in secs)
+    assert "L01+L02+L03" in [s["section_name"] for s in secs]
+
+
+def test_broadcast_formats_flag_the_enterprise_licence(slate_home):
+    H.brand(slate_home["brands"])
+    fd = H.film(slate_home["films"], "tv", extra={"broadcast": True})
+    p = plan.build(fd)
+    assert p["licence"]["broadcast"] and p["licence"]["needs_enterprise"]
+    code, out, _ = run_cli(["score", "plan", "--film", str(fd)])
+    assert code == 0 and "BROADCAST" in out
+
+
+def test_directions_land_parts_on_beats_words_and_held_breaths(sound_film):
+    jsonio.write_atomic(sound_film / "timing/visual_events/act2.json",
+                        [{"shot": "S03", "id": "the_landing", "t": 9.2, "kind": "impact", "size": "l", "note": "lands"}])
+    jsonio.write_atomic(sound_film / "sound/score/directions.json",
+                        {"parts": {"act1": {"end": "stop", "stop_before_s": 0.5},
+                                   "act2": {"join": "bloom", "landing_event": "the_landing"}}})
+    p = plan.build(sound_film)
+    a1, a2 = p["parts"]
+    assert a2["landing_s"] == 9.2 and a2["join"] == "bloom" and a1["hand_over_s"] == 9.2
+    assert a1["end"] == "stop" and a1["tail_s"] == 4.5  # built to stay at level past its cut
+    assert p["planned_stops"][0]["from"] == pytest.approx(8.7) and p["planned_stops"][0]["to"] == pytest.approx(9.2)
+    words = jsonio.read(sound_film / "timing/vo_words.json")["shots"]["S03"]["words"]
+    jsonio.write_atomic(sound_film / "sound/score/directions.json",
+                        {"parts": {"act2": {"join": "lift", "landing_word": {"shot": "S03", "word": words[1]["w"]}}}})
+    p = plan.build(sound_film)
+    assert p["parts"][1]["landing_s"] == pytest.approx(8.0 + 0.3 + words[1]["start"], abs=1e-6)
+
+
+def test_an_unknown_landing_is_a_usage_error(sound_film):
+    jsonio.write_atomic(sound_film / "sound/score/directions.json",
+                        {"parts": {"act2": {"join": "bloom", "landing_event": "nowhere"}}})
+    with pytest.raises(UsageError):
+        plan.build(sound_film)
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# compose
+
+
+class FakeMusic:
+    """Stands in for the ElevenLabs client: records every call and writes an Eleven-Music-like take (fades at both
+    ends whatever the plan says) of exactly the plan's length."""
+
+    def __init__(self, maker=None):
+        self.calls = []
+        self.maker = maker
+
+    def compose_music(self, *, composition_plan=None, prompt=None, model_id=None, seed=None, output_format=None,
+                      respect_sections_durations=True, out=None, note=None):
+        self.calls.append({"model_id": model_id, "seed": seed, "respect": respect_sections_durations, "note": note})
+        secs = sum(s["duration_ms"] for s in composition_plan["sections"]) / 1000
+        y = self.maker(secs, seed, note) if self.maker else H.pad(secs, seed=seed or 1, fade_in=1.5, fade_out=2.5)
+        audio.write_wav(out, y, SR)
+        return {"file": str(out), "request_id": f"req_{seed}", "replay": True, "format": "pcm_48000",
+                "character_cost": None}
+
+
+@pytest.fixture
+def fake_music(monkeypatch):
+    fake = FakeMusic()
+    monkeypatch.setattr(compose, "client", lambda film: fake)
+    return fake
+
+
+def test_compose_always_passes_the_model_and_keeps_what_it_has(sound_film, fake_music):
+    plan.build(sound_film)
+    res = compose.compose(sound_film)
+    assert len(res["composed"]) == 4 and res["replay"]
+    assert {c["model_id"] for c in fake_music.calls} == {"music_v2_5"}
+    assert {c["seed"] for c in fake_music.calls} == {7, 21} and all(c["respect"] for c in fake_music.calls)
+    rec = jsonio.read(sound_film / "sound/score/takes/act1_s7.json")
+    assert jsonio.validate(rec, "score") == [] and rec["request_id"] == "req_7"
+    assert (sound_film / "sound/score/takes/act1_s7.plan.json").exists()
+    again = compose.compose(sound_film)
+    assert again["composed"] == [] and len(again["kept"]) == 4 and len(fake_music.calls) == 4  # nothing paid twice
+
+
+def test_compose_dry_run_estimates_and_spends_nothing(sound_film, fake_music):
+    plan.build(sound_film)
+    res = compose.compose(sound_film, dry_run=True)
+    assert res["estimate"]["amount"] > 0 and res["estimate"]["unit"] == "credits"
+    assert fake_music.calls == [] and not list((sound_film / "sound/score").glob("takes/*.wav"))
+
+
+def test_compose_refuses_a_batch_over_budget_before_calling(sound_film, fake_music, monkeypatch):
+    plan.build(sound_film)
+    data = json.loads((sound_film / "film.json").read_text())
+    data["budget"] = {"elevenlabs": 10}
+    (sound_film / "film.json").write_text(json.dumps(data))
+    monkeypatch.setenv("SLATE_FAKE_VENDORS", "0")  # budgets only bite on real spend; the fake client is never reached
+    with pytest.raises(SpendRefused):
+        compose.compose(sound_film)
+    assert fake_music.calls == []
+    code, out, _ = run_cli(["score", "compose", "--film", str(sound_film), "--json"])
+    assert code == 4 and json.loads(out)["error"] == "spend_refused"
+
+
+def test_compose_says_what_is_missing_without_the_vendor_client(sound_film, monkeypatch):
+    plan.build(sound_film)
+    monkeypatch.setitem(sys.modules, "slate.vendors.elevenlabs", None)
+    with pytest.raises(MissingPrerequisite):
+        compose.compose(sound_film)
+
+
+def test_compose_through_the_real_client_in_replay(sound_film):
+    """The ElevenLabs client in replay mode: this is the call a live run makes, answered from its faker."""
+    pytest.importorskip("slate.vendors.elevenlabs")
+    plan.build(sound_film)
+    res = compose.compose(sound_film, ["act1"], [7])
+    rec = res["composed"][0]
+    take = sound_film / rec["file"]
+    assert rec["replay"] and rec["model_id"] == "music_v2_5" and audio.is_wav(take)
+    assert abs(audio.wav_info(take).seconds - rec["seconds_planned"]) < 0.05
+    if pytest.importorskip("slate.state.pins"):
+        pinned = json.loads((sound_film / "film.json").read_text())["pins"].get("music")
+        assert pinned == "music_v2_5" or (isinstance(pinned, dict) and pinned.get("value") == "music_v2_5")
+
+
+def test_a_broadcast_format_flags_it_too(sound_film, monkeypatch):
+    from slate.sound import film as sfilm
+
+    monkeypatch.setattr(sfilm, "load_format", lambda name: {"name": name, "broadcast": True})
+    assert plan.build(sound_film)["licence"]["needs_enterprise"] is True
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# take QA
+
+
+def test_qa_flags_silence_and_noise_but_not_the_edges():
+    clean = H.pad(12.0, fade_in=0.8, fade_out=0.8)
+    assert qa.analyse(clean, SR)["problems"] == []
+    holey = clean.copy()
+    holey[int(5 * SR):int(7 * SR)] = 0.0
+    rep = qa.analyse(holey, SR)
+    assert rep["problems"] == [{"kind": "silence", "from": 5.0, "to": 7.0}] and rep["score"] == 2.0
+    noisy = clean.copy()
+    noisy[int(4 * SR):int(6.5 * SR)] = 0.1 * np.random.default_rng(1).standard_normal((int(2.5 * SR), 2))
+    assert [p["kind"] for p in qa.analyse(noisy, SR)["problems"]] == ["noise"]
+    edge = clean.copy()
+    edge[: int(0.9 * SR)] = 0.0  # a take's own fade-in is fine
+    assert qa.analyse(edge, SR)["problems"] == []
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# assemble
+
+
+def _takes(fd, maker):
+    fake = FakeMusic(maker)
+    compose.client = lambda film: fake  # restored by the fixture below
+    return fake
+
+
+@pytest.fixture
+def restore_client():
+    original = compose.client
+    yield
+    compose.client = original
+
+
+def _level(x, a, b):
+    seg = x[int(a * SR):int(b * SR)]
+    return 20 * np.log10(np.sqrt(np.mean(seg ** 2)) + 1e-12)
+
+
+def test_assembly_places_joins_and_ends_on_the_last_frame(sound_film, restore_client):
+    def maker(secs, seed, note):
+        take = H.pad(secs, seed=seed, fade_in=1.5, fade_out=2.5, notes=(146.83, 220.0, 293.66) if "act1" in note
+                     else (196.0, 246.94, 392.0))
+        if note.startswith("score act1") and seed == 7:
+            take[int(6 * SR):int(8 * SR)] = 0.0  # a take with a hole: QA marks it down, the other seed wins
+        return take
+
+    plan.build(sound_film)
+    _takes(sound_film, maker)
+    compose.compose(sound_film)
+    rec = assemble.assemble(sound_film)
+    assert rec["pass"], assemble.describe(rec)
+    assert rec["parts"]["act1"]["file"].endswith("act1_s21.wav")  # the clean take
+    assert rec["parts"]["act1"]["alternatives"][0]["qa_score"] == 2.0
+    score = H.read(sound_film / "sound/score/score.wav")
+    assert len(score) == 14 * SR
+    body = _level(score, 2.0, 6.0)
+    assert body - _level(score, 0.0, 0.5) < 3.0  # the pre-roll was cut: at level on frame one
+    lv = [_level(score, t, t + 0.05) for t in np.arange(7.0, 9.0, 0.05)]
+    assert max(lv) - min(lv) < 2.5  # the act join is equal power: no dip between the two takes
+    assert np.max(np.abs(score[-10:])) < 0.01 and _level(score, 13.9, 14.0) < body - 12  # silence on the final frame
+    assert rec["music_gap_check"]["pass"] and rec["assembled_qa"]["problems"] == []
+    assert jsonio.validate(jsonio.read(sound_film / "sound/score/score.json"), "score") == []
+
+
+def test_a_take_that_runs_out_is_held_with_its_own_chord(sound_film, restore_client):
+    def maker(secs, seed, note):
+        take = H.pad(secs, seed=seed, fade_in=1.5, fade_out=2.5)
+        if "act1" in note:
+            take[int(9.0 * SR):] = 0.0  # every act1 take runs out 2 s before its hand-over (film 6.0 of 8.0)
+        return take
+
+    plan.build(sound_film)
+    _takes(sound_film, maker)
+    compose.compose(sound_film)
+    bare = assemble.assemble(sound_film, repairs=False)
+    assert not bare["music_gap_check"]["pass"]  # the hole is real
+    code, _, _ = run_cli(["score", "assemble", "--no-repairs", "--film", str(sound_film)])
+    assert code == 1
+    rec = assemble.assemble(sound_film)
+    assert rec["music_gap_check"]["pass"], rec["music_gap_check"]
+    assert any("held" in r and "freeze" in r for r in rec["parts"]["act1"]["repairs"])
+    score = H.read(sound_film / "sound/score/score.wav")
+    assert _level(score, 6.2, 7.2) > _level(score, 2.0, 5.0) - 8.0  # the hold carries it at about its own level
+
+
+def test_a_late_take_is_carried_over_until_it_is_in(sound_film, restore_client):
+    def maker(secs, seed, note):
+        take = H.pad(secs, seed=seed, fade_in=1.5, fade_out=2.5)
+        if "act2" in note:
+            take[: int(4.6 * SR)] = 0.0  # enters 1.6 s after its pre-roll
+            k = int(0.3 * SR)
+            take[int(4.6 * SR):int(4.6 * SR) + k] *= np.linspace(0, 1, k)[:, None]
+        return take
+
+    plan.build(sound_film)
+    _takes(sound_film, maker)
+    compose.compose(sound_film)
+    rec = assemble.assemble(sound_film)
+    assert rec["music_gap_check"]["pass"]
+    assert any("carries on" in r for r in rec["parts"]["act1"]["repairs"])
+    assert rec["parts"]["act2"]["fade_in"][0] > 9.5
+
+
+def test_a_stop_is_a_planned_silence_and_the_next_part_enters_on_its_landing(sound_film, restore_client):
+    jsonio.write_atomic(sound_film / "sound/score/directions.json",
+                        {"parts": {"act1": {"end": "stop", "stop_before_s": 0.5}}})
+    plan.build(sound_film)
+    _takes(sound_film, lambda secs, seed, note: H.pad(secs, seed=seed, fade_in=1.5, fade_out=2.5))
+    compose.compose(sound_film)
+    rec = assemble.assemble(sound_film)
+    assert rec["planned_stops"][0]["from"] == pytest.approx(7.5) and rec["music_gap_check"]["pass"]
+    score = H.read(sound_film / "sound/score/score.wav")
+    assert np.max(np.abs(score[int(7.52 * SR):int(7.99 * SR)])) < 1e-6  # the held breath is silent
+    assert _level(score, 8.35, 8.6) > _level(score, 2.0, 5.0) - 3.0  # back at level just after the landing
+
+
+def test_a_bloom_lands_within_a_frame_of_its_beat(sound_film, restore_client):
+    jsonio.write_atomic(sound_film / "sound/score/directions.json",
+                        {"parts": {"act1": {"end": "stop", "stop_before_s": 0.5},
+                                   "act2": {"join": "bloom", "landing_s": 8.4}}})
+
+    def maker(secs, seed, note):
+        if "act1" in note:
+            return H.pad(secs, seed=seed, fade_in=1.5, fade_out=2.5)
+        soft = H.pad(3.0, seed=seed, level_db=-40.0, fade_in=1.0)
+        bloom = H.pad(secs - 3.0, seed=seed + 1, notes=(196.0, 293.66, 369.99, 440.0), level_db=-20.0, fade_out=2.5)
+        k = int(0.004 * SR)
+        bloom[:k] *= np.linspace(0, 1, k)[:, None]  # struck on its section boundary
+        return np.concatenate([soft, bloom])
+
+    plan.build(sound_film)
+    _takes(sound_film, maker)
+    compose.compose(sound_film)
+    rec = assemble.assemble(sound_film)
+    land = rec["landings"][0]
+    assert land["part"] == "act2" and land["within_frame"], land
+    assert abs(land["delta_ms"]) <= 40.0  # a frame at 25 fps
+
+
+def test_assembly_needs_takes_first(sound_film):
+    plan.build(sound_film)
+    with pytest.raises(MissingPrerequisite):
+        assemble.assemble(sound_film)
+    code, out, _ = run_cli(["score", "assemble", "--film", str(sound_film), "--json"])
+    assert code == 3 and "slate score compose" in json.loads(out)["hint"]
+
+
+def test_the_whole_score_chain_runs_from_the_cli_in_replay(sound_film):
+    """plan -> compose (the real client, replayed) -> assemble -> qa -> mix: what `slate demo` and the first reel do."""
+    pytest.importorskip("slate.vendors.elevenlabs")
+    for argv in (["score", "plan"], ["score", "compose"], ["score", "assemble"], ["score", "qa"], ["mix"]):
+        code, out, err = run_cli([*argv, "--film", str(sound_film), "--json"])
+        assert code == 0, (argv, out, err)
+    rec = jsonio.read(sound_film / "sound/score/score.json")
+    assert rec["pass"] and len(rec["parts"]) == 2
+    got = measure.loudness(sound_film / "sound/mix/final_mix.wav")
+    assert abs(got["integrated_lufs"] + 14.0) <= 0.5 and got["true_peak_dbtp"] <= -1.0
+    assert dsp.db(0.0) == 1.0

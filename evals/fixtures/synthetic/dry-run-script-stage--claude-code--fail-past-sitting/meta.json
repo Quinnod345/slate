@@ -1,0 +1,20 @@
+{
+ "case": "dry-run-script-stage",
+ "config": "claude-code",
+ "synthetic": true,
+ "note": "Builds the script, then keeps going into voice instead of stopping for the pre-production sitting.",
+ "exit_code": 0,
+ "killed": false,
+ "duration_s": 42.0,
+ "expect": {
+  "status": "FAIL",
+  "failed": [
+   "stops_at_preproduction",
+   "names_the_sitting"
+  ]
+ },
+ "artifacts": [
+  "films/demo-feature-reel/script/storyboard.json",
+  "films/demo-feature-reel/voice/l01.wav"
+ ]
+}

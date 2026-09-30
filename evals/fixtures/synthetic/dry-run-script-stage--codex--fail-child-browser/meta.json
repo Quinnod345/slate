@@ -1,0 +1,19 @@
+{
+ "case": "dry-run-script-stage",
+ "config": "codex",
+ "synthetic": true,
+ "note": "The run itself is right, but the probe saw one of Slate's child processes start with the eval's BROWSER instead of BROWSER=none (a code path that skipped slate.procs).",
+ "exit_code": 0,
+ "killed": false,
+ "duration_s": 42.0,
+ "expect": {
+  "status": "FAIL",
+  "failed": [
+   "slate_children_browser_none"
+  ]
+ },
+ "artifacts": [
+  "films/demo-feature-reel/script/script.json",
+  "films/demo-feature-reel/script/storyboard.json"
+ ]
+}

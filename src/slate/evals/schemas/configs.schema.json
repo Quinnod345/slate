@@ -1,0 +1,122 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "https://slate.local/schemas/eval-configs.schema.json",
+ "title": "Slate eval configurations",
+ "description": "evals/configs.json: how each agent is run non-interactively for an eval, how each command was verified, and the environment every run gets.",
+ "type": "object",
+ "required": ["schema", "verified_on", "global_checks", "eval_env", "configurations"],
+ "additionalProperties": false,
+ "properties": {
+  "schema": {"const": 1},
+  "note": {"type": "string"},
+  "verified_on": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
+  "global_checks": {"type": "array", "minItems": 1, "items": {"type": "string"}, "description": "Checks every case gets, on every configuration."},
+  "eval_env": {
+   "type": "object",
+   "required": ["set", "unset", "budget"],
+   "additionalProperties": false,
+   "properties": {
+    "note": {"type": "string"},
+    "set": {"type": "object", "additionalProperties": {"type": "string"}},
+    "unset": {"type": "array", "items": {"type": "string"}},
+    "budget": {"type": "object", "description": "Written to the run's SLATE_DATA/budget.json: zero caps, so a stray --live is refused before it spends."}
+   }
+  },
+  "configurations": {
+   "type": "object",
+   "minProperties": 1,
+   "additionalProperties": {"$ref": "#/$defs/config"}
+  },
+  "harnesses": {
+   "type": "object",
+   "additionalProperties": {"$ref": "#/$defs/config"}
+  }
+ },
+ "$defs": {
+  "config": {
+   "type": "object",
+   "required": ["label", "agent", "binary", "argv", "stdin", "timeout_s", "transcript", "env_reaches_tools", "verified"],
+   "additionalProperties": false,
+   "properties": {
+    "label": {"type": "string"},
+    "agent": {"enum": ["claude-code", "codex", "openclaw"]},
+    "plan_points": {"type": "array", "items": {"type": "string", "pattern": "^P[0-9]{3}$"}},
+    "context": {"type": "string", "description": "SLATE_CONTEXT for the run (slate.procs.agent_context honours it)."},
+    "binary": {"type": "string"},
+    "model": {"type": "string"},
+    "node": {"type": "string"},
+    "argv": {"type": "array", "minItems": 2, "items": {"type": "string"}},
+    "deny": {"type": "array", "items": {"type": "string"}},
+    "blocks": {
+     "type": "object",
+     "additionalProperties": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+       "deny": {"type": "array", "items": {"type": "string"}},
+       "args": {"type": "array", "items": {"type": "string"}},
+       "note": {"type": "string"}
+      }
+     }
+    },
+    "mcp_template": {"type": "string", "description": "An MCP config template under evals/, rendered into the run folder as {mcp_config}."},
+    "session_key": {"type": "string"},
+    "stdin": {"enum": ["devnull", "prompt", "pipe"], "description": "devnull: no stdin. prompt: the prompt is written to a pipe, which is then closed. pipe: a pipe that is closed at once."},
+    "timeout_s": {"type": "integer", "minimum": 10, "maximum": 7200},
+    "kill": {"enum": ["group"]},
+    "kill_grace_s": {"type": "number", "minimum": 0},
+    "kill_is_real": {"type": "boolean", "description": "True when the timeout is part of the real setup (the slice's ten minutes), so a run it kills fails rather than going unchecked."},
+    "env": {
+     "type": "object",
+     "additionalProperties": false,
+     "properties": {
+      "set": {"type": "object", "additionalProperties": {"type": "string"}},
+      "unset": {"type": "array", "items": {"type": "string"}},
+      "path": {"type": "array", "items": {"type": "string"}, "description": "An explicit PATH, replacing the inherited one (the engine builds its slices' PATH this way)."}
+     }
+    },
+    "transcript": {
+     "type": "object",
+     "required": ["format", "source"],
+     "additionalProperties": false,
+     "properties": {
+      "format": {"enum": ["claude-stream-json", "codex-jsonl", "openclaw"]},
+      "source": {"enum": ["stdout", "collect"]}
+     }
+    },
+    "collect": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "required": ["argv", "stdout"],
+      "additionalProperties": false,
+      "properties": {
+       "argv": {"type": "array", "items": {"type": "string"}},
+       "stdout": {"enum": ["transcript", "path"]},
+       "needs": {"type": "array", "items": {"type": "string"}},
+       "note": {"type": "string"}
+      }
+     }
+    },
+    "env_reaches_tools": {"type": "boolean"},
+    "extra_checks": {"type": "array", "items": {"type": "string"}},
+    "unavailable_checks": {"type": "object", "additionalProperties": {"type": "string"}},
+    "compose": {"type": "object", "description": "Inputs a harness needs to build its prompt."},
+    "verified": {
+     "type": "object",
+     "required": ["on", "how"],
+     "additionalProperties": false,
+     "properties": {
+      "on": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
+      "how": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+      "help_checked": {"type": "array", "items": {"type": "string"}},
+      "sources": {"type": "array", "items": {"type": "string"}},
+      "deviations": {"type": "array", "items": {"type": "string"}},
+      "not_exercised": {"type": "array", "items": {"type": "string"}}
+     }
+    },
+    "notes": {"type": "array", "items": {"type": "string"}}
+   }
+  }
+ }
+}

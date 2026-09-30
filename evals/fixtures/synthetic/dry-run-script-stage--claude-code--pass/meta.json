@@ -1,0 +1,19 @@
+{
+ "case": "dry-run-script-stage",
+ "config": "claude-code",
+ "synthetic": true,
+ "note": "The whole dry run done right: skill, slate new, script.json, slate script build, then it stops and names the sitting.",
+ "exit_code": 0,
+ "killed": false,
+ "duration_s": 42.0,
+ "expect": {
+  "status": "PASS",
+  "failed": []
+ },
+ "artifacts": [
+  "films/demo-feature-reel/film.json",
+  "films/demo-feature-reel/script/script.json",
+  "films/demo-feature-reel/script/storyboard.json",
+  "films/demo-feature-reel/script/SCRIPT.md"
+ ]
+}

@@ -1,0 +1,29 @@
+{
+ "id": "oneiro-strategist-slate-move",
+ "title": "Oneiro's strategist, dry-run on pursuit #27's snapshot, proposes a Slate move",
+ "group": "oneiro",
+ "status": "pending",
+ "runner": "strategist",
+ "plan_points": ["P197", "P364", "P374"],
+ "why": "Until the strategist knows agents can make video, pursuits never plan it. Oneiro's self-want (chain #64 in its engine) adds that line; after it lands, the strategist's dry run on pursuit #27 has to propose at least one move that uses Slate.",
+ "prompt": "Built at run time: the strategist's system prompt from agents.js, then the message strategize() composes from pursuit #27's snapshot.",
+ "configs": ["oneiro-strategist"],
+ "harness": {
+  "agents_js": "{home}/oneiro/oca-cognitive/reasoning/agents.js",
+  "snapshot": "{home}/oneiro/runtime/workspace/pursuit-work/27/pursuit.json"
+ },
+ "precondition": {
+  "summary": "Oneiro's self-want (chain #64) has landed: the strategist's capability list names Slate, and pursuit #27's snapshot is on disk.",
+  "all": [
+   {"check": "strategist_prompt_mentions", "agents_js": "{home}/oneiro/oca-cognitive/reasoning/agents.js", "pattern": "(?i)\\bslate\\b", "why": "chain #64 adds a video line naming Slate to the strategist's capability list"},
+   {"check": "file_exists", "path": "{home}/oneiro/runtime/workspace/pursuit-work/27/pursuit.json", "why": "pursuit #27's snapshot, which the dry run reads"}
+  ],
+  "info": [
+   {"check": "http_json", "url": "http://127.0.0.1:3333/oca/trace/64", "fields": ["status", "want.status"], "why": "chain #64's own status in the engine, for the record"}
+  ]
+ },
+ "expect": [
+  {"check": "strategist_proposes", "pattern": "(?i)\\bslate\\b", "why": "at least one of its moves uses Slate"}
+ ],
+ "notes": "Pending until the precondition holds. The dry run is one answer-only model call (no shell, no browser, no tools), so it can't act on anything."
+}

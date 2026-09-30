@@ -1,0 +1,218 @@
+// check <act>: the hand-in check. Every part is a gate result and only PASS counts. The failures the check exists
+// for: a type error, a banned word on screen, a missing or stale events file, and act boundaries that don't meet.
+import fs from 'node:fs';
+import path from 'node:path';
+import {afterAll, beforeAll, describe, expect, it} from 'vitest';
+import {cli, film, kitCore, ok, readJson, scratch, twoActs, writeJson} from './helpers.mjs';
+import {onScreenStrings} from '../../remotion/check.mjs';
+
+let root;
+let data;
+beforeAll(() => {
+  root = scratch('check');
+  data = path.join(root, 'data');
+});
+afterAll(() => fs.rmSync(root, {recursive: true, force: true}));
+
+const byGate = (r) => Object.fromEntries(r.gates.map((g) => [g.gate.split('.').at(-1), g]));
+
+function check(dir, act, extra = {}) {
+  return ok('check', {film: dir, act, banned_words: ['gratis', 'no risk'], ...extra}, {data});
+}
+
+describe('check: a clean act', () => {
+  it('passes every gate, each a gate result with its engine and input hashes', () => {
+    const dir = film(root, 'clean');
+    ok('emit-events', {film: dir}, {data});
+    const r = check(dir, 1);
+    expect(r.passed, JSON.stringify(r.gates, null, 1)).toBe(true);
+    expect(r.status).toBe('PASS');
+    const g = byGate(r);
+    expect(Object.keys(g)).toEqual(['typecheck', 'module', 'word_misses', 'banned_words', 'events', 'contracts']);
+    for (const gate of r.gates) {
+      expect(Object.keys(gate).sort()).toEqual(['checked_at', 'details', 'engine', 'evidence', 'gate', 'inputs', 'status', 'summary']);
+      expect(gate.gate).toMatch(/^handin\.act1\./);
+    }
+    expect(g.typecheck.engine).toEqual({name: 'typescript', version: '5.9.3'});
+    expect(g.typecheck.inputs['scenes/act1/index.tsx']).toMatch(/^[0-9a-f]{64}$/);
+    expect(g.events.summary).toBe('2 beats, valid and current');
+  });
+});
+
+describe('check: failures', () => {
+  it('fails the type check on a type error, with file and line', () => {
+    const dir = film(root, 'types', (d) => {
+      const f = path.join(d, 'scenes/act1/index.tsx');
+      fs.writeFileSync(f, fs.readFileSync(f, 'utf8') + "\nexport const oops: number = 'not a number';\n");
+    });
+    const g = byGate(check(dir, 1)).typecheck;
+    expect(g.status).toBe('FAIL');
+    expect(g.evidence[0]).toMatch(/^scenes\/act1\/index\.tsx:\d+:\d+ TS2322 /);
+  });
+
+  it("fails on a banned word in the act's on-screen strings or its shots' on-screen text, case-insensitively", () => {
+    const dir = film(root, 'banned');
+    ok('emit-events', {film: dir}, {data});
+    const g = byGate(check(dir, 1, {banned_words: ['steady', 'Crosses the', 'slides']})).banned_words;
+    expect(g.status).toBe('FAIL');
+    expect(g.evidence).toEqual([
+      'scenes/act1/index.tsx:37: "Steady" (steady)',
+      'timing/shots.json S02 on_screen: "crosses the frame" (Crosses the)',
+    ]);
+    // "slides" is only in an event's note, which the sound engine reads and nobody sees
+  });
+
+  it('is UNCHECKED, never a pass, when no banned-word list could be read', () => {
+    const dir = film(root, 'nobrand');
+    const r = ok('check', {film: dir, act: 1}, {data});
+    expect(byGate(r).banned_words.status).toBe('UNCHECKED');
+    expect(r.passed).toBe(false);
+  });
+
+  it('fails when the events file is missing, and when it is out of date with the act', () => {
+    const dir = film(root, 'events');
+    const missing = byGate(check(dir, 1)).events;
+    expect(missing.status).toBe('FAIL');
+    expect(missing.summary).toMatch(/no timing\/visual_events\/act1\.json: run `slate emit-events --act 1`/);
+    ok('emit-events', {film: dir}, {data});
+    const f = path.join(dir, 'timing/visual_events/act1.json');
+    const beats = readJson(f);
+    beats[0].t = 0.2;
+    writeJson(f, beats);
+    const stale = byGate(check(dir, 1)).events;
+    expect(stale.status).toBe('FAIL');
+    expect(stale.summary).toMatch(/out of date with the act/);
+  });
+
+  it('fails an events file that breaks the schema', () => {
+    const dir = film(root, 'events-bad');
+    writeJson(path.join(dir, 'timing/visual_events/act1.json'), {silent: true});
+    const g = byGate(check(dir, 1)).events;
+    expect(g.status).toBe('FAIL');
+    expect(g.summary).toMatch(/a silent act needs a reason/);
+  });
+});
+
+/** A two-act film whose acts meet on the "Rest" state (scenes/contracts.tsx), or don't. */
+function contractFilm(name, {act2Rest = true, act2Declares = 'Rest', act1Declares = 'Rest', withAct2 = true} = {}) {
+  return film(root, name, (d) => {
+    twoActs(d);
+    fs.writeFileSync(
+      path.join(d, 'scenes/contracts.tsx'),
+      [
+        '// The rest state both acts meet on: the square parked in the middle.',
+        "import React from 'react';",
+        "import {AbsoluteFill} from 'remotion';",
+        "import {film} from '@film/data';",
+        'export function Rest() {',
+        "  return (<AbsoluteFill style={{background: '#101010'}}><div style={{position: 'absolute', left: (film.width - 40) / 2, top: (film.height - 40) / 2, width: 40, height: 40, background: '#f0f0f0'}} /></AbsoluteFill>);",
+        '}',
+        '',
+      ].join('\n'),
+    );
+    const act = (n, body) => {
+      fs.mkdirSync(path.join(d, `scenes/act${n}`), {recursive: true});
+      fs.writeFileSync(path.join(d, `scenes/act${n}/index.tsx`), body.join('\n'));
+    };
+    act(1, [
+      "import React from 'react';",
+      "import {AbsoluteFill, useCurrentFrame} from 'remotion';",
+      "import {film, type SceneProps} from '@film/data';",
+      "import {Rest} from '../contracts';",
+      act1Declares ? `export const contracts = {out: '${act1Declares}'};` : '',
+      "export const silent = 'the square travels quietly';",
+      'export default function Act1({sub}: SceneProps) {',
+      '  const f = Math.floor(useCurrentFrame() / Math.max(1, Math.round(sub)));',
+      '  if (f >= 9) return <Rest />;',
+      "  return (<AbsoluteFill style={{background: '#101010'}}><div style={{position: 'absolute', left: ((film.width - 40) / 2) * (f / 9), top: (film.height - 40) / 2, width: 40, height: 40, background: '#f0f0f0'}} /></AbsoluteFill>);",
+      '}',
+      '',
+    ]);
+    if (withAct2) {
+      act(2, [
+        "import React from 'react';",
+        "import {AbsoluteFill, useCurrentFrame} from 'remotion';",
+        "import {film, type SceneProps} from '@film/data';",
+        "import {Rest} from '../contracts';",
+        act2Declares ? `export const contracts = {in: '${act2Declares}'};` : '',
+        "export const silent = 'the square leaves quietly';",
+        'export default function Act2({sub}: SceneProps) {',
+        '  const f = Math.floor(useCurrentFrame() / Math.max(1, Math.round(sub)));',
+        act2Rest ? '  if (f < 6) return <Rest />;' : '',
+        "  return (<AbsoluteFill style={{background: '#101010'}}><div style={{position: 'absolute', left: (film.width - 40) / 2 + (f + 1) * 12, top: (film.height - 40) / 2, width: 40, height: 40, background: '#f0f0f0'}} /></AbsoluteFill>);",
+        '}',
+        '',
+      ]);
+    }
+  });
+}
+
+describe('check: boundary contracts', () => {
+  it('passes when both sides render the named rest state bit for bit and hold it 6 frames', () => {
+    const dir = contractFilm('meet');
+    ok('emit-events', {film: dir}, {data});
+    const r = check(dir, 1);
+    const g = byGate(r).contracts;
+    expect(g.status, g.evidence.join('\n')).toBe('PASS');
+    expect(g.summary).toBe('act 1 → act 2: "Rest" matches Act2:0 and Contract-Rest:0 bit for bit, held 6 frames');
+    expect(r.passed).toBe(true);
+    expect(fs.readdirSync(path.join(dir, 'qa/contracts/act1'))).toContain('Contract-Rest_f00000.png');
+  });
+
+  it("fails when the neighbour's boundary frame isn't the rest state (a mismatch in pixels)", () => {
+    const dir = contractFilm('miss', {act2Rest: false});
+    const g = byGate(check(dir, 2)).contracts;
+    expect(g.status).toBe('FAIL');
+    expect(g.evidence.join('\n')).toMatch(/Act2:0 and .* differ \(PSNR [\d.]+ dB\); "Rest" must be bit-identical|frame \d differs from its boundary frame/);
+  });
+
+  it('fails, without rendering, when the two sides declare different rest states', () => {
+    const dir = contractFilm('names', {act2Declares: 'Elsewhere'});
+    const g = byGate(check(dir, 1)).contracts;
+    expect(g.status).toBe('FAIL');
+    expect(g.summary).toBe('act 1 → act 2: act 1 ends on "Rest" but act 2 starts on "Elsewhere"');
+    expect(fs.existsSync(path.join(dir, 'qa/contracts'))).toBe(false);
+  });
+
+  it('is UNCHECKED while the neighbour is not built and there is no rest component to compare with', () => {
+    const dir = contractFilm('alone', {withAct2: false});
+    fs.rmSync(path.join(dir, 'scenes/contracts.tsx'));
+    fs.writeFileSync(path.join(dir, 'scenes/act1/index.tsx'), fs.readFileSync(path.join(dir, 'scenes/act1/index.tsx'), 'utf8').replace("import {Rest} from '../contracts';", "const Rest = () => null;"));
+    const g = byGate(check(dir, 1)).contracts;
+    expect(g.status).toBe('UNCHECKED');
+    expect(g.summary).toMatch(/act 2 isn't built yet/);
+  });
+});
+
+describe('check: word misses', () => {
+  it.skipIf(!kitCore)("fails while a kit word lookup fell back to an estimate", () => {
+    const dir = film(root, 'misses', (d) => {
+      fs.writeFileSync(path.join(d, 'scenes/act1/beats.ts'), "import {word} from '@slate/kit/core';\nexport const said = word('S02', 'square');\n");
+    });
+    ok('emit-events', {film: dir}, {data});
+    const gates = byGate(check(dir, 1));
+    expect(gates.word_misses.status).toBe('FAIL');
+    expect(gates.word_misses.evidence).toContain('S02:square');
+    // the brand has no motion law yet: the kit's neutral law stands in, which is noted, not held against the act
+    expect(gates.kit_problems.status).toBe('PASS');
+    expect(gates.kit_problems.summary).toMatch(/^nothing refused; noted: .*neutral law/);
+  });
+});
+
+describe('on-screen strings', () => {
+  it('reads string literals and JSX text, and skips imports, types, styles, ids, notes and declarations', () => {
+    const src = [
+      "import x from 'free-package';",
+      "type K = 'free' | 'paid';",
+      "export const silent = 'free of beats';",
+      "export const contracts = {out: 'FreeRest'};",
+      "const ev = {id: 'free_id', note: 'free note', kind: 'tap'};",
+      "console.log('free log');",
+      "const A = () => <div className=\"free\" style={{fontFamily: 'Free Sans'}}>Try it free</div>;",
+      "const label = `Free ${x} trial`;",
+      "const shown = 'Always free';",
+    ].join('\n');
+    const texts = onScreenStrings('a.tsx', src).map((s) => s.text.trim());
+    expect(texts).toEqual(['Try it free', 'Free   trial', 'Always free']);
+  });
+});

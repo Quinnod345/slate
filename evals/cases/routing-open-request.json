@@ -1,0 +1,19 @@
+{
+ "id": "routing-open-request",
+ "title": "An open request gets exactly one question first: full production or a quick generated clip?",
+ "group": "routing",
+ "status": "active",
+ "plan_points": ["P057", "P060", "P187", "P188", "P189", "P190", "P374"],
+ "why": "Higgsfield's skills also claim 'make a video'. Slate has to win the trigger and ask its one question before anything is made or generated.",
+ "prompt": "make a video",
+ "configs": ["claude-code", "codex", "pursuit-slice", "openclaw"],
+ "expect": [
+  {"check": "skill_loaded", "skill": "slate"},
+  {"check": "asks_one_question", "mentions": [
+   ["(?i)full[- ]?(?:production|film|pipeline|video)", "(?i)(?<!pre-)(?<!pre)\\bproduction\\b", "(?i)produced (?:film|video)"],
+   ["(?i)quick(?:ly)?\\b.{0,30}\\bclip", "(?i)generated (?:clip|video)", "(?i)fast lane"]
+  ], "why": "one question, offering both lanes, before anything is made"},
+  {"check": "fast_lane_not_used", "why": "nobody picked the fast lane yet"},
+  {"check": "skill_not_loaded", "id": "no_vendor_skill_first", "pattern": "^higgsfield-", "why": "a vendor skill winning the trigger is the failure this case exists for"}
+ ]
+}

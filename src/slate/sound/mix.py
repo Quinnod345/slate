@@ -1,0 +1,437 @@
+"""The delivery mix: one WAV and four stems (dialogue, effects, ambience, music) that add up to it, sample for sample.
+
+This is the films' final_mix.py, generalized (its review cousin, mix_with_score.py, normalised with a one-pass
+loudnorm that rides the gain, so its stems could never sum to its mix; that's why this one uses fixed gains only):
+
+1. The voice: every take from timing/vo_cues.json, placed and levelled (slate.sound.vo).
+2. The music: the assembled score (sound/score/score.wav), set a measured number of LU under the voice (15 by
+   default) for the whole film and ducked a few dB (4) under speech by a follower keyed from the voice (80 ms attack,
+   650 ms release). Tonal effect stems join the music stem.
+3. The effects: whatever effect stems exist in sound/stems/ (ui, fx and their reverb join the effects stem; amb is
+   the ambience), each trimmed to the brand palette's level against the voice. There may be none: a film with only
+   score and voice mixes the same way, which is all the first reel needs.
+4. One linear gain takes the sum to the target loudness (-14 LUFS by default). If the true peak (4x oversampled)
+   would go over the ceiling (-1 dBTP), the voice alone is peak-limited (plosives carry the peaks), then, if needed,
+   one linked gain curve comes off every stem alike (so the stems still sum), then whatever's left comes off the
+   whole mix inside the loudness tolerance. If that still can't meet both targets, the mix refuses and says so
+   rather than hiding it.
+
+Everything is written 48 kHz / 24-bit (the film's rate), exactly the film's length, starting on its first frame.
+"""
+
+from __future__ import annotations
+
+import contextlib
+import fcntl
+import math
+import os
+from pathlib import Path
+from typing import Iterator
+
+import numpy as np
+
+from slate import gates, jsonio, log
+from slate.errors import Busy, MissingPrerequisite, Refused
+from slate.sound import audio, dsp, gap, measure, vo
+from slate.sound.film import MIX_DIR, SCORE_DIR, STEMS_DIR, Film, load, record_lock
+
+EFFECTS_ROLES = ("ui", "fx", "verb")
+MUSIC_ROLES = ("tonal", "tverb")
+AMBIENCE_ROLES = ("amb",)
+ROLES = EFFECTS_ROLES + MUSIC_ROLES + AMBIENCE_ROLES
+DELIVERY = ("dialogue", "effects", "ambience", "music")
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Inputs
+
+
+def score_path(film: Film, override: str | Path | None = None) -> Path | None:
+    if override:
+        p = film.path(override)
+        if not p.exists():
+            raise MissingPrerequisite(f"No score at {p}.", hint="Run `slate score assemble`, or pass --no-score.")
+        return p
+    p = film.path(f"{SCORE_DIR}/score.wav")
+    return p if p.exists() else None
+
+
+def stem_manifest(film: Film) -> dict[str, dict]:
+    """{role: {file, duck}} from sound/stems/stems.json, or from the role files present (ui.wav, fx.wav, ...)."""
+    folder = film.path(STEMS_DIR)
+    manifest_path = folder / "stems.json"
+    out: dict[str, dict] = {}
+    if manifest_path.exists():
+        data = jsonio.read(manifest_path)
+        for role, entry in (data.get("stems") or {}).items():
+            if role not in ROLES:
+                raise Refused(f"sound/stems/stems.json names a stem role {role!r}; the roles are {', '.join(ROLES)}.")
+            entry = {"file": entry} if isinstance(entry, str) else dict(entry)
+            entry.setdefault("file", f"{role}.wav")
+            out[role] = entry
+    else:
+        for role in ROLES:
+            if (folder / f"{role}.wav").exists():
+                out[role] = {"file": f"{role}.wav", "duck": False}
+    return out
+
+
+def load_stems(film: Film) -> tuple[dict[str, np.ndarray], dict[str, str]]:
+    stems, files = {}, {}
+    for role, entry in stem_manifest(film).items():
+        p = film.path(STEMS_DIR) / entry["file"]
+        if not p.exists():
+            raise MissingPrerequisite(f"sound/stems/stems.json lists {entry['file']} for {role}, but it isn't there.")
+        stems[role] = audio.load(p, film.sr, film.n)
+        if entry.get("duck"):
+            stems[role] = ("duck", stems[role])  # ducked once the voice is rendered
+        files[role] = film.rel(p)
+    return stems, files
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# The mix of arrays (what `run` and the golden checks share)
+
+
+def _peaks(x: np.ndarray) -> float:
+    pk = max(abs(float(x.max())), abs(float(x.min()))) if x.size else 0.0
+    return round(20 * math.log10(pk), 2) if pk > 0 else -180.0
+
+
+class EngineStems:
+    """Each engine stem (ui, fx, verb, tonal, tverb, amb) at the master gain, made when it's asked for.
+
+    The mix keeps only its sources, their trims and duck curves, the linked limiter's curve and the final gain, so a
+    feature-length film never holds a second full-length copy of every stem."""
+
+    def __init__(self, sources: dict[str, np.ndarray], factors: dict[str, float], ducks: dict[str, np.ndarray],
+                 curve: np.ndarray | None, gain: float):
+        self.sources, self.factors, self.ducks, self.curve, self.gain = sources, factors, ducks, curve, gain
+
+    def roles(self) -> list[str]:
+        return list(self.sources)
+
+    def __contains__(self, role: str) -> bool:
+        return role in self.sources
+
+    def get(self, role: str) -> np.ndarray:
+        y = self.sources[role] * (self.factors.get(role, 1.0) * self.gain)
+        if role in self.ducks:
+            y *= self.ducks[role][:, None]
+        if self.curve is not None:
+            y *= self.curve[:, None]
+        return y
+
+
+def mix_arrays(vo_stem: np.ndarray, stems: dict[str, np.ndarray], score: np.ndarray | None, sr: int, *,
+               targets: dict, under_lu: float = 15.0, duck_db: float = 4.0, music_attack_s: float = 0.08,
+               music_release_s: float = 0.65, stem_trim_db: dict | None = None,
+               effects_ceiling_dbtp: float | None = None, linked_limit: bool = True, limiter: str = "slate",
+               duck_depths: dict | None = None, ducked_roles: tuple = ()) -> dict:
+    """Mix arrays of equal length. Returns {"final": {delivery stems}, "mix": the mix, "engine": EngineStems,
+    "report": {...}}. Raises Refused when the targets can't be met with a gain and the limiters.
+
+    Memory: arrays the mix makes itself are scaled in place; the caller's arrays are never modified."""
+    lufs_t, tol, tp_t = float(targets["lufs"]), float(targets["tol"]), float(targets["true_peak"])
+    n = len(vo_stem)
+    trims = {r: float((stem_trim_db or {}).get(r, 0.0)) for r in ROLES}
+    factors = {r: float(dsp.db(trims[r])) for r in stems}
+    lim = dsp.limit_ffmpeg if limiter == "ffmpeg" else dsp.limit
+    ducks: dict[str, np.ndarray] = {}
+    if ducked_roles and np.any(vo_stem):
+        env_voice = dsp.follower(vo_stem, sr, 0.06, 0.45)
+        for role in ducked_roles:
+            depth = float((duck_depths or {}).get(role, 0.0))
+            ducks[role] = 1 - env_voice * (1 - dsp.db(depth))
+
+    def role_sum(roles: tuple) -> np.ndarray | None:
+        out = None
+        for r in roles:
+            if r not in stems:
+                continue
+            y = stems[r] * factors[r]
+            if r in ducks:
+                y *= ducks[r][:, None]
+            if out is None:
+                out = y
+            else:
+                out += y
+        return out
+
+    effects = role_sum(EFFECTS_ROLES)
+    ambience = role_sum(AMBIENCE_ROLES)
+    tonal = role_sum(MUSIC_ROLES)
+    effects = effects if effects is not None else np.zeros((n, 2))
+    ambience = ambience if ambience is not None else np.zeros((n, 2))
+    dialogue, dialogue_owned = vo_stem, False
+    has_voice = bool(np.any(dialogue))
+    vo_l = measure.integrated(dialogue, sr) if has_voice else measure.SILENT_FLOOR
+    report: dict = {"target": {"lufs": lufs_t, "tol": tol, "true_peak": tp_t}, "sample_rate": sr, "samples": n,
+                    "seconds": round(n / sr, 6), "voice_lufs_pre": round(vo_l, 2) if has_voice else None,
+                    "stem_trim_db": {r: v for r, v in trims.items() if r in stems}, "limiter": limiter}
+    if score is not None and np.any(score):
+        sc_l = measure.integrated(score, sr)
+        report["score_lufs_pre"] = round(sc_l, 2)
+        if has_voice:
+            music = score * dsp.db((vo_l - under_lu) - sc_l)
+            env = dsp.follower(dialogue, sr, music_attack_s, music_release_s)
+            music *= dsp.db(-duck_db * env)[:, None]
+            del env
+            report["music_vs_voice_lu"] = -under_lu
+            report["duck_db"] = duck_db
+        else:
+            music = score.copy()  # no voice: the score is the programme, and the final gain sets its level
+            report["music_vs_voice_lu"] = None
+            report["duck_db"] = 0.0
+    else:
+        music = np.zeros((n, 2))
+        report["score_lufs_pre"] = None
+        report["music_vs_voice_lu"] = None
+    if tonal is not None:
+        music += tonal
+        del tonal
+    raw_dialogue, raw_effects = dialogue, effects
+    limited = effects_limited = False
+    mix = dialogue + effects + ambience + music
+    mix_l = measure.integrated(mix, sr)
+    if mix_l <= measure.SILENT_FLOOR:
+        raise Refused("There's nothing to mix: no voice, no score and no effect stems with any sound in them.",
+                      hint="Voice the script (`slate voice tts`), assemble a score (`slate score assemble`), or add stems.")
+    mix_tp = measure.true_peak(mix, sr)
+    g_db = lufs_t - mix_l
+    for _ in range(4):
+        if mix_tp + g_db <= tp_t - 0.1:
+            break
+        if has_voice:
+            # the voice carries the peaks: limit it so that, after the loudness gain, it sits 0.9 dB under the ceiling
+            dialogue, dialogue_owned = lim(raw_dialogue, tp_t - 0.9 - g_db, sr), True
+            limited = True
+        if effects_ceiling_dbtp is not None and np.any(raw_effects):
+            effects = lim(raw_effects, effects_ceiling_dbtp - g_db, sr)
+            effects_limited = True
+        if not has_voice and effects_ceiling_dbtp is None:
+            break
+        del mix
+        mix = dialogue + effects + ambience + music
+        mix_l, mix_tp = measure.integrated(mix, sr), measure.true_peak(mix, sr)
+        g_db = lufs_t - mix_l
+    del raw_effects
+    linked = None
+    total_curve = None
+    if linked_limit and mix_tp + g_db > tp_t - 0.1:
+        # one gain curve on the sum, the same on every stem, then the loudness gain again
+        for _ in range(3):
+            curve = dsp.linked_gain(mix, tp_t - 0.35 - g_db, sr)
+            c2 = curve[:, None]
+            if dialogue_owned:
+                dialogue *= c2
+            else:
+                dialogue, dialogue_owned = dialogue * c2, True
+            effects *= c2
+            ambience *= c2
+            music *= c2
+            total_curve = curve if total_curve is None else total_curve * curve
+            del mix
+            mix = dialogue + effects + ambience + music
+            mix_l, mix_tp = measure.integrated(mix, sr), measure.true_peak(mix, sr)
+            g_db = lufs_t - mix_l
+            linked = {"max_reduction_db": round(float(-20 * np.log10(curve.min())), 2),
+                      "ms_reduced_over_0.5db": int(np.sum(curve < 10 ** (-0.5 / 20)) // max(1, sr // 1000))}
+            if mix_tp + g_db <= tp_t - 0.05:
+                break
+    del mix
+    # whatever is left over comes off everything together, inside the loudness tolerance
+    tp_after = mix_tp + g_db
+    if tp_after > tp_t:
+        g_db -= (tp_after - tp_t) + 0.05
+    g = float(dsp.db(g_db))
+    if dialogue_owned:
+        dialogue *= g
+    else:
+        dialogue = dialogue * g
+    effects *= g
+    ambience *= g
+    music *= g
+    final = {"dialogue": dialogue, "effects": effects, "ambience": ambience, "music": music}
+    out_mix = dialogue + effects + ambience + music
+    f_l, f_tp = measure.integrated(out_mix, sr), measure.true_peak(out_mix, sr)
+    ok = abs(f_l - lufs_t) <= tol and f_tp <= tp_t + 1e-6
+    report.update({"gain_db": round(g_db, 2), "dialogue_limited": limited, "effects_ceiling_dbtp": effects_ceiling_dbtp,
+                   "effects_limited": effects_limited, "linked_limiter": linked, "final_lufs": round(f_l, 2),
+                   "final_true_peak_dbtp": round(f_tp, 2), "pass": ok})
+    for k, v in final.items():
+        report[f"stem_{k}_peak_dbfs"] = _peaks(v)
+    if not ok:
+        raise Refused(f"The mix can't meet {lufs_t:g} LUFS ±{tol:g} and {tp_t:g} dBTP with one gain and the limiters "
+                      f"(it reached {f_l:.1f} LUFS, {f_tp:.1f} dBTP).",
+                      hint="Look at what's peaking in sound/mix/final_mix.json; lower the loudest stem's trim or the "
+                           "voice gain, then mix again.", details={"report": report})
+    engine = EngineStems(stems, factors, ducks, total_curve, g)
+    return {"final": final, "mix": out_mix, "engine": engine, "report": report}
+
+
+def quantized_sum_error(final: dict[str, np.ndarray], mix: np.ndarray) -> float:
+    """Max |mix - sum(stems)| after each is quantized to 24 bits exactly as the writer quantizes it."""
+    def q(x: np.ndarray) -> np.ndarray:
+        return np.clip(np.round(x * 8388607.0), -8388608, 8388607).astype(np.int64)
+
+    worst = 0
+    step = 480000  # 10 s at 48 kHz: bounded memory for a feature-length film
+    for i in range(0, len(mix), step):
+        total = sum(q(v[i:i + step]) for v in final.values())
+        worst = max(worst, int(np.max(np.abs(q(mix[i:i + step]) - total))))
+    return worst / 8388608.0
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# The command
+
+
+@contextlib.contextmanager
+def _mix_lock(film: Film) -> Iterator[None]:
+    path = film.path(f"{MIX_DIR}/.mix.lock")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a+") as fh:
+        try:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise Busy(f"Another mix of {film.id} is running.", hint="Wait for it, then mix again.") from exc
+        try:
+            yield
+        finally:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+
+
+def planned_stops(film: Film) -> list[dict]:
+    rec = jsonio.read(film.path(f"{SCORE_DIR}/score.json"), default={}) or {}
+    stops = list(rec.get("planned_stops") or [])
+    directions = jsonio.read(film.path(f"{SCORE_DIR}/directions.json"), default={}) or {}
+    for s in directions.get("planned_stops") or []:
+        if s not in stops:
+            stops.append(s)
+    return stops
+
+
+def plan(film: Film, *, score: str | Path | None = None, no_score: bool = False) -> dict:
+    """What a mix would use, without mixing (for --dry-run and status)."""
+    sp = None if no_score else score_path(film, score)
+    manifest = stem_manifest(film)
+    cues = vo.cues(film)
+    return {"film": film.id, "sample_rate": film.sr, "samples": film.n, "seconds": round(film.duration_s, 6),
+            "targets": film.targets, "voice_cues": len(cues), "score": film.rel(sp) if sp else None,
+            "stems": {r: e["file"] for r, e in manifest.items()}, "palette_levels": film.palette["levels"]}
+
+
+def run(film_dir: Path, *, score: str | Path | None = None, no_score: bool = False, calibrate: bool = False,
+        under: float | None = None, duck: float | None = None) -> Path:
+    """Mix the film. Returns the path of sound/mix/final_mix.wav (with its stems and final_mix.json beside it)."""
+    film = load(film_dir)
+    levels = film.palette["levels"]
+    music_cfg = levels.get("music") or {}
+    under_lu = float(under if under is not None else music_cfg.get("under_voice_lu", 15.0))
+    duck_db = float(duck if duck is not None else music_cfg.get("duck_db", 4.0))
+    out_dir = film.path(MIX_DIR)
+    with _mix_lock(film):
+        log.info(f"mixing {film.id}: {film.duration_s:.3f} s at {film.sr} Hz")
+        vo_stem, placed = vo.render_stem(film)
+        sp = None if no_score else score_path(film, score)
+        score_arr = audio.load(sp, film.sr, film.n) if sp else None
+        raw_stems, stem_files = load_stems(film)
+        manifest = stem_manifest(film)
+        stems = {r: (v[1] if isinstance(v, tuple) else v) for r, v in raw_stems.items()}
+        ducked = tuple(r for r, v in raw_stems.items() if isinstance(v, tuple))
+        if not np.any(vo_stem) and score_arr is None and not stems:
+            raise MissingPrerequisite(f"{film.id} has nothing to mix yet: no voice cues, no score and no effect stems.",
+                                      hint="Voice the script, then `slate timing`, then `slate score assemble`.")
+        trims = dict(levels.get("stem_trim_db") or {})
+        calibration = None
+        if calibrate:
+            calibration = _calibrate(film, vo_stem, stems)
+            trims.update(calibration["stem_trim_db"])
+        result = mix_arrays(
+            vo_stem, stems, score_arr, film.sr, targets=film.targets, under_lu=under_lu, duck_db=duck_db,
+            music_attack_s=float(music_cfg.get("attack_s", 0.08)), music_release_s=float(music_cfg.get("release_s", 0.65)),
+            stem_trim_db=trims, effects_ceiling_dbtp=levels.get("effects_ceiling_dbtp"),
+            linked_limit=bool(levels.get("linked_limit", True)), limiter=str(levels.get("limiter", "slate")),
+            duck_depths=levels.get("duck_db") or {}, ducked_roles=ducked)
+        report = result["report"]
+        final, mix_arr, eng = result["final"], result["mix"], result["engine"]
+        out_dir.mkdir(parents=True, exist_ok=True)
+        mix_path = audio.write_wav(out_dir / "final_mix.wav", mix_arr, film.sr, 24)
+        outputs = {"mix": film.rel(mix_path), "stems": {}, "engine_stems": {}}
+        for k in DELIVERY:
+            p = audio.write_wav(out_dir / "stems" / f"{k}.wav", final[k], film.sr, 24)
+            outputs["stems"][k] = film.rel(p)
+        vo_l = measure.integrated(final["dialogue"], film.sr) if np.any(final["dialogue"]) else None
+        levels_vs = {}
+        for role in eng.roles():  # one engine stem in memory at a time
+            x = eng.get(role)
+            p = audio.write_wav(out_dir / "engine_stems" / f"{role}.wav", x, film.sr, 24)
+            outputs["engine_stems"][role] = film.rel(p)
+            if vo_l is not None and np.any(x):
+                levels_vs[role] = measure.lu_vs(vo_l, measure.integrated(x, film.sr))
+            del x
+        stale = ({p.stem for p in (out_dir / "engine_stems").glob("*.wav")} - set(eng.roles())
+                 if (out_dir / "engine_stems").exists() else set())
+        for role in stale:
+            (out_dir / "engine_stems" / f"{role}.wav").unlink(missing_ok=True)
+        if vo_l is not None and np.any(final["music"]):
+            levels_vs["music"] = measure.lu_vs(vo_l, measure.integrated(final["music"], film.sr))
+        stops = planned_stops(film)
+        music_check = gap.check(final["music"], film.sr, stops) if np.any(final["music"]) else None
+        if music_check is not None:
+            jsonio.write_atomic(out_dir / "music_check.json",
+                                jsonio.mark_generated({"kind": "music_check", "stem": outputs["stems"]["music"],
+                                                       **music_check}, "slate mix"))
+        else:
+            (out_dir / "music_check.json").unlink(missing_ok=True)  # an earlier mix's check doesn't describe this one
+        report.update({
+            "kind": "mix", "film": film.id, "made_at": gates.now_iso(),
+            "inputs": {"voice": {"cues": len(placed), "placed": placed}, "score": film.rel(sp) if sp else None,
+                       "stems": stem_files, "stems_manifest": {r: dict(e) for r, e in manifest.items()}},
+            "levels_vs_voice_lu": levels_vs, "palette": {"brand": film.palette.get("brand"),
+                                                         "from_brand": film.palette.get("from_brand"),
+                                                         "lu_vs_voice_targets": levels.get("lu_vs_voice")},
+            "calibration": calibration, "stems_sum_max_abs": quantized_sum_error(final, mix_arr),
+            "music_check": {k: music_check[k] for k in ("pass", "quietest_outside_stops_dbfs", "failures")} if music_check else None,
+            "outputs": outputs, "notes": film.notes,
+        })
+        jsonio.write_atomic(out_dir / "final_mix.json", jsonio.mark_generated(report, "slate mix"))
+        if calibration:
+            jsonio.write_atomic(out_dir / "calibration.json", jsonio.mark_generated(calibration, "slate mix --calibrate"))
+        inputs = ["timing/shots.json", "timing/vo_cues.json"] + ([film.rel(sp)] if sp else []) + list(stem_files.values())
+        record_lock(film, outputs["mix"], producer="slate mix", inputs=[i for i in inputs if film.path(i).exists()])
+    return mix_path
+
+
+def _calibrate(film: Film, vo_stem: np.ndarray, stems: dict[str, np.ndarray]) -> dict:
+    """Trims that put each stem with a target at its palette level against the voice (measured, integrated LU)."""
+    targets = film.palette["levels"].get("lu_vs_voice") or {}
+    if not np.any(vo_stem):
+        raise Refused("Calibration measures the effects against the voice, and this film has no voice yet.")
+    vo_l = measure.integrated(vo_stem, film.sr)
+    trims, measured = {}, {}
+    for role, target in targets.items():
+        if role not in stems or not np.any(stems[role]):
+            continue
+        rel = measure.integrated(stems[role], film.sr) - vo_l
+        measured[role] = round(rel, 2)
+        trims[role] = round(float(target) - rel, 2)
+    return {"stem_trim_db": trims, "measured_lu_vs_voice": measured, "targets": targets,
+            "keep": "Put stem_trim_db in the brand's sound.palette.levels to use these trims on every film."}
+
+
+def output_paths(film_dir: Path) -> dict[str, Path]:
+    d = Path(film_dir) / MIX_DIR
+    return {"mix": d / "final_mix.wav", "report": d / "final_mix.json", "music_check": d / "music_check.json",
+            **{k: d / "stems" / f"{k}.wav" for k in DELIVERY}}
+
+
+def exists(film_dir: Path) -> bool:
+    return all(p.exists() for k, p in output_paths(film_dir).items() if k != "music_check")
+
+
+def remove_scratch(film_dir: Path) -> None:
+    for p in Path(film_dir, MIX_DIR).glob(".*.tmp"):
+        with contextlib.suppress(OSError):
+            os.unlink(p)

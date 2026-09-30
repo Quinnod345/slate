@@ -1,0 +1,40 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "slate/vo_words",
+ "title": "timing/vo_words.json",
+ "description": "Word timings inside each take, seconds from the take's first sample. Starts are the aligner's snapped to the take's energy onset within ±80 ms; snap null marks a start placed inside a transcribed number. `tokens` (Slate) resolves every word of the script line so engines only read JSON.",
+ "type": "object",
+ "required": ["shots"],
+ "properties": {
+  "generated": {"type": "string"},
+  "note": {"type": "string"},
+  "aligner": {"type": "object"},
+  "shots": {
+   "type": "object",
+   "additionalProperties": {
+    "type": "object",
+    "required": ["line", "words"],
+    "properties": {
+     "take": {"type": "string"},
+     "line": {"type": "string"},
+     "heard": {"type": "string"},
+     "take_seconds": {"type": "number"},
+     "aligner": {"type": "object"},
+     "words": {
+      "type": "array",
+      "items": {"type": "object", "required": ["w", "start", "end"],
+                "properties": {"w": {"type": "string"}, "start": {"type": "number"}, "end": {"type": "number"},
+                               "whisper_start": {"type": "number"}, "snap": {"type": ["number", "null"]}}}
+     },
+     "tokens": {
+      "type": "array",
+      "items": {"type": "object", "required": ["t", "key", "occ", "start", "end", "exact"],
+                "properties": {"t": {"type": "string"}, "key": {"type": "string"}, "occ": {"type": "integer"},
+                               "start": {"type": "number"}, "end": {"type": "number"}, "exact": {"type": "boolean"},
+                               "i": {"type": "integer"}, "j": {"type": "integer"}}}
+     }
+    }
+   }
+  }
+ }
+}

@@ -1,0 +1,804 @@
+"""The one ElevenLabs client Slate uses.
+
+Every call is replay-aware and every paid call is ledger-wrapped:
+
+- **Replay** (`SLATE_FAKE_VENDORS=1`, the default for tests, evals and `slate demo`): answers come from recorded
+  fixtures, or from deterministic fakes registered here: a harmonic "voice" whose length follows the text (one burst
+  per word, so alignment and fit checks still mean something), three previews per design call, a soft pad for music.
+  Nothing leaves the machine and nothing is spent; every result says `"replay": true`.
+- **Live** (`--live`): the estimate comes first, then the budget check, then an in-flight ledger row that already
+  carries a request id before Slate waits on ElevenLabs. The vendor's own request id and billed characters are added
+  as soon as the response arrives.
+
+Keys come only from `slate.secrets` (never argv, never a URL, never a log line). Autonomous films use Oneiro's own
+capped key (`elevenlabs_oneiro`), which is also its own spend pool in the ledger.
+
+Models are always named explicitly: Voice Design defaults to an older model on the API side (`eleven_ttv_v3` is sent
+every time) and so does music (`music_v2_5`). Lossless voice (PCM 48 kHz) needs a Pro plan or higher, so the client
+reads the plan's tier and falls back to the best format the plan allows, recording which it used and why.
+
+There is deliberately no method that creates a voice clone. The only clone Slate ever uses is the owner's own
+professional clone, which the owner makes and verifies in ElevenLabs themselves.
+"""
+
+from __future__ import annotations
+
+import base64
+import hashlib
+import json
+import math
+import re
+import urllib.parse
+import uuid
+from pathlib import Path
+from typing import Any, Callable
+
+import numpy as np
+
+from slate import config, http, jsonio, ledger, log, procs, replay, secrets
+from slate.errors import MissingPrerequisite, UsageError
+from slate.voice import audio as audio_mod
+
+PROVIDER = "elevenlabs"
+BASE_URL = "https://api.elevenlabs.io"
+
+# Plans in order. Lossless PCM/WAV at 44.1 kHz and above needs Pro; 192 kbps mp3 needs Creator.
+TIERS = ("free", "starter", "creator", "pro", "scale", "business", "enterprise")
+FORMAT_MIN_TIER = {"pcm_48000": "pro", "wav_48000": "pro", "pcm_44100": "pro", "wav_44100": "pro",
+                   "mp3_48000_192": "creator", "mp3_44100_192": "creator", "mp3_44100_128": "free"}
+VOICE_FORMATS = ("pcm_48000", "pcm_44100", "mp3_44100_192", "mp3_44100_128")
+MUSIC_FORMATS = ("pcm_48000", "mp3_48000_192", "mp3_44100_192", "mp3_44100_128")
+FORMAT_REJECTED = (400, 403, 422)  # what ElevenLabs answers when a plan can't have a format (nothing is billed)
+
+SUBSCRIPTION_FIELDS = ("tier", "status", "character_count", "character_limit", "next_character_count_reset_unix",
+                       "voice_slots_used", "voice_limit", "professional_voice_slots_used", "professional_voice_limit",
+                       "can_use_instant_voice_cloning", "can_use_professional_voice_cloning")
+
+DESIGN_LIMITS = {"voice_description": (20, 1000), "text": (100, 1000), "guidance_scale": (0.0, 100.0),
+                 "loudness": (-1.0, 1.0)}
+MUSIC_MIN_SECTION_MS = 3000
+DEFAULT_MUSIC_SECONDS = 30.0  # what a prompt without a length is estimated at
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Plans and formats
+
+
+def tier_rank(tier: str | None) -> int | None:
+    """Where a plan's tier sits in TIERS (None when ElevenLabs reports a name Slate doesn't know)."""
+    tokens = re.split(r"[^a-z]+", (tier or "").lower())
+    for rank in range(len(TIERS) - 1, -1, -1):
+        if TIERS[rank] in tokens:
+            return rank
+    return None
+
+
+def format_allowed(fmt: str, tier: str | None) -> bool | None:
+    rank = tier_rank(tier)
+    need = FORMAT_MIN_TIER.get(fmt)
+    if rank is None or need is None:
+        return None
+    return rank >= TIERS.index(need)
+
+
+def format_chain(want: str, family: tuple[str, ...] = VOICE_FORMATS) -> list[str]:
+    """The wanted format, then the next best ones in order."""
+    if want in family:
+        return list(family[family.index(want):])
+    return [want, *family]
+
+
+def best_format(tier: str | None, want: str = "pcm_48000", family: tuple[str, ...] = VOICE_FORMATS) -> tuple[str, str]:
+    """(format, reason): the best format at or below `want` that the plan allows."""
+    rank = tier_rank(tier)
+    if rank is None:
+        return want, f"plan tier {tier!r} unknown to Slate; asking for {want} and falling back if refused"
+    for fmt in format_chain(want, family):
+        if format_allowed(fmt, tier) is not False:
+            if fmt == want:
+                return fmt, f"{tier} plan allows {fmt}"
+            return fmt, f"{tier} plan can't have {want} (lossless needs Pro or higher); using {fmt}"
+    return family[-1], f"{tier} plan: falling back to {family[-1]}"
+
+
+def parse_format(fmt: str) -> tuple[str, int]:
+    """("pcm", 48000) from "pcm_48000"; ("mp3", 44100) from "mp3_44100_192"."""
+    parts = fmt.split("_")
+    try:
+        return parts[0], int(parts[1])
+    except (IndexError, ValueError) as exc:
+        raise UsageError(f"Unknown ElevenLabs output format {fmt!r}.") from exc
+
+
+def is_lossless(fmt: str) -> bool:
+    return parse_format(fmt)[0] in ("pcm", "wav")
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Deterministic stand-ins for replay mode
+
+
+def _seed_of(*parts: Any) -> int:
+    return int(hashlib.sha256("|".join(str(p) for p in parts).encode()).hexdigest()[:8], 16)
+
+
+def _spoken_words(text: str) -> list[str]:
+    plain = re.sub(r"\[[^\[\]]*\]", " ", text or "")
+    return plain.split()
+
+
+def fake_speech(text: str, voice_key: str, sr: int = 48000) -> tuple[np.ndarray, list[dict]]:
+    """A speech-like stand-in: one harmonic burst per word (length follows its letters), pauses after punctuation.
+
+    Returns (samples, words) where words carry exact start/end times, so replayed takes can be aligned, fitted and
+    captioned offline. The pitch follows the voice, so different voices in a shootout measure differently.
+    """
+    words = _spoken_words(text)
+    f0 = 105.0 + (_seed_of(voice_key) % 160)
+    lead, tail = 0.12, 0.22
+    pieces, timed, t = [np.zeros(int(lead * sr))], [], lead
+    for i, w in enumerate(words):
+        letters = max(1, sum(ch.isalnum() for ch in w))
+        dur = 0.09 + 0.055 * letters
+        n = int(round(dur * sr))
+        tt = np.arange(n) / sr
+        wobble = 1.0 + 0.035 * np.sin(2 * math.pi * (1.3 + (_seed_of(w, i) % 7) / 10.0) * tt)
+        phase = 2 * math.pi * np.cumsum(f0 * wobble) / sr
+        env = np.sin(math.pi * np.clip(tt / dur, 0, 1)) ** 0.6
+        burst = (0.30 * np.sin(phase) + 0.12 * np.sin(2 * phase) + 0.06 * np.sin(3 * phase)) * env
+        pieces.append(burst)
+        timed.append({"word": w, "start": round(t, 4), "end": round(t + n / sr, 4)})
+        t += n / sr
+        if i + 1 < len(words):
+            last = w.rstrip("\"'”’)")[-1:]
+            gap = 0.32 if last in ".!?…。！？" else (0.16 if last in ",;:、，" else 0.07)
+            pieces.append(np.zeros(int(round(gap * sr))))
+            t += int(round(gap * sr)) / sr
+    pieces.append(np.zeros(int(tail * sr)))
+    return np.concatenate(pieces), timed
+
+
+def fake_music(seconds: float, key: str, sr: int = 48000) -> np.ndarray:
+    """A soft two-channel pad of the requested length (for replay scores)."""
+    n = max(1, int(round(seconds * sr)))
+    t = np.arange(n) / sr
+    root = 110.0 * 2 ** ((_seed_of(key) % 12) / 12.0)
+    left = sum(a * np.sin(2 * math.pi * root * r * t) for a, r in ((0.05, 1.0), (0.035, 1.25), (0.03, 1.5)))
+    right = sum(a * np.sin(2 * math.pi * root * r * 1.002 * t) for a, r in ((0.05, 1.0), (0.035, 1.25), (0.03, 1.5)))
+    fade = np.minimum(1.0, np.minimum(t / min(2.0, seconds / 3), (seconds - t) / min(3.0, seconds / 3)))
+    fade = np.clip(fade, 0.0, 1.0)
+    return np.stack([left * fade, right * fade], axis=1)
+
+
+def _pcm16(x: np.ndarray) -> bytes:
+    return np.round(np.clip(x, -1, 1) * 32767).astype("<i2").tobytes()
+
+
+def _b64(data: bytes) -> str:
+    return base64.b64encode(data).decode("ascii")
+
+
+def _fake_headers(key: str, chars: int | None = None) -> dict:
+    out = {"request-id": f"replay_{key}"}
+    if chars is not None:
+        out["character-cost"] = str(chars)
+    return out
+
+
+def _fake_subscription(key: str, request: dict) -> dict:
+    return {"headers": _fake_headers(key), "json": {
+        "tier": "pro", "status": "active", "character_count": 0, "character_limit": 1_000_000,
+        "next_character_count_reset_unix": 0, "voice_slots_used": 0, "voice_limit": 160,
+        "professional_voice_slots_used": 0, "professional_voice_limit": 1,
+        "can_use_instant_voice_cloning": True, "can_use_professional_voice_cloning": True}}
+
+
+def _fake_voice(key: str, request: dict) -> dict:
+    vid = request.get("voice_id")
+    return {"headers": _fake_headers(key), "json": {"voice_id": vid, "name": f"Replay voice {vid}",
+                                                     "category": "premade", "labels": {}}}
+
+
+def _fake_tts(key: str, request: dict) -> dict:
+    body = request.get("body") or {}
+    _, sr = parse_format(request.get("format") or "pcm_48000")
+    x, words = fake_speech(body.get("text", ""), f"{request.get('voice_id')}|{body.get('seed')}", sr=sr)
+    return {"headers": _fake_headers(key, len(body.get("text", ""))), "encoding": "pcm_s16le", "sample_rate": sr,
+            "channels": 1, "audio_b64": _b64(_pcm16(x)), "words": words}
+
+
+def _fake_previews(key: str, request: dict, prefix: str) -> dict:
+    body = request.get("body") or {}
+    _, sr = parse_format(request.get("format") or "pcm_48000")
+    previews = []
+    for i in range(3):
+        voice_key = f"{prefix}|{request.get('voice_id')}|{body.get('voice_description')}|{body.get('seed')}|" \
+                    f"{body.get('guidance_scale')}|{body.get('prompt_strength')}|{i}"
+        x, words = fake_speech(body.get("text", ""), voice_key, sr=sr)
+        previews.append({"audio_base_64": _b64(_pcm16(x)), "media_type": "audio/pcm", "words": words,
+                         "generated_voice_id": f"replay_gv_{hashlib.sha256(voice_key.encode()).hexdigest()[:16]}",
+                         "duration_secs": round(len(x) / sr, 3), "language": "en"})
+    return {"headers": _fake_headers(key, len(body.get("text", ""))), "json": {"previews": previews,
+                                                                              "text": body.get("text", "")}}
+
+
+def _fake_save_voice(key: str, request: dict) -> dict:
+    body = request.get("body") or {}
+    return {"headers": _fake_headers(key), "json": {
+        "voice_id": f"replay_voice_{hashlib.sha256(str(body.get('generated_voice_id')).encode()).hexdigest()[:16]}",
+        "name": body.get("voice_name")}}
+
+
+def _fake_isolate(key: str, request: dict) -> dict:
+    path = Path(request.get("audio_path", ""))
+    data = path.read_bytes() if path.is_file() else audio_mod.wav_bytes(np.zeros(4800), 48000)
+    if path.suffix.lower() != ".wav":
+        data = audio_mod.wav_bytes(np.zeros(4800), 48000)
+    return {"headers": _fake_headers(key), "encoding": "wav", "audio_b64": _b64(data)}
+
+
+def _bursts(x: np.ndarray, sr: int) -> list[tuple[float, float]]:
+    hop = max(1, sr // 200)
+    n = len(x) // hop
+    if n == 0:
+        return []
+    env = np.sqrt(np.mean(x[: n * hop].reshape(n, hop) ** 2, axis=1))
+    on = env > max(1e-4, float(env.max()) * 0.02)
+    out, i = [], 0
+    while i < n:
+        if on[i]:
+            j = i
+            while j < n and on[j]:
+                j += 1
+            out.append((i * hop / sr, j * hop / sr))
+            i = j
+        else:
+            i += 1
+    return out
+
+
+def _fake_align(key: str, request: dict) -> dict:
+    text = request.get("text", "")
+    words = text.split()
+    path = Path(request.get("audio_path", ""))
+    spans: list[tuple[float, float]] = []
+    if path.is_file() and path.suffix.lower() == ".wav" and words:
+        x, sr = audio_mod.load(path)
+        spans = _bursts(x, sr)
+        if len(spans) != len(words) and spans:
+            start, end = spans[0][0], spans[-1][1]
+            weights = np.array([max(1, len(w)) for w in words], dtype=float)
+            edges = start + (end - start) * np.concatenate([[0.0], np.cumsum(weights) / weights.sum()])
+            spans = [(float(edges[i]), float(edges[i + 1])) for i in range(len(words))]
+    if not spans:
+        spans = [(i * 0.4, i * 0.4 + 0.35) for i in range(len(words))]
+    out_words, chars = [], []
+    for w, (a, b) in zip(words, spans):
+        out_words.append({"text": w, "start": round(a, 3), "end": round(b, 3), "loss": 0.0})
+        step = (b - a) / max(1, len(w))
+        chars += [{"text": ch, "start": round(a + k * step, 3), "end": round(a + (k + 1) * step, 3)}
+                  for k, ch in enumerate(w)]
+    return {"headers": _fake_headers(key), "json": {"words": out_words, "characters": chars, "loss": 0.0}}
+
+
+def _fake_music(key: str, request: dict) -> dict:
+    body = request.get("body") or {}
+    seconds = float(request.get("seconds") or 10.0)
+    _, sr = parse_format(request.get("format") or "pcm_48000")
+    x = fake_music(seconds, json.dumps(body, sort_keys=True), sr=sr)
+    return {"headers": _fake_headers(key), "encoding": "pcm_s16le", "sample_rate": sr, "channels": 2,
+            "audio_b64": _b64(_pcm16(x))}
+
+
+for _op, _faker in (("subscription", _fake_subscription), ("voice", _fake_voice), ("tts", _fake_tts),
+                    ("design", lambda k, r: _fake_previews(k, r, "design")),
+                    ("remix", lambda k, r: _fake_previews(k, r, "remix")),
+                    ("save_voice", _fake_save_voice), ("isolate", _fake_isolate), ("align", _fake_align),
+                    ("music", _fake_music)):
+    replay.register_faker(PROVIDER, _op, _faker)
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# The client
+
+
+def _lower(headers: dict | None) -> dict:
+    return {str(k).lower(): v for k, v in (headers or {}).items()}
+
+
+def _number(value: Any) -> float | None:
+    try:
+        return float(value) if value not in (None, "") else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _check_range(name: str, value: float | int | None, lo: float, hi: float) -> None:
+    if value is not None and not lo <= value <= hi:
+        raise UsageError(f"{name} must be between {lo:g} and {hi:g} (got {value}).")
+
+
+class Client:
+    """ElevenLabs for one film (or none), in one mode.
+
+    `mode` decides the key and the spend pool: autonomous films use Oneiro's capped key. `film` (a film folder or
+    film.json dict) scopes budget checks and ledger rows. `approval_id` is a person's yes for spend that needs one;
+    `rework=True` allows the 1.5x rework allowance on the film's budget.
+    """
+
+    def __init__(self, *, mode: str = "supervised", film: Any = None, approval_id: str | None = None,
+                 rework: bool = False, key: str | None = None, base_url: str | None = None):
+        if mode not in ledger.MODES:
+            raise UsageError(f"Unknown mode {mode!r}; one of {', '.join(ledger.MODES)}.")
+        self.mode = mode
+        # The ledger's budget file says which key each mode spends through (autonomous: Oneiro's capped key).
+        required = (ledger.secret_name(PROVIDER, mode) if hasattr(ledger, "secret_name")
+                    else ("elevenlabs_oneiro" if mode == "autonomous" else PROVIDER))
+        self.key_name = key or required
+        if self.key_name not in ("elevenlabs", "elevenlabs_oneiro"):
+            raise UsageError(f"{self.key_name!r} isn't an ElevenLabs key name.")
+        if required != PROVIDER and self.key_name != required:
+            raise UsageError(f"{mode.capitalize()} films spend through their own capped ElevenLabs key ({required}).")
+        self.provider = self.key_name  # Oneiro's key is its own spend pool in the ledger
+        self.film = film
+        self.approval_id = approval_id
+        self.rework = rework
+        self.base_url = (base_url or BASE_URL).rstrip("/")
+        self._subscription: dict | None = None
+
+    # -- plumbing -------------------------------------------------------------------------------------------------
+
+    @property
+    def replay(self) -> bool:
+        return replay.fake_vendors()
+
+    def _url(self, path: str, query: dict | None = None) -> str:
+        q = urllib.parse.urlencode({k: v for k, v in (query or {}).items() if v is not None})
+        return f"{self.base_url}{path}" + (f"?{q}" if q else "")
+
+    def _auth(self, accept: str = "application/json") -> dict:
+        return {"xi-api-key": secrets.get(self.key_name), "Accept": accept}
+
+    def _live(self, method: str, path: str, *, query: dict | None = None, json_body: Any = None,
+              fields: dict | None = None, files: dict | None = None, accept: str = "application/json",
+              timeout: float = 300) -> tuple[dict, bytes]:
+        headers = self._auth(accept)
+        data = None
+        if files is not None:
+            data, ctype = http.multipart(fields or {}, files)
+            headers["Content-Type"] = ctype
+        _status, resp_headers, body = http.request(method, self._url(path, query), headers=headers,
+                                                   json_body=json_body, data=data, timeout=timeout)
+        return _lower(resp_headers), body
+
+    def _replay(self, op: str, request: dict) -> tuple[dict, dict]:
+        response = replay.respond(PROVIDER, op, request)
+        return _lower(response.get("headers")), response
+
+    def _record(self, op: str, request: dict, headers: dict, response: dict, payload: bytes | None) -> None:
+        if not replay.recording():
+            return
+        keep = {k: v for k, v in headers.items() if k in ("request-id", "character-cost", "content-type")}
+        replay.record(PROVIDER, replay.request_key(PROVIDER, op, request), {"headers": keep, **response},
+                      {"audio": payload} if payload is not None else None)
+
+    def _estimate(self, op: str, model: str, *, chars: int | None = None, seconds: float | None = None
+                  ) -> ledger.Estimate:
+        try:
+            return ledger.estimate(self.provider, op, model=model, chars=chars, seconds=seconds)
+        except UsageError:
+            amount = chars if chars is not None else math.ceil((seconds or 0) / 60.0 * 1000)
+            return ledger.estimate(self.provider, op, amount=amount, model=model,
+                                   basis=f"no registry price for {model}; assumed the upper bound "
+                                         + ("(1 credit per character)" if chars is not None else "(1,000 per minute)"))
+
+    def _spend(self, op: str, est: ledger.Estimate, call: Callable[[], tuple[dict, Any]], note: str | None = None,
+               request: dict | None = None) -> dict:
+        """Budget check and in-flight row (with our request id) first, then the call, then the vendor's id and cost.
+        The row also carries the request's stable key, so a restarted job can find its own in-flight row."""
+        client_rid = f"slate_{uuid.uuid4().hex[:16]}"
+        kw = {"key": replay.request_key(PROVIDER, op, request)} if request is not None else {}
+        with ledger.spend(est, film=self.film, mode=self.mode, approval_id=self.approval_id, rework=self.rework,
+                          note=note or op, **kw) as row:
+            row.request(client_rid)
+            headers, payload = call()
+            vendor_rid = headers.get("request-id") or headers.get("x-request-id") or headers.get("history-item-id")
+            if vendor_rid:
+                row.request(str(vendor_rid))
+            cost = _number(headers.get("character-cost") or headers.get("x-character-count"))
+            row.actual(cost, request_id=vendor_rid, client_request_id=client_rid, replay=self.replay)
+        return {"headers": headers, "payload": payload, "request_id": str(vendor_rid or client_rid),
+                "client_request_id": client_rid, "ledger_row": row.id, "character_cost": cost,
+                "estimate": est.to_dict()}
+
+    def _free(self, op: str, request: dict, path: str, *, method: str = "GET", json_body: Any = None,
+              query: dict | None = None) -> dict:
+        if self.replay:
+            _h, response = self._replay(op, request)
+            return dict(response.get("json") or {}, replay=True)
+        headers, body = self._live(method, path, query=query, json_body=json_body)
+        data = json.loads(body or b"{}")
+        self._record(op, request, headers, {"json": data}, None)
+        return data
+
+    def _audio_result(self, op: str, request: dict, fmt: str, *, path: str, query: dict, json_body: Any = None,
+                      fields: dict | None = None, files: dict | None = None, accept: str = "*/*",
+                      timeout: float = 300) -> tuple[dict, bytes, str, int, int, list | None]:
+        """Run one audio call (replay or live). Returns (headers, data, encoding, rate, channels, fake words)."""
+        if self.replay:
+            headers, response = self._replay(op, request)
+            data = base64.b64decode(response["audio_b64"]) if response.get("audio_b64") else \
+                replay.load_payload(PROVIDER, response.get("replay_key", ""), "audio") or b""
+            rate = response.get("sample_rate") or (parse_format(fmt)[1] if fmt else 0)
+            return (headers, data, response.get("encoding", "pcm_s16le"), int(rate),
+                    int(response.get("channels") or 1), response.get("words"))
+        headers, data = self._live("POST", path, query=query, json_body=json_body, fields=fields, files=files,
+                                   accept=accept, timeout=timeout)
+        kind, rate = parse_format(fmt) if fmt else ("wav", 0)
+        ctype = str(headers.get("content-type", "")).lower()
+        if data[:4] == b"RIFF":
+            encoding = "wav"
+        elif kind == "pcm" and "json" not in ctype:
+            encoding = "pcm_s16le"
+        elif "wav" in ctype:
+            encoding = "wav"
+        else:
+            encoding = "mp3"
+        self._record(op, request, headers, {"encoding": encoding, "sample_rate": rate, "channels": 1}, data)
+        return headers, data, encoding, rate, 1, None
+
+    @staticmethod
+    def write_audio(data: bytes, encoding: str, rate: int, channels: int, out: str | Path) -> dict:
+        """Write returned audio as WAV at `out` (bit for bit for PCM). mp3 is kept beside it and decoded by ffmpeg."""
+        out = Path(out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        source = None
+        if encoding == "pcm_s16le":
+            jsonio.write_text_atomic(out, audio_mod.pcm16_to_wav(data, rate, channels))
+        elif encoding == "wav":
+            jsonio.write_text_atomic(out, data)
+        else:
+            source = out.with_suffix(".mp3")
+            jsonio.write_text_atomic(source, data)
+            ffmpeg = procs.which("ffmpeg")
+            if not ffmpeg:
+                raise MissingPrerequisite(f"ElevenLabs returned mp3 ({source.name}); turning it into a WAV take needs "
+                                          "ffmpeg.", hint="Run `slate doctor --install` (it asks first).")
+            procs.run([ffmpeg, "-v", "error", "-y", "-i", str(source), "-c:a", "pcm_s24le", str(out)], check=True,
+                      timeout=300)
+        return {"file": str(out), "source_file": str(source) if source else None,
+                "sha256": jsonio.sha256(out), "seconds": round(audio_mod.duration(out), 4)}
+
+    # -- free reads -----------------------------------------------------------------------------------------------
+
+    def subscription(self, *, snapshot: bool = False) -> dict:
+        """The plan: tier, characters used and allowed, voice slots, and the best voice format it allows. Free.
+
+        `slate doctor` uses this for the tier. With `snapshot=True` (live only) the remaining balance is recorded in
+        the ledger, so spend made outside Slate (a chat connector) shows up when sessions are reconciled.
+        """
+        if self._subscription is None:
+            data = self._free("subscription", {"key": self.key_name}, "/v1/user/subscription")
+            out = {k: data.get(k) for k in SUBSCRIPTION_FIELDS if k in data}
+            fmt, why = best_format(out.get("tier"))
+            out.update({"lossless": format_allowed("pcm_48000", out.get("tier")) is True,
+                        "best_voice_format": fmt, "format_reason": why, "replay": bool(data.get("replay"))})
+            self._subscription = out
+        out = dict(self._subscription)
+        if snapshot and not self.replay and out.get("character_limit") is not None:
+            ledger.snapshot(self.provider, float(out["character_limit"]) - float(out.get("character_count") or 0),
+                            source="elevenlabs subscription")
+        return out
+
+    def choose_format(self, want: str = "pcm_48000", family: tuple[str, ...] = VOICE_FORMATS) -> dict:
+        """{format, wanted, tier, lossless, reason}: the best allowed format, from the plan's tier."""
+        try:
+            tier = self.subscription().get("tier")
+        except MissingPrerequisite:
+            raise
+        except Exception as exc:  # noqa: BLE001 - a failed read falls back to asking and handling a refusal
+            log.warn(f"couldn't read the ElevenLabs plan ({exc}); asking for {want} and falling back if refused")
+            tier = None
+        fmt, reason = best_format(tier, want, family)
+        return {"format": fmt, "wanted": want, "tier": tier, "lossless": is_lossless(fmt), "reason": reason}
+
+    def voice_info(self, voice_id: str) -> dict:
+        """What ElevenLabs says a voice is (name, category: premade, generated, cloned, professional, famous). Free."""
+        return self._free("voice", {"voice_id": voice_id}, f"/v1/voices/{urllib.parse.quote(voice_id, safe='')}")
+
+    # -- text to speech -------------------------------------------------------------------------------------------
+
+    def tts(self, *, voice_id: str, text: str, model_id: str | None = None, voice_settings: dict | None = None,
+            seed: int | None = None, previous_text: str | None = None, next_text: str | None = None,
+            output_format: str | None = None, out: str | Path | None = None, language_code: str | None = None,
+            note: str | None = None) -> dict:
+        """One read of `text` (audio tags included) with its neighbours' plain words as context.
+
+        Returns the model, format actually used (and any fallback), request ids, billed characters and, with
+        `out`, the WAV written there. In replay the result also carries exact word times (`words`).
+        """
+        if not text or not text.strip():
+            raise UsageError("Nothing to say: the text is empty.")
+        model = model_id or config.model("tts")
+        wanted = output_format or self.choose_format()["format"]
+        body: dict[str, Any] = {"text": text, "model_id": model}
+        settings = {k: v for k, v in (voice_settings or {}).items() if v is not None}
+        if settings:
+            body["voice_settings"] = settings
+        if seed is not None:
+            body["seed"] = int(seed)
+        if previous_text:
+            body["previous_text"] = previous_text
+        if next_text:
+            body["next_text"] = next_text
+        if language_code:
+            body["language_code"] = language_code
+        est = self._estimate("tts", model, chars=len(text))
+        path = f"/v1/text-to-speech/{urllib.parse.quote(voice_id, safe='')}"
+        res, fmt, fallbacks = self._with_fallback("tts", est, format_chain(wanted), lambda f: (
+            {"voice_id": voice_id, "body": body, "format": f}, dict(path=path, query={"output_format": f},
+                                                                    json_body=body)), note=note)
+        return self._finish_audio(res, out, model=model, fmt=fmt, wanted=wanted, fallbacks=fallbacks,
+                                  extra={"voice_id": voice_id, "seed": body.get("seed"), "voice_settings": settings,
+                                         "previous_text": previous_text, "next_text": next_text})
+
+    def _with_fallback(self, op: str, est: ledger.Estimate, chain: list[str],
+                       build: Callable[[str], tuple[dict, dict]], note: str | None = None
+                       ) -> tuple[dict, str, list[dict]]:
+        """Try formats in order. A lossless format the plan refuses (HTTP 400/403/422, nothing billed) falls back to
+        the next; anything else is raised. Each attempt is its own ledger row, so the record stays honest."""
+        fallbacks: list[dict] = []
+        for i, fmt in enumerate(chain):
+            request, kw = build(fmt)
+            try:
+                res = self._spend(op, est, lambda r=request, f=fmt, k=kw: self._audio_call(op, r, f, **k), note=note,
+                                  request=request)
+            except http.HttpError as exc:
+                if exc.status in FORMAT_REJECTED and is_lossless(fmt) and i + 1 < len(chain):
+                    fallbacks.append({"format": fmt, "http": exc.status})
+                    log.warn(f"ElevenLabs refused {fmt} (HTTP {exc.status}); trying {chain[i + 1]}")
+                    continue
+                raise
+            return res, fmt, fallbacks
+        raise UsageError("No output format was accepted.")  # pragma: no cover - the loop returns or raises
+
+    def _audio_call(self, op: str, request: dict, fmt: str, **kw) -> tuple[dict, dict]:
+        headers, data, encoding, rate, channels, words = self._audio_result(op, request, fmt, **kw)
+        return headers, {"data": data, "encoding": encoding, "rate": rate, "channels": channels, "words": words}
+
+    def _finish_audio(self, res: dict, out: str | Path | None, *, model: str, fmt: str, wanted: str | None,
+                      fallbacks: list, extra: dict | None = None) -> dict:
+        payload = res["payload"]
+        lossless = is_lossless(fmt) if fmt else payload["encoding"] in ("wav", "pcm_s16le")
+        result = {"model": model, "format": fmt or payload["encoding"], "format_wanted": wanted,
+                  "format_fallbacks": fallbacks, "lossless": lossless, "encoding": payload["encoding"],
+                  "sample_rate": payload["rate"],
+                  "request_id": res["request_id"], "client_request_id": res["client_request_id"],
+                  "character_cost": res["character_cost"], "ledger_row": res["ledger_row"], "replay": self.replay,
+                  **(extra or {})}
+        if payload.get("words") is not None:
+            result["words"] = payload["words"]
+        if out is not None:
+            result.update(self.write_audio(payload["data"], payload["encoding"], payload["rate"],
+                                           payload["channels"], out))
+        else:
+            result["audio"] = payload["data"]
+        return result
+
+    # -- Voice Design and Remix -----------------------------------------------------------------------------------
+
+    def _previews(self, op: str, request: dict, fmt: str, path: str, body: dict, est: ledger.Estimate,
+                  out_dir: str | Path | None, prefix: str, timeout: float) -> dict:
+        def call(req: dict, f: str):
+            if self.replay:
+                return self._replay(op, req)
+            headers, raw = self._live("POST", path, query={"output_format": f}, json_body=body, timeout=timeout)
+            data = json.loads(raw or b"{}")
+            self._record(op, req, headers, {"json": data}, None)
+            return headers, {"json": data}
+
+        chain = format_chain(fmt)
+        for i, f in enumerate(chain):
+            req = {**request, "format": f}
+            try:
+                res = self._spend(op, est, lambda r=req, ff=f: call(r, ff), request=req)
+            except http.HttpError as exc:
+                if exc.status in FORMAT_REJECTED and is_lossless(f) and i + 1 < len(chain):
+                    log.warn(f"ElevenLabs refused {f} (HTTP {exc.status}); trying {chain[i + 1]}")
+                    continue
+                raise
+            fmt = f
+            break
+        data = res["payload"].get("json") or {}
+        kind, rate = parse_format(fmt)
+        previews = []
+        for i, p in enumerate(data.get("previews") or [], start=1):
+            raw = base64.b64decode(p.get("audio_base_64") or "")
+            row = {"index": i, "generated_voice_id": p.get("generated_voice_id"), "media_type": p.get("media_type"),
+                   "duration_secs": p.get("duration_secs"), "language": p.get("language")}
+            if self.replay and p.get("words") is not None:
+                row["words"] = p["words"]
+            if out_dir is not None:
+                enc = "wav" if raw[:4] == b"RIFF" else ("pcm_s16le" if kind in ("pcm",) else "mp3")
+                row.update(self.write_audio(raw, enc, rate, 1, Path(out_dir) / f"{prefix}_{i}.wav"))
+            else:
+                row["audio"] = raw
+            previews.append(row)
+        return {"previews": previews, "text": data.get("text", body.get("text")), "format": fmt,
+                "request_id": res["request_id"], "client_request_id": res["client_request_id"],
+                "character_cost": res["character_cost"], "ledger_row": res["ledger_row"], "replay": self.replay}
+
+    def design(self, *, voice_description: str, text: str, model_id: str | None = None, seed: int | None = None,
+               guidance_scale: float | None = None, loudness: float | None = None, should_enhance: bool = False,
+               output_format: str | None = None, out_dir: str | Path | None = None, prefix: str = "preview") -> dict:
+        """Voice Design: three previews of a described voice reading `text`. `model_id` is always sent
+        (default: the registry's voice_design model, eleven_ttv_v3), because the API's own default is older."""
+        lo, hi = DESIGN_LIMITS["voice_description"]
+        if not lo <= len(voice_description or "") <= hi:
+            raise UsageError(f"A voice description must be {lo}-{hi} characters (got {len(voice_description or '')}).")
+        lo, hi = DESIGN_LIMITS["text"]
+        if not lo <= len(text or "") <= hi:
+            raise UsageError(f"Voice Design preview text must be {lo}-{hi} characters (got {len(text or '')}); "
+                             "longer text gives steadier previews.")
+        _check_range("guidance_scale", guidance_scale, *DESIGN_LIMITS["guidance_scale"])
+        _check_range("loudness", loudness, *DESIGN_LIMITS["loudness"])
+        model = model_id or config.model("voice_design")
+        fmt = output_format or self.choose_format()["format"]
+        body: dict[str, Any] = {"voice_description": voice_description, "model_id": model, "text": text,
+                                "auto_generate_text": False, "should_enhance": bool(should_enhance),
+                                "stream_previews": False}
+        for k, v in (("seed", seed), ("guidance_scale", guidance_scale), ("loudness", loudness)):
+            if v is not None:
+                body[k] = v
+        est = self._estimate("design", model, chars=len(text))
+        out = self._previews("design", {"body": body, "format": fmt}, fmt, "/v1/text-to-voice/design", body, est,
+                             out_dir, prefix, timeout=600)
+        out["model_id"] = model
+        return out
+
+    def save_voice(self, *, generated_voice_id: str, voice_name: str, voice_description: str,
+                   labels: dict | None = None) -> dict:
+        """Keep a designed preview as a voice in the account (uses a voice slot; no credits)."""
+        body = {"voice_name": voice_name, "voice_description": voice_description,
+                "generated_voice_id": generated_voice_id, "labels": labels or {}}
+        return self._free("save_voice", {"body": body}, "/v1/text-to-voice", method="POST", json_body=body)
+
+    def remix(self, *, voice_id: str, voice_description: str, text: str, prompt_strength: float | None = None,
+              seed: int | None = None, loudness: float | None = None, guidance_scale: float | None = None,
+              output_format: str | None = None, out_dir: str | Path | None = None, prefix: str = "remix") -> dict:
+        """Voice Remix: the same voice with only what the description asks changed (for example, a cleaner
+        recording). A low prompt_strength keeps the voice's identity. Three previews per call."""
+        lo, hi = DESIGN_LIMITS["text"]
+        if not lo <= len(text or "") <= hi:
+            raise UsageError(f"Remix preview text must be {lo}-{hi} characters (got {len(text or '')}).")
+        _check_range("prompt_strength", prompt_strength, 0.0, 1.0)
+        _check_range("loudness", loudness, *DESIGN_LIMITS["loudness"])
+        model = config.model("voice_remix")
+        fmt = output_format or self.choose_format()["format"]
+        body: dict[str, Any] = {"voice_description": voice_description, "text": text, "auto_generate_text": False}
+        for k, v in (("prompt_strength", prompt_strength), ("seed", seed), ("loudness", loudness),
+                     ("guidance_scale", guidance_scale)):
+            if v is not None:
+                body[k] = v
+        est = self._estimate("remix", model, chars=len(text))
+        path = f"/v1/text-to-voice/{urllib.parse.quote(voice_id, safe='')}/remix"
+        out = self._previews("remix", {"voice_id": voice_id, "body": body, "format": fmt}, fmt, path, body, est,
+                             out_dir, prefix, timeout=600)
+        out["model_id"] = model
+        return out
+
+    # -- audio in: isolator and alignment -------------------------------------------------------------------------
+
+    def isolate(self, *, audio: str | Path, out: str | Path | None = None) -> dict:
+        """Voice Isolator: the voice without the background (paid per minute of audio)."""
+        audio = Path(audio)
+        seconds = audio_mod.duration(audio)
+        model = config.model("voice_isolator")
+        est = self._estimate("isolate", model, seconds=seconds)
+        request = {"audio_sha256": jsonio.sha256(audio), "audio_path": str(audio), "seconds": round(seconds, 3)}
+        res = self._spend("isolate", est, lambda: self._audio_call(
+            "isolate", request, "", path="/v1/audio-isolation", query={}, fields={}, files={"audio": audio},
+            timeout=600), request=request)
+        return self._finish_audio(res, out, model=model, fmt="", wanted=None, fallbacks=[],
+                                  extra={"source_audio": str(audio)})
+
+    def align(self, *, audio: str | Path, text: str) -> dict:
+        """Forced Alignment: word and character times for a known transcript (paid per minute). Slate uses it to
+        evaluate against local Whisper, which stays the default aligner: forced alignment always places every word it
+        is given, so it can't tell whether a word was actually said."""
+        audio = Path(audio)
+        if not text.strip():
+            raise UsageError("Forced alignment needs the transcript.")
+        seconds = audio_mod.duration(audio)
+        model = config.model("alignment_eval")
+        est = self._estimate("align", model, seconds=seconds)
+        request = {"audio_sha256": jsonio.sha256(audio), "audio_path": str(audio), "seconds": round(seconds, 3),
+                   "text": text}
+
+        def call():
+            if self.replay:
+                return self._replay("align", request)
+            headers, raw = self._live("POST", "/v1/forced-alignment", fields={"text": text}, files={"file": audio},
+                                      timeout=600)
+            data = json.loads(raw or b"{}")
+            self._record("align", request, headers, {"json": data}, None)
+            return headers, {"json": data}
+
+        res = self._spend("align", est, call, request=request)
+        data = res["payload"].get("json") or {}
+        return {"words": data.get("words") or [], "characters": data.get("characters") or [],
+                "loss": data.get("loss"), "model": model, "request_id": res["request_id"],
+                "client_request_id": res["client_request_id"], "ledger_row": res["ledger_row"],
+                "replay": self.replay}
+
+    # -- music ----------------------------------------------------------------------------------------------------
+
+    def compose_music(self, *, composition_plan: dict | None = None, prompt: str | None = None,
+                      music_length_ms: int | None = None, model_id: str | None = None,
+                      force_instrumental: bool | None = None, seed: int | None = None,
+                      respect_sections_durations: bool = True, output_format: str | None = None,
+                      out: str | Path | None = None, note: str | None = None) -> dict:
+        """Eleven Music: one composition from a plan (sections with durations) or a prompt. `model_id` is always
+        sent (default: the registry's music model, music_v2_5), because the API's own default is older."""
+        if (composition_plan is None) == (prompt is None):
+            raise UsageError("Pass exactly one of composition_plan or prompt.")
+        model = model_id or config.model("music")
+        body: dict[str, Any] = {"model_id": model}
+        if composition_plan is not None:
+            sections = composition_plan.get("sections") or []
+            short = [s.get("section_name") or f"#{i + 1}" for i, s in enumerate(sections)
+                     if int(s.get("duration_ms") or 0) < MUSIC_MIN_SECTION_MS]
+            if short:
+                raise UsageError(f"Music sections must be at least {MUSIC_MIN_SECTION_MS / 1000:g} s: {', '.join(short)}.")
+            body["composition_plan"] = composition_plan
+            body["respect_sections_durations"] = bool(respect_sections_durations)
+            seconds = sum(int(s.get("duration_ms") or 0) for s in sections) / 1000.0
+        else:
+            body["prompt"] = prompt
+            if music_length_ms is not None:
+                _check_range("music_length_ms", music_length_ms, 3000, 600000)
+                body["music_length_ms"] = int(music_length_ms)
+            seconds = music_length_ms / 1000.0 if music_length_ms else DEFAULT_MUSIC_SECONDS
+        if force_instrumental is not None:
+            body["force_instrumental"] = bool(force_instrumental)
+        if seed is not None:
+            body["seed"] = int(seed)
+        limit = (config.model_info(model).get("limits") or {}).get("part_seconds_max")
+        if limit and seconds > limit:
+            log.warn(f"a {seconds:.0f} s part is longer than {limit} s; long plans run out of material, so split it "
+                     "at a story turn")
+        wanted = output_format or self.choose_format("pcm_48000", MUSIC_FORMATS)["format"]
+        est = self._estimate("music", model, seconds=seconds)
+        res, fmt, fallbacks = self._with_fallback("music", est, format_chain(wanted, MUSIC_FORMATS), lambda f: (
+            {"body": body, "format": f, "seconds": seconds},
+            dict(path="/v1/music", query={"output_format": f}, json_body=body, timeout=600)), note=note)
+        return self._finish_audio(res, out, model=model, fmt=fmt, wanted=wanted, fallbacks=fallbacks,
+                                  extra={"seed": body.get("seed"), "seconds_planned": seconds})
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Hooks for the job queue's recovery and balance snapshots (slate.jobs.resume)
+
+
+def remaining_credits(key: str = PROVIDER) -> float:
+    """What's left this period on a key's account, from the free subscription read (replay-aware)."""
+    client = Client(key=key, mode="autonomous" if key == "elevenlabs_oneiro" else "supervised")
+    sub = client.subscription()
+    if sub.get("character_limit") is None:
+        raise MissingPrerequisite("ElevenLabs didn't report a character limit for this plan.")
+    return float(sub["character_limit"]) - float(sub.get("character_count") or 0)
+
+
+def _register_resume_hooks() -> None:
+    # ElevenLabs answers in the same request it bills, so there's no request to poll after a crash (the queue closes
+    # such rows as orphaned and `slate ledger reconcile` settles them). Balances, though, it can read for free.
+    try:
+        from slate.jobs import resume  # noqa: PLC0415
+    except ImportError:
+        return
+    if hasattr(resume, "register_balance"):
+        resume.register_balance(PROVIDER, lambda: remaining_credits(PROVIDER))
+        resume.register_balance("elevenlabs_oneiro", lambda: remaining_credits("elevenlabs_oneiro"))
+
+
+_register_resume_hooks()

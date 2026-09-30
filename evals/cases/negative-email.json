@@ -1,0 +1,14 @@
+{
+ "id": "negative-email",
+ "title": "Writing an email doesn't load Slate",
+ "group": "negative",
+ "status": "active",
+ "plan_points": ["P060", "P187", "P188", "P189", "P190", "P374"],
+ "why": "Slate's trigger has to stay out of everyday requests.",
+ "prompt": "Write a short email to my landlord asking them to fix the heating this week. Just the text, I'll send it myself.",
+ "configs": ["claude-code", "codex", "pursuit-slice", "openclaw"],
+ "expect": [
+  {"check": "skill_not_loaded", "id": "no_slate_skill", "pattern": "^slate(-.+)?$"},
+  {"check": "slate_not_ran"}
+ ]
+}

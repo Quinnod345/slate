@@ -1,0 +1,49 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "slate/captions",
+ "title": "Captions",
+ "description": "timing/captions.json: every caption cue in film time, the reading rules they were built with, and any problem (too fast, too long, too short, or text off the script). The SRT and WebVTT files beside it carry the same cues.",
+ "type": "object",
+ "required": ["film", "language", "fps_num", "fps_den", "settings", "cues", "problems"],
+ "properties": {
+  "generated": {"type": "string"},
+  "film": {"type": "string"},
+  "language": {"type": "string", "minLength": 2},
+  "fps_num": {"type": "integer", "minimum": 1},
+  "fps_den": {"type": "integer", "minimum": 1},
+  "source": {"type": "string"},
+  "files": {"type": "object"},
+  "settings": {
+   "type": "object",
+   "required": ["max_chars", "max_lines", "min_s", "hold_s", "gap_s"],
+   "properties": {
+    "max_chars": {"type": "integer", "minimum": 8},
+    "max_lines": {"type": "integer", "minimum": 1, "maximum": 3},
+    "max_cps": {"type": ["number", "null"], "exclusiveMinimum": 0},
+    "min_s": {"type": "number", "minimum": 0},
+    "warn_s": {"type": "number", "minimum": 0},
+    "hold_s": {"type": "number", "minimum": 0},
+    "gap_s": {"type": "number", "minimum": 0},
+    "merge_short": {"type": "boolean"},
+    "short_words": {"type": "integer", "minimum": 0}
+   }
+  },
+  "cues": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "required": ["shot", "text", "lines", "start", "end"],
+    "properties": {
+     "shot": {"type": "string"},
+     "text": {"type": "string", "minLength": 1},
+     "lines": {"type": ["array", "null"], "items": {"type": "string"}},
+     "start": {"type": "number"},
+     "end": {"type": "number"},
+     "cps": {"type": ["number", "null"]}
+    }
+   }
+  },
+  "problems": {"type": "array", "items": {"type": "string"}},
+  "script_exact": {"type": "boolean"}
+ }
+}

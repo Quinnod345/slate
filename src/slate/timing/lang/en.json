@@ -1,0 +1,63 @@
+{
+ "about": "English for Slate's clock: how numbers and symbols are said, so a lookup for '664' finds a read of 'six sixty-four' and '&' finds 'and'. Every word the matching code knows comes from this file; the code itself holds none. Add a language by adding a sibling file with the same keys (see tests/vectors/spoken.json for the behaviour every implementation must reproduce).",
+ "lang": "en",
+ "normalize": {
+  "about": "A word's match key: NFKC, lower case, then keep letters, digits and these symbols (so '54%' stays distinct from '54').",
+  "keep": "%&$€£¥#@+"
+ },
+ "numbers": {
+  "ones": ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+           "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen"],
+  "tens": ["", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"],
+  "tens_joiner": "-",
+  "words": {},
+  "hundred": "hundred",
+  "scales": ["thousand", "million", "billion", "trillion"],
+  "conjunction": "and",
+  "indefinite": "a",
+  "bare_leading_one": true,
+  "zero_letter": "oh",
+  "point": "point",
+  "negative": "minus",
+  "range": "to",
+  "group_separators": [","],
+  "decimal_separators": ["."],
+  "range_marks": ["–", "—", "-"],
+  "negative_marks": ["-", "−"],
+  "multipliers": {"k": 3, "m": 6, "bn": 9},
+  "ordinal": {
+   "markers": ["st", "nd", "rd", "th"],
+   "irregular": {"one": "first", "two": "second", "three": "third", "five": "fifth", "eight": "eighth",
+                 "nine": "ninth", "twelve": "twelfth"},
+   "y_ending": ["y", "ieth"],
+   "suffix": "th"
+  }
+ },
+ "symbols": {
+  "&": [["and"]],
+  "+": [["plus"]],
+  "@": [["at"]],
+  "#": [["number"], ["hash"]],
+  "=": [["equals"]],
+  "×": [["times"]],
+  "/": [["slash"], ["over"], ["per"]]
+ },
+ "suffixes": {
+  "%": [["percent"], ["per", "cent"]],
+  "x": [["times"]],
+  "×": [["times"]],
+  "°": [["degrees"]]
+ },
+ "currency": {
+  "$": {"plural": ["dollars"], "singular": ["dollar"]},
+  "£": {"plural": ["pounds"], "singular": ["pound"]},
+  "€": {"plural": ["euros"], "singular": ["euro"]},
+  "¥": {"plural": ["yen"], "singular": ["yen"]}
+ },
+ "script": {
+  "about": "Punctuation the script gates read: quotation marks that present someone's words (three or more words inside them), and the dashes some voices mishandle.",
+  "quote_pairs": [["\"", "\""], ["“", "”"], ["«", "»"], ["„", "“"]],
+  "vo_dashes": ["—", "–", "―"],
+  "min_quote_words": 3
+ }
+}

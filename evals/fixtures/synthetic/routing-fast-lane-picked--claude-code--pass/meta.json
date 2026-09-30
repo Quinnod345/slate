@@ -1,0 +1,13 @@
+{
+ "case": "routing-fast-lane-picked",
+ "config": "claude-code",
+ "synthetic": true,
+ "note": "The requester picked the fast lane; the agent takes it (the CLI is denied in evals) and starts no film.",
+ "exit_code": 0,
+ "killed": false,
+ "duration_s": 42.0,
+ "expect": {
+  "status": "PASS",
+  "failed": []
+ }
+}

@@ -1,0 +1,13 @@
+{
+ "id": "neutral",
+ "title": "Neutral film",
+ "format": "review",
+ "language": "en",
+ "fps_num": 30,
+ "fps_den": 1,
+ "width": 1600,
+ "height": 900,
+ "brand": "demo",
+ "mode": "draft",
+ "note": "A brand-free stand-in film for the engine's own type check, vitest and the kit's review sheets (engine/remotion/README.md)."
+}

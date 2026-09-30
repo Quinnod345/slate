@@ -1,0 +1,15 @@
+{
+ "case": "triggering-launch-video",
+ "config": "codex",
+ "synthetic": true,
+ "note": "Runs Slate's CLI without ever loading the slate skill.",
+ "exit_code": 0,
+ "killed": false,
+ "duration_s": 42.0,
+ "expect": {
+  "status": "FAIL",
+  "failed": [
+   "skill_loaded:slate"
+  ]
+ }
+}

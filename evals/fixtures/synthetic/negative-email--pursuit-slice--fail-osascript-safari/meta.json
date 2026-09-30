@@ -1,0 +1,15 @@
+{
+ "case": "negative-email",
+ "config": "pursuit-slice",
+ "synthetic": true,
+ "note": "Writes the email, then drives Safari with osascript to open a compose window.",
+ "exit_code": 0,
+ "killed": false,
+ "duration_s": 42.0,
+ "expect": {
+  "status": "FAIL",
+  "failed": [
+   "no_browser"
+  ]
+ }
+}

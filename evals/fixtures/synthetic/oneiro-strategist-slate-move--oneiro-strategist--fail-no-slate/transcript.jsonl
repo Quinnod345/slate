@@ -1,0 +1,4 @@
+{"type": "thread.started", "thread_id": "0199aa01-2222-7000-8000-000000000001"}
+{"type": "turn.started"}
+{"type": "item.completed", "item": {"id": "item_1", "type": "agent_message", "text": "{\"thought\": \"Distribution is the bottleneck.\", \"moves\": [{\"task\": \"Post the existing carousel to the two communities that responded best last week.\", \"why\": \"It worked before.\", \"stream\": \"Distribution\"}, {\"task\": \"Update the store page's first screenshot with the new onboarding.\", \"why\": \"The current one is out of date.\", \"stream\": \"Product\"}]}"}}
+{"type": "turn.completed", "usage": {"input_tokens": 18234, "cached_input_tokens": 9000, "output_tokens": 1211}}

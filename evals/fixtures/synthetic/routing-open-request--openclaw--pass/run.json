@@ -1,0 +1,23 @@
+{
+ "runId": "run_01",
+ "status": "ok",
+ "result": {
+  "payloads": [
+   {
+    "text": "Happy to. One question first: a full production, or a quick generated clip?"
+   }
+  ]
+ },
+ "meta": {
+  "agentMeta": {
+   "sessionId": "0199bb02-4444",
+   "model": "gpt-5.6-sol"
+  },
+  "toolSummary": {
+   "calls": 1,
+   "tools": [
+    "read"
+   ]
+  }
+ }
+}

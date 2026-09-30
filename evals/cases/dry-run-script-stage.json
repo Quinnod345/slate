@@ -1,0 +1,25 @@
+{
+ "id": "dry-run-script-stage",
+ "title": "A dry run on the demo brand reaches the script stage and stops for the pre-production sitting",
+ "group": "dry-run",
+ "status": "active",
+ "plan_points": ["P186", "P187", "P188", "P189", "P190", "P362", "P374"],
+ "why": "The first stretch of a real production, end to end through the CLI, in replay mode: make the film, write the script as data, build it through the script gates, then stop, because the next thing is your pre-production sitting.",
+ "prompt": "Make a 15-second 9:16 reel for {brand} announcing its new feature. Take it as far as the script stage.",
+ "vars": {"brand": "the demo brand"},
+ "configs": ["claude-code", "codex", "pursuit-slice", "openclaw"],
+ "needs_eval_env": true,
+ "timeout_s": 900,
+ "expect": [
+  {"check": "skill_loaded", "skill": "slate", "before": {"slate": "new"}},
+  {"check": "slate_ran", "sub": "new", "args": "--brand[= ]demo\\b", "why": "a film folder for the demo brand"},
+  {"check": "file_written", "path": "(^|/)script/script\\.json$", "why": "the one hand-edited script file"},
+  {"check": "slate_ran", "sub": "script build", "succeeded": true, "why": "storyboard.json and SCRIPT.md built through the script gates"},
+  {"check": "order", "steps": [{"slate": "new"}, {"write": "(^|/)script/script\\.json$"}, {"slate": "script build"}]},
+  {"check": "slate_not_ran", "id": "stops_at_preproduction", "subs": ["voice", "timing", "emit-events", "check", "make", "render", "score", "mix", "sfx", "gen", "plates", "capture", "master", "deliver", "review", "variant"], "why": "nothing past the script before the pre-production sitting"},
+  {"check": "final_message_matches", "id": "names_the_sitting", "pattern": "(?i)pre-?production", "why": "it hands over to the pre-production sitting"},
+  {"check": "no_vendor_spend"},
+  {"check": "artifact_exists", "glob": "films/*/script/storyboard.json", "why": "the build really wrote the storyboard"}
+ ],
+ "notes": "The run's environment has SLATE_FAKE_VENDORS=1 and a zero-cap budget, so even a mistaken --live couldn't spend. OpenClaw's Gateway can't take that environment, so this case runs there only with --allow-host-env."
+}

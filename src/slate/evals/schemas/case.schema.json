@@ -1,0 +1,75 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "https://slate.local/schemas/eval-case.schema.json",
+ "title": "Slate eval case",
+ "description": "One prompt, the configurations it runs on, and machine-checkable expectations over the agent's transcript. Semantic checks (known graders, their parameters, regexes that compile, configurations that exist) run in slate.evals.suite.",
+ "type": "object",
+ "required": ["id", "title", "group", "status", "prompt", "configs", "expect"],
+ "additionalProperties": false,
+ "properties": {
+  "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{2,63}$"},
+  "title": {"type": "string", "minLength": 8},
+  "group": {"enum": ["triggering", "routing", "negative", "dry-run", "oneiro"]},
+  "status": {"enum": ["active", "pending"], "description": "pending: runs only once its precondition holds"},
+  "plan_points": {"type": "array", "items": {"type": "string", "pattern": "^P[0-9]{3}$"}, "uniqueItems": true},
+  "why": {"type": "string"},
+  "prompt": {"type": "string", "minLength": 1, "description": "What the agent is told. {name} placeholders come from vars, plus {workdir} (the run's sandbox folder)."},
+  "vars": {"type": "object", "additionalProperties": {"type": "string"}},
+  "configs": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}},
+  "runner": {"enum": ["agent", "strategist"], "description": "agent (default): one of the four configurations. strategist: Oneiro's strategist harness."},
+  "needs_eval_env": {"type": "boolean", "description": "The expected behaviour makes films or could spend, so the run must get replay mode and sandbox folders. Configurations whose tools can't take the eval environment skip the case unless --allow-host-env is passed."},
+  "timeout_s": {"type": "integer", "minimum": 10, "maximum": 3600},
+  "block": {"type": "array", "uniqueItems": true, "items": {"enum": ["aside_actions"]}, "description": "Harness-level blocks for this case, mapped per configuration in configs.json."},
+  "setup": {
+   "type": "object",
+   "additionalProperties": false,
+   "properties": {
+    "files": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Files written into {workdir} before the run: relative path -> text ({workdir} expands)."},
+    "film": {
+     "type": "object",
+     "required": ["id", "brand", "format"],
+     "additionalProperties": false,
+     "properties": {
+      "id": {"type": "string"},
+      "brand": {"type": "string"},
+      "format": {"type": "string"},
+      "mode": {"type": "string"}
+     },
+     "description": "A film scaffolded with slate.state in {workdir}/films before the run, when that module is available. setup.files still land on top."
+    }
+   }
+  },
+  "precondition": {
+   "type": "object",
+   "required": ["all"],
+   "additionalProperties": false,
+   "properties": {
+    "summary": {"type": "string"},
+    "all": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/precondition_check"}},
+    "info": {"type": "array", "items": {"$ref": "#/$defs/precondition_check"}}
+   }
+  },
+  "harness": {"type": "object", "description": "Inputs for a non-agent runner (the strategist harness)."},
+  "expect": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/expectation"}},
+  "notes": {"type": "string"}
+ },
+ "$defs": {
+  "expectation": {
+   "type": "object",
+   "required": ["check"],
+   "properties": {
+    "check": {"type": "string"},
+    "id": {"type": "string"},
+    "why": {"type": "string"}
+   }
+  },
+  "precondition_check": {
+   "type": "object",
+   "required": ["check"],
+   "properties": {
+    "check": {"enum": ["file_exists", "file_matches", "strategist_prompt_mentions", "http_json"]},
+    "why": {"type": "string"}
+   }
+  }
+ }
+}

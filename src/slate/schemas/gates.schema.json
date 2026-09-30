@@ -1,0 +1,53 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "https://slate.local/schemas/gates.schema.json",
+ "title": "Slate gate report",
+ "description": "qa/gates.json in a film folder: the latest result of every gate (docs/ARCHITECTURE.md §6). Written by slate.gates.write_report; every result also lands in qa/history.jsonl. Only PASS counts as passed; UNCHECKED is never a pass; a result turns STALE when any input's sha256 changes.",
+ "x-slate-files": ["qa/gates.json"],
+ "type": "object",
+ "required": ["gates"],
+ "additionalProperties": false,
+ "properties": {
+  "generated": {"type": "string", "description": "do not edit by hand: slate qa"},
+  "gates": {
+   "type": "object",
+   "description": "Gate name to its latest result.",
+   "additionalProperties": {"$ref": "#/$defs/result"}
+  }
+ },
+ "$defs": {
+  "result": {
+   "type": "object",
+   "description": "One gate verdict with its evidence, the engine that measured it and the hashes of what it read.",
+   "required": ["gate", "status", "summary", "evidence", "engine", "inputs", "checked_at", "details"],
+   "additionalProperties": false,
+   "properties": {
+    "gate": {"type": "string", "minLength": 1},
+    "status": {"enum": ["PASS", "FAIL", "REVIEW", "UNCHECKED", "STALE"]},
+    "summary": {"type": "string", "minLength": 1, "description": "One line a person can act on."},
+    "evidence": {"type": "array", "items": {"type": "string"}, "description": "Paths and measurements."},
+    "engine": {
+     "type": "object",
+     "description": "The tool that made the verdict and its version: the OCR engine and recognition level, the Whisper model, the ffmpeg build. Extra keys add detail.",
+     "required": ["name", "version"],
+     "properties": {
+      "name": {"type": "string", "minLength": 1},
+      "version": {"type": "string", "minLength": 1}
+     }
+    },
+    "inputs": {
+     "type": "object",
+     "description": "Film-relative (or absolute) path to the sha256 it had when checked; null for a file the gate expected but didn't find.",
+     "additionalProperties": {
+      "anyOf": [
+       {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+       {"type": "null"}
+      ]
+     }
+    },
+    "checked_at": {"type": "string", "minLength": 1, "description": "ISO-8601 with the offset."},
+    "details": {"type": "object"}
+   }
+  }
+ }
+}

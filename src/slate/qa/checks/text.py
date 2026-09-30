@@ -1,0 +1,512 @@
+"""Text gates: what the audience reads and hears.
+
+- ocr           Apple Vision reads the whole picture every 0.25 s (the one OCR engine; UNCHECKED when it can't run);
+- banned_words  the brand's one banned-word list (brand pack `truth.banned_words`) against the script, the captions
+                and the OCR of the picture. The films kept three copies of their list and two drifted apart;
+- readtime      every on-screen statement in the storyboard stays readable long enough once it is fully built:
+                max(1.5 s, 0.4 s + 0.3 s per word), timed from the OCR, within its own shot (±0.5 s);
+- captions      at most 2 lines of 42 characters, at most 17 characters a second, at least 1 s each, in order and
+                never overlapping, and word for word the booth script;
+- claims        every claim approved or sourced (the story module's check when it's installed).
+"""
+
+from __future__ import annotations
+
+import difflib
+import importlib
+import re
+from pathlib import Path
+from typing import Any, Iterator
+
+from slate import __version__, gates
+from slate.errors import MissingPrerequisite, SlateError
+from slate.gates import GateResult
+from slate.qa import brandinfo, ocr as ocrmod, textmatch
+from slate.qa.checks import Sub, combine, plural
+from slate.qa.film import FilmContext, context, iter_storyboard_shots
+
+# The script's text fields (src/slate/schemas/script.schema.json): what a shot says (vo), shows (on_screen) and
+# depicts (picture). The script gate counts all three for banned words, and so does this gate, so they never disagree.
+SHOT_TEXT = ("vo", "on_screen", "picture")
+SPOKEN_OR_SHOWN = ("vo", "on_screen")
+CAPTION_RULES = {"max_lines": 2, "max_chars": 42, "max_cps": 17.0, "min_seconds": 1.0}
+
+
+def _texts(value: Any) -> list[str]:
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, list):
+        return [x for x in value if isinstance(x, str)]
+    return []
+
+
+def script_shots(script: dict) -> Iterator[tuple[str, dict]]:
+    """(where, shot) for every shot (or line) of every act, in script order."""
+    for ai, act in enumerate(script.get("acts") or [] if isinstance(script, dict) else []):
+        if not isinstance(act, dict):
+            continue
+        for coll in ("shots", "lines"):
+            for si, shot in enumerate(act.get(coll) or []):
+                if isinstance(shot, dict):
+                    label = f" {shot['id']}" if shot.get("id") else ""
+                    yield f"acts[{ai}].{coll}[{si}]{label}", shot
+
+
+def _claim_text(c: Any) -> str | None:
+    if isinstance(c, str):
+        return c
+    if isinstance(c, dict):
+        for key in ("text", "claim", "approved"):
+            if isinstance(c.get(key), str):
+                return c[key]
+    return None
+
+
+def script_strings(script: dict, fields: tuple[str, ...] = SHOT_TEXT) -> Iterator[tuple[str, str]]:
+    """(where, text) for the script's title, each shot's text fields, its claims and its quotes."""
+    if isinstance(script, dict) and isinstance(script.get("title"), str):
+        yield "title", script["title"]
+    for where, shot in script_shots(script):
+        for f in fields:
+            for t in _texts(shot.get(f)):
+                yield f"{where}.{f}", t
+        for i, c in enumerate(shot.get("claims") or []):
+            t = _claim_text(c)
+            if t:
+                yield f"{where}.claims[{i}]", t
+        for i, q in enumerate(shot.get("quotes") or []):
+            if isinstance(q, dict) and isinstance(q.get("text"), str):
+                yield f"{where}.quotes[{i}]", q["text"]
+
+
+def _ocr_unchecked(gate: str, ctx: FilmContext, exc: Exception, inputs: dict) -> GateResult:
+    engine = ocrmod.unavailable_engine(exc)
+    hint = getattr(exc, "hint", None)
+    return GateResult.unchecked(gate, f"{str(exc).splitlines()[0]}", evidence=[f"next: {hint}"] if hint else [],
+                                engine=engine, inputs=inputs)
+
+
+def _sweep_inputs(ctx: FilmContext, sw) -> list:
+    return [ctx.REGISTRY, *ctx.master_records(), *(sw.files if sw else [])]
+
+
+# ---------------------------------------------------------------------------------------------- ocr
+def ocr(film_dir: Path) -> GateResult:
+    """Apple Vision reads the whole picture every 0.25 s at full width; UNCHECKED (never another engine) when it can't."""
+    ctx = context(film_dir)
+    base_inputs = ctx.inputs([ctx.REGISTRY, *ctx.master_records()])
+    ok, info = ocrmod.available()
+    if not ok:
+        return GateResult.unchecked("ocr", f"{ocrmod.ENGINE_NAME} isn't available here: {info.get('reason')}",
+                                    evidence=[f"next: {info.get('hint')}"], engine=info, inputs=base_inputs)
+    try:
+        sw = ocrmod.sweep(ctx)
+    except (ocrmod.OcrUnavailable, MissingPrerequisite) as exc:
+        return _ocr_unchecked("ocr", ctx, exc, base_inputs)
+    except SlateError as exc:
+        return GateResult.unchecked("ocr", f"the OCR sweep couldn't read the picture: {exc}", engine=info,
+                                    inputs=base_inputs)
+    with_text = sum(1 for s in sw.samples if s.get("lines"))
+    subs = []
+    if sw.missing_acts:
+        subs.append(Sub("coverage", "UNCHECKED", f"acts {', '.join(map(str, sw.missing_acts))} have no render to read",
+                        ["next: slate render"]))
+    if len(sw.samples) < sw.expected:
+        subs.append(Sub("frames", "UNCHECKED", f"only {len(sw.samples)} of {sw.expected} sampled frames could be read",
+                        [sw.cache]))
+    if not subs:
+        subs.append(Sub("sweep", "PASS", f"read {len(sw.samples)} frames every {sw.every} s from the {sw.source}; "
+                        f"{with_text} carry text", [sw.cache]))
+    return combine("ocr", subs, engine=sw.engine, inputs=ctx.inputs(_sweep_inputs(ctx, sw)),
+                   details={"source": sw.source, "files": sw.files, "every_s": sw.every, "samples": len(sw.samples),
+                            "with_text": with_text, "cache": sw.cache})
+
+
+# ---------------------------------------------------------------------------------------------- banned words
+def banned_words(film_dir: Path) -> GateResult:
+    """The brand's one banned-word list against the script, the captions and the OCR of the picture."""
+    ctx = context(film_dir)
+    ok, ocr_info = ocrmod.available()
+    engine = gates.engine("slate banned-word match (whole words, any case)", __version__, ocr=ocr_info)
+    pack, where = brandinfo.load(ctx.brand)
+    read: list = ["film.json", "script/script.json", brandinfo.pack_file(ctx.brand)]
+    if pack is None:
+        return GateResult.unchecked("banned_words", f"the brand's banned words can't be read: {where}",
+                                    evidence=["next: slate brand validate"], engine=engine, inputs=ctx.inputs(read))
+    words = brandinfo.banned_words(pack)
+    if words is None:
+        return GateResult.unchecked("banned_words", "the brand pack doesn't say which words are banned "
+                                    "(truth.banned_words)", evidence=[where], engine=engine, inputs=ctx.inputs(read))
+    source = f"{ctx.brand} brand pack truth.banned_words ({plural(len(words), 'word')}, {where})"
+    pattern = textmatch.banned_pattern(words)
+    hits: list[str] = []
+    subs: list[Sub] = []
+    # the script
+    script = ctx.script
+    if script is None:
+        subs.append(Sub("script", "UNCHECKED", "there's no script/script.json to check", ["next: slate script build"]))
+    else:
+        n = 0
+        for path, text in script_strings(script):
+            n += 1
+            hits += [f"script {path}: {w!r} in “{text[:80]}”" for w in textmatch.find_banned(text, pattern)]
+        subs.append(Sub("script", "PASS", f"script: {n} texts checked (VO, on screen, picture, claims, quotes)"))
+    # the captions
+    cap = ctx.captions_path()
+    spoken = ctx.spoken_lines()
+    from slate.qa import film as filmmod  # noqa: PLC0415
+
+    read += [cap] if cap else list(filmmod.CAPTION_CANDIDATES)
+    if cap is not None:
+        try:
+            cues = textmatch.load_cues(cap)
+            for c in cues:
+                hits += [f"captions cue {c['index']} ({c['start']:.2f} s): {w!r}" for w in
+                         textmatch.find_banned(c["text"], pattern)]
+            subs.append(Sub("captions", "PASS", f"captions: {plural(len(cues), 'cue')} checked"))
+        except (OSError, ValueError, KeyError) as exc:
+            subs.append(Sub("captions", "UNCHECKED", f"couldn't read {ctx.rel(cap)}: {exc}"))
+    elif spoken:
+        subs.append(Sub("captions", "UNCHECKED", "the film has spoken lines but no captions yet",
+                        ["next: slate voice captions"]))
+    # the picture
+    sw = None
+    if not ok:
+        subs.append(Sub("picture", "UNCHECKED", f"the picture isn't read: {ocr_info.get('reason')}",
+                        [f"next: {ocr_info.get('hint')}"]))
+    else:
+        try:
+            sw = ocrmod.sweep(ctx)
+            for s in sw.samples:
+                for ln in s.get("lines") or []:
+                    hits += [f"picture at {s['t']:.2f} s (film frame {s['frame']}): {w!r} in “{ln.get('text')}”"
+                             for w in textmatch.find_banned(ln.get("text", ""), pattern)]
+            if sw.missing_acts:
+                subs.append(Sub("picture", "UNCHECKED", f"acts {', '.join(map(str, sw.missing_acts))} have no render "
+                                "to read", ["next: slate render"]))
+            else:
+                subs.append(Sub("picture", "PASS", f"picture: {len(sw.samples)} frames read every {sw.every} s",
+                                [sw.cache]))
+        except (ocrmod.OcrUnavailable, MissingPrerequisite, SlateError) as exc:
+            subs.append(Sub("picture", "UNCHECKED", f"the picture isn't read: {str(exc).splitlines()[0]}",
+                            [f"next: {getattr(exc, 'hint', '') or 'slate render'}"]))
+    if hits:
+        subs.insert(0, Sub("hits", "FAIL", f"{plural(len(hits), 'banned word')} found: {hits[0]}", hits[:60]))
+    return combine("banned_words", subs, engine=engine, inputs=ctx.inputs(read + _sweep_inputs(ctx, sw)),
+                   details={"list": source, "hits": hits[:200]})
+
+
+# ---------------------------------------------------------------------------------------------- read time
+def _statements(ctx: FilmContext) -> tuple[list[tuple[str, str]], str | None]:
+    """(shot, statement) pairs to time, and where they came from."""
+    for label, shots in (("script/storyboard.json", list(iter_storyboard_shots(ctx.storyboard or {}))),
+                         ("timing/shots.json", ctx.shots)):
+        # a source counts only if it says what's on screen (an empty on_screen says "nothing"; no key says nothing)
+        if any("on_screen" in s for s in shots):
+            items = [(str(s.get("id")), part) for s in shots for part in textmatch.statement_parts(s.get("on_screen"))]
+            return items, label
+    return [], None
+
+
+def readtime(film_dir: Path) -> GateResult:
+    """Every on-screen statement stays readable for max(1.5 s, 0.4 s + 0.3 s per word) once fully built."""
+    ctx = context(film_dir)
+    ok, info = ocrmod.available()
+    engine = gates.engine("slate read-time matcher", __version__, ocr=info)
+    items, source = _statements(ctx)
+    read = ["script/storyboard.json", ctx.SHOTS]
+    if source is None:
+        return GateResult.unchecked("readtime", "there's no storyboard or shot list with on-screen text yet",
+                                    evidence=["next: slate script build"], engine=engine, inputs=ctx.inputs(read))
+    if not items:
+        return combine("readtime", [Sub("statements", "PASS", f"{source} has no on-screen statements to time")],
+                       engine=engine, inputs=ctx.inputs(read))
+    if not ok:
+        return GateResult.unchecked("readtime", f"{ocrmod.ENGINE_NAME} isn't available here: {info.get('reason')}",
+                                    evidence=[f"next: {info.get('hint')}"], engine=info, inputs=ctx.inputs(read))
+    try:
+        sw = ocrmod.sweep(ctx)
+    except (ocrmod.OcrUnavailable, MissingPrerequisite, SlateError) as exc:
+        return _ocr_unchecked("readtime", ctx, exc, ctx.inputs(read))
+    every = sw.every
+    texts = [(s["t"], textmatch.squash(sw.text_at(s))) for s in sw.samples]
+    shots = ctx.shot_by_id
+    rows, short, unplaced, missing_picture = [], [], [], []
+    rendered = {a["index"] for a in ctx.acts} - set(sw.missing_acts)
+    for sid, text in items:
+        s = shots.get(sid)
+        if s is None:
+            unplaced.append(f"{sid}: '{text}' (the shot isn't in shots.json)")
+            continue
+        if ctx.act_of_frame(int(s["frame_in"])) not in rendered:
+            missing_picture.append(sid)
+            continue
+        t0, t1 = ctx.secs_of(int(s["frame_in"])), ctx.secs_of(int(s["frame_out"]))
+        hit_times = [t for t, ft in texts if t0 - 0.5 <= t <= t1 + 0.5 and textmatch.present(text, ft)]
+        longest = textmatch.longest_run(hit_times, every)
+        need = textmatch.need_seconds(text)
+        since = f" from {hit_times[0]:.2f} s" if hit_times else ""
+        row = f"{sid} '{text}' {longest:.2f} s{since} (needs {need:.2f} s)"
+        rows.append(row)
+        if longest + every < need:  # one OCR interval of slack: the run is sampled, not exact
+            short.append(row)
+    subs = []
+    if unplaced:
+        subs.append(Sub("unplaced", "FAIL", f"statements in shots that don't exist: {unplaced[0]}", unplaced))
+    if short:
+        subs.append(Sub("short", "FAIL", f"{plural(len(short), 'statement')} not readable long enough: {short[0]}",
+                        short + ["—"] + rows))
+    if missing_picture:
+        subs.append(Sub("picture", "UNCHECKED", f"shots {', '.join(sorted(set(missing_picture)))} aren't rendered yet",
+                        ["next: slate render"]))
+    if not short and not unplaced and rows:
+        subs.append(Sub("statements", "PASS", f"all {plural(len(rows), 'statement')} stay readable long enough "
+                        f"(OCR every {every} s)", rows))
+    return combine("readtime", subs, engine=gates.engine("slate read-time matcher", __version__, ocr=sw.engine),
+                   inputs=ctx.inputs(read + _sweep_inputs(ctx, sw)),
+                   details={"statements": len(items), "source": source, "short": short, "rows": rows})
+
+
+# ---------------------------------------------------------------------------------------------- captions
+def _caption_rules(ctx: FilmContext) -> dict:
+    rules = dict(CAPTION_RULES)
+    try:
+        formats = importlib.import_module("slate.formats")
+        fmt = formats.load(ctx.film.get("format")) if ctx.film.get("format") else {}
+        cfg = (fmt or {}).get("captions") or {}
+        for ours, theirs in (("max_lines", "max_lines"), ("max_chars", "max_chars_per_line"), ("max_chars", "max_chars"),
+                             ("max_cps", "max_cps"), ("min_seconds", "min_seconds")):
+            if cfg.get(theirs) is not None:
+                rules[ours] = cfg[theirs]
+    except Exception:  # noqa: BLE001 - formats not installed, or no captions section: the defaults stand
+        pass
+    return rules
+
+
+def captions(film_dir: Path) -> GateResult:
+    """At most 2 lines of 42 characters and 17 characters a second, at least 1 s each, ordered, never overlapping,
+    and word for word the booth script."""
+    ctx = context(film_dir)
+    engine = gates.engine("slate captions check", __version__)
+    cap = ctx.captions_path()
+    spoken = ctx.spoken_lines()
+    from slate.qa import film as filmmod  # noqa: PLC0415
+
+    read = ["timing/vo_words.json", "script/storyboard.json", *([cap] if cap else filmmod.CAPTION_CANDIDATES)]
+    if cap is None:
+        if spoken:
+            return GateResult.unchecked("captions", "the film has spoken lines but no captions yet",
+                                        evidence=["next: slate voice captions"], engine=engine, inputs=ctx.inputs(read))
+        if ctx.storyboard is None and not ctx.vo_words:
+            return GateResult.unchecked("captions", "there's no script or voice timing yet to caption",
+                                        evidence=["next: slate script build"], engine=engine, inputs=ctx.inputs(read))
+        return combine("captions", [Sub("none", "PASS", "the film has no spoken lines, so it needs no captions")],
+                       engine=engine, inputs=ctx.inputs(read))
+    rules = _caption_rules(ctx)
+    try:
+        cues = textmatch.load_cues(cap)
+    except (OSError, ValueError, KeyError) as exc:
+        return GateResult.unchecked("captions", f"couldn't read {ctx.rel(cap)}: {exc}", engine=engine,
+                                    inputs=ctx.inputs(read))
+    problems = []
+    for k, c in enumerate(cues):
+        dur = c["end"] - c["start"]
+        label = f"cue {c['index']} ({c['start']:.2f} s) “{c['text'][:48]}”"
+        if len(c["lines"]) > rules["max_lines"]:
+            problems.append(f"{label}: {len(c['lines'])} lines (max {rules['max_lines']})")
+        long = [ln for ln in c["lines"] if len(ln) > rules["max_chars"]]
+        if long:
+            problems.append(f"{label}: a line of {max(len(x) for x in long)} characters (max {rules['max_chars']})")
+        if dur <= 0:
+            problems.append(f"{label}: ends before it starts")
+            continue
+        cps = len(" ".join(ln.strip() for ln in c["lines"])) / dur
+        if cps > rules["max_cps"] + 1e-9:
+            problems.append(f"{label}: {cps:.1f} characters a second (max {rules['max_cps']:g})")
+        if dur + 1e-6 < rules["min_seconds"]:
+            problems.append(f"{label}: on screen {dur:.2f} s (min {rules['min_seconds']:g} s)")
+        if k + 1 < len(cues) and cues[k + 1]["start"] < c["end"] - 1e-6:
+            problems.append(f"{label}: overlaps the next cue")
+        if k and c["start"] < cues[k - 1]["start"]:
+            problems.append(f"{label}: out of order")
+    subs = []
+    if problems:
+        subs.append(Sub("rules", "FAIL", f"{plural(len(problems), 'caption problem')}: {problems[0]}", problems[:60]))
+    else:
+        subs.append(Sub("rules", "PASS", f"{plural(len(cues), 'cue')} within {rules['max_lines']} lines of "
+                        f"{rules['max_chars']}, ≤ {rules['max_cps']:g} characters a second, "
+                        f"≥ {rules['min_seconds']:g} s"))
+    if spoken:
+        script_words = " ".join(line for _sid, line in spoken).split()
+        caption_words = " ".join(c["text"] for c in cues).split()
+        if script_words != caption_words:
+            diff = next((f"script “{' '.join(script_words[i1:i2])}” / captions “{' '.join(caption_words[j1:j2])}”"
+                         for op, i1, i2, j1, j2 in difflib.SequenceMatcher(a=script_words, b=caption_words,
+                                                                           autojunk=False).get_opcodes()
+                         if op != "equal"), "different")
+            subs.append(Sub("script", "FAIL", f"the captions aren't the script word for word: {diff}", [diff]))
+        else:
+            subs.append(Sub("script", "PASS", f"word for word the script ({plural(len(script_words), 'word')})"))
+    else:
+        subs.append(Sub("script", "UNCHECKED", "there's no booth script (vo_words.json or storyboard lines) to compare "
+                        "the captions with", ["next: slate timing"]))
+    return combine("captions", subs, engine=engine, inputs=ctx.inputs(read), details={"file": ctx.rel(cap),
+                   "cues": len(cues), "rules": rules})
+
+
+# ---------------------------------------------------------------------------------------------- claims
+_DIGIT = re.compile(r"\d")
+STORY_CLAIM_GATES = ("script.claims", "script.numbers", "script.quotes")
+
+
+def _story_claims(ctx: FilmContext, script: dict, pack: dict | None) -> list[GateResult] | None:
+    """The story module's own claim, number and quote gates, through its §12 entry point
+    check_script(script, *, brand, fmt, truth=None, film=None). None when it isn't installed."""
+    try:
+        story_gates = importlib.import_module("slate.story.gates")
+    except ImportError:
+        return None
+    fn = getattr(story_gates, "check_script", None)
+    if not callable(fn):
+        return None
+    fmt = {}
+    try:
+        fmt = importlib.import_module("slate.formats").load(ctx.film.get("format")) or {}
+    except Exception:  # noqa: BLE001 - no formats module or no such format: the story gates use their defaults
+        fmt = {}
+    import inspect  # noqa: PLC0415
+
+    params = inspect.signature(fn).parameters
+    kwargs: dict[str, Any] = {"brand": pack or {}, "fmt": fmt}
+    if "truth" in params:
+        kwargs["truth"] = ctx.read_json("brief/truth.json")
+    if "film" in params:
+        kwargs["film"] = ctx.film
+    engine = gates.engine("slate.story.gates check_script", "unknown")
+    try:
+        results = [r if isinstance(r, GateResult) else GateResult.from_dict(r) for r in fn(script, **kwargs) or []]
+    except Exception as exc:  # noqa: BLE001 - the story module failing is an unchecked claim check, not a crash
+        return [GateResult.unchecked("script.claims", f"the story module's claim check couldn't run: "
+                                     f"{type(exc).__name__}: {exc}", engine=engine)]
+    picked = [r for r in results if r.gate in STORY_CLAIM_GATES]
+    if picked:
+        return picked
+    stopped = "; ".join(f"{r.gate} {r.status}: {r.summary}" for r in results[:3]) or "no results"
+    return [GateResult.unchecked("script.claims", f"the story module's checks stopped before the claims ({stopped})",
+                                 evidence=[e for r in results for e in r.evidence][:20],
+                                 engine=results[0].engine if results else engine)]
+
+
+def _sources_index(ctx: FilmContext, script: dict) -> set[str]:
+    """Pinned source ids: brief/truth.json's sources (and a script-level "sources" list, for older scripts)."""
+    ids: set[str] = set()
+    truth = ctx.read_json("brief/truth.json") or {}
+    for src in (truth.get("sources"), script.get("sources")):
+        if isinstance(src, dict):
+            ids |= {str(k) for k in src}
+        elif isinstance(src, list):
+            ids |= {str(x.get("id")) for x in src if isinstance(x, dict) and x.get("id")}
+            ids |= {str(x) for x in src if isinstance(x, str)}
+    return ids
+
+
+def _refs(value: Any) -> list[str]:
+    items = value if isinstance(value, list) else [value] if value else []
+    out = []
+    for r in items:
+        ref = r.get("ref") if isinstance(r, dict) else r
+        if isinstance(ref, str) and ref.strip():
+            out.append(ref.split(":", 1)[0] if not ref.startswith(("http://", "https://")) else ref)
+    return out
+
+
+def claims(film_dir: Path) -> GateResult:
+    """Every claim approved or sourced: the story module's claim, number and quote gates when it's installed;
+    otherwise every explicit claim and every number said or shown must cite a pinned source (brief/truth.json) or
+    match the brand's approved claims. Autonomous films use approved claims only: a sourced but unapproved claim
+    parks the film for a person."""
+    ctx = context(film_dir)
+    read = ["script/script.json", "film.json", "brief/truth.json"]
+    script = ctx.script
+    engine = gates.engine("slate claims check", __version__)
+    if script is None:
+        return GateResult.unchecked("claims", "there's no script/script.json to check",
+                                    evidence=["next: slate script build"], engine=engine, inputs=ctx.inputs(read))
+    pack, where = brandinfo.load(ctx.brand)
+    read.append(brandinfo.pack_file(ctx.brand))
+    story = _story_claims(ctx, script, pack)
+    if story:
+        subs = [Sub(r.gate, r.status, f"{r.gate}: {r.summary}", list(r.evidence)) for r in story]
+        if pack is None:
+            subs.append(Sub("brand", "UNCHECKED", f"the brand pack couldn't be read ({where}), so approved claims and "
+                            "the never-claim list weren't part of the check"))
+        return combine("claims", subs, engine={**(story[0].engine or {}), "via": "slate.story.gates"},
+                       inputs=ctx.inputs(read), details={"brand": where, "mode": ctx.mode})
+    truth = ctx.read_json("brief/truth.json") or {}
+    approved = {textmatch.squash(t) for c in (brandinfo.approved_claims(pack) if pack else [])
+                for t in (brandinfo.claim_text(c), str(c.get("id") or "")) if t}
+    approved.discard("")
+    truth_claims = {str(c.get("id")): c for c in truth.get("claims") or [] if isinstance(c, dict) and c.get("id")}
+    never = [n for n in (brandinfo.never_claim(pack) if pack else []) if n.strip()]
+    never += [str(x.get("text") if isinstance(x, dict) else x) for x in truth.get("never_claim") or [] if x]
+    index = _sources_index(ctx, script)
+    unsourced, bad_refs, sourced_only, ok_rows, never_hits = [], [], [], [], []
+
+    def judge(where_: str, text: str, refs: list[str], explicit_approved: str | None = None) -> None:
+        squashed = textmatch.squash(explicit_approved or text)
+        if squashed and any(a == squashed or (len(a) > 8 and (a in squashed or squashed in a)) for a in approved):
+            ok_rows.append(f"{where_}: approved claim “{text[:70]}”")
+            return
+        unknown = [r for r in refs if r not in index]
+        if unknown:
+            bad_refs.append(f"{where_}: cites {', '.join(unknown)}, which brief/truth.json doesn't pin")
+            return
+        if refs:
+            (sourced_only if ctx.mode == "autonomous" else ok_rows).append(f"{where_}: sourced “{text[:70]}”")
+            return
+        unsourced.append(f"{where_}: “{text[:80]}” has no source and isn't an approved claim")
+
+    for where_, shot in script_shots(script):
+        shot_refs = _refs(shot.get("sources")) + _refs(shot.get("source"))
+        explicit = list(enumerate(shot.get("claims") or []))
+        for i, c in explicit:
+            text = _claim_text(c) or ""
+            if isinstance(c, str) and c in truth_claims:  # a researched claim by id: sourced by the truth pack
+                judge(f"{where_}.claims[{i}]", truth_claims[c].get("text") or c, [str(truth_claims[c].get("source"))])
+                continue
+            refs = _refs(c.get("source")) if isinstance(c, dict) else []
+            judge(f"{where_}.claims[{i}]", text, refs or shot_refs,
+                  explicit_approved=c.get("approved") if isinstance(c, dict) else None)
+        if explicit or shot.get("sample") or shot.get("sample_data"):
+            continue  # the shot names its claims (or is sample data): its numbers are those claims'
+        for f in SPOKEN_OR_SHOWN:
+            for t in _texts(shot.get(f)):
+                if _DIGIT.search(t):
+                    judge(f"{where_}.{f}", t, shot_refs)
+    for path, text in script_strings(script, SPOKEN_OR_SHOWN):
+        for n in never:
+            if textmatch.squash(n) and textmatch.squash(n) in textmatch.squash(text):
+                never_hits.append(f"{path}: says “{n}”, which the brand never claims")
+    subs = []
+    if never_hits:
+        subs.append(Sub("never_claim", "FAIL", never_hits[0], never_hits))
+    if unsourced and pack is None:
+        # without the pack, an unsourced claim might still be on its approved list: unknown, not failed
+        subs.append(Sub("unsourced", "UNCHECKED", f"{plural(len(unsourced), 'claim')} without a source, and the "
+                        f"brand's approved claims can't be read ({where})", unsourced[:40]))
+    elif unsourced:
+        subs.append(Sub("unsourced", "FAIL", f"{plural(len(unsourced), 'claim')} without a source: {unsourced[0]}",
+                        unsourced[:40]))
+    if bad_refs:
+        subs.append(Sub("sources", "FAIL", bad_refs[0], bad_refs))
+    if sourced_only and pack is None:
+        subs.append(Sub("approval", "UNCHECKED", "an autonomous film uses approved claims only, and the brand's "
+                        f"approved claims can't be read ({where})", sourced_only))
+    elif sourced_only:
+        subs.append(Sub("approval", "REVIEW", f"{plural(len(sourced_only), 'claim')} sourced but not on the brand's "
+                        "approved list: an autonomous film uses approved claims only", sourced_only))
+    if not subs:
+        subs.append(Sub("claims", "PASS", f"{plural(len(ok_rows), 'claim')} approved or sourced" if ok_rows else
+                        "the script makes no claims and states no numbers", ok_rows[:40]))
+    return combine("claims", subs, engine=engine, inputs=ctx.inputs(read),
+                   details={"brand": where, "approved_claims": len(approved), "mode": ctx.mode})

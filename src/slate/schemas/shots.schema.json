@@ -1,0 +1,52 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "slate/shots",
+ "title": "timing/shots.json",
+ "description": "Every shot on the film's master clock, frame-exact and contiguous (FILMROOT pipeline/tools/make_shots.py's shape). frame_out is exclusive. fps and size come from film.json. Written by `slate timing`; engines read it and never re-derive a boundary.",
+ "type": "object",
+ "required": ["fps_num", "fps_den", "width", "height", "total_frames", "acts", "shots"],
+ "properties": {
+  "generated": {"type": "string"},
+  "fps_num": {"type": "integer", "minimum": 1},
+  "fps_den": {"type": "integer", "minimum": 1},
+  "width": {"type": "integer", "minimum": 1},
+  "height": {"type": "integer", "minimum": 1},
+  "storyboard_version": {"type": ["string", "null"]},
+  "storyboard_seconds": {"type": "number"},
+  "total_frames": {"type": "integer", "minimum": 0},
+  "total_seconds": {"type": "number"},
+  "acts": {
+   "type": "array",
+   "items": {"type": "object", "required": ["index", "name", "shots"],
+             "properties": {"index": {"type": "integer", "minimum": 1}, "name": {"type": "string"},
+                            "shots": {"type": "array", "items": {"type": "string"}},
+                            "frame_in": {"type": "integer"}, "frame_out": {"type": "integer"}, "frames": {"type": "integer"}}}
+  },
+  "shots": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "required": ["id", "act", "frame_in", "frame_out", "frames", "sec_in", "sec_out"],
+    "properties": {
+     "id": {"type": "string"},
+     "act": {"type": "integer", "minimum": 1},
+     "act_name": {"type": "string"},
+     "frame_in": {"type": "integer", "minimum": 0},
+     "frame_out": {"type": "integer", "minimum": 0},
+     "frames": {"type": "integer", "minimum": 0},
+     "sec_in": {"type": "number"},
+     "sec_out": {"type": "number"},
+     "storyboard_sec_in": {"type": "number"},
+     "storyboard_dur": {"type": "number"},
+     "rounding_in_sec": {"type": "number"},
+     "rounding_dur_sec": {"type": "number"},
+     "vo_take": {"type": "string"},
+     "vo_lead_sec": {"type": "number"},
+     "vo_frame": {"type": "integer"},
+     "vo_words": {"type": "object"},
+     "events": {"type": "array"}
+    }
+   }
+  }
+ }
+}

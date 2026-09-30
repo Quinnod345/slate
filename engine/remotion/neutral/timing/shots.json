@@ -1,0 +1,42 @@
+{
+ "generated": "hand-made neutral stand-in for engine tests and kit review sheets; not a real film",
+ "fps_num": 30,
+ "fps_den": 1,
+ "width": 1600,
+ "height": 900,
+ "total_frames": 300,
+ "acts": [
+  {
+   "index": 1,
+   "name": "Review",
+   "shots": [
+    "N01",
+    "N02"
+   ]
+  }
+ ],
+ "shots": [
+  {
+   "id": "N01",
+   "act": 1,
+   "frame_in": 0,
+   "frame_out": 150,
+   "frames": 150,
+   "sec_in": 0.0,
+   "sec_out": 5.0,
+   "vo": "",
+   "on_screen": ""
+  },
+  {
+   "id": "N02",
+   "act": 1,
+   "frame_in": 150,
+   "frame_out": 300,
+   "frames": 150,
+   "sec_in": 5.0,
+   "sec_out": 10.0,
+   "vo": "",
+   "on_screen": ""
+  }
+ ]
+}

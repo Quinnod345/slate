@@ -1,0 +1,15 @@
+{
+ "case": "triggering-social-reel",
+ "config": "claude-code",
+ "synthetic": true,
+ "note": "A scoped brief should go straight to production, but it asks the full-or-quick question anyway.",
+ "exit_code": 0,
+ "killed": false,
+ "duration_s": 42.0,
+ "expect": {
+  "status": "FAIL",
+  "failed": [
+   "lane_question_not_asked"
+  ]
+ }
+}

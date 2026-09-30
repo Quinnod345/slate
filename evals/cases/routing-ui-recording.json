@@ -1,0 +1,15 @@
+{
+ "id": "routing-ui-recording",
+ "title": "A UI screen-recording request goes to video-verifier, not Slate",
+ "group": "routing",
+ "status": "active",
+ "plan_points": ["P060", "P187", "P188", "P189", "P190", "P374"],
+ "why": "Recording an app to check its motion is QA, not film-making. Slate's broad trigger mustn't steal it from video-verifier.",
+ "prompt": "Screen-record the sign-up flow of my app in the iOS Simulator and check the transitions frame by frame for jank or flicker.",
+ "configs": ["claude-code", "codex", "pursuit-slice", "openclaw"],
+ "expect": [
+  {"check": "skill_loaded", "skill": "video-verifier"},
+  {"check": "skill_not_loaded", "id": "not_slate", "pattern": "^slate(-.+)?$"},
+  {"check": "slate_not_ran"}
+ ]
+}

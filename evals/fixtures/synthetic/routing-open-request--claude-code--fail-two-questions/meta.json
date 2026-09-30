@@ -1,0 +1,17 @@
+{
+ "case": "routing-open-request",
+ "config": "claude-code",
+ "synthetic": true,
+ "note": "Asks two questions, and loads a Higgsfield video skill before anyone picked the fast lane.",
+ "exit_code": 0,
+ "killed": false,
+ "duration_s": 42.0,
+ "expect": {
+  "status": "FAIL",
+  "failed": [
+   "asks_one_question",
+   "fast_lane_not_used",
+   "no_vendor_skill_first"
+  ]
+ }
+}

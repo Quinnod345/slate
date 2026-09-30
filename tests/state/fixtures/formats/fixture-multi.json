@@ -1,0 +1,10 @@
+{
+ "name": "fixture-multi",
+ "note": "Test fixture: a format that comes in several aspects.",
+ "aspects": {"16:9": {"width": 1280, "height": 720}, "1:1": {"width": 720, "height": 720}, "9:16": {"width": 720, "height": 1280}},
+ "default_aspect": "16:9",
+ "fps": 29.97,
+ "runtime": {"min": 6, "max": 30},
+ "loudness": {"integrated": -14, "tp": -1},
+ "budget": {"elevenlabs_credits": {"min": 500, "max": 2000}, "higgsfield_usd": 0}
+}

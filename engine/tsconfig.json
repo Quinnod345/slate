@@ -1,0 +1,22 @@
+{
+ "compilerOptions": {
+  "target": "ES2022",
+  "module": "ESNext",
+  "moduleResolution": "Bundler",
+  "jsx": "react-jsx",
+  "strict": true,
+  "resolveJsonModule": true,
+  "esModuleInterop": true,
+  "skipLibCheck": true,
+  "noEmit": true,
+  "lib": ["ES2022", "DOM", "DOM.Iterable"],
+  "types": [],
+  "paths": {
+   "@slate/kit": ["./remotion/kit"],
+   "@slate/kit/*": ["./remotion/kit/*"],
+   "@film/data": ["./remotion/data/neutral-film-data.ts"]
+  }
+ },
+ "include": ["remotion/**/*.ts", "remotion/**/*.tsx", "web/**/*.ts", "web/**/*.tsx"],
+ "exclude": ["node_modules", "tests", "remotion/kit/node"]
+}

@@ -1,0 +1,116 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "slate/script",
+ "title": "script/script.json",
+ "description": "The one hand-edited script file: acts of shots (or lines) with id, vo, on_screen, picture, sources, claims and notes. `slate script build` gates it and writes script/storyboard.json and script/SCRIPT.md. Unknown keys are allowed and carried through.",
+ "type": "object",
+ "required": ["acts"],
+ "properties": {
+  "title": {"type": "string"},
+  "version": {"type": "string", "description": "the change note for this draft"},
+  "language": {"type": "string"},
+  "ids": {"enum": ["as-written", "renumber"], "description": "renumber: the written ids are draft ids; shots are numbered <id_prefix>01… in order and mentions are remapped"},
+  "id_prefix": {"type": "string", "pattern": "^[A-Za-z]+$"},
+  "defaults": {"type": "object", "properties": {"enter_token": {"type": "string"}}},
+  "timing": {
+   "type": "object",
+   "description": "Overrides for placement and pace (seconds, words a second).",
+   "properties": {
+    "lead": {"type": "number", "minimum": 0},
+    "tail": {"type": "number", "minimum": 0},
+    "act_tail": {"type": "number", "minimum": 0},
+    "min_tail": {"type": "number", "minimum": 0},
+    "speech_rate": {"type": "number", "exclusiveMinimum": 0},
+    "max_pace": {"type": "number", "exclusiveMinimum": 0},
+    "pace_headroom": {"type": "number", "minimum": 1},
+    "two_word_share": {"type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1}
+   },
+   "additionalProperties": false
+  },
+  "rules": {
+   "type": "object",
+   "description": "This film's own script rules, on top of the gates every film gets.",
+   "properties": {
+    "vo_dashes": {"enum": ["allow", "review", "fail"]},
+    "first_line": {"type": "string"},
+    "every_shot_sourced": {"type": "boolean"},
+    "on_screen_max_words": {"type": "number", "minimum": 1},
+    "read_time": {"type": "object"}
+   }
+  },
+  "acts": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/act"}}
+ },
+ "$defs": {
+  "act": {
+   "type": "object",
+   "required": ["name"],
+   "properties": {
+    "name": {"type": "string", "minLength": 1},
+    "job": {"type": "string"},
+    "intent": {"type": "string"},
+    "shots": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/shot"}},
+    "lines": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/shot"}}
+   },
+   "anyOf": [{"required": ["shots"]}, {"required": ["lines"]}]
+  },
+  "shot": {
+   "type": "object",
+   "required": ["id"],
+   "properties": {
+    "id": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$"},
+    "vo": {"type": "string"},
+    "on_screen": {"oneOf": [{"type": "string"}, {"type": "array", "items": {"type": "string"}}]},
+    "picture": {"type": "string"},
+    "transition": {"type": "string"},
+    "build": {"type": "string"},
+    "sound": {"type": "string"},
+    "notes": {"type": "string"},
+    "source": {"type": "string"},
+    "sources": {"oneOf": [{"type": "string"}, {"type": "array", "items": {"$ref": "#/$defs/source_ref"}}]},
+    "claims": {"type": "array", "items": {"$ref": "#/$defs/claim"}},
+    "quotes": {"type": "array", "items": {"$ref": "#/$defs/quote"}},
+    "enter_token": {"type": "string"},
+    "lead": {"type": "number", "minimum": 0},
+    "hold": {"type": "number", "minimum": 0},
+    "dur": {"type": "number", "exclusiveMinimum": 0},
+    "act_end": {"type": "boolean"},
+    "events": {"type": "array", "items": {"$ref": "#/$defs/event"}}
+   }
+  },
+  "source_ref": {
+   "oneOf": [
+    {"type": "string", "minLength": 1, "description": "<source id> or <source id>:<where>, or a note"},
+    {"type": "object", "required": ["ref"], "properties": {"ref": {"type": "string"}, "numbers": {"type": "array"}}}
+   ]
+  },
+  "claim": {
+   "oneOf": [
+    {"type": "string", "minLength": 1, "description": "an approved claim's id or text, or a claim id in brief/truth.json"},
+    {"type": "object",
+     "properties": {"text": {"type": "string"}, "approved": {"type": "string"}, "source": {"type": "string"},
+                    "numbers": {"type": "array"}},
+     "anyOf": [{"required": ["text"]}, {"required": ["approved"]}]}
+   ]
+  },
+  "quote": {
+   "type": "object",
+   "required": ["text"],
+   "properties": {"text": {"type": "string"}, "by": {"type": "string"}, "role": {"type": "string"},
+                  "source": {"type": "string"}, "real": {"type": "boolean"}}
+  },
+  "event": {
+   "type": "object",
+   "required": ["id"],
+   "properties": {
+    "id": {"type": "string"},
+    "t": {"type": "number"},
+    "word": {"type": "string"},
+    "occ": {"type": "integer", "minimum": 1},
+    "offset": {"type": "number"},
+    "land": {"type": "string", "pattern": "^[^:]+:[0-9]*\\.?[0-9]+$"},
+    "note": {"type": "string"}
+   },
+   "anyOf": [{"required": ["t"]}, {"required": ["word"]}]
+  }
+ }
+}

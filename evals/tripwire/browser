@@ -1,0 +1,12 @@
+#!/bin/sh
+# Slate evals: a stand-in web browser.
+#
+# During an eval the runner sets BROWSER to this script, so anything that honours $BROWSER (Python's webbrowser,
+# Remotion Studio, git web--browse, npm docs, gh browse …) lands here instead of opening a real browser. It writes one
+# line to the run's tripwire log and exits 0, so the caller thinks it worked and doesn't fall back to the Mac's default
+# browser. Any line in that log fails the no-browser check.
+log="${SLATE_EVAL_TRIPWIRE_LOG:-}"
+if [ -n "$log" ]; then
+  printf '%s\tBROWSER\tppid=%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$PPID" "$*" >> "$log" 2>/dev/null
+fi
+exit 0

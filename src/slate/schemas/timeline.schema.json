@@ -1,0 +1,36 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "slate/timeline",
+ "title": "timing/timeline.json",
+ "description": "The authored beats resolved to frames (FILMROOT pipeline/tools/timeline.py's shape): frame is shot-relative (the landing), film_frame is absolute, start_frame is back-computed so a landing hits its word at 90% of travel. `estimated` marks an anchor word that wasn't heard.",
+ "type": "object",
+ "required": ["fps", "shots"],
+ "properties": {
+  "generated": {"type": "string"},
+  "fps": {"type": "number", "exclusiveMinimum": 0},
+  "fps_num": {"type": "integer"},
+  "fps_den": {"type": "integer"},
+  "shots": {
+   "type": "object",
+   "additionalProperties": {
+    "type": "array",
+    "items": {
+     "type": "object",
+     "required": ["id", "frame", "sec", "film_frame"],
+     "properties": {
+      "id": {"type": "string"},
+      "frame": {"type": "integer"},
+      "sec": {"type": "number"},
+      "film_frame": {"type": "integer"},
+      "start_frame": {"type": "integer"},
+      "start_sec": {"type": "number"},
+      "dur": {"type": "number"},
+      "ease": {"type": "string"},
+      "anchored_word_sec": {"type": "number"},
+      "estimated": {"type": "boolean"}
+     }
+    }
+   }
+  }
+ }
+}

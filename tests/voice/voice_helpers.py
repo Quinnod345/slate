@@ -1,0 +1,135 @@
+"""Helpers for the voice tests: a neutral film, a neutral brand, speech-like audio and a stand-in Whisper.
+
+Nothing here names a real brand, voice or person. The film runs at 25 fps and 720x1280 on purpose: sizes and frame
+rates are film data, never constants in the code under test. (A uniquely named module, so it never collides with
+another folder's conftest.)
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import numpy as np
+
+from slate import jsonio
+
+LINES = [
+    ("S01", 4.0, "Every film starts with one line."),
+    ("S02", 5.5, "Slate hears each word, then fits it to the cut."),
+    ("S03", 3.0, ""),
+    ("S04", 4.5, "Warm voices, never whispered."),
+]
+
+BRAND = {
+    "name": "voicetest",
+    "voice": {"provider": "elevenlabs", "source": "library", "voice_id": "demo-narrator-01",
+              "voice_name": "Demo narrator", "seed": 7, "lexicon": ["Slate"],
+              "candidates": [{"voice_id": "demo-narrator-02", "name": "Second narrator", "source": "library"}]},
+}
+
+FPS = (25, 1)
+
+
+def film_json(film_id: str = "demo-reel", *, mode: str = "supervised", voice: dict | None = None,
+              language: str = "en") -> dict:
+    """A complete film.json (schemas/film.schema.json) for a neutral 9:16 reel."""
+    return {
+        "schema": 1, "id": film_id, "title": "Voice test film", "format": "test-reel", "format_source": None,
+        "language": language, "fps_num": FPS[0], "fps_den": FPS[1], "width": 720, "height": 1280, "aspect": "9:16",
+        "brand": BRAND["name"], "brand_dir": None,
+        "voice": voice or {"source": "brand", "provider": "elevenlabs", "voice_id": BRAND["voice"]["voice_id"],
+                           "model": None, "settings": None, "note": "from the brand pack"},
+        "targets": {"runtime_s": 17.0, "runtime_range_s": None, "lufs": -14.0, "true_peak": -1.0},
+        "budget": {"elevenlabs": 5000, "higgsfield": 0, "rework_factor": 1.5},
+        "mode": mode, "generation": "none", "parent": None, "derivation": None, "pins": {}, "pin_log": [],
+        "models": {}, "versions": [{"n": 1, "started_at": "2026-09-30T12:00:00+00:00", "note": "first version",
+                                    "delivered_at": None}],
+        "created_at": "2026-09-30T12:00:00+00:00", "slate_version": "0.1.0",
+    }
+
+
+def make_film(films: Path, film_id: str = "demo-reel", *, lines=LINES, mode: str = "supervised",
+              voice: dict | None = None, timing: bool = True) -> Path:
+    film = films / film_id
+    (film / "script").mkdir(parents=True, exist_ok=True)
+    jsonio.write_atomic(film / "film.json", film_json(film_id, mode=mode, voice=voice))
+    jsonio.write_atomic(film / "script" / "storyboard.json",
+                        {"acts": [{"name": "Act 1", "shots": [{"id": i, "dur": d, "vo": v} for i, d, v in lines]}]})
+    if timing:
+        t, rows = 0.0, []
+        for i, d, _v in lines:
+            rows.append({"id": i, "act": 1, "frame_in": int(round(t * FPS[0] / FPS[1])),
+                         "frame_out": int(round((t + d) * FPS[0] / FPS[1]))})
+            t += d
+        jsonio.write_atomic(film / "timing" / "shots.json",
+                            {"fps_num": FPS[0], "fps_den": FPS[1], "width": 720, "height": 1280,
+                             "total_frames": rows[-1]["frame_out"], "shots": rows})
+    return film
+
+
+def speech(words: list[str], seed: str = "v", sr: int = 48000):
+    """Speech-like audio (one harmonic burst per word) and its exact word times."""
+    from slate.vendors.elevenlabs import fake_speech
+
+    return fake_speech(" ".join(words), seed, sr=sr)
+
+
+def write_speech(path: Path, text: str, seed: str = "v", sr: int = 48000, extra: np.ndarray | None = None):
+    from slate.voice import audio
+
+    x, words = speech(text.split(), seed, sr)
+    if extra is not None:
+        x = np.concatenate([x, extra])
+    audio.write_wav(path, x, sr, 24)
+    return words
+
+
+def whisper_doc(words: list[dict], text: str | None = None) -> dict:
+    """What the Whisper CLI writes (segments -> words with a leading space, as Whisper does)."""
+    return {"text": text if text is not None else " ".join(w["word"] for w in words),
+            "segments": [{"start": words[0]["start"] if words else 0, "end": words[-1]["end"] if words else 0,
+                          "text": text, "avg_logprob": -0.2,
+                          "words": [{"word": " " + w["word"], "start": w["start"], "end": w["end"],
+                                     "probability": 0.95} for w in words]}],
+            "language": "en"}
+
+
+def real_take(vf, shot: str, text: str, *, seed: str = "real", extra: np.ndarray | None = None,
+              sent: str | None = None, take: str = "t01") -> tuple[Path, list[dict]]:
+    """A non-replayed take made by hand (as a real read would land), registered and selected in the manifest.
+    `text` is what the audio says; `sent` what was sent (default: the script line)."""
+    from slate.voice.film import now
+
+    wav = vf.take_dir(shot) / f"{take}.wav"
+    wav.parent.mkdir(parents=True, exist_ok=True)
+    words = write_speech(wav, text, seed=seed, extra=extra)
+    vf.save_take_json(shot, take, {"shot": shot, "take": take, "text": vf.line(shot).text,
+                                   "sent": sent or vf.line(shot).text, "model": "eleven_v4", "voice_id": "v",
+                                   "voice_settings": {}, "seed": 1, "format": "pcm_48000", "request_id": "req_real",
+                                   "file": vf.rel(wav), "sha256": jsonio.sha256(wav), "seconds": 1.0,
+                                   "replay": False, "created_at": now(), "stages": {}})
+    vf.update_take(shot, take, raw=vf.rel(wav), clean=None, paced=None, align=None, replay=False)
+    vf.select_take(shot, take)
+    return wav, words
+
+
+FAKE_WHISPER = r'''#!{python}
+"""A stand-in for the Whisper CLI in tests: answers from a map of real paths to transcripts."""
+import json, os, sys
+args = sys.argv[1:]
+out = args[args.index("--output_dir") + 1]
+files = []
+for a in args:
+    if a.startswith("--"):
+        break
+    files.append(a)
+plan = json.load(open(os.environ["SLATE_TEST_WHISPER_MAP"]))
+with open(os.environ["SLATE_TEST_WHISPER_LOG"], "a") as log:
+    log.write(json.dumps(args) + "\n")
+for f in files:
+    doc = plan.get(os.path.realpath(f))
+    if doc is None:
+        continue
+    stem = os.path.splitext(os.path.basename(f))[0]
+    json.dump(doc, open(os.path.join(out, stem + ".json"), "w"))
+'''

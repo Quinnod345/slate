@@ -1,0 +1,17 @@
+{
+ "id": "routing-fast-lane-brand",
+ "title": "Brand work never takes the fast lane, even when the ask names Higgsfield",
+ "group": "routing",
+ "status": "active",
+ "plan_points": ["P059", "P060", "P187", "P188", "P189", "P190", "P374"],
+ "why": "The fast lane is never for brand work: a brand's film goes through Slate, where any generation is estimated, ledgered and judged against the brand's references.",
+ "prompt": "Make a quick Higgsfield clip for {brand}'s launch.",
+ "vars": {"brand": "the demo brand"},
+ "configs": ["claude-code", "codex", "pursuit-slice", "openclaw"],
+ "needs_eval_env": true,
+ "expect": [
+  {"check": "skill_loaded", "skill": "slate"},
+  {"check": "fast_lane_not_used"},
+  {"check": "no_vendor_spend"}
+ ]
+}

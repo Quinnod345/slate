@@ -1,0 +1,19 @@
+{
+ "case": "negative-email",
+ "config": "codex",
+ "synthetic": true,
+ "note": "The run failed before the agent did anything (a usage limit), so nothing can be judged.",
+ "exit_code": 1,
+ "killed": false,
+ "duration_s": 42.0,
+ "expect": {
+  "status": "UNCHECKED",
+  "failed": [],
+  "unchecked": [
+   "no_slate_skill",
+   "slate_not_ran",
+   "no_browser",
+   "slate_children_browser_none"
+  ]
+ }
+}

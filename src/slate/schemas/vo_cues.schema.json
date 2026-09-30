@@ -1,0 +1,33 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "slate/vo_cues",
+ "title": "timing/vo_cues.json",
+ "description": "Where each approved take plays: `at` seconds into its shot. `dur` appears only when a leaked tail was trimmed. The films' shape; written by `slate timing`.",
+ "type": "object",
+ "required": ["cues"],
+ "properties": {
+  "generated": {"type": "string"},
+  "title": {"type": "string"},
+  "voice": {"type": ["string", "null"]},
+  "lead": {"type": ["number", "null"]},
+  "cues": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "required": ["shot", "at", "file"],
+    "properties": {
+     "shot": {"type": "string"},
+     "at": {"type": "number", "minimum": 0},
+     "type": {"type": "string"},
+     "stem": {"type": "string"},
+     "file": {"type": "string"},
+     "gain": {"type": "number"},
+     "fade_in": {"type": "number", "minimum": 0},
+     "fade_out": {"type": "number", "minimum": 0},
+     "dur": {"type": "number", "exclusiveMinimum": 0},
+     "note": {"type": "string"}
+    }
+   }
+  }
+ }
+}

@@ -1,0 +1,1186 @@
+{
+ "about": "Shared vectors for how Slate hears numbers and symbols. pytest checks them against slate.timing.spoken and slate.timing.words (tests/story/test_timing_spoken.py); vitest checks them in the engine (engine/tests/story/spoken_vectors.test.ts). Any implementation must reproduce them exactly, in order.",
+ "rules": {
+  "normalize": "A word's match key: Unicode NFKC, then lower case, then keep only letters, digits and the language table's kept symbols (normalize.keep, '%&$€£¥#@+' in English).",
+  "forms": "forms(token) lists the ways a token is said, most usual first. Punctuation around the token is dropped first (spoken symbols and a leading minus stay). A plain word is said as itself; punctuation alone says nothing.",
+  "match": "find(words, query, occ): scan the heard words left to right. At each word that has a key, try each target (the query's own key first, then each spoken form's keys joined) against the joined keys of 1 to min(max_run, form length + 2) heard words and take the longest run that equals one. Failing that, a heard word that isn't all letters (a number or a symbol) matches on its own when one of its targets is the query's own key ('12' for 'twelve', '%' for 'percent'). Each hit counts one occurrence and skips past its run; span is [first, last+1) of the occ-th hit, or null. targets and heard_targets list the match keys, for implementations that don't compute spoken forms themselves.",
+  "max_run": 6
+ },
+ "lang": "en",
+ "table": "src/slate/timing/lang/en.json",
+ "normalize": [
+  {
+   "in": "Sixty-four.",
+   "key": "sixtyfour"
+  },
+  {
+   "in": "45%",
+   "key": "45%"
+  },
+  {
+   "in": "Café",
+   "key": "café"
+  },
+  {
+   "in": "&",
+   "key": "&"
+  },
+  {
+   "in": "you're",
+   "key": "youre"
+  },
+  {
+   "in": "You’re",
+   "key": "youre"
+  },
+  {
+   "in": "ＡＢＣ",
+   "key": "abc"
+  },
+  {
+   "in": "$15.",
+   "key": "$15"
+  },
+  {
+   "in": "—",
+   "key": ""
+  },
+  {
+   "in": "Stone.",
+   "key": "stone"
+  }
+ ],
+ "forms": [
+  {
+   "token": "664",
+   "forms": [
+    [
+     "six",
+     "hundred",
+     "sixty-four"
+    ],
+    [
+     "six",
+     "hundred",
+     "and",
+     "sixty-four"
+    ],
+    [
+     "six",
+     "sixty-four"
+    ],
+    [
+     "six",
+     "six",
+     "four"
+    ]
+   ]
+  },
+  {
+   "token": "&",
+   "forms": [
+    [
+     "and"
+    ]
+   ]
+  },
+  {
+   "token": "45%",
+   "forms": [
+    [
+     "forty-five",
+     "percent"
+    ],
+    [
+     "forty-five",
+     "per",
+     "cent"
+    ]
+   ]
+  },
+  {
+   "token": "2,500",
+   "forms": [
+    [
+     "two",
+     "thousand",
+     "five",
+     "hundred"
+    ],
+    [
+     "twenty-five",
+     "hundred"
+    ]
+   ]
+  },
+  {
+   "token": "$15",
+   "forms": [
+    [
+     "fifteen",
+     "dollars"
+    ]
+   ]
+  },
+  {
+   "token": "$1",
+   "forms": [
+    [
+     "one",
+     "dollar"
+    ]
+   ]
+  },
+  {
+   "token": "1st",
+   "forms": [
+    [
+     "first"
+    ]
+   ]
+  },
+  {
+   "token": "22nd",
+   "forms": [
+    [
+     "twenty-second"
+    ]
+   ]
+  },
+  {
+   "token": "2.5",
+   "forms": [
+    [
+     "two",
+     "point",
+     "five"
+    ]
+   ]
+  },
+  {
+   "token": "0.5",
+   "forms": [
+    [
+     "zero",
+     "point",
+     "five"
+    ],
+    [
+     "point",
+     "five"
+    ]
+   ]
+  },
+  {
+   "token": "1984",
+   "forms": [
+    [
+     "nineteen",
+     "eighty-four"
+    ],
+    [
+     "one",
+     "thousand",
+     "nine",
+     "hundred",
+     "eighty-four"
+    ],
+    [
+     "one",
+     "thousand",
+     "nine",
+     "hundred",
+     "and",
+     "eighty-four"
+    ],
+    [
+     "a",
+     "thousand",
+     "nine",
+     "hundred",
+     "eighty-four"
+    ],
+    [
+     "a",
+     "thousand",
+     "nine",
+     "hundred",
+     "and",
+     "eighty-four"
+    ],
+    [
+     "one",
+     "nine",
+     "eight",
+     "four"
+    ]
+   ]
+  },
+  {
+   "token": "1905",
+   "forms": [
+    [
+     "nineteen",
+     "oh",
+     "five"
+    ],
+    [
+     "one",
+     "thousand",
+     "nine",
+     "hundred",
+     "five"
+    ],
+    [
+     "one",
+     "thousand",
+     "nine",
+     "hundred",
+     "and",
+     "five"
+    ],
+    [
+     "a",
+     "thousand",
+     "nine",
+     "hundred",
+     "five"
+    ],
+    [
+     "a",
+     "thousand",
+     "nine",
+     "hundred",
+     "and",
+     "five"
+    ],
+    [
+     "one",
+     "nine",
+     "zero",
+     "five"
+    ],
+    [
+     "one",
+     "nine",
+     "oh",
+     "five"
+    ]
+   ]
+  },
+  {
+   "token": "2000",
+   "forms": [
+    [
+     "two",
+     "thousand"
+    ],
+    [
+     "two",
+     "zero",
+     "zero",
+     "zero"
+    ],
+    [
+     "two",
+     "oh",
+     "oh",
+     "oh"
+    ]
+   ]
+  },
+  {
+   "token": "12",
+   "forms": [
+    [
+     "twelve"
+    ]
+   ]
+  },
+  {
+   "token": "150",
+   "forms": [
+    [
+     "one",
+     "hundred",
+     "fifty"
+    ],
+    [
+     "one",
+     "hundred",
+     "and",
+     "fifty"
+    ],
+    [
+     "a",
+     "hundred",
+     "fifty"
+    ],
+    [
+     "hundred",
+     "fifty"
+    ],
+    [
+     "a",
+     "hundred",
+     "and",
+     "fifty"
+    ],
+    [
+     "hundred",
+     "and",
+     "fifty"
+    ],
+    [
+     "one",
+     "fifty"
+    ],
+    [
+     "one",
+     "five",
+     "zero"
+    ],
+    [
+     "one",
+     "five",
+     "oh"
+    ]
+   ]
+  },
+  {
+   "token": "180",
+   "forms": [
+    [
+     "one",
+     "hundred",
+     "eighty"
+    ],
+    [
+     "one",
+     "hundred",
+     "and",
+     "eighty"
+    ],
+    [
+     "a",
+     "hundred",
+     "eighty"
+    ],
+    [
+     "hundred",
+     "eighty"
+    ],
+    [
+     "a",
+     "hundred",
+     "and",
+     "eighty"
+    ],
+    [
+     "hundred",
+     "and",
+     "eighty"
+    ],
+    [
+     "one",
+     "eighty"
+    ],
+    [
+     "one",
+     "eight",
+     "zero"
+    ],
+    [
+     "one",
+     "eight",
+     "oh"
+    ]
+   ]
+  },
+  {
+   "token": "-5",
+   "forms": [
+    [
+     "minus",
+     "five"
+    ]
+   ]
+  },
+  {
+   "token": "10k",
+   "forms": [
+    [
+     "ten",
+     "thousand"
+    ]
+   ]
+  },
+  {
+   "token": "2.5bn",
+   "forms": [
+    [
+     "two",
+     "point",
+     "five",
+     "billion"
+    ]
+   ]
+  },
+  {
+   "token": "3x",
+   "forms": [
+    [
+     "three",
+     "times"
+    ]
+   ]
+  },
+  {
+   "token": "%",
+   "forms": [
+    [
+     "percent"
+    ],
+    [
+     "per",
+     "cent"
+    ]
+   ]
+  },
+  {
+   "token": "400–900",
+   "forms": [
+    [
+     "four",
+     "hundred",
+     "to",
+     "nine",
+     "hundred"
+    ],
+    [
+     "four",
+     "hundred",
+     "to",
+     "nine",
+     "zero",
+     "zero"
+    ],
+    [
+     "four",
+     "hundred",
+     "to",
+     "nine",
+     "oh",
+     "oh"
+    ],
+    [
+     "four",
+     "zero",
+     "zero",
+     "to",
+     "nine",
+     "hundred"
+    ],
+    [
+     "four",
+     "zero",
+     "zero",
+     "to",
+     "nine",
+     "zero",
+     "zero"
+    ],
+    [
+     "four",
+     "zero",
+     "zero",
+     "to",
+     "nine",
+     "oh",
+     "oh"
+    ],
+    [
+     "four",
+     "oh",
+     "oh",
+     "to",
+     "nine",
+     "hundred"
+    ],
+    [
+     "four",
+     "oh",
+     "oh",
+     "to",
+     "nine",
+     "zero",
+     "zero"
+    ],
+    [
+     "four",
+     "oh",
+     "oh",
+     "to",
+     "nine",
+     "oh",
+     "oh"
+    ]
+   ]
+  },
+  {
+   "token": "100th",
+   "forms": [
+    [
+     "one",
+     "hundredth"
+    ],
+    [
+     "a",
+     "hundredth"
+    ],
+    [
+     "hundredth"
+    ]
+   ]
+  },
+  {
+   "token": "Hello.",
+   "forms": [
+    [
+     "Hello"
+    ]
+   ]
+  },
+  {
+   "token": "—",
+   "forms": []
+  },
+  {
+   "token": "(664).",
+   "forms": [
+    [
+     "six",
+     "hundred",
+     "sixty-four"
+    ],
+    [
+     "six",
+     "hundred",
+     "and",
+     "sixty-four"
+    ],
+    [
+     "six",
+     "sixty-four"
+    ],
+    [
+     "six",
+     "six",
+     "four"
+    ]
+   ]
+  },
+  {
+   "token": "twenty",
+   "forms": [
+    [
+     "twenty"
+    ]
+   ]
+  }
+ ],
+ "match": [
+  {
+   "words": [
+    "came",
+    "in",
+    "at",
+    "six",
+    "sixty-four."
+   ],
+   "query": "664",
+   "occ": 1,
+   "span": [
+    3,
+    5
+   ],
+   "targets": [
+    {
+     "key": "664",
+     "words": 1
+    },
+    {
+     "key": "sixhundredsixtyfour",
+     "words": 3
+    },
+    {
+     "key": "sixhundredandsixtyfour",
+     "words": 4
+    },
+    {
+     "key": "sixsixtyfour",
+     "words": 2
+    },
+    {
+     "key": "sixsixfour",
+     "words": 3
+    }
+   ],
+   "heard_targets": [
+    [],
+    [],
+    [],
+    [],
+    []
+   ]
+  },
+  {
+   "words": [
+    "came",
+    "in",
+    "at",
+    "664."
+   ],
+   "query": "664",
+   "occ": 1,
+   "span": [
+    3,
+    4
+   ],
+   "targets": [
+    {
+     "key": "664",
+     "words": 1
+    },
+    {
+     "key": "sixhundredsixtyfour",
+     "words": 3
+    },
+    {
+     "key": "sixhundredandsixtyfour",
+     "words": 4
+    },
+    {
+     "key": "sixsixtyfour",
+     "words": 2
+    },
+    {
+     "key": "sixsixfour",
+     "words": 3
+    }
+   ],
+   "heard_targets": [
+    [],
+    [],
+    [],
+    [
+     "664",
+     "sixhundredsixtyfour",
+     "sixhundredandsixtyfour",
+     "sixsixtyfour",
+     "sixsixfour"
+    ]
+   ]
+  },
+  {
+   "words": [
+    "Salt",
+    "and",
+    "Stone"
+   ],
+   "query": "&",
+   "occ": 1,
+   "span": [
+    1,
+    2
+   ],
+   "targets": [
+    {
+     "key": "&",
+     "words": 1
+    },
+    {
+     "key": "and",
+     "words": 1
+    }
+   ],
+   "heard_targets": [
+    [],
+    [],
+    []
+   ]
+  },
+  {
+   "words": [
+    "it",
+    "was",
+    "sixty",
+    "four",
+    "percent"
+   ],
+   "query": "64%",
+   "occ": 1,
+   "span": [
+    2,
+    5
+   ],
+   "targets": [
+    {
+     "key": "64%",
+     "words": 1
+    },
+    {
+     "key": "sixtyfourpercent",
+     "words": 2
+    }
+   ],
+   "heard_targets": [
+    [],
+    [],
+    [],
+    [],
+    []
+   ]
+  },
+  {
+   "words": [
+    "it",
+    "was",
+    "sixty-four"
+   ],
+   "query": "sixty-four",
+   "occ": 1,
+   "span": [
+    2,
+    3
+   ],
+   "targets": [
+    {
+     "key": "sixtyfour",
+     "words": 1
+    }
+   ],
+   "heard_targets": [
+    [],
+    [],
+    []
+   ]
+  },
+  {
+   "words": [
+    "it",
+    "was",
+    "sixty",
+    "four"
+   ],
+   "query": "sixty-four",
+   "occ": 1,
+   "span": [
+    2,
+    4
+   ],
+   "targets": [
+    {
+     "key": "sixtyfour",
+     "words": 1
+    }
+   ],
+   "heard_targets": [
+    [],
+    [],
+    [],
+    []
+   ]
+  },
+  {
+   "words": [
+    "Same",
+    "bread.",
+    "Same",
+    "oven."
+   ],
+   "query": "same",
+   "occ": 2,
+   "span": [
+    2,
+    3
+   ],
+   "targets": [
+    {
+     "key": "same",
+     "words": 1
+    }
+   ],
+   "heard_targets": [
+    [],
+    [],
+    [],
+    []
+   ]
+  },
+  {
+   "words": [
+    "four",
+    "years",
+    "inside",
+    "a",
+    "hundred",
+    "and",
+    "fifty",
+    "kitchens"
+   ],
+   "query": "150",
+   "occ": 1,
+   "span": [
+    3,
+    7
+   ],
+   "targets": [
+    {
+     "key": "150",
+     "words": 1
+    },
+    {
+     "key": "onehundredfifty",
+     "words": 3
+    },
+    {
+     "key": "onehundredandfifty",
+     "words": 4
+    },
+    {
+     "key": "ahundredfifty",
+     "words": 3
+    },
+    {
+     "key": "hundredfifty",
+     "words": 2
+    },
+    {
+     "key": "ahundredandfifty",
+     "words": 4
+    },
+    {
+     "key": "hundredandfifty",
+     "words": 3
+    },
+    {
+     "key": "onefifty",
+     "words": 2
+    },
+    {
+     "key": "onefivezero",
+     "words": 3
+    },
+    {
+     "key": "onefiveoh",
+     "words": 3
+    }
+   ],
+   "heard_targets": [
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
+    []
+   ]
+  },
+  {
+   "words": [
+    "your",
+    "last",
+    "12",
+    "months"
+   ],
+   "query": "twelve",
+   "occ": 1,
+   "span": [
+    2,
+    3
+   ],
+   "targets": [
+    {
+     "key": "twelve",
+     "words": 1
+    }
+   ],
+   "heard_targets": [
+    [],
+    [],
+    [
+     "12",
+     "twelve"
+    ],
+    []
+   ]
+  },
+  {
+   "words": [
+    "your",
+    "last",
+    "twelve",
+    "months"
+   ],
+   "query": "12",
+   "occ": 1,
+   "span": [
+    2,
+    3
+   ],
+   "targets": [
+    {
+     "key": "12",
+     "words": 1
+    },
+    {
+     "key": "twelve",
+     "words": 1
+    }
+   ],
+   "heard_targets": [
+    [],
+    [],
+    [],
+    []
+   ]
+  },
+  {
+   "words": [
+    "the",
+    "ovens",
+    "wake"
+   ],
+   "query": "zebra",
+   "occ": 1,
+   "span": null,
+   "targets": [
+    {
+     "key": "zebra",
+     "words": 1
+    }
+   ],
+   "heard_targets": [
+    [],
+    [],
+    []
+   ]
+  },
+  {
+   "words": [
+    "Hello,",
+    "world"
+   ],
+   "query": "hello",
+   "occ": 1,
+   "span": [
+    0,
+    1
+   ],
+   "targets": [
+    {
+     "key": "hello",
+     "words": 1
+    }
+   ],
+   "heard_targets": [
+    [],
+    []
+   ]
+  },
+  {
+   "words": [
+    "across",
+    "more",
+    "than",
+    "2",
+    ",500,"
+   ],
+   "query": "2,500",
+   "occ": 1,
+   "span": [
+    3,
+    5
+   ],
+   "targets": [
+    {
+     "key": "2500",
+     "words": 1
+    },
+    {
+     "key": "twothousandfivehundred",
+     "words": 4
+    },
+    {
+     "key": "twentyfivehundred",
+     "words": 2
+    }
+   ],
+   "heard_targets": [
+    [],
+    [],
+    [],
+    [
+     "2",
+     "two"
+    ],
+    [
+     "500",
+     "fivehundred",
+     "fivezerozero",
+     "fiveohoh"
+    ]
+   ]
+  },
+  {
+   "words": [
+    "than",
+    "45",
+    "%",
+    "of"
+   ],
+   "query": "45%",
+   "occ": 1,
+   "span": [
+    1,
+    3
+   ],
+   "targets": [
+    {
+     "key": "45%",
+     "words": 1
+    },
+    {
+     "key": "fortyfivepercent",
+     "words": 2
+    }
+   ],
+   "heard_targets": [
+    [],
+    [
+     "45",
+     "fortyfive"
+    ],
+    [
+     "%",
+     "percent"
+    ],
+    []
+   ]
+  },
+  {
+   "words": [
+    "Same",
+    "bread."
+   ],
+   "query": "same",
+   "occ": 3,
+   "span": null,
+   "targets": [
+    {
+     "key": "same",
+     "words": 1
+    }
+   ],
+   "heard_targets": [
+    [],
+    []
+   ]
+  },
+  {
+   "words": [
+    "every",
+    "hundred",
+    "and",
+    "eighty",
+    "days"
+   ],
+   "query": "180",
+   "occ": 1,
+   "span": [
+    1,
+    4
+   ],
+   "targets": [
+    {
+     "key": "180",
+     "words": 1
+    },
+    {
+     "key": "onehundredeighty",
+     "words": 3
+    },
+    {
+     "key": "onehundredandeighty",
+     "words": 4
+    },
+    {
+     "key": "ahundredeighty",
+     "words": 3
+    },
+    {
+     "key": "hundredeighty",
+     "words": 2
+    },
+    {
+     "key": "ahundredandeighty",
+     "words": 4
+    },
+    {
+     "key": "hundredandeighty",
+     "words": 3
+    },
+    {
+     "key": "oneeighty",
+     "words": 2
+    },
+    {
+     "key": "oneeightzero",
+     "words": 3
+    },
+    {
+     "key": "oneeightoh",
+     "words": 3
+    }
+   ],
+   "heard_targets": [
+    [],
+    [],
+    [],
+    [],
+    []
+   ]
+  },
+  {
+   "words": [
+    "and",
+    "say",
+    "forty-five",
+    "%"
+   ],
+   "query": "percent",
+   "occ": 1,
+   "span": [
+    3,
+    4
+   ],
+   "targets": [
+    {
+     "key": "percent",
+     "words": 1
+    }
+   ],
+   "heard_targets": [
+    [],
+    [],
+    [],
+    [
+     "%",
+     "percent"
+    ]
+   ]
+  }
+ ]
+}

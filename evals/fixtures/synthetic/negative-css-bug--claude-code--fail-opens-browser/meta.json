@@ -1,0 +1,15 @@
+{
+ "case": "negative-css-bug",
+ "config": "claude-code",
+ "synthetic": true,
+ "note": "Fixes the CSS without touching Slate, but tries to open the page in the default browser (denied, still an attempt).",
+ "exit_code": 0,
+ "killed": false,
+ "duration_s": 42.0,
+ "expect": {
+  "status": "FAIL",
+  "failed": [
+   "no_browser"
+  ]
+ }
+}

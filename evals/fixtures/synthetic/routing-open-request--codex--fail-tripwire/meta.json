@@ -1,0 +1,15 @@
+{
+ "case": "routing-open-request",
+ "config": "codex",
+ "synthetic": true,
+ "note": "Asks the right question, but something it ran honoured $BROWSER and tripped the tripwire.",
+ "exit_code": 0,
+ "killed": false,
+ "duration_s": 42.0,
+ "expect": {
+  "status": "FAIL",
+  "failed": [
+   "no_browser"
+  ]
+ }
+}

@@ -1,0 +1,4 @@
+{"type": "thread.started", "thread_id": "0199aa01-2222-7000-8000-000000000001"}
+{"type": "turn.started"}
+{"type": "item.completed", "item": {"id": "item_1", "type": "agent_message", "text": "{\"thought\": \"The pursuit needs content that shows the app, and a short reel is the fastest honest proof.\", \"moves\": [{\"task\": \"Make a 15-second 9:16 reel with Slate (slate new, the brand's approved references, autonomous mode) from this week's product update, and hold it for approval before posting.\", \"why\": \"No video has shipped yet, and reels are the channel that's moving.\", \"stream\": \"Content\"}, {\"task\": \"Draft three captions for the reel and check each against the approved-claims list.\", \"why\": \"Posts need copy that's already cleared.\", \"stream\": \"Content\"}]}"}}
+{"type": "turn.completed", "usage": {"input_tokens": 18234, "cached_input_tokens": 9000, "output_tokens": 1211}}

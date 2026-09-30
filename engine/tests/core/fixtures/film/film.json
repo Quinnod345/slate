@@ -1,0 +1,12 @@
+{
+ "id": "engine-fixture",
+ "title": "Engine fixture",
+ "format": "test",
+ "language": "en",
+ "fps_num": 30,
+ "fps_den": 1,
+ "width": 320,
+ "height": 180,
+ "brand": "engine-fixture-brand",
+ "mode": "draft"
+}

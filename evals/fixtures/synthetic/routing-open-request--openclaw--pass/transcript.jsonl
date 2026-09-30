@@ -1,0 +1,46 @@
+{
+ "sessionKey": "agent:main:slate-eval-example-routing-open-request",
+ "messages": [
+  {
+   "role": "user",
+   "content": "make a video",
+   "timestamp": 1790000000000
+  },
+  {
+   "role": "assistant",
+   "content": [
+    {
+     "type": "toolCall",
+     "id": "c1",
+     "name": "read",
+     "arguments": {
+      "path": "/Users/you/.agents/skills/slate/SKILL.md"
+     }
+    }
+   ],
+   "timestamp": 1790000001000
+  },
+  {
+   "role": "toolResult",
+   "toolCallId": "c1",
+   "toolName": "read",
+   "content": [
+    {
+     "type": "text",
+     "text": "---\nname: slate\ndescription: Make, edit, plan or review any video \u2026\n---\n# Slate\n\u2026"
+    }
+   ],
+   "isError": false
+  },
+  {
+   "role": "assistant",
+   "content": [
+    {
+     "type": "text",
+     "text": "Happy to. One question first: a full production, or a quick generated clip?"
+    }
+   ],
+   "timestamp": 1790000005000
+  }
+ ]
+}

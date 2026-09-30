@@ -1,0 +1,5935 @@
+{
+ "schema": 1,
+ "about": "Every component the 2026-09-30 inventory of the film project found (306), and where each one lives in Slate now. `category` is the inventory's own class, kept verbatim; `destination` is Slate's decision, so the two can differ, and the counts below show where. Source paths keep the original reference (relative to FILMROOT, or on this Mac); names and reasons are written brand-neutral, because no company specific becomes a Slate default. This file maps components. knowledge/lessons.json maps the rules and lessons inside them.",
+ "source": {
+  "filmroot": "~/Documents/TrueSpace/website-build-2026-09-28",
+  "inventory": "research/video-package-inventory-2026-09-30/inventory_result.json",
+  "readers": "visual-engine (ve), sound-voice (sv), ae-qa-delivery (aq), process-lessons (pl), and the coverage pass's missed components (cm); ids are reader prefix plus the index in that reader's list",
+  "read_on": "2026-09-30"
+ },
+ "harvest": "First harvest, 2026-09-30. It runs again once films B and C and the p3 sound are approved. sound/p3/ and the film's newer memory notes postdate the inventory and are picked up then. Two classes were overtaken by events the same morning: SOUND.md (pl-015) and sound/proofs/ (cm-029) were classed obsolete before the film went back to proof 2 as its sound reference; their destinations follow the plan, not the stale class.",
+ "categories": {
+  "reusable as is": "inventory class 'generic'",
+  "reusable once generalized": "inventory class 'needs-generalizing'",
+  "film-only": "inventory class 'project-specific'",
+  "TrueSpace content": "inventory class 'brand-specific'",
+  "obsolete": "inventory class 'obsolete'"
+ },
+ "statuses": {
+  "ported": "Slate uses it as it is: the code or file comes over with only paths, names and settings wired to film.json, the brand pack or config. For a vendor tool or skill, Slate depends on it unchanged: installed and pinned, never copied.",
+  "generalized": "Slate rebuilds it with brand and film specifics pulled out into brand packs, film.json, formats or config (or, for a doc, rewrites it brand-neutral in a skill reference).",
+  "dropped": "Slate doesn't carry it. The reason says why, and where anything worth keeping went: a lesson in the knowledge ledger, a template in a skill, the private TrueSpace pack, or golden-test data read in place."
+ },
+ "modules": "A destination module is a path from ARCHITECTURE section 2, or, for a dropped component that nothing in the repo stands in for, one of the two places outside the core below. An entry whose module is `tests` is film data that golden tests read in place from FILMROOT (ARCHITECTURE section 10); nothing is copied into Slate.",
+ "outside_the_core": {
+  "FILMROOT (left in place)": "Stays in the film project, untouched. Nothing is copied or moved.",
+  "~/code/slate-brands (private TrueSpace pack)": "Company content for the private TrueSpace pack in ~/code/slate-brands (ARCHITECTURE sections 1 and 3: PERSONAL only, never pushed). It never enters ~/code/slate."
+ },
+ "checks": [
+  "Every inventory record (5 readers, 306 records) appears exactly once, by id.",
+  "Every entry has a destination with a non-empty module, a status of ported, generalized or dropped, and a reason.",
+  "A module is an ARCHITECTURE section 2 path or one of the outside-the-core destinations above.",
+  "Names and reasons carry no brand names, colours, voice ids, font kits, sample data or banned words.",
+  "The category counts match the plan (81, 127, 54, 28, 16)."
+ ],
+ "counts": {
+  "total": 306,
+  "by_category": {
+   "reusable as is": {
+    "slate": 81,
+    "plan": 81
+   },
+   "reusable once generalized": {
+    "slate": 127,
+    "plan": 127
+   },
+   "film-only": {
+    "slate": 54,
+    "plan": 54
+   },
+   "TrueSpace content": {
+    "slate": 28,
+    "plan": 28
+   },
+   "obsolete": {
+    "slate": 16,
+    "plan": 16
+   }
+  },
+  "by_status": {
+   "ported": 66,
+   "generalized": 127,
+   "dropped": 113
+  },
+  "category_by_status": {
+   "reusable as is": {
+    "ported": 66,
+    "generalized": 8,
+    "dropped": 7
+   },
+   "reusable once generalized": {
+    "generalized": 114,
+    "dropped": 13
+   },
+   "film-only": {
+    "dropped": 53,
+    "generalized": 1
+   },
+   "TrueSpace content": {
+    "dropped": 25,
+    "generalized": 3
+   },
+   "obsolete": {
+    "dropped": 15,
+    "generalized": 1
+   }
+  },
+  "by_module": {
+   "FILMROOT (left in place)": 24,
+   "engine/ae": 17,
+   "engine/package.json": 1,
+   "engine/remotion": 12,
+   "engine/remotion/kit": 31,
+   "engine/web": 1,
+   "formats": 1,
+   "install.sh": 3,
+   "knowledge/lessons.json": 10,
+   "skills/slate": 8,
+   "skills/slate-brand": 3,
+   "skills/slate-build": 7,
+   "skills/slate-finish": 1,
+   "skills/slate-generate": 2,
+   "skills/slate-motion": 3,
+   "skills/slate-qa": 3,
+   "skills/slate-sound": 9,
+   "skills/slate-story": 2,
+   "skills/slate-voice": 3,
+   "src/slate/ae": 11,
+   "src/slate/analyze": 8,
+   "src/slate/brand": 2,
+   "src/slate/capture": 1,
+   "src/slate/doctor": 2,
+   "src/slate/engine": 2,
+   "src/slate/finish": 6,
+   "src/slate/gen": 6,
+   "src/slate/jobs": 1,
+   "src/slate/ledger.py": 2,
+   "src/slate/qa": 13,
+   "src/slate/render": 9,
+   "src/slate/schemas": 20,
+   "src/slate/sound": 32,
+   "src/slate/state": 7,
+   "src/slate/story": 5,
+   "src/slate/timing": 6,
+   "src/slate/vendors": 4,
+   "src/slate/voice": 19,
+   "tests": 2,
+   "~/code/slate-brands (private TrueSpace pack)": 7
+  }
+ },
+ "components": [
+  {
+   "id": "ve-000",
+   "name": "Remotion project manifest",
+   "source_paths": [
+    "pipeline/r3f/package.json"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "engine/package.json",
+    "status": "generalized",
+    "reason": "Slate's engine has its own manifest: Remotion pinned exactly at 4.0.521, esbuild declared, and the declared-but-unused packages (framer-motion, postprocessing, @react-three/postprocessing, @remotion/motion-blur) and the broken render script left out. Each dependency's decision is in docs/DEPENDENCIES.md."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 0,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "ve-001",
+   "name": "Remotion render config",
+   "source_paths": [
+    "pipeline/r3f/remotion.config.ts"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "engine/remotion",
+    "status": "ported",
+    "reason": "Same settings (ANGLE GL on Metal, PNG frames, overwrite), applied by the engine. Remotion Studio always runs with --no-open."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 1,
+    "inventory_class": "generic"
+   },
+   "same_source_as": [
+    "aq-040"
+   ]
+  },
+  {
+   "id": "ve-002",
+   "name": "Motion-blur renderer (render_mb)",
+   "source_paths": [
+    "pipeline/r3f/render_mb.mjs"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "engine/remotion",
+    "status": "generalized",
+    "reason": "The core renderer: sub-frames averaged in 16-bit straight into ProRes 422 HQ 10-bit BT.709, lossless transport, frame ranges, bundle deleted on exit. The hard-coded 30000/1001 and entry move to film.json and the generated per-film entry."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 2,
+    "inventory_class": "needs-generalizing"
+   },
+   "same_source_as": [
+    "aq-038"
+   ]
+  },
+  {
+   "id": "ve-003",
+   "name": "Batch stills renderer",
+   "source_paths": [
+    "pipeline/r3f/stills.mjs"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "engine/remotion",
+    "status": "ported",
+    "reason": "The engine's `stills` command: many stills from one bundle, as is, plus the bundle cleanup it lacked (it left its temp bundle behind)."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 3,
+    "inventory_class": "generic"
+   },
+   "same_source_as": [
+    "aq-039"
+   ]
+  },
+  {
+   "id": "ve-004",
+   "name": "WORK render farm script",
+   "source_paths": [
+    "pipeline/r3f/work.sh"
+   ],
+   "category": "film-only",
+   "destination": {
+    "module": "src/slate/render",
+    "status": "dropped",
+    "reason": "WORK is never used for renders or builds (Quinn, 2026-09-30). `slate render` runs locally through the job queue; the film's own render_local.sh had already superseded this."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 4,
+    "inventory_class": "project-specific"
+   },
+   "same_source_as": [
+    "aq-037",
+    "pl-066"
+   ]
+  },
+  {
+   "id": "ve-005",
+   "name": "Brand SVG compiler",
+   "source_paths": [
+    "pipeline/r3f/scripts/svg2ts.py"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/brand",
+    "status": "generalized",
+    "reason": "Compiles the SVG logos a brand pack lists (never a hard-coded source list), with class fills turned into currentColor, into data the kit's logo build reads."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 5,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "ve-006",
+   "name": "Composition registry (Root)",
+   "source_paths": [
+    "pipeline/r3f/src/Root.tsx"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "engine/remotion",
+    "status": "generalized",
+    "reason": "Generated per film from shots.json acts by the engine's `entry` command, with width, height and fps from film.json: one film per bundle instead of three films in one."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 6,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "ve-007",
+   "name": "Remotion entry point",
+   "source_paths": [
+    "pipeline/r3f/src/index.ts"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "engine/remotion",
+    "status": "ported",
+    "reason": "The generated entry does the same one-line registerRoot."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 7,
+    "inventory_class": "generic"
+   }
+  },
+  {
+   "id": "ve-008",
+   "name": "Named eases, keyframes and spline",
+   "source_paths": [
+    "pipeline/r3f/src/ease.ts"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "engine/remotion/kit",
+    "status": "generalized",
+    "reason": "Ease names and values come from the brand's motion.json. Two fixes land first: eases return exactly 0 and 1 at their ends, and a monotone spline replaces Catmull-Rom, which overshoots on uneven keys. The same ease vectors are checked in Python, TypeScript and ExtendScript (tests/vectors)."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 8,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "ve-009",
+   "name": "Early single-film clock",
+   "source_paths": [
+    "pipeline/r3f/src/timeline.ts"
+   ],
+   "category": "obsolete",
+   "destination": {
+    "module": "engine/remotion/kit",
+    "status": "dropped",
+    "reason": "Superseded by the kit clock; nothing to carry."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 9,
+    "inventory_class": "obsolete"
+   }
+  },
+  {
+   "id": "ve-010",
+   "name": "Accumulation renderer for WebGL",
+   "source_paths": [
+    "pipeline/r3f/src/Accum.tsx"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "engine/web",
+    "status": "ported",
+    "reason": "Deterministic depth of field and anti-aliasing for three.js scenes, used by the open web renderer and by 3D scenes inside Remotion through @remotion/three. @react-three/postprocessing stays out: it renders blank under Remotion."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 10,
+    "inventory_class": "generic"
+   }
+  },
+  {
+   "id": "ve-011",
+   "name": "Rejected 3D line look",
+   "source_paths": [
+    "pipeline/r3f/src/A1Lines.tsx"
+   ],
+   "category": "obsolete",
+   "destination": {
+    "module": "FILMROOT (left in place)",
+    "status": "dropped",
+    "reason": "The rejected 3D pass: a lit 3D version of the brand's signature line. Left behind; the film went flat 2.5D."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 11,
+    "inventory_class": "obsolete"
+   }
+  },
+  {
+   "id": "ve-012",
+   "name": "Headless font visibility test",
+   "source_paths": [
+    "pipeline/r3f/src/FontTest.tsx"
+   ],
+   "category": "obsolete",
+   "destination": {
+    "module": "engine/remotion/kit",
+    "status": "dropped",
+    "reason": "Replaced by the kit's font gate, which fails a render when a declared face doesn't load, and by doctor's font check."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 12,
+    "inventory_class": "obsolete"
+   }
+  },
+  {
+   "id": "ve-013",
+   "name": "Brand palette and UI tokens",
+   "source_paths": [
+    "pipeline/r3f/src/kit/tokens.ts"
+   ],
+   "category": "TrueSpace content",
+   "destination": {
+    "module": "~/code/slate-brands (private TrueSpace pack)",
+    "status": "dropped",
+    "reason": "TrueSpace content. Its palette, tone colours and banned tier words become the private pack's palette and truth; the kit reads any brand through the brand-token adapter, and the import from the website's source tree goes away."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 13,
+    "inventory_class": "brand-specific"
+   }
+  },
+  {
+   "id": "ve-014",
+   "name": "Font gate and font loading",
+   "source_paths": [
+    "pipeline/r3f/src/kit/fonts.tsx"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "engine/remotion/kit",
+    "status": "generalized",
+    "reason": "Keeps the fail-loud gate (wait until every face loads, throw when one is missing). Faces and sources become declarative from brand.json (installed name, kit URL or Google Fonts) with the licence noted and no font files in the repo; the film's own web font kit stays with its private pack."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 14,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "ve-015",
+   "name": "Remotion film clock",
+   "source_paths": [
+    "pipeline/r3f/src/kit/time.tsx"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "engine/remotion/kit",
+    "status": "generalized",
+    "reason": "Reads one film's resolved JSON through the @film/data alias instead of statically importing three films. Word lookups take the never-throw semantics with a miss list; ActRoot's 180-degree sub-frame shutter sampling and font gate stay."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 15,
+    "inventory_class": "needs-generalizing"
+   },
+   "same_source_as": [
+    "pl-064"
+   ]
+  },
+  {
+   "id": "ve-016",
+   "name": "Motion tokens and move helpers",
+   "source_paths": [
+    "pipeline/r3f/src/kit/motion.ts"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "engine/remotion/kit",
+    "status": "ported",
+    "reason": "Duration tokens, stagger units, arrive/glide/lift/snap/exit, startFor and T90, the settle spring and the 0.6 s stagger cap, as is; the values come from the brand's motion.json."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 16,
+    "inventory_class": "generic"
+   }
+  },
+  {
+   "id": "ve-017",
+   "name": "2.5D paper engine",
+   "source_paths": [
+    "pipeline/r3f/src/kit/paper.tsx"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "engine/remotion/kit",
+    "status": "generalized",
+    "reason": "Becomes the paper 2.5D library look (cards with thickness, camera, grain, ground), used only where a brand's own design language is papery. Palettes and the dark ground's tint come from the brand theme."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 17,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "ve-018",
+   "name": "Type primitives",
+   "source_paths": [
+    "pipeline/r3f/src/kit/type.tsx"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "engine/remotion/kit",
+    "status": "generalized",
+    "reason": "Per-character and per-word reveals, arrivals and tabular count-ups, with the type scale bound to the brand's fonts and ink. PerChar gets the 0.6 s spread cap once, instead of three re-implementations."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 18,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "ve-019",
+   "name": "Brand art and logo components",
+   "source_paths": [
+    "pipeline/r3f/src/kit/brand.tsx"
+   ],
+   "category": "TrueSpace content",
+   "destination": {
+    "module": "engine/remotion/kit",
+    "status": "generalized",
+    "reason": "Only Art() survives (draw any brand SVG by key), reading the brand pack's logos. The named logo, wordmark and character-mark components are TrueSpace content and stay behind."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 19,
+    "inventory_class": "brand-specific"
+   }
+  },
+  {
+   "id": "ve-020",
+   "name": "Generated brand SVG data",
+   "source_paths": [
+    "pipeline/r3f/src/kit/brandData.ts"
+   ],
+   "category": "TrueSpace content",
+   "destination": {
+    "module": "~/code/slate-brands (private TrueSpace pack)",
+    "status": "dropped",
+    "reason": "Generated TrueSpace content. The private pack keeps the source SVGs and Slate regenerates this data for any pack; the retired icons aren't carried."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 20,
+    "inventory_class": "brand-specific"
+   }
+  },
+  {
+   "id": "ve-021",
+   "name": "Distribution chart primitives",
+   "source_paths": [
+    "pipeline/r3f/src/kit/charts.tsx"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "engine/remotion/kit",
+    "status": "generalized",
+    "reason": "Normal-distribution maths and the bell, axis, marker and caption pieces stay in the kit's charts; the product's mean, spread, range and labels move to film data."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 21,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "ve-022",
+   "name": "App UI primitives",
+   "source_paths": [
+    "pipeline/r3f/src/kit/ui.tsx"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "engine/remotion/kit",
+    "status": "generalized",
+    "reason": "Surfaces, buttons, checkboxes, fields, chips, badges, rows and avatars at film scale, styled by the brand's tokens; the few product-specific semantics move out."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 22,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "ve-023",
+   "name": "Sample company and numbers",
+   "source_paths": [
+    "pipeline/r3f/src/kit/sample.ts"
+   ],
+   "category": "TrueSpace content",
+   "destination": {
+    "module": "~/code/slate-brands (private TrueSpace pack)",
+    "status": "dropped",
+    "reason": "TrueSpace content: the private pack's sample data. brands/_template carries the empty shape (truth.sample_data), and brands/demo gets neutral figures."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 23,
+    "inventory_class": "brand-specific"
+   },
+   "same_source_as": [
+    "pl-065"
+   ]
+  },
+  {
+   "id": "ve-024",
+   "name": "Logo build (keystone construction)",
+   "source_paths": [
+    "pipeline/r3f/src/kit/logo.tsx"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "engine/remotion/kit",
+    "status": "generalized",
+    "reason": "The technique stays: survey guides, outline, fill, the line writing the name, a keystone element that hangs then snaps in, echoes and a damped settle. Paths, glyph boxes, slots and colour come from a logo-build spec in the brand pack, with glyph boxes measured automatically instead of by hand."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 24,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "ve-025",
+   "name": "Never-throw word lookup",
+   "source_paths": [
+    "pipeline/r3f/src/c/kit/clock.ts"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/timing",
+    "status": "generalized",
+    "reason": "Its semantics become the only word lookup: it never throws, returns an estimate plus a miss list that must be empty at hand-in, and matches spoken numbers and symbols through language tables (timing.spoken) rather than English literals. The kit only reads resolved times."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 25,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "ve-026",
+   "name": "Mark-as-character gesture tracker",
+   "source_paths": [
+    "pipeline/r3f/src/c/kit/trudy/track.ts"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "engine/remotion/kit",
+    "status": "generalized",
+    "reason": "The motif rig: a stateless pose for any N-part radial mark, gesture tables per brand and beats exported for sound, generalized from the film's character."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 26,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "ve-027",
+   "name": "Character renderer",
+   "source_paths": [
+    "pipeline/r3f/src/c/kit/trudy/Trudy.tsx"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "engine/remotion/kit",
+    "status": "generalized",
+    "reason": "The rig's renderer: one flat plane drawn in passes (disc, shadows, edges, faces) with the small-size fold; geometry and faces come from the brand's motif spec."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 27,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "ve-028",
+   "name": "Exact-endpoint animation helpers",
+   "source_paths": [
+    "pipeline/r3f/src/c/kit/trudy/anim.ts"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "engine/remotion/kit",
+    "status": "ported",
+    "reason": "ez (exactly 0 and 1 at the ends), bump, swell, phase and wave helpers, as is."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 28,
+    "inventory_class": "generic"
+   }
+  },
+  {
+   "id": "ve-029",
+   "name": "Character mark geometry",
+   "source_paths": [
+    "pipeline/r3f/src/c/kit/trudy/geometry.ts"
+   ],
+   "category": "TrueSpace content",
+   "destination": {
+    "module": "~/code/slate-brands (private TrueSpace pack)",
+    "status": "dropped",
+    "reason": "TrueSpace content: the mark's measurements become the private pack's motif spec. The rig reads any brand's motif geometry."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 29,
+    "inventory_class": "brand-specific"
+   }
+  },
+  {
+   "id": "ve-030",
+   "name": "Assistant chat surfaces",
+   "source_paths": [
+    "pipeline/r3f/src/c/kit/chat.tsx"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "engine/remotion/kit",
+    "status": "generalized",
+    "reason": "The pattern joins the app UI primitives: avatar-to-island settle, chip-to-bubble morph, a streaming answer with token slots, a working label, follow-ups. The copy comes from the film's script, not the component."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 30,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "ve-031",
+   "name": "Act-boundary rest states",
+   "source_paths": [
+    "pipeline/r3f/src/c/kit/contracts.tsx"
+   ],
+   "category": "film-only",
+   "destination": {
+    "module": "skills/slate-build",
+    "status": "dropped",
+    "reason": "The film's own rest states stay behind. The pattern is Slate's: one shared component renders both sides of an act join, held at least 6 frames and bit-identical; slate-build teaches it and the hand-in check compares the pixels."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 31,
+    "inventory_class": "project-specific"
+   }
+  },
+  {
+   "id": "ve-032",
+   "name": "Product report surfaces",
+   "source_paths": [
+    "pipeline/r3f/src/c/kit/report.tsx"
+   ],
+   "category": "TrueSpace content",
+   "destination": {
+    "module": "FILMROOT (left in place)",
+    "status": "dropped",
+    "reason": "TrueSpace product UI. A brand's product surfaces are rebuilt from its own components during onboarding, never carried across brands."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 32,
+    "inventory_class": "brand-specific"
+   }
+  },
+  {
+   "id": "ve-033",
+   "name": "Radar and reading panel",
+   "source_paths": [
+    "pipeline/r3f/src/c/kit/shape.tsx"
+   ],
+   "category": "TrueSpace content",
+   "destination": {
+    "module": "engine/remotion/kit",
+    "status": "generalized",
+    "reason": "Only the radar geometry survives, as a generic radar chart in the kit's charts. The product's reading panel is TrueSpace content and stays behind."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 33,
+    "inventory_class": "brand-specific"
+   }
+  },
+  {
+   "id": "ve-034",
+   "name": "Product report data",
+   "source_paths": [
+    "pipeline/r3f/src/c/kit/data.ts"
+   ],
+   "category": "TrueSpace content",
+   "destination": {
+    "module": "~/code/slate-brands (private TrueSpace pack)",
+    "status": "dropped",
+    "reason": "TrueSpace product data; at most it becomes sample data in the private pack."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 34,
+    "inventory_class": "brand-specific"
+   }
+  },
+  {
+   "id": "ve-035",
+   "name": "Partner card",
+   "source_paths": [
+    "pipeline/r3f/src/c/kit/eos.tsx"
+   ],
+   "category": "TrueSpace content",
+   "destination": {
+    "module": "FILMROOT (left in place)",
+    "status": "dropped",
+    "reason": "One film's partner-brand card. A partner brand gets its own pack and look through onboarding."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 35,
+    "inventory_class": "brand-specific"
+   }
+  },
+  {
+   "id": "ve-036",
+   "name": "Printed field-guide page",
+   "source_paths": [
+    "pipeline/r3f/src/c/kit/fieldguide.tsx"
+   ],
+   "category": "TrueSpace content",
+   "destination": {
+    "module": "FILMROOT (left in place)",
+    "status": "dropped",
+    "reason": "Product collateral drawn as warm paper; TrueSpace content. The paper look itself is in the kit."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 36,
+    "inventory_class": "brand-specific"
+   }
+  },
+  {
+   "id": "ve-037",
+   "name": "Shared named places for hand-offs",
+   "source_paths": [
+    "pipeline/r3f/src/c/kit/layout.ts"
+   ],
+   "category": "film-only",
+   "destination": {
+    "module": "skills/slate-build",
+    "status": "dropped",
+    "reason": "Film-only positions. The practice (named shared places so hand-offs between acts line up) is a builders' brief rule."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 37,
+    "inventory_class": "project-specific"
+   }
+  },
+  {
+   "id": "ve-038",
+   "name": "Sample-data label",
+   "source_paths": [
+    "pipeline/r3f/src/c/kit/sample.tsx"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "engine/remotion/kit",
+    "status": "generalized",
+    "reason": "A label shown whenever figures on screen are illustrative; its wording comes from the brand's truth and its place from the format's safe areas."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 38,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "ve-039",
+   "name": "Hand-in check script",
+   "source_paths": [
+    "pipeline/r3f/src/c/kit/review/check.mjs"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/engine",
+    "status": "generalized",
+    "reason": "Becomes `slate check <act>`: type check, an empty word-miss list, banned words from the brand's truth list (not regexes in code) and every act's events exported."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 39,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "ve-040",
+   "name": "Kit review entry",
+   "source_paths": [
+    "pipeline/r3f/src/c/kit/review/entry.tsx"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "engine/remotion/kit",
+    "status": "generalized",
+    "reason": "The kit review sheet entry (gesture sheet, surfaces at rest, contracts, look tests), rendered as stills and checked by eye before builders use the kit; generated per brand."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 40,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "ve-041",
+   "name": "Stills from any entry",
+   "source_paths": [
+    "pipeline/r3f/src/c/kit/review/stills.mjs"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "engine/remotion",
+    "status": "ported",
+    "reason": "Merged into the engine's `stills` command: comp:frame specs from any entry."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 41,
+    "inventory_class": "generic"
+   }
+  },
+  {
+   "id": "ve-042",
+   "name": "Exact-endpoint eases and landing helpers",
+   "source_paths": [
+    "pipeline/r3f/src/acts/act3/m.ts"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "engine/remotion/kit",
+    "status": "generalized",
+    "reason": "Promoted into the kit: exact-endpoint eases, arriveAt, snapAt, glideAt, press and bump."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 42,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "ve-043",
+   "name": "Look-at 2.5D camera",
+   "source_paths": [
+    "pipeline/r3f/src/acts/act4/cam.tsx"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "engine/remotion/kit",
+    "status": "generalized",
+    "reason": "Promoted as the kit camera: the dolly moves in z rather than scaling, with camAt(moves), project(), CamView and Place."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 43,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "ve-044",
+   "name": "Flat-sheet card fade",
+   "source_paths": [
+    "pipeline/r3f/src/acts/act4/fadecard.tsx"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "engine/remotion/kit",
+    "status": "ported",
+    "reason": "Promoted into the paper look as is: a card fades as one sheet, so no grey thickness shows through."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 44,
+    "inventory_class": "generic"
+   }
+  },
+  {
+   "id": "ve-045",
+   "name": "React-free shared clock",
+   "source_paths": [
+    "pipeline/r3f/src/acts/act4/clock.ts"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "engine/remotion/kit",
+    "status": "generalized",
+    "reason": "One React-free clock module that both scenes and `slate emit-events` import, so picture and events share one timing."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 45,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "ve-046",
+   "name": "Text measuring, streaming text and chips",
+   "source_paths": [
+    "pipeline/r3f/src/acts/act5/parts.tsx"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "engine/remotion/kit",
+    "status": "generalized",
+    "reason": "measure() takes the brand's font instead of a hard-coded family; StreamText, token slots, glyphs, brackets, seal and chips join the kit."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 46,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "ve-047",
+   "name": "Monotone spline",
+   "source_paths": [
+    "pipeline/r3f/src/b/act2/tl.ts"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "engine/remotion/kit",
+    "status": "ported",
+    "reason": "Promoted as is (Fritsch-Carlson, never backtracks); it replaces the kit's old spline for camera drifts."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 47,
+    "inventory_class": "generic"
+   }
+  },
+  {
+   "id": "ve-048",
+   "name": "World layer and chain helpers",
+   "source_paths": [
+    "pipeline/r3f/src/c/act3/world.tsx"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "engine/remotion/kit",
+    "status": "generalized",
+    "reason": "WorldLayer (an identity transform at rest, so contract frames stay bit-identical) and the chain helpers promoted into the kit."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 48,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "ve-049",
+   "name": "Explicit stacking order across acts",
+   "source_paths": [
+    "pipeline/r3f/src/c/act5/stage.tsx"
+   ],
+   "category": "film-only",
+   "destination": {
+    "module": "skills/slate-build",
+    "status": "dropped",
+    "reason": "Film-only stacking. The pattern (one explicit stacking order and one picture across composition boundaries) is a builders' brief rule."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 49,
+    "inventory_class": "project-specific"
+   }
+  },
+  {
+   "id": "ve-050",
+   "name": "The three films' scenes",
+   "source_paths": [
+    "pipeline/r3f/src/acts/",
+    "pipeline/r3f/src/b/",
+    "pipeline/r3f/src/c/act*/"
+   ],
+   "category": "film-only",
+   "destination": {
+    "module": "knowledge/lessons.json",
+    "status": "dropped",
+    "reason": "Left behind: the three films' scenes. Their act NOTES.md files (the glitch lessons) are harvested into the knowledge ledger, the 22 per-act event emitters become one `slate emit-events`, and the first film's kit-built Act 4 render is the render-parity oracle, read in place."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 50,
+    "inventory_class": "project-specific"
+   }
+  },
+  {
+   "id": "ve-051",
+   "name": "One film's opening acts and look test",
+   "source_paths": [
+    "pipeline/r3f/src/home/Act1Home.tsx",
+    "pipeline/r3f/src/home/Act1Close.tsx"
+   ],
+   "category": "film-only",
+   "destination": {
+    "module": "FILMROOT (left in place)",
+    "status": "dropped",
+    "reason": "One film's scenes. What they proved lives on elsewhere: the paper look in the kit's looks library, and the plate reveal as the matte technique in src/slate/gen."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 51,
+    "inventory_class": "project-specific"
+   }
+  },
+  {
+   "id": "ve-052",
+   "name": "Kit proof sheet",
+   "source_paths": [
+    "pipeline/r3f/src/acts/KitDemo.tsx"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "engine/remotion/kit",
+    "status": "generalized",
+    "reason": "Becomes the kit gallery: one proof sheet per brand, and a golden still per component in the tests."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 52,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "ve-053",
+   "name": "The films' plate sequences",
+   "source_paths": [
+    "pipeline/r3f/public/plates/"
+   ],
+   "category": "film-only",
+   "destination": {
+    "module": "FILMROOT (left in place)",
+    "status": "dropped",
+    "reason": "The films' generated plates stay with the films. The format they prove (plates conformed to the film's rate as JPEG sequences) is what `slate plates` writes."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 53,
+    "inventory_class": "project-specific"
+   }
+  },
+  {
+   "id": "ve-054",
+   "name": "Event timeline resolver",
+   "source_paths": [
+    "pipeline/tools/timeline.py"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "src/slate/timing",
+    "status": "ported",
+    "reason": "Word-anchored events snapped to frames, with 'land' back-computed so 90% of the travel hits the word, as is; golden-tested against the films' delivered timeline.json. Its v1 sound-cue output isn't carried."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 54,
+    "inventory_class": "generic"
+   },
+   "same_source_as": [
+    "pl-026"
+   ]
+  },
+  {
+   "id": "ve-055",
+   "name": "Storyboard to frame-exact shot table",
+   "source_paths": [
+    "pipeline/tools/make_shots.py"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "src/slate/timing",
+    "status": "generalized",
+    "reason": "Drift-free cumulative rounding and contiguity asserts (the foundation clock already reproduces its rounding); fps and size come from film.json instead of constants."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 55,
+    "inventory_class": "generic"
+   },
+   "same_source_as": [
+    "pl-024"
+   ]
+  },
+  {
+   "id": "ve-056",
+   "name": "Storyboard renderer with script gates",
+   "source_paths": [
+    "pipeline/tools/storyboard_build.py"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/story",
+    "status": "generalized",
+    "reason": "Its gates (VO pace, read time, banned words, runtime within 10%) become `slate script build`'s gates. The banned list comes from the brand's truth and the runtime target from the format or brief, not a hard-coded reference runtime."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 56,
+    "inventory_class": "needs-generalizing"
+   },
+   "same_source_as": [
+    "pl-019"
+   ]
+  },
+  {
+   "id": "ve-057",
+   "name": "Reference-ease fitter",
+   "source_paths": [
+    "pipeline/tools/fit_ease.py"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/analyze",
+    "status": "generalized",
+    "reason": "Part of `slate analyze` and onboarding: eases measured from a brand's reference films feed its motion.json, each with its lineage."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 57,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "ve-058",
+   "name": "Earlier sub-frame averaging",
+   "source_paths": [
+    "pipeline/tools/mb_average.py"
+   ],
+   "category": "obsolete",
+   "destination": {
+    "module": "engine/remotion",
+    "status": "dropped",
+    "reason": "Superseded by render_mb's in-stream averaging."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 58,
+    "inventory_class": "obsolete"
+   },
+   "same_source_as": [
+    "aq-036"
+   ]
+  },
+  {
+   "id": "ve-059",
+   "name": "Proven range splice",
+   "source_paths": [
+    "pipeline/tools/splice_render.py"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "src/slate/render",
+    "status": "ported",
+    "reason": "render.splice: stream-copies a re-rendered range and proves it (frame count, framemd5 at both joins, edge PSNR over 2 frames either side) before replacing a file, as is."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 59,
+    "inventory_class": "generic"
+   },
+   "same_source_as": [
+    "aq-035",
+    "pl-043"
+   ]
+  },
+  {
+   "id": "ve-060",
+   "name": "Contact sheets",
+   "source_paths": [
+    "pipeline/tools/contact_sheet.py",
+    "pipeline/tools/burst_sheet.py",
+    "pipeline/tools/labeled_sheet.py"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "src/slate/finish",
+    "status": "ported",
+    "reason": "Timestamped or labelled sheets drawn with Pillow (this ffmpeg has no drawtext); the font is found at runtime instead of a fixed macOS path."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 60,
+    "inventory_class": "generic"
+   },
+   "same_source_as": [
+    "aq-034"
+   ]
+  },
+  {
+   "id": "ve-061",
+   "name": "Scene-boundary refiner for one film",
+   "source_paths": [
+    "pipeline/tools/scene_frames.py"
+   ],
+   "category": "film-only",
+   "destination": {
+    "module": "src/slate/analyze",
+    "status": "dropped",
+    "reason": "Hard-wired to the original film. `slate analyze` finds scene cuts and settled frames for any reference video."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 61,
+    "inventory_class": "project-specific"
+   }
+  },
+  {
+   "id": "ve-062",
+   "name": "Higgsfield Cloud API client",
+   "source_paths": [
+    "pipeline/tools/hf_api.py"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "src/slate/vendors",
+    "status": "ported",
+    "reason": "vendors/higgsfield.py: estimate, submit, wait, upload and cancel with no dependencies and never retrying a POST, as is, behind the ledger and replay mode."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 62,
+    "inventory_class": "generic"
+   }
+  },
+  {
+   "id": "ve-063",
+   "name": "Plate generation jobs",
+   "source_paths": [
+    "pipeline/tools/hf_plates.py"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/gen",
+    "status": "generalized",
+    "reason": "`slate plates`: jobs and style prompts come from the film instead of code; estimate first, at least two takes judged, a budget check, a provenance manifest, models from registry.json."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 63,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "ve-064",
+   "name": "Plate conform",
+   "source_paths": [
+    "pipeline/tools/plate_conform.py"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "src/slate/gen",
+    "status": "ported",
+    "reason": "ProRes at native rate plus a 48 kHz/24-bit ambience WAV, as is, plus the two steps that were manual: the conform to the film's rate and the JPEG-sequence export the engine reads."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 64,
+    "inventory_class": "generic"
+   }
+  },
+  {
+   "id": "ve-065",
+   "name": "Plate ridgeline tracker",
+   "source_paths": [
+    "pipeline/tools/plate_ridge.py"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/gen",
+    "status": "generalized",
+    "reason": "Tracks a plate's ridgeline into path samples with a temporal median; the colour mask is set per plate or from the brand palette instead of tuned to one film's hue."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 65,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "ve-066",
+   "name": "Generated bridge used only as a matte",
+   "source_paths": [
+    "pipeline/tools/bridge_matte.py"
+   ],
+   "category": "film-only",
+   "destination": {
+    "module": "src/slate/gen",
+    "status": "generalized",
+    "reason": "The approved answer to 'generated pixels read as AI': the generation's shape becomes a matte over real frames, and its texture shows only in the wet edge. Rebuilt as a gen function, with timings and paths from the shot."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 66,
+    "inventory_class": "project-specific"
+   },
+   "same_source_as": [
+    "pl-062"
+   ]
+  },
+  {
+   "id": "ve-067",
+   "name": "SVG to After Effects shape data",
+   "source_paths": [
+    "pipeline/tools/svg2ae.py"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/ae",
+    "status": "generalized",
+    "reason": "Reads the brand pack's logos (never a hard-coded source list) and writes AE shape data for the ES3 kit's logo build."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 67,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "ve-068",
+   "name": "21st.dev MCP shell client",
+   "source_paths": [
+    "pipeline/tools/mcp21.py"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "FILMROOT (left in place)",
+    "status": "dropped",
+    "reason": "21st.dev stays an optional, project-level MCP that an agent calls directly (docs/DEPENDENCIES.md). Slate's CLI never calls it, so no client ships; only generic design queries ever leave the Mac."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 68,
+    "inventory_class": "generic"
+   }
+  },
+  {
+   "id": "ve-069",
+   "name": "Page HTML to text for copy truth",
+   "source_paths": [
+    "pipeline/tools/html2text.py"
+   ],
+   "category": "film-only",
+   "destination": {
+    "module": "src/slate/brand",
+    "status": "dropped",
+    "reason": "Project-specific, and its bs4 dependency was never installed. Onboarding reads a brand's website through Aside."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 69,
+    "inventory_class": "project-specific"
+   }
+  },
+  {
+   "id": "ve-070",
+   "name": "Original-film analysis joiner",
+   "source_paths": [
+    "pipeline/tools/build_analysis_data.py"
+   ],
+   "category": "film-only",
+   "destination": {
+    "module": "src/slate/analyze",
+    "status": "dropped",
+    "reason": "Tied to the original film. `slate analyze` writes scenes.json for any reference film."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 70,
+    "inventory_class": "project-specific"
+   }
+  },
+  {
+   "id": "ve-071",
+   "name": "Motion law (MOTION.md)",
+   "source_paths": [
+    "MOTION.md"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "skills/slate-motion",
+    "status": "generalized",
+    "reason": "Becomes slate-motion's motion-law reference with the brand's lineage stripped: the rules and thresholds are Slate's defaults, and ease values come from each brand's motion.json. Every rule also gets a lessons.json entry."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 71,
+    "inventory_class": "needs-generalizing"
+   },
+   "same_source_as": [
+    "pl-012"
+   ]
+  },
+  {
+   "id": "ve-072",
+   "name": "Builders' brief (KIT.md)",
+   "source_paths": [
+    "pipeline/r3f/KIT.md"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "skills/slate-build",
+    "status": "generalized",
+    "reason": "The builders' brief template in slate-build's references (look, motion law, truth, timing helpers, ownership, events, contracts, hand-in list), filled per film. Its stale opening-scene row isn't carried."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 72,
+    "inventory_class": "needs-generalizing"
+   },
+   "same_source_as": [
+    "pl-063"
+   ]
+  },
+  {
+   "id": "ve-073",
+   "name": "Second film's builder delta",
+   "source_paths": [
+    "pipeline/r3f/KIT_B.md"
+   ],
+   "category": "film-only",
+   "destination": {
+    "module": "knowledge/lessons.json",
+    "status": "dropped",
+    "reason": "A film-only delta. Its sound-event schema is carried as the events schema (mapped with its Sound section), and its other lessons go to the knowledge ledger."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 73,
+    "inventory_class": "project-specific"
+   },
+   "same_source_as": [
+    "sv-056"
+   ]
+  },
+  {
+   "id": "ve-074",
+   "name": "Third film's builder delta",
+   "source_paths": [
+    "pipeline/r3f/KIT_C.md"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "skills/slate-build",
+    "status": "generalized",
+    "reason": "Its character and contract chapters join slate-build's references: the never-throw word lookup, the motif rig's API and gestures, pixel contracts, sound beats and local checks, with the character's name replaced by the brand's motif."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 74,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "ve-075",
+   "name": "Website component index",
+   "source_paths": [
+    "COMPONENTS.md"
+   ],
+   "category": "TrueSpace content",
+   "destination": {
+    "module": "FILMROOT (left in place)",
+    "status": "dropped",
+    "reason": "The company website's component library. The film borrowed its look language, not its code; website tooling is left behind."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 75,
+    "inventory_class": "brand-specific"
+   }
+  },
+  {
+   "id": "ve-076",
+   "name": "Website component audit",
+   "source_paths": [
+    "COMPONENTS-AUDIT.md"
+   ],
+   "category": "obsolete",
+   "destination": {
+    "module": "FILMROOT (left in place)",
+    "status": "dropped",
+    "reason": "Superseded website tooling."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 76,
+    "inventory_class": "obsolete"
+   }
+  },
+  {
+   "id": "ve-077",
+   "name": "Engine decision record",
+   "source_paths": [
+    "TRACKS.md"
+   ],
+   "category": "film-only",
+   "destination": {
+    "module": "skills/slate",
+    "status": "dropped",
+    "reason": "One film's engine decision, now settled by the plan (the Remotion kit plus an AE finish, with Higgsedit benchmarked in phase 8). Its build-gate table (item, status in the owner's words, where) is part of the production tracker template."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 77,
+    "inventory_class": "project-specific"
+   },
+   "same_source_as": [
+    "pl-014"
+   ]
+  },
+  {
+   "id": "ve-078",
+   "name": "Website Framer toolchain",
+   "source_paths": [
+    "package.json",
+    "tools/",
+    "types/framer.d.ts"
+   ],
+   "category": "film-only",
+   "destination": {
+    "module": "FILMROOT (left in place)",
+    "status": "dropped",
+    "reason": "Website tooling, never part of the film."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 78,
+    "inventory_class": "project-specific"
+   }
+  },
+  {
+   "id": "ve-079",
+   "name": "Website component library",
+   "source_paths": [
+    "source/"
+   ],
+   "category": "TrueSpace content",
+   "destination": {
+    "module": "FILMROOT (left in place)",
+    "status": "dropped",
+    "reason": "Company website source. The film only imported its tokens, which now come from the private TrueSpace pack; company code never enters Slate."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 79,
+    "inventory_class": "brand-specific"
+   }
+  },
+  {
+   "id": "ve-080",
+   "name": "Superseded look tests and old VO",
+   "source_paths": [
+    "film/archive/"
+   ],
+   "category": "obsolete",
+   "destination": {
+    "module": "FILMROOT (left in place)",
+    "status": "dropped",
+    "reason": "Superseded material. The archive-with-a-README pattern survives in each film's archive/ folder."
+   },
+   "source_ref": {
+    "reader": "visual-engine",
+    "index": 80,
+    "inventory_class": "obsolete"
+   }
+  },
+  {
+   "id": "sv-000",
+   "name": "ElevenLabs client",
+   "source_paths": [
+    "pipeline/tools/elevenlabs_tts.py"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/vendors",
+    "status": "generalized",
+    "reason": "vendors/elevenlabs.py: TTS with neighbour text, seed and settings, plus account and voice lookups. Keys come only through slate.secrets (environment, then Keychain), with a neutral user agent, replay-aware and ledgered."
+   },
+   "source_ref": {
+    "reader": "sound-voice",
+    "index": 0,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "sv-001",
+   "name": "Word timings from Whisper",
+   "source_paths": [
+    "pipeline/tools/vo_words.py"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/timing",
+    "status": "generalized",
+    "reason": "`slate timing` writes vo_words.json: Whisper word times snapped to each take's energy onset within 80 ms. Paths come from the film folder, and the Whisper model is recorded in the gate evidence."
+   },
+   "source_ref": {
+    "reader": "sound-voice",
+    "index": 1,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "sv-002",
+   "name": "Captions from word timings",
+   "source_paths": [
+    "pipeline/tools/captions.py"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/voice",
+    "status": "generalized",
+    "reason": "`slate voice captions`: script-aligned captions at 2 lines of 42 characters at most, at least 1.0 s each, no overlaps and a script-exact check, plus the new 17-characters-a-second limit. fps comes from film.json and file names from the film id."
+   },
+   "source_ref": {
+    "reader": "sound-voice",
+    "index": 2,
+    "inventory_class": "needs-generalizing"
+   },
+   "same_source_as": [
+    "aq-033"
+   ]
+  },
+  {
+   "id": "sv-003",
+   "name": "v1 beats-to-cues planner",
+   "source_paths": [
+    "pipeline/tools/visual_sfx.py"
+   ],
+   "category": "obsolete",
+   "destination": {
+    "module": "knowledge/lessons.json",
+    "status": "dropped",
+    "reason": "Superseded. Its failure is the lesson: one fixed recipe per loose kind made the repetition problem (one click for three kinds, runs of eleven)."
+   },
+   "source_ref": {
+    "reader": "sound-voice",
+    "index": 3,
+    "inventory_class": "obsolete"
+   }
+  },
+  {
+   "id": "sv-004",
+   "name": "v2 beats-to-cues planner",
+   "source_paths": [
+    "pipeline/tools/visual_sfx_v2.py"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/sound",
+    "status": "dropped",
+    "reason": "Its design tables and rules (gains, ceilings, ducks, shuffle bags, gestures, impact rationing, the character vocabulary) are the retired v2 design (sound/v2/HANDOVER.md section 5). Only its beat loader, beats_for(), is plumbing Slate keeps; the effects planner is rebuilt with the proof-3 pass."
+   },
+   "source_ref": {
+    "reader": "sound-voice",
+    "index": 4,
+    "inventory_class": "needs-generalizing"
+   },
+   "same_source_as": [
+    "pl-031"
+   ]
+  },
+  {
+   "id": "sv-005",
+   "name": "Sound engine (proof 2's renderer)",
+   "source_paths": [
+    "sound/tools/sound_engine.py"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/sound",
+    "status": "generalized",
+    "reason": "Proof 2, the design the film went back to, is a cue sheet rendered by this engine, so the effects engine grows from it and the p3 pass. It stays gated until proof 3 is approved and is re-inventoried then. Synthesized tonal voices give way to sampled instruments, and the ducking values move into one table instead of disagreeing with the docs."
+   },
+   "source_ref": {
+    "reader": "sound-voice",
+    "index": 5,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "sv-006",
+   "name": "Delivery mix (final_mix)",
+   "source_paths": [
+    "sound/tools/final_mix.py"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "src/slate/sound",
+    "status": "ported",
+    "reason": "mix.run as is: dialogue, effects, ambience and music stems, the score under the voice with a voice-keyed duck, one linear gain to -14 LUFS, a latency-compensated limiter, stems that sum to the mix, and refusing rather than hiding a failure. Only its parameters move to film.json and the format."
+   },
+   "source_ref": {
+    "reader": "sound-voice",
+    "index": 6,
+    "inventory_class": "generic"
+   },
+   "same_source_as": [
+    "pl-036"
+   ]
+  },
+  {
+   "id": "sv-007",
+   "name": "One Eleven Music call",
+   "source_paths": [
+    "sound/tools/eleven_music.py"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "src/slate/vendors",
+    "status": "ported",
+    "reason": "compose_music in vendors/elevenlabs.py: the composition plan, seed and section durations as is. The model id comes from registry.json and is always passed, because the API default is an older model."
+   },
+   "source_ref": {
+    "reader": "sound-voice",
+    "index": 7,
+    "inventory_class": "generic"
+   }
+  },
+  {
+   "id": "sv-008",
+   "name": "Composed-take QA",
+   "source_paths": [
+    "sound/tools/score_qa.py"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "src/slate/sound",
+    "status": "ported",
+    "reason": "Flags silence or noise spans in a composed take, as is; its blind spots (holes under 1.5 s, the last second) are covered by the music-gap check."
+   },
+   "source_ref": {
+    "reader": "sound-voice",
+    "index": 8,
+    "inventory_class": "generic"
+   },
+   "same_source_as": [
+    "pl-055"
+   ]
+  },
+  {
+   "id": "sv-009",
+   "name": "First film's score assembly",
+   "source_paths": [
+    "sound/tools/assemble_score.py"
+   ],
+   "category": "film-only",
+   "destination": {
+    "module": "src/slate/sound",
+    "status": "dropped",
+    "reason": "A fixed act layout for one film. The measured assembler, merged from the later films' assemblers, replaces it and reads landings from the timeline."
+   },
+   "source_ref": {
+    "reader": "sound-voice",
+    "index": 9,
+    "inventory_class": "project-specific"
+   },
+   "same_source_as": [
+    "pl-054"
+   ]
+  },
+  {
+   "id": "sv-010",
+   "name": "Old review mixer",
+   "source_paths": [
+    "sound/tools/mix_with_score.py"
+   ],
+   "category": "obsolete",
+   "destination": {
+    "module": "src/slate/sound",
+    "status": "dropped",
+    "reason": "Its stems couldn't sum to its mix; final_mix replaced it."
+   },
+   "source_ref": {
+    "reader": "sound-voice",
+    "index": 10,
+    "inventory_class": "obsolete"
+   }
+  },
+  {
+   "id": "sv-011",
+   "name": "Voice pacing in post",
+   "source_paths": [
+    "sound/tools/vo_pace.py"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "src/slate/voice",
+    "status": "ported",
+    "reason": "`slate voice pace` as is: interior pauses over 0.25 s kept at 80%, then Rubber Band R3 at tempo 1.06 with formants kept, 48 kHz/24-bit. It needs an arm64 Rubber Band (docs/DEPENDENCIES.md)."
+   },
+   "source_ref": {
+    "reader": "sound-voice",
+    "index": 11,
+    "inventory_class": "generic"
+   },
+   "same_source_as": [
+    "pl-057"
+   ]
+  },
+  {
+   "id": "sv-012",
+   "name": "Booth-script voicer",
+   "source_paths": [
+    "sound/tools/voice_script.py"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/voice",
+    "status": "generalized",
+    "reason": "`slate voice tts`: one call per line with previous and next text, approved takes kept unless forced, a fit check against each shot's lead and tail, vo_cues.json written. The voice comes from the brand's VoiceProfile, never a default narrator."
+   },
+   "source_ref": {
+    "reader": "sound-voice",
+    "index": 12,
+    "inventory_class": "needs-generalizing"
+   },
+   "same_source_as": [
+    "pl-056"
+   ]
+  },
+  {
+   "id": "sv-013",
+   "name": "Listening reel",
+   "source_paths": [
+    "sound/tools/voice_reel.py"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/voice",
+    "status": "generalized",
+    "reason": "The casting reel: each take at -20 LUFS behind a title card, with the card's text and colours from the brand pack instead of one film's line and palette."
+   },
+   "source_ref": {
+    "reader": "sound-voice",
+    "index": 13,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "sv-014",
+   "name": "Spectrogram proof video",
+   "source_paths": [
+    "sound/tools/proof_video.py"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/sound",
+    "status": "generalized",
+    "reason": "A review artefact for sound proofs and packets: a labelled spectrogram with every cue marked and a moving playhead, stem colours from the brand pack."
+   },
+   "source_ref": {
+    "reader": "sound-voice",
+    "index": 14,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "sv-015",
+   "name": "Spotting sheet from the storyboard",
+   "source_paths": [
+    "sound/tools/spotting_sheet.py"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/sound",
+    "status": "generalized",
+    "reason": "The per-shot spotting sheet, generated from script data into the film's docs rather than written into a hand-edited sound doc."
+   },
+   "source_ref": {
+    "reader": "sound-voice",
+    "index": 15,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "sv-016",
+   "name": "One-off voice test",
+   "source_paths": [
+    "sound/tools/adam_test.sh"
+   ],
+   "category": "film-only",
+   "destination": {
+    "module": "src/slate/voice",
+    "status": "dropped",
+    "reason": "A one-off. `slate voice cast` does this for any voice: voice the test lines, Whisper-check the brand words and add them to the reel."
+   },
+   "source_ref": {
+    "reader": "sound-voice",
+    "index": 16,
+    "inventory_class": "project-specific"
+   }
+  },
+  {
+   "id": "sv-017",
+   "name": "Logic Sampler zone-map reader",
+   "source_paths": [
+    "sound/tools/library/exs_dump.py"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "src/slate/sound",
+    "status": "ported",
+    "reason": "Read-only finder for installed sampled instruments. Apple's content is located on each machine and never redistributed."
+   },
+   "source_ref": {
+    "reader": "sound-voice",
+    "index": 17,
+    "inventory_class": "generic"
+   }
+  },
+  {
+   "id": "sv-018",
+   "name": "Apple Loops scanner",
+   "source_paths": [
+    "sound/tools/library/loop_scan.py"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "src/slate/sound",
+    "status": "ported",
+    "reason": "Read-only catalogue of the machine's installed loops and effects (category, key, tempo, descriptors), used to find local sources; nothing is redistributed."
+   },
+   "source_ref": {
+    "reader": "sound-voice",
+    "index": 18,
+    "inventory_class": "generic"
+   }
+  },
+  {
+   "id": "sv-019",
+   "name": "This Mac's loop catalogue",
+   "source_paths": [
+    "sound/tools/library/loops.tsv"
+   ],
+   "category": "film-only",
+   "destination": {
+    "module": "src/slate/sound",
+    "status": "dropped",
+    "reason": "Machine-specific output. Each machine builds its own catalogue in Slate's data folder."
+   },
+   "source_ref": {
+    "reader": "sound-voice",
+    "index": 19,
+    "inventory_class": "project-specific"
+   }
+  },
+  {
+   "id": "sv-020",
+   "name": "v2 sound bank builder",
+   "source_paths": [
+    "sound/v2/tools/bank.py"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/sound",
+    "status": "dropped",
+    "reason": "v2-specific (HANDOVER.md section 5): its thirteen families, recipes, key and tempo are the retired design. Its lessons (seeded, loudness-matched variants built locally from the machine's Apple content and never shipped) carry into the effects engine after proof 3."
+   },
+   "source_ref": {
+    "reader": "sound-voice",
+    "index": 20,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "sv-021",
+   "name": "DSP helpers",
+   "source_paths": [
+    "sound/v2/tools/dsp.py"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "src/slate/sound",
+    "status": "ported",
+    "reason": "Filters, EQ, resonator, varispeed, fades, pan, BS.1770 loudness and features, as is, covered by the DSP unit tests (equal-power joins, loudness on known signals)."
+   },
+   "source_ref": {
+    "reader": "sound-voice",
+    "index": 21,
+    "inventory_class": "generic"
+   }
+  },
+  {
+   "id": "sv-022",
+   "name": "v2 stem renderer",
+   "source_paths": [
+    "sound/v2/tools/engine_v2.py"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/sound",
+    "status": "generalized",
+    "reason": "Keeps the plumbing HANDOVER.md names (VO levelling, the follower duck, stem writing, the call into final_mix and the music-gap check); the v2 cue renders and character renders are the retired design and aren't carried."
+   },
+   "source_ref": {
+    "reader": "sound-voice",
+    "index": 22,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "sv-023",
+   "name": "Mix verification gate",
+   "source_paths": [
+    "sound/v2/tools/verify_mix.py"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/sound",
+    "status": "generalized",
+    "reason": "`slate verify`: loudness and true peak, stems sum, music gaps, every take found by cross-correlation, every effect within one frame of its beat. The frame length comes from film.json, the character contract becomes the motif's, and the whole-gesture onset that likely caused the third film's +107.7 ms sync fail gets a regression test with overlapping notes."
+   },
+   "source_ref": {
+    "reader": "sound-voice",
+    "index": 23,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "sv-024",
+   "name": "Perceptual same-sound fingerprint",
+   "source_paths": [
+    "sound/v2/tools/fingerprint.py"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "src/slate/sound",
+    "status": "dropped",
+    "reason": "HANDOVER.md section 5 files it with v2's measuring tools, and the plan keeps only v2's plumbing. It's the first candidate for the plan's no-repeats gate when the effects side is re-inventoried after proof 3."
+   },
+   "source_ref": {
+    "reader": "sound-voice",
+    "index": 24,
+    "inventory_class": "generic"
+   }
+  },
+  {
+   "id": "sv-025",
+   "name": "Repetition report",
+   "source_paths": [
+    "sound/v2/tools/repetition.py"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/sound",
+    "status": "dropped",
+    "reason": "A v2 measuring tool (HANDOVER.md section 5), not carried now. Its analyse() is a candidate for the no-repeats gate at the proof-3 re-inventory; the first film's legacy reader never comes over."
+   },
+   "source_ref": {
+    "reader": "sound-voice",
+    "index": 25,
+    "inventory_class": "needs-generalizing"
+   },
+   "same_source_as": [
+    "pl-037"
+   ]
+  },
+  {
+   "id": "sv-026",
+   "name": "Stem onset and pitch scan",
+   "source_paths": [
+    "sound/v2/tools/stem_scan.py"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "src/slate/sound",
+    "status": "dropped",
+    "reason": "A v2 measuring tool (HANDOVER.md section 5), not carried now; a candidate for a same-tone check when the effects side is re-inventoried after proof 3."
+   },
+   "source_ref": {
+    "reader": "sound-voice",
+    "index": 26,
+    "inventory_class": "generic"
+   }
+  },
+  {
+   "id": "sv-027",
+   "name": "Legacy beat migration",
+   "source_paths": [
+    "sound/v2/tools/map_a.py"
+   ],
+   "category": "film-only",
+   "destination": {
+    "module": "FILMROOT (left in place)",
+    "status": "dropped",
+    "reason": "A one-time migration of one film's old beat kinds. Films start on the current events schema."
+   },
+   "source_ref": {
+    "reader": "sound-voice",
+    "index": 27,
+    "inventory_class": "project-specific"
+   },
+   "same_source_as": [
+    "pl-067"
+   ]
+  },
+  {
+   "id": "sv-028",
+   "name": "Before/after sound comparison",
+   "source_paths": [
+    "sound/v2/tools/compare.py"
+   ],
+   "category": "film-only",
+   "destination": {
+    "module": "src/slate/finish",
+    "status": "dropped",
+    "reason": "v2 tooling (HANDOVER.md section 5). The need it served, checking a revision against the approved version by measurement, is part of perfect-don't-replace and the review packet."
+   },
+   "source_ref": {
+    "reader": "sound-voice",
+    "index": 28,
+    "inventory_class": "project-specific"
+   }
+  },
+  {
+   "id": "sv-029",
+   "name": "Swell option comparison",
+   "source_paths": [
+    "sound/v2/tools/compare_swell.py"
+   ],
+   "category": "film-only",
+   "destination": {
+    "module": "knowledge/lessons.json",
+    "status": "dropped",
+    "reason": "A one-off v2 comparison (HANDOVER.md section 5). Its join metrics (level steps, dips and beat-phase error across a seam) are recorded as a lesson for the score assembler's seam check."
+   },
+   "source_ref": {
+    "reader": "sound-voice",
+    "index": 29,
+    "inventory_class": "project-specific"
+   }
+  },
+  {
+   "id": "sv-030",
+   "name": "v2 doc table generator",
+   "source_paths": [
+    "sound/v2/tools/doc_tables.py"
+   ],
+   "category": "film-only",
+   "destination": {
+    "module": "FILMROOT (left in place)",
+    "status": "dropped",
+    "reason": "SOUND_V2.md is kept as a record only. The principle (docs generated from data, never hand-edited) holds across Slate."
+   },
+   "source_ref": {
+    "reader": "sound-voice",
+    "index": 30,
+    "inventory_class": "project-specific"
+   }
+  },
+  {
+   "id": "sv-031",
+   "name": "First film's score repair",
+   "source_paths": [
+    "sound/v2/tools/repair_score_A.py"
+   ],
+   "category": "film-only",
+   "destination": {
+    "module": "skills/slate-sound",
+    "status": "dropped",
+    "reason": "One film's repair (HANDOVER.md section 5). Its techniques (a bloom on the landing, a frozen chord to a dead stop, frozen-chord seams) are the freeze repairs in the Eleven Music playbook."
+   },
+   "source_ref": {
+    "reader": "sound-voice",
+    "index": 31,
+    "inventory_class": "project-specific"
+   }
+  },
+  {
+   "id": "sv-032",
+   "name": "Second film's sound build (watch mode)",
+   "source_paths": [
+    "sound/v2/build_B.sh"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/state",
+    "status": "generalized",
+    "reason": "`slate make` replaces the per-film zsh orchestrators: score, cues, stems, mix and verify rebuild only when stale, with inputs hashed in Python (film.lock.json) instead of md5 -q and ls -lT, and job-queue locks instead of lock files."
+   },
+   "source_ref": {
+    "reader": "sound-voice",
+    "index": 32,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "sv-033",
+   "name": "Third film's sound build (watch mode)",
+   "source_paths": [
+    "sound/v2/build_C.sh"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/state",
+    "status": "generalized",
+    "reason": "Same as the second film's, plus its one-line PASS/FAIL summary, which becomes the sound line in `slate status`."
+   },
+   "source_ref": {
+    "reader": "sound-voice",
+    "index": 33,
+    "inventory_class": "needs-generalizing"
+   },
+   "same_source_as": [
+    "pl-060"
+   ]
+  },
+  {
+   "id": "sv-034",
+   "name": "v2 sound bank manifest",
+   "source_paths": [
+    "sound/v2/bank/manifest.json"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/sound",
+    "status": "dropped",
+    "reason": "The v2 bank is the retired design (HANDOVER.md section 5). Its shape (seed, sample rate, key, variants with recipe, loudness target and features) is a reference for the effects engine's bank after proof 3; nothing built from Apple content ships."
+   },
+   "source_ref": {
+    "reader": "sound-voice",
+    "index": 34,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "sv-035",
+   "name": "First film's beats in v2 families",
+   "source_paths": [
+    "sound/v2/mapping_A.json"
+   ],
+   "category": "film-only",
+   "destination": {
+    "module": "FILMROOT (left in place)",
+    "status": "dropped",
+    "reason": "One film's migrated beats. Sound parity is checked against the approved p3 mix, not the retired v2 mix."
+   },
+   "source_ref": {
+    "reader": "sound-voice",
+    "index": 35,
+    "inventory_class": "project-specific"
+   }
+  },
+  {
+   "id": "sv-036",
+   "name": "First film's planned music stops",
+   "source_paths": [
+    "sound/v2/planned_stops_A.json"
+   ],
+   "category": "film-only",
+   "destination": {
+    "module": "tests",
+    "status": "dropped",
+    "reason": "Film data, read in place as candidate golden input for the music-gap check. Its shape (planned stops, each with a reason) is part of the score and gap-check schema."
+   },
+   "source_ref": {
+    "reader": "sound-voice",
+    "index": 36,
+    "inventory_class": "project-specific"
+   }
+  },
+  {
+   "id": "sv-037",
+   "name": "First film's composition plans",
+   "source_paths": [
+    "sound/music/plans"
+   ],
+   "category": "TrueSpace content",
+   "destination": {
+    "module": "FILMROOT (left in place)",
+    "status": "dropped",
+    "reason": "One film's plans; later plans banned materials these still allowed. What carries is the plan shape (the composition-plan schema), with each brand's style words from onboarding."
+   },
+   "source_ref": {
+    "reader": "sound-voice",
+    "index": 37,
+    "inventory_class": "brand-specific"
+   }
+  },
+  {
+   "id": "sv-038",
+   "name": "Second film's plan cutter",
+   "source_paths": [
+    "sound/music/B/make_plans.py"
+   ],
+   "category": "film-only",
+   "destination": {
+    "module": "skills/slate-sound",
+    "status": "dropped",
+    "reason": "Film-only. Its rules (3-second pre-rolls, parts under 90 seconds, landings from impact beats or word times, overruns past dead stops) are the Eleven Music playbook the plan generator applies to any timeline."
+   },
+   "source_ref": {
+    "reader": "sound-voice",
+    "index": 38,
+    "inventory_class": "project-specific"
+   }
+  },
+  {
+   "id": "sv-039",
+   "name": "Sequential composer script",
+   "source_paths": [
+    "sound/music/B/compose_all.sh"
+   ],
+   "category": "film-only",
+   "destination": {
+    "module": "src/slate/sound",
+    "status": "dropped",
+    "reason": "Replaced by the parallel composer, run through the job queue's music lock."
+   },
+   "source_ref": {
+    "reader": "sound-voice",
+    "index": 39,
+    "inventory_class": "project-specific"
+   }
+  },
+  {
+   "id": "sv-040",
+   "name": "Measured score assembler (second film)",
+   "source_paths": [
+    "sound/music/B/assemble_B.py"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/sound",
+    "status": "generalized",
+    "reason": "Merged with the third film's into one measured assembler: entry and last-music detection, bloom and stop modes, take choice by QA then fit, freeze holds, equal-power hand-overs, the end held to the last frame, a predicted gap check. Parts and landings come from the timeline."
+   },
+   "source_ref": {
+    "reader": "sound-voice",
+    "index": 40,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "sv-041",
+   "name": "Third film's plan cutter",
+   "source_paths": [
+    "sound/music/C/make_plans_C.py"
+   ],
+   "category": "film-only",
+   "destination": {
+    "module": "skills/slate-sound",
+    "status": "dropped",
+    "reason": "Film-only. Its rule (every part gets a 3-second pre-roll, and exact moments become part boundaries) is in the playbook the plan generator applies."
+   },
+   "source_ref": {
+    "reader": "sound-voice",
+    "index": 41,
+    "inventory_class": "project-specific"
+   }
+  },
+  {
+   "id": "sv-042",
+   "name": "Parallel Eleven Music composer",
+   "source_paths": [
+    "sound/music/C/compose_C.py"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/sound",
+    "status": "generalized",
+    "reason": "The composer: seeds, retries with backoff, score QA per take, subscription counts before and after. Workers default to the plan's concurrent music limit under the job queue's music lock, and every call goes through the spend ledger."
+   },
+   "source_ref": {
+    "reader": "sound-voice",
+    "index": 42,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "sv-043",
+   "name": "Score assembler with typed joins (third film)",
+   "source_paths": [
+    "sound/music/C/assemble_C.py"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/sound",
+    "status": "generalized",
+    "reason": "Its typed joins (start, act crossfade, drop to one held note, resume, thin to a pad, lift onto an onset, arrive with the final chord held) become the assembler's join kinds, with true equal-power curves; the landing map comes from the timeline."
+   },
+   "source_ref": {
+    "reader": "sound-voice",
+    "index": 43,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "sv-044",
+   "name": "Character voice brief",
+   "source_paths": [
+    "sound/trudy_voice/TRUDY_VOICE.md"
+   ],
+   "category": "TrueSpace content",
+   "destination": {
+    "module": "skills/slate-voice",
+    "status": "dropped",
+    "reason": "TrueSpace content that quotes company code read on WORK, so it stays behind. Its structure becomes slate-voice's neutral voice-brief template: identity, sourced values, how the voice speaks, what it never sounds like, a philosophy-to-sound table, prompts, measured comparison."
+   },
+   "source_ref": {
+    "reader": "sound-voice",
+    "index": 44,
+    "inventory_class": "brand-specific"
+   },
+   "same_source_as": [
+    "pl-059"
+   ]
+  },
+  {
+   "id": "sv-045",
+   "name": "Voice design spec",
+   "source_paths": [
+    "sound/trudy_voice/voice_design_spec.json"
+   ],
+   "category": "TrueSpace content",
+   "destination": {
+    "module": "src/slate/schemas",
+    "status": "dropped",
+    "reason": "The prompts and seeds are TrueSpace's and stay behind. The shape (model, passes with seed and guidance, prompts, preview text, loudness) becomes the voice-design spec schema that `slate voice design` reads."
+   },
+   "source_ref": {
+    "reader": "sound-voice",
+    "index": 45,
+    "inventory_class": "brand-specific"
+   }
+  },
+  {
+   "id": "sv-046",
+   "name": "Voice Design client",
+   "source_paths": [
+    "sound/trudy_voice/tools/trudy_voice_api.py"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/vendors",
+    "status": "generalized",
+    "reason": "design() and save in vendors/elevenlabs.py, with the model id always passed (the API default is older) and every preview logged to a manifest; `slate voice design` drives it."
+   },
+   "source_ref": {
+    "reader": "sound-voice",
+    "index": 46,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "sv-047",
+   "name": "Voice proxy measurements",
+   "source_paths": [
+    "sound/trudy_voice/tools/measure_previews.py"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/voice",
+    "status": "generalized",
+    "reason": "The measured proxies (duration, loudness, pauses, pitch, endings, voicing, noise floor, WER, brand words, confidence); brand words come from the brand's lexicon instead of hard-coded names."
+   },
+   "source_ref": {
+    "reader": "sound-voice",
+    "index": 47,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "sv-048",
+   "name": "Voice preview ranking",
+   "source_paths": [
+    "sound/trudy_voice/tools/rank_previews.py"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/voice",
+    "status": "generalized",
+    "reason": "Ranks previews against targets from the voice brief, not constants; the person still picks by ear."
+   },
+   "source_ref": {
+    "reader": "sound-voice",
+    "index": 48,
+    "inventory_class": "needs-generalizing"
+   },
+   "same_source_as": [
+    "pl-058"
+   ]
+  },
+  {
+   "id": "sv-049",
+   "name": "Candidate check on the production model",
+   "source_paths": [
+    "sound/trudy_voice/tools/tts_check.py"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/voice",
+    "status": "generalized",
+    "reason": "Part of `slate voice design`: every saved candidate is rendered on the production model (designed voices perform worse on v4), Whisper-checked and measured before the shortlist."
+   },
+   "source_ref": {
+    "reader": "sound-voice",
+    "index": 49,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "sv-050",
+   "name": "Voice floor diagnosis",
+   "source_paths": [
+    "sound/trudy_voice/tools/clean_test.py"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/voice",
+    "status": "generalized",
+    "reason": "`slate voice clean` diagnosis: compressed against lossless against Voice Isolator, so the clean chain is chosen by measurement."
+   },
+   "source_ref": {
+    "reader": "sound-voice",
+    "index": 50,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "sv-051",
+   "name": "Voice Remix and DSP clean",
+   "source_paths": [
+    "sound/trudy_voice/tools/remix_clean.py"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/voice",
+    "status": "generalized",
+    "reason": "Voice Remix (prompt strength by seed) through the vendor client, with the afftdn + agate chain as the default clean."
+   },
+   "source_ref": {
+    "reader": "sound-voice",
+    "index": 51,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "sv-052",
+   "name": "Production VO on the lossless chain",
+   "source_paths": [
+    "sound/trudy_voice/tools/voice_c.py"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/voice",
+    "status": "generalized",
+    "reason": "Merged into `slate voice tts`: eleven_v4, lossless PCM when the plan allows (with the fallback recorded), neighbour text, raw takes kept, the approved clean chain, takes.json. Voice id and paths come from the VoiceProfile."
+   },
+   "source_ref": {
+    "reader": "sound-voice",
+    "index": 52,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "sv-053",
+   "name": "Voice shootout",
+   "source_paths": [
+    "sound/voice-shootout"
+   ],
+   "category": "film-only",
+   "destination": {
+    "module": "src/slate/voice",
+    "status": "dropped",
+    "reason": "One film's casting. `slate voice cast` runs shootouts for any brand; the finding that the runner-up TTS clipped the brand word, which is why voice goes to ElevenLabs direct, is recorded in the knowledge ledger."
+   },
+   "source_ref": {
+    "reader": "sound-voice",
+    "index": 53,
+    "inventory_class": "project-specific"
+   }
+  },
+  {
+   "id": "sv-054",
+   "name": "Sound design doc (SOUND.md)",
+   "source_paths": [
+    "SOUND.md"
+   ],
+   "category": "TrueSpace content",
+   "destination": {
+    "module": "skills/slate-sound",
+    "status": "generalized",
+    "reason": "On 2026-09-30 the film went back to this design (proof 2). Its rules become slate-sound's starting palette with the brand stripped out (the hum of the brand's line becomes 'the sound follows the brand's signature line'); the narrator, product words and spotting sheet stay behind. It's harvested again once proof 3 is approved."
+   },
+   "source_ref": {
+    "reader": "sound-voice",
+    "index": 54,
+    "inventory_class": "brand-specific"
+   },
+   "same_source_as": [
+    "pl-015"
+   ]
+  },
+  {
+   "id": "sv-055",
+   "name": "v2 sound vocabulary (SOUND_V2.md)",
+   "source_paths": [
+    "SOUND_V2.md"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "skills/slate-sound",
+    "status": "dropped",
+    "reason": "Kept as a record only: the v2 design is retired. What carries is its Eleven Music playbook (3-second pre-rolls, parts under 90 seconds, measured assembly, equal-power joins, freeze repairs), in slate-sound's references."
+   },
+   "source_ref": {
+    "reader": "sound-voice",
+    "index": 55,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "sv-056",
+   "name": "Builder beat contract (KIT_B sound section)",
+   "source_paths": [
+    "pipeline/r3f/KIT_B.md"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/schemas",
+    "status": "generalized",
+    "reason": "The visual-events schema (ARCHITECTURE section 5): {shot, id, t, kind, size, note} with its thirteen kinds. The character-named kind becomes 'character', and an act with no beats says silent: true with a reason. This is the beat schema the plan keeps from v2."
+   },
+   "source_ref": {
+    "reader": "sound-voice",
+    "index": 56,
+    "inventory_class": "needs-generalizing"
+   },
+   "same_source_as": [
+    "ve-073"
+   ]
+  },
+  {
+   "id": "sv-057",
+   "name": "Sound taste note",
+   "source_paths": [
+    "~/.claude/projects/-Users-you-Documents-TrueSpace-website-build-2026-09-28/memory/feedback_sound-design-taste.md"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "skills/slate-sound",
+    "status": "generalized",
+    "reason": "Quinn's taste (pads, small soft notes, hollow wood, no chimes, no pitch glides, the brand word said in full) is slate-sound's starting palette and review bar, overridable per brand. The narrator choice stays with its film."
+   },
+   "source_ref": {
+    "reader": "sound-voice",
+    "index": 57,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "sv-058",
+   "name": "Synced sound and signature moment note",
+   "source_paths": [
+    "~/.claude/projects/-Users-you-Documents-TrueSpace-website-build-2026-09-28/memory/feedback_synced-sound-and-s06.md"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "skills/slate-sound",
+    "status": "generalized",
+    "reason": "Becomes rules with checks: every visible beat gets a sound within one frame (the sync gate), a big landing gets an impact echo, and each act needs one signature moment that could make someone cry (slate-story's bar)."
+   },
+   "source_ref": {
+    "reader": "sound-voice",
+    "index": 58,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "aq-000",
+   "name": "Run ExtendScript in AE via osascript",
+   "source_paths": [
+    "pipeline/scripts/run_jsx.sh"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "src/slate/ae",
+    "status": "ported",
+    "reason": "driver.run_jsx: osascript DoScriptFile with the long AppleEvent timeout, as is, plus the lock it lacked (shared with the AE bridge's), because two scripts at once raise a blocking modal."
+   },
+   "source_ref": {
+    "reader": "ae-qa-delivery",
+    "index": 0,
+    "inventory_class": "generic"
+   }
+  },
+  {
+   "id": "aq-001",
+   "name": "AE prefs report reader",
+   "source_paths": [
+    "pipeline/scripts/read_ae_report.py"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "src/slate/ae",
+    "status": "ported",
+    "reason": "The prefs report channel, as is and read-only, with the prefs folder chosen by version order (a plain sort puts 26.10 before 26.5)."
+   },
+   "source_ref": {
+    "reader": "ae-qa-delivery",
+    "index": 1,
+    "inventory_class": "generic"
+   }
+  },
+  {
+   "id": "aq-002",
+   "name": "One-comp aerender script",
+   "source_paths": [
+    "pipeline/scripts/render.sh"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/ae",
+    "status": "generalized",
+    "reason": "aerender is found by procs.which (never a fixed app path), the project comes from the film folder, and output templates come from config."
+   },
+   "source_ref": {
+    "reader": "ae-qa-delivery",
+    "index": 2,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "aq-003",
+   "name": "Chunked aerender masters",
+   "source_paths": [
+    "pipeline/scripts/masters.sh"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/ae",
+    "status": "generalized",
+    "reason": "ae.masters.render: aerender per chunk in fresh processes with resume and retries, the 4444-to-ProRes 422 HQ conform, stream-copy joins, the mix muxed once, frame-count gates and a disk watchdog. Chunks and total frames come from shots.json, -shortest is never used, and the watchdog stops only its own aerender (the film's pkill -f stopped any)."
+   },
+   "source_ref": {
+    "reader": "ae-qa-delivery",
+    "index": 3,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "aq-004",
+   "name": "AE smoke test",
+   "source_paths": [
+    "pipeline/scripts/smoke_build.jsx"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "engine/ae",
+    "status": "ported",
+    "reason": "The 1-second smoke test behind `slate connect aftereffects` and doctor, as is: one eased dot with motion blur, the scripting-pref read, template lists. It aborts on a dirty project and never attempts a file write."
+   },
+   "source_ref": {
+    "reader": "ae-qa-delivery",
+    "index": 4,
+    "inventory_class": "generic"
+   }
+  },
+  {
+   "id": "aq-005",
+   "name": "AE project audit",
+   "source_paths": [
+    "pipeline/scripts/validate.jsx"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "engine/ae",
+    "status": "generalized",
+    "reason": "The 14-check project audit, driven by film.json: comp and folder names, size and fps from config. Anything it can't check stays UNCHECKED, never passed."
+   },
+   "source_ref": {
+    "reader": "ae-qa-delivery",
+    "index": 5,
+    "inventory_class": "needs-generalizing"
+   },
+   "same_source_as": [
+    "pl-045"
+   ]
+  },
+  {
+   "id": "aq-006",
+   "name": "AE font check",
+   "source_paths": [
+    "pipeline/scripts/font_check.jsx"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "engine/ae",
+    "status": "generalized",
+    "reason": "Doctor's AE font check against the brand pack's declared families instead of a brand regex."
+   },
+   "source_ref": {
+    "reader": "ae-qa-delivery",
+    "index": 6,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "aq-007",
+   "name": "AE logo import proof",
+   "source_paths": [
+    "pipeline/scripts/logo_import_test.jsx"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "engine/ae",
+    "status": "generalized",
+    "reason": "Onboarding's AE logo check on the brand pack's SVG (empty project only, cleans up after itself); rsvg-convert makes the PDF."
+   },
+   "source_ref": {
+    "reader": "ae-qa-delivery",
+    "index": 7,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "aq-008",
+   "name": "Generated-clip hand-off proof",
+   "source_paths": [
+    "pipeline/scripts/integration_import_test.jsx"
+   ],
+   "category": "film-only",
+   "destination": {
+    "module": "engine/ae",
+    "status": "dropped",
+    "reason": "A one-off proof. Its ease-pair helper joins the ES3 library, and the hand-off is covered by the smoke test and the AE acceptance tests."
+   },
+   "source_ref": {
+    "reader": "ae-qa-delivery",
+    "index": 8,
+    "inventory_class": "project-specific"
+   }
+  },
+  {
+   "id": "aq-009",
+   "name": "AE capability probe",
+   "source_paths": [
+    "pipeline/scripts/probe_ae.jsx"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "engine/ae",
+    "status": "ported",
+    "reason": "Doctor's AE probe (colour API, text properties, templates, effects by match name), empty project only."
+   },
+   "source_ref": {
+    "reader": "ae-qa-delivery",
+    "index": 9,
+    "inventory_class": "generic"
+   }
+  },
+  {
+   "id": "aq-010",
+   "name": "Shape-path ease calibration",
+   "source_paths": [
+    "pipeline/scripts/probe_path_ease.jsx"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "engine/ae",
+    "status": "ported",
+    "reason": "Kept as an ES3 test proving the ease-to-speed conversion (speed = 1/T on path keys) that the kit and tests/vectors rely on."
+   },
+   "source_ref": {
+    "reader": "ae-qa-delivery",
+    "index": 10,
+    "inventory_class": "generic"
+   }
+  },
+  {
+   "id": "aq-011",
+   "name": "AE colour-management probe",
+   "source_paths": [
+    "pipeline/scripts/probe/color_probe.jsx"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "engine/ae",
+    "status": "generalized",
+    "reason": "A doctor probe run on the film's project. It proved footage profiles and output-module colour aren't scriptable in AE 26.5, which is why the working space is set in the project and checked by the audit."
+   },
+   "source_ref": {
+    "reader": "ae-qa-delivery",
+    "index": 11,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "aq-012",
+   "name": "Output-module settings dump",
+   "source_paths": [
+    "pipeline/scripts/probe/om_probe.jsx"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "engine/ae",
+    "status": "ported",
+    "reason": "Doctor probe. It proved the codec can't be chosen by script, which is why masters use two stock output modules plus an ffmpeg conform."
+   },
+   "source_ref": {
+    "reader": "ae-qa-delivery",
+    "index": 12,
+    "inventory_class": "generic"
+   }
+  },
+  {
+   "id": "aq-013",
+   "name": "Open-project preflight",
+   "source_paths": [
+    "pipeline/scripts/probe/open_project.jsx"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "engine/ae",
+    "status": "ported",
+    "reason": "The preflight before any AE change: open path, dirty flag, item count, render-queue state."
+   },
+   "source_ref": {
+    "reader": "ae-qa-delivery",
+    "index": 13,
+    "inventory_class": "generic"
+   }
+  },
+  {
+   "id": "aq-014",
+   "name": "Purge AE RAM caches",
+   "source_paths": [
+    "pipeline/scripts/probe/purge_ram.jsx"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "engine/ae",
+    "status": "ported",
+    "reason": "Runs before long aerender jobs. It clears RAM caches only; the disk cache is switched off separately, with AE closed, through the byte-safe prefs tool."
+   },
+   "source_ref": {
+    "reader": "ae-qa-delivery",
+    "index": 14,
+    "inventory_class": "generic"
+   }
+  },
+  {
+   "id": "aq-015",
+   "name": "Software-render switch",
+   "source_paths": [
+    "pipeline/scripts/probe/software_render.jsx"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "engine/ae",
+    "status": "generalized",
+    "reason": "Part of the master preflight on the film's own project: aerender crashed twice in the GPU compositor under memory pressure."
+   },
+   "source_ref": {
+    "reader": "ae-qa-delivery",
+    "index": 15,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "aq-016",
+   "name": "Working-space experiment",
+   "source_paths": [
+    "pipeline/scripts/probe/working_space_test.jsx"
+   ],
+   "category": "film-only",
+   "destination": {
+    "module": "knowledge/lessons.json",
+    "status": "dropped",
+    "reason": "A one-off. Its result is a rule the project build applies and the audit checks: Rec.709 Gamma 2.4, because sRGB darkened the brand's signature colour."
+   },
+   "source_ref": {
+    "reader": "ae-qa-delivery",
+    "index": 16,
+    "inventory_class": "project-specific"
+   }
+  },
+  {
+   "id": "aq-017",
+   "name": "Core ES3 library",
+   "source_paths": [
+    "pipeline/scripts/film/lib.jsx"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "engine/ae",
+    "status": "generalized",
+    "reason": "The ES3 kit: rational time and the sample bias, named eases as speed and influence with read-back, the settle spring, shapes, text, per-character reveals, counters, imports, placeholders and the prefs report channel. Brand tokens, fonts, the chart and the film switch move to film.json and the brand pack; JSON is read by eval only from files Slate wrote."
+   },
+   "source_ref": {
+    "reader": "ae-qa-delivery",
+    "index": 17,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "aq-018",
+   "name": "Film AEP builder",
+   "source_paths": [
+    "pipeline/scripts/film/build_film.jsx"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "engine/ae",
+    "status": "generalized",
+    "reason": "ae.project.build: preserves a dirty project, 16 bpc, Rec.709 Gamma 2.4, linear blending off, software GPU, shot, act and master comps with shot, word and event markers, self-checks. Folder and comp names come from config and the film id instead of an A|B switch."
+   },
+   "source_ref": {
+    "reader": "ae-qa-delivery",
+    "index": 18,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "aq-019",
+   "name": "Native AE builders for one act",
+   "source_paths": [
+    "pipeline/scripts/film/act1.jsx"
+   ],
+   "category": "obsolete",
+   "destination": {
+    "module": "engine/ae",
+    "status": "dropped",
+    "reason": "Superseded by the Remotion act, and brand content. Its pattern (event-timed native builds on the film clock) informs AE-built acts, which now come through the ES3 kit and the AE bridge."
+   },
+   "source_ref": {
+    "reader": "ae-qa-delivery",
+    "index": 19,
+    "inventory_class": "obsolete"
+   }
+  },
+  {
+   "id": "aq-020",
+   "name": "Master chunk queue",
+   "source_paths": [
+    "pipeline/scripts/film/queue_masters.jsx"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "engine/ae",
+    "status": "generalized",
+    "reason": "Queues N chunks with the two stock output modules and reads spans back in frames. N is one setting shared with the masters driver instead of two constants that must match."
+   },
+   "source_ref": {
+    "reader": "ae-qa-delivery",
+    "index": 20,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "aq-021",
+   "name": "Per-film AE wrappers (second film)",
+   "source_paths": [
+    "pipeline/scripts/film/B/"
+   ],
+   "category": "film-only",
+   "destination": {
+    "module": "src/slate/ae",
+    "status": "dropped",
+    "reason": "They only set a film switch. The driver passes the film to the shared scripts, so no per-film wrappers exist."
+   },
+   "source_ref": {
+    "reader": "ae-qa-delivery",
+    "index": 21,
+    "inventory_class": "project-specific"
+   }
+  },
+  {
+   "id": "aq-022",
+   "name": "Film-level validator",
+   "source_paths": [
+    "pipeline/tools/validate_film.py"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/qa",
+    "status": "generalized",
+    "reason": "`slate qa`: media, loudness, sync, word landings, banned words by OCR, read time, cuts, master-vs-render PSNR, transcript and captions, each a GateResult. The brand word and banned list come from the brand's truth, and its known bugs (24-bit not gated, the silent-stem threshold, the duplicated banned list) get regression tests."
+   },
+   "source_ref": {
+    "reader": "ae-qa-delivery",
+    "index": 22,
+    "inventory_class": "needs-generalizing"
+   },
+   "same_source_as": [
+    "pl-044"
+   ]
+  },
+  {
+   "id": "aq-023",
+   "name": "Frame-glitch scan",
+   "source_paths": [
+    "pipeline/tools/glitch_scan.py"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "src/slate/qa",
+    "status": "ported",
+    "reason": "As is, plus triage: flags within 3 frames of a planned beat are skipped, so smooth fast moves stop drowning real glitches (the second film had 1,442 flags)."
+   },
+   "source_ref": {
+    "reader": "ae-qa-delivery",
+    "index": 23,
+    "inventory_class": "generic"
+   },
+   "same_source_as": [
+    "pl-041"
+   ]
+  },
+  {
+   "id": "aq-024",
+   "name": "Per-act QA runner",
+   "source_paths": [
+    "pipeline/tools/qa_act.sh"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/qa",
+    "status": "generalized",
+    "reason": "Folded into `slate qa`: trims the mix to the act's first frame and runs per-shot evidence, with no film switch and no fallback to another film's preview."
+   },
+   "source_ref": {
+    "reader": "ae-qa-delivery",
+    "index": 24,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "aq-025",
+   "name": "Per-shot evidence",
+   "source_paths": [
+    "pipeline/tools/qa_shot.py"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/qa",
+    "status": "generalized",
+    "reason": "Half-res preview with sound, cut strips, detail frames at events and the motion-spike scan explained against planned events (within 3 frames); paths from the film folder."
+   },
+   "source_ref": {
+    "reader": "ae-qa-delivery",
+    "index": 25,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "aq-026",
+   "name": "Reference-frame OCR",
+   "source_paths": [
+    "pipeline/tools/ocr_frames.py"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/analyze",
+    "status": "generalized",
+    "reason": "`slate analyze` OCRs settled scene frames with the one OCR engine (Apple Vision through ocrmac)."
+   },
+   "source_ref": {
+    "reader": "ae-qa-delivery",
+    "index": 26,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "aq-027",
+   "name": "Swift Vision OCR CLI",
+   "source_paths": [
+    "pipeline/tools/ocr_vision.swift"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "src/slate/qa",
+    "status": "dropped",
+    "reason": "One OCR engine and no swiftc build: gates use Apple Vision through ocrmac in the uv environment. When that's unavailable, OCR gates are UNCHECKED, never a quiet pass from another engine."
+   },
+   "source_ref": {
+    "reader": "ae-qa-delivery",
+    "index": 27,
+    "inventory_class": "generic"
+   }
+  },
+  {
+   "id": "aq-028",
+   "name": "Act-join check",
+   "source_paths": [
+    "pipeline/tools/boundary_check.py"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/qa",
+    "status": "generalized",
+    "reason": "Gap, overlap and jump-against-neighbours checks at every act join, for any film. It only knew the first film, one of the four known validator bugs, so the fix gets a regression test."
+   },
+   "source_ref": {
+    "reader": "ae-qa-delivery",
+    "index": 28,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "aq-029",
+   "name": "Banned-word scan",
+   "source_paths": [
+    "pipeline/tools/banned_words_scan.py"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/qa",
+    "status": "generalized",
+    "reason": "Reads the brand's banned words from its pack (one list, not imported from the script builder) and OCRs text, images and video with the one engine."
+   },
+   "source_ref": {
+    "reader": "ae-qa-delivery",
+    "index": 29,
+    "inventory_class": "needs-generalizing"
+   },
+   "same_source_as": [
+    "pl-061"
+   ]
+  },
+  {
+   "id": "aq-030",
+   "name": "Smoke-test verifier",
+   "source_paths": [
+    "pipeline/tools/verify_smoke.py"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "src/slate/ae",
+    "status": "ported",
+    "reason": "The smoke test's measurement, as is: the dot's centroid against the cubic-bezier, with an onion-skin still as evidence."
+   },
+   "source_ref": {
+    "reader": "ae-qa-delivery",
+    "index": 30,
+    "inventory_class": "generic"
+   }
+  },
+  {
+   "id": "aq-031",
+   "name": "Delivery manifest",
+   "source_paths": [
+    "pipeline/tools/delivery_manifest.py"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/finish",
+    "status": "generalized",
+    "reason": "`slate deliver` writes MANIFEST.json last: bytes, SHA-256 and ffprobe per deliverable, missing files listed, never skipped. The list comes from the format's delivery set instead of hard-coded names."
+   },
+   "source_ref": {
+    "reader": "ae-qa-delivery",
+    "index": 31,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "aq-032",
+   "name": "Review and phone cuts",
+   "source_paths": [
+    "pipeline/tools/review_cuts.sh"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/finish",
+    "status": "generalized",
+    "reason": "`slate review`: half-res and phone cuts (VideoToolbox) and 0.5-second sheets straight from the act renders and the mix, with contiguity asserted and no film switch."
+   },
+   "source_ref": {
+    "reader": "ae-qa-delivery",
+    "index": 32,
+    "inventory_class": "needs-generalizing"
+   },
+   "same_source_as": [
+    "pl-047"
+   ]
+  },
+  {
+   "id": "aq-033",
+   "name": "Captions from word timings",
+   "source_paths": [
+    "pipeline/tools/captions.py"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/voice",
+    "status": "generalized",
+    "reason": "`slate voice captions`, with output names from the film id instead of one film's."
+   },
+   "source_ref": {
+    "reader": "ae-qa-delivery",
+    "index": 33,
+    "inventory_class": "needs-generalizing"
+   },
+   "same_source_as": [
+    "sv-002"
+   ]
+  },
+  {
+   "id": "aq-034",
+   "name": "Contact sheets",
+   "source_paths": [
+    "pipeline/tools/contact_sheet.py"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "src/slate/finish",
+    "status": "ported",
+    "reason": "Pillow sheets (this ffmpeg has no drawtext), with the system font found at runtime."
+   },
+   "source_ref": {
+    "reader": "ae-qa-delivery",
+    "index": 34,
+    "inventory_class": "generic"
+   },
+   "same_source_as": [
+    "ve-060"
+   ]
+  },
+  {
+   "id": "aq-035",
+   "name": "Proven range splice",
+   "source_paths": [
+    "pipeline/tools/splice_render.py"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "src/slate/render",
+    "status": "ported",
+    "reason": "render.splice as is, including the mid-frame seek and zero-based timestamps for the tail."
+   },
+   "source_ref": {
+    "reader": "ae-qa-delivery",
+    "index": 35,
+    "inventory_class": "generic"
+   },
+   "same_source_as": [
+    "pl-043",
+    "ve-059"
+   ]
+  },
+  {
+   "id": "aq-036",
+   "name": "Earlier sub-frame averaging",
+   "source_paths": [
+    "pipeline/tools/mb_average.py"
+   ],
+   "category": "obsolete",
+   "destination": {
+    "module": "engine/remotion",
+    "status": "dropped",
+    "reason": "Superseded by render_mb streaming 16 samples."
+   },
+   "source_ref": {
+    "reader": "ae-qa-delivery",
+    "index": 36,
+    "inventory_class": "obsolete"
+   },
+   "same_source_as": [
+    "ve-058"
+   ]
+  },
+  {
+   "id": "aq-037",
+   "name": "WORK render farm script",
+   "source_paths": [
+    "pipeline/r3f/work.sh"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/render",
+    "status": "dropped",
+    "reason": "The plan decided against a remote backend: WORK is never used for renders or builds. Rendering is local through the job queue."
+   },
+   "source_ref": {
+    "reader": "ae-qa-delivery",
+    "index": 37,
+    "inventory_class": "needs-generalizing"
+   },
+   "same_source_as": [
+    "pl-066",
+    "ve-004"
+   ]
+  },
+  {
+   "id": "aq-038",
+   "name": "Motion-blur renderer (render_mb)",
+   "source_paths": [
+    "pipeline/r3f/render_mb.mjs"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "engine/remotion",
+    "status": "generalized",
+    "reason": "Kept as the core renderer, with fps from film.json. It keeps deleting its bundle on exit (56 leaked bundles once filled 14 GB)."
+   },
+   "source_ref": {
+    "reader": "ae-qa-delivery",
+    "index": 38,
+    "inventory_class": "generic"
+   },
+   "same_source_as": [
+    "ve-002"
+   ]
+  },
+  {
+   "id": "aq-039",
+   "name": "Batch stills renderer",
+   "source_paths": [
+    "pipeline/r3f/stills.mjs"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "engine/remotion",
+    "status": "ported",
+    "reason": "The engine's `stills` command, with the bundle cleanup it lacked."
+   },
+   "source_ref": {
+    "reader": "ae-qa-delivery",
+    "index": 39,
+    "inventory_class": "generic"
+   },
+   "same_source_as": [
+    "ve-003"
+   ]
+  },
+  {
+   "id": "aq-040",
+   "name": "Remotion render config",
+   "source_paths": [
+    "pipeline/r3f/remotion.config.ts"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "engine/remotion",
+    "status": "ported",
+    "reason": "ANGLE on Metal, PNG frames, overwrite, as is."
+   },
+   "source_ref": {
+    "reader": "ae-qa-delivery",
+    "index": 40,
+    "inventory_class": "generic"
+   },
+   "same_source_as": [
+    "ve-001"
+   ]
+  },
+  {
+   "id": "aq-041",
+   "name": "Higgsfield's AE bridge (fnf-after-effects-mcp)",
+   "source_paths": [
+    "/opt/homebrew/lib/node_modules/fnf-after-effects-mcp"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "src/slate/ae",
+    "status": "ported",
+    "reason": "Depended on, never copied: installed from npm at exactly 0.1.3, registered per agent and wrapped behind Slate's AE lock, with acceptance tests on every version bump. Its 13 skills are served by the bridge and used as AE looks; they carry no redistribution grant."
+   },
+   "source_ref": {
+    "reader": "ae-qa-delivery",
+    "index": 41,
+    "inventory_class": "generic"
+   }
+  },
+  {
+   "id": "aq-042",
+   "name": "Rebuild runbook",
+   "source_paths": [
+    "REBUILD.md"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/state",
+    "status": "generalized",
+    "reason": "A film's rebuild is data now: film.json pins tool and model versions, film.lock.json records the command, tool version and inputs behind every derived file, and `slate status` and `slate make` walk the rebuild. Its method notes go to slate-finish."
+   },
+   "source_ref": {
+    "reader": "ae-qa-delivery",
+    "index": 42,
+    "inventory_class": "needs-generalizing"
+   },
+   "same_source_as": [
+    "pl-006"
+   ]
+  },
+  {
+   "id": "aq-043",
+   "name": "Toolchain proof (PIPELINE.md)",
+   "source_paths": [
+    "PIPELINE.md"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "src/slate/doctor",
+    "status": "ported",
+    "reason": "The seed for `slate doctor`: the osascript route, the aerender smoke test, the scripting-pref state, prefs-based reporting, ES3 rules and Higgsfield setup, each now a doctor check run from every agent context. Its 'AE MCP not installed' line is stale."
+   },
+   "source_ref": {
+    "reader": "ae-qa-delivery",
+    "index": 43,
+    "inventory_class": "generic"
+   }
+  },
+  {
+   "id": "aq-044",
+   "name": "Pipeline design and specs",
+   "source_paths": [
+    "INTEGRATION.md"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "formats",
+    "status": "generalized",
+    "reason": "Its specs (frame rate, Rec.709, ProRes 422 HQ plus H.264, audio targets) become format templates and film.json defaults. The planned 9:16 and 1:1 cut-downs and the -16 LUFS alternative, never built, are derived films and format loudness targets now."
+   },
+   "source_ref": {
+    "reader": "ae-qa-delivery",
+    "index": 44,
+    "inventory_class": "needs-generalizing"
+   },
+   "same_source_as": [
+    "pl-013"
+   ]
+  },
+  {
+   "id": "aq-045",
+   "name": "Higgsfield notes (HIGGSFIELD.md)",
+   "source_paths": [
+    "HIGGSFIELD.md"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "skills/slate-generate",
+    "status": "generalized",
+    "reason": "Distilled into slate-generate's references: API usage, the two wallets and why only the Cloud API is funded. Its AE bridge install section is the reference for `slate connect aftereffects`."
+   },
+   "source_ref": {
+    "reader": "ae-qa-delivery",
+    "index": 45,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "aq-046",
+   "name": "First film's QA record",
+   "source_paths": [
+    "QA.md"
+   ],
+   "category": "film-only",
+   "destination": {
+    "module": "skills/slate-qa",
+    "status": "dropped",
+    "reason": "One film's record. Its method (what each shot gets, status keys, evidence) is slate-qa's QA table template."
+   },
+   "source_ref": {
+    "reader": "ae-qa-delivery",
+    "index": 46,
+    "inventory_class": "project-specific"
+   },
+   "same_source_as": [
+    "pl-004"
+   ]
+  },
+  {
+   "id": "aq-047",
+   "name": "Master-render lessons note",
+   "source_paths": [
+    "~/.claude/projects/-Users-you-Documents-TrueSpace-website-build-2026-09-28/memory/project_ae-masters.md"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "skills/slate-finish",
+    "status": "generalized",
+    "reason": "Rules and preflight checks: chunking, the stock HQ output-module trap, Rec.709 Gamma 2.4, ffprobe's double count, the sample bias, and the disk cache off during renders and restored after, with AE closed and through the byte-safe prefs tool."
+   },
+   "source_ref": {
+    "reader": "ae-qa-delivery",
+    "index": 47,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "aq-048",
+   "name": "WORK render-farm note",
+   "source_paths": [
+    "~/.claude/projects/-Users-you-Documents-TrueSpace-website-build-2026-09-28/memory/project_work-render-farm.md"
+   ],
+   "category": "film-only",
+   "destination": {
+    "module": "knowledge/lessons.json",
+    "status": "dropped",
+    "reason": "Retired with work.sh: WORK is never used for renders, and the note itself now says so. The lossless-mkv transport lesson is recorded."
+   },
+   "source_ref": {
+    "reader": "ae-qa-delivery",
+    "index": 48,
+    "inventory_class": "project-specific"
+   }
+  },
+  {
+   "id": "aq-049",
+   "name": "Quiet-the-render-machine note",
+   "source_paths": [
+    "~/.claude/projects/-Users-you-Documents-TrueSpace-website-build-2026-09-28/memory/feedback_quiet-work-for-renders.md"
+   ],
+   "category": "film-only",
+   "destination": {
+    "module": "src/slate/jobs",
+    "status": "dropped",
+    "reason": "WORK-only, and the note has since been removed from the film's memory. On one Mac, the job queue's render slots and locks keep the load in check."
+   },
+   "source_ref": {
+    "reader": "ae-qa-delivery",
+    "index": 49,
+    "inventory_class": "project-specific"
+   },
+   "source_missing": {
+    "paths": [
+     "~/.claude/projects/-Users-you-Documents-TrueSpace-website-build-2026-09-28/memory/feedback_quiet-work-for-renders.md"
+    ],
+    "why": "Removed from the film project's memory folder after the inventory was read (checked 2026-09-30)."
+   }
+  },
+  {
+   "id": "aq-050",
+   "name": "First film's delivered manifest",
+   "source_paths": [
+    "build/renders.nosync/final/MANIFEST.json"
+   ],
+   "category": "film-only",
+   "destination": {
+    "module": "tests",
+    "status": "dropped",
+    "reason": "One film's delivery record, read in place as a reference for the manifest shape; the schema itself is mapped with its other inventory entry."
+   },
+   "source_ref": {
+    "reader": "ae-qa-delivery",
+    "index": 50,
+    "inventory_class": "project-specific"
+   },
+   "same_source_as": [
+    "pl-046"
+   ]
+  },
+  {
+   "id": "aq-051",
+   "name": "Smoke-test evidence",
+   "source_paths": [
+    "pipeline/smoke/"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "src/slate/ae",
+    "status": "ported",
+    "reason": "The template for doctor's self-test evidence: the smoke AEP, the 1-second render, the build report, the verify table and the onion skin, written to Slate's data folder on each machine."
+   },
+   "source_ref": {
+    "reader": "ae-qa-delivery",
+    "index": 51,
+    "inventory_class": "generic"
+   }
+  },
+  {
+   "id": "pl-000",
+   "name": "Goal record (GOAL.md)",
+   "source_paths": [
+    "GOAL.md"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "skills/slate",
+    "status": "generalized",
+    "reason": "brief/GOAL.md in every film: the request verbatim, constraints, a checklist row per requirement with status and evidence, and mid-goal messages quoted with what each changed. `slate new` scaffolds it; the slate skill keeps it and re-derives the checklist from the verbatim request after any summary."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 0,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "pl-001",
+   "name": "First film's production tracker",
+   "source_paths": [
+    "PRODUCTION.md"
+   ],
+   "category": "film-only",
+   "destination": {
+    "module": "skills/slate",
+    "status": "dropped",
+    "reason": "The content stays with the film. The tracker shape (numbered direction changes quoted verbatim, latest approvals govern, requirements in the goal's order, 'proofs are not completed shots') is brief/PRODUCTION.md's template."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 1,
+    "inventory_class": "project-specific"
+   }
+  },
+  {
+   "id": "pl-002",
+   "name": "Second film's production tracker",
+   "source_paths": [
+    "PRODUCTION_B.md"
+   ],
+   "category": "film-only",
+   "destination": {
+    "module": "skills/slate",
+    "status": "dropped",
+    "reason": "The best example of a tracker in the requester's own words; its Ask | Status | Evidence table is the core of the PRODUCTION.md template. The content stays with the film."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 2,
+    "inventory_class": "project-specific"
+   }
+  },
+  {
+   "id": "pl-003",
+   "name": "Third film's production tracker",
+   "source_paths": [
+    "PRODUCTION_C.md"
+   ],
+   "category": "film-only",
+   "destination": {
+    "module": "skills/slate",
+    "status": "dropped",
+    "reason": "The content stays with the film (it was still changing). Its truth rules carried across films are the pattern for a brand's truth pack."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 3,
+    "inventory_class": "project-specific"
+   }
+  },
+  {
+   "id": "pl-004",
+   "name": "First film's QA record",
+   "source_paths": [
+    "QA.md"
+   ],
+   "category": "film-only",
+   "destination": {
+    "module": "skills/slate-qa",
+    "status": "dropped",
+    "reason": "Its per-shot table format is slate-qa's template; the content stays with the film."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 4,
+    "inventory_class": "project-specific"
+   },
+   "same_source_as": [
+    "aq-046"
+   ]
+  },
+  {
+   "id": "pl-005",
+   "name": "Second film's QA record",
+   "source_paths": [
+    "QA_B.md"
+   ],
+   "category": "film-only",
+   "destination": {
+    "module": "skills/slate-qa",
+    "status": "dropped",
+    "reason": "Its lessons go into slate-qa's triage rules: separate validator faults (the wrong film's captions, stale cue sheets) from real defects, and document allowed exceptions such as a character's anticipation beats."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 5,
+    "inventory_class": "project-specific"
+   }
+  },
+  {
+   "id": "pl-006",
+   "name": "Rebuild runbook",
+   "source_paths": [
+    "REBUILD.md"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/state",
+    "status": "generalized",
+    "reason": "A rebuild from the film folder with no paid generation is what pins, film.lock.json and `slate make` give every film; the runbook's structure goes to slate-finish."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 6,
+    "inventory_class": "needs-generalizing"
+   },
+   "same_source_as": [
+    "aq-042"
+   ]
+  },
+  {
+   "id": "pl-007",
+   "name": "Asset ledger (ASSETS.md)",
+   "source_paths": [
+    "ASSETS.md"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/ledger.py",
+    "status": "generalized",
+    "reason": "The spend ledger and the generation manifest replace it: every generation with model, request id, output, status and cost, computed per request because the Cloud API has no balance endpoint."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 7,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "pl-008",
+   "name": "Original-film analysis",
+   "source_paths": [
+    "ANALYSIS.md"
+   ],
+   "category": "TrueSpace content",
+   "destination": {
+    "module": "src/slate/analyze",
+    "status": "dropped",
+    "reason": "TrueSpace content stays behind. Its method (a Demucs split, Whisper twice, Higgsfield scene analysis, ffmpeg scene frames, OCR) is what `slate analyze` does for any reference film."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 8,
+    "inventory_class": "brand-specific"
+   }
+  },
+  {
+   "id": "pl-009",
+   "name": "Brand and product research",
+   "source_paths": [
+    "RESEARCH.md"
+   ],
+   "category": "TrueSpace content",
+   "destination": {
+    "module": "skills/slate-brand",
+    "status": "dropped",
+    "reason": "TrueSpace research stays behind. Its method (source codes, every claim cited, the brand system by source, conflicts and open questions) is slate-brand's research template."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 9,
+    "inventory_class": "brand-specific"
+   }
+  },
+  {
+   "id": "pl-010",
+   "name": "Product truth from the company code",
+   "source_paths": [
+    "APP.md"
+   ],
+   "category": "TrueSpace content",
+   "destination": {
+    "module": "skills/slate-brand",
+    "status": "dropped",
+    "reason": "Company material read in place on WORK, never copied. The product-truth template (journey, screens and exact copy, the product's own motion, palette and type, live against not built, where the product disagrees with itself) goes into slate-brand's references, neutral."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 10,
+    "inventory_class": "brand-specific"
+   }
+  },
+  {
+   "id": "pl-011",
+   "name": "First film's readable script",
+   "source_paths": [
+    "STORYBOARD.md"
+   ],
+   "category": "TrueSpace content",
+   "destination": {
+    "module": "src/slate/story",
+    "status": "dropped",
+    "reason": "The film's script stays behind. The pattern, a readable script generated from data, is SCRIPT.md, written by `slate script build`."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 11,
+    "inventory_class": "brand-specific"
+   }
+  },
+  {
+   "id": "pl-012",
+   "name": "Motion law (MOTION.md)",
+   "source_paths": [
+    "MOTION.md"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "skills/slate-motion",
+    "status": "generalized",
+    "reason": "The ease values derive from one brand's CSS tokens, so they belong to that brand's pack; the rules and thresholds are Slate's defaults in slate-motion."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 12,
+    "inventory_class": "needs-generalizing"
+   },
+   "same_source_as": [
+    "ve-071"
+   ]
+  },
+  {
+   "id": "pl-013",
+   "name": "Hand-off design and QA gates",
+   "source_paths": [
+    "INTEGRATION.md"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/qa",
+    "status": "generalized",
+    "reason": "Its QA gates (timing, motion, read time, truth, numbers, brand, banned words, audio, output) are covered by `slate qa` and the plan's added gates."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 13,
+    "inventory_class": "needs-generalizing"
+   },
+   "same_source_as": [
+    "aq-044"
+   ]
+  },
+  {
+   "id": "pl-014",
+   "name": "Engine decision record",
+   "source_paths": [
+    "TRACKS.md"
+   ],
+   "category": "film-only",
+   "destination": {
+    "module": "skills/slate",
+    "status": "dropped",
+    "reason": "Settled by the plan; its build-gate table is part of the production tracker template."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 14,
+    "inventory_class": "project-specific"
+   },
+   "same_source_as": [
+    "ve-077"
+   ]
+  },
+  {
+   "id": "pl-015",
+   "name": "Sound design doc (SOUND.md)",
+   "source_paths": [
+    "SOUND.md"
+   ],
+   "category": "obsolete",
+   "destination": {
+    "module": "skills/slate-sound",
+    "status": "generalized",
+    "reason": "Classed obsolete before 2026-09-30, when the film went back to this design, so it's mapped like its other inventory entry. The parts that really are retired (the synthesized tonal layer, the room tone) become 'dropped' rules in the knowledge ledger."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 15,
+    "inventory_class": "obsolete"
+   },
+   "same_source_as": [
+    "sv-054"
+   ]
+  },
+  {
+   "id": "pl-016",
+   "name": "Third film's treatment",
+   "source_paths": [
+    "build/C/C_TREATMENT.md"
+   ],
+   "category": "TrueSpace content",
+   "destination": {
+    "module": "skills/slate-story",
+    "status": "dropped",
+    "reason": "The treatment stays with its film. Its structure (the idea as a reframe, why this runtime, act by act, the emotional arc, one signature moment per act, the character's gestures, voice direction, look and sound, what the film never shows, the owner's calls, notes for builders) is slate-story's treatment template."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 16,
+    "inventory_class": "brand-specific"
+   }
+  },
+  {
+   "id": "pl-017",
+   "name": "Capability brief",
+   "source_paths": [
+    "build/C/C_RESEARCH.md"
+   ],
+   "category": "TrueSpace content",
+   "destination": {
+    "module": "skills/slate-story",
+    "status": "dropped",
+    "reason": "The content stays behind. The capability-brief template (every line with a source, guardrails, what's not true; code wins over docs and the owner wins over code) goes into slate-story's references."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 17,
+    "inventory_class": "brand-specific"
+   }
+  },
+  {
+   "id": "pl-018",
+   "name": "Script generator with gates",
+   "source_paths": [
+    "build/C/tools/c_storyboard.py"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/story",
+    "status": "generalized",
+    "reason": "The model for `slate script build`: data in, storyboard.json plus SCRIPT.md out, gates that refuse to write, id renumbering with text remapping (refused once scenes use the ids), durations re-derived from real takes, vo_cues.json written. Character-specific checks and content move to the brand pack."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 18,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "pl-019",
+   "name": "Storyboard renderer with script gates",
+   "source_paths": [
+    "pipeline/tools/storyboard_build.py"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/story",
+    "status": "generalized",
+    "reason": "Its read-time rule (max(1.5, 0.4 + 0.3 x words) seconds against the time left after the entrance) and its pace, banned-word and runtime checks become `slate script build`'s gates; the hard-coded reference runtime and banned list go."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 19,
+    "inventory_class": "needs-generalizing"
+   },
+   "same_source_as": [
+    "ve-056"
+   ]
+  },
+  {
+   "id": "pl-020",
+   "name": "Script as data (storyboard.json)",
+   "source_paths": [
+    "build/storyboard.json"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/schemas",
+    "status": "generalized",
+    "reason": "The storyboard schema (acts with job and intent; shots with id, duration, VO, on-screen text, picture, transition, build, source, sound), now generated from script/script.json. The later films' extra fields (narrator, motif vocabulary, timing notes) become optional keys; the content is the film's."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 20,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "pl-021",
+   "name": "VO cue sheet (vo_cues.json)",
+   "source_paths": [
+    "build/vo_cues.json"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "src/slate/schemas",
+    "status": "ported",
+    "reason": "The VO cue shape as is (ARCHITECTURE section 5), including dur to trim leaked tails; `slate voice tts` and `slate timing` write it."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 21,
+    "inventory_class": "generic"
+   }
+  },
+  {
+   "id": "pl-022",
+   "name": "Word timings (vo_words.json)",
+   "source_paths": [
+    "build/vo_words.json"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "src/slate/schemas",
+    "status": "ported",
+    "reason": "The word-timing shape as is: per take, with the heard line, Whisper times and snapped starts."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 22,
+    "inventory_class": "generic"
+   }
+  },
+  {
+   "id": "pl-023",
+   "name": "Frame-exact shot table (shots.json)",
+   "source_paths": [
+    "build/shots.json"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "src/slate/schemas",
+    "status": "ported",
+    "reason": "The shot table as is (rational fps, size, total frames, acts, shots with exclusive frame_out and rounding records). The three films' files are the golden data for timing parity, read in place."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 23,
+    "inventory_class": "generic"
+   }
+  },
+  {
+   "id": "pl-024",
+   "name": "Storyboard to frame-exact shot table",
+   "source_paths": [
+    "pipeline/tools/make_shots.py"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/timing",
+    "status": "generalized",
+    "reason": "fps and resolution come from film.json instead of constants, and the per-film --dir becomes the film folder."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 24,
+    "inventory_class": "needs-generalizing"
+   },
+   "same_source_as": [
+    "ve-055"
+   ]
+  },
+  {
+   "id": "pl-025",
+   "name": "Word-anchored beats (events.json)",
+   "source_paths": [
+    "build/events.json"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/schemas",
+    "status": "generalized",
+    "reason": "Word-anchored landings are the keeper (a word, its occurrence and an offset, landing on an ease and duration); the embedded v1 synth parameters are dropped."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 25,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "pl-026",
+   "name": "Event timeline resolver",
+   "source_paths": [
+    "pipeline/tools/timeline.py"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "src/slate/timing",
+    "status": "ported",
+    "reason": "timeline.json must not change once acts are rendered, so Slate locks it when any act render is registered."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 26,
+    "inventory_class": "generic"
+   },
+   "same_source_as": [
+    "ve-054"
+   ]
+  },
+  {
+   "id": "pl-027",
+   "name": "Resolved events (timeline.json)",
+   "source_paths": [
+    "build/timeline.json"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "src/slate/schemas",
+    "status": "ported",
+    "reason": "The resolved-events shape as is; locked once any act render is registered."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 27,
+    "inventory_class": "generic"
+   }
+  },
+  {
+   "id": "pl-028",
+   "name": "v1 spotting cue sheet",
+   "source_paths": [
+    "build/sound_cues.json"
+   ],
+   "category": "obsolete",
+   "destination": {
+    "module": "src/slate/sound",
+    "status": "dropped",
+    "reason": "One film's v1 cues, left in place. Proof 2, now the reference, is a cue sheet in this older format rendered by sound_engine.py, so the effects cue schema is settled when p3 is re-inventoried, not taken from v2."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 28,
+    "inventory_class": "obsolete"
+   }
+  },
+  {
+   "id": "pl-029",
+   "name": "v1 builder-beat cues",
+   "source_paths": [
+    "build/sound_cues_visual.json"
+   ],
+   "category": "obsolete",
+   "destination": {
+    "module": "knowledge/lessons.json",
+    "status": "dropped",
+    "reason": "Replaced; its failure (one sound per loose kind) is the repetition lesson."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 29,
+    "inventory_class": "obsolete"
+   }
+  },
+  {
+   "id": "pl-030",
+   "name": "Builder-to-sound event contract (visual_events)",
+   "source_paths": [
+    "build/B/visual_events/act1.json"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "src/slate/schemas",
+    "status": "generalized",
+    "reason": "The thirteen-kind beat vocabulary with sizes is the visual-events schema; the character-named kind becomes 'character', and the first film's older kinds aren't carried."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 30,
+    "inventory_class": "generic"
+   }
+  },
+  {
+   "id": "pl-031",
+   "name": "v2 beats-to-cues planner",
+   "source_paths": [
+    "pipeline/tools/visual_sfx_v2.py"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/sound",
+    "status": "dropped",
+    "reason": "The retired v2 design apart from its beat loader, beats_for(). The character mode and the fixed key were brand defaults."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 31,
+    "inventory_class": "needs-generalizing"
+   },
+   "same_source_as": [
+    "sv-004"
+   ]
+  },
+  {
+   "id": "pl-032",
+   "name": "v2 cue sheet (sound_cues_v2.json)",
+   "source_paths": [
+    "build/B/sound_cues_v2.json"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "src/slate/sound",
+    "status": "dropped",
+    "reason": "The v2 cue-sheet shape goes with the retired design, and the effects cue schema is settled with p3. Designed silences as first-class cues carry over as a lesson."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 32,
+    "inventory_class": "generic"
+   }
+  },
+  {
+   "id": "pl-033",
+   "name": "Mix record (final_mix.json)",
+   "source_paths": [
+    "build/audio/final_mix.json"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "src/slate/schemas",
+    "status": "ported",
+    "reason": "The mix record as is: target, gain, music against voice, duck, limiter, final loudness and true peak, stem peaks, pass."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 33,
+    "inventory_class": "generic"
+   }
+  },
+  {
+   "id": "pl-034",
+   "name": "Music-gap record (music_check.json)",
+   "source_paths": [
+    "build/audio/music_check.json"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "src/slate/schemas",
+    "status": "ported",
+    "reason": "The gap-check record as is: threshold, window, planned stops, the quietest point outside them, failures, pass."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 34,
+    "inventory_class": "generic"
+   }
+  },
+  {
+   "id": "pl-035",
+   "name": "Mix verification record (verify.json)",
+   "source_paths": [
+    "build/audio/verify.json"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "src/slate/schemas",
+    "status": "ported",
+    "reason": "The verification record as is: loudness with the stem sum, gaps, voice placement by cross-correlation, sync per family."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 35,
+    "inventory_class": "generic"
+   }
+  },
+  {
+   "id": "pl-036",
+   "name": "Delivery mix (final_mix)",
+   "source_paths": [
+    "sound/tools/final_mix.py"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "src/slate/sound",
+    "status": "ported",
+    "reason": "As mapped from the sound reader: the score 15 LU under the voice with a 4 dB duck by default, one linear gain to -14 LUFS, a whole-mix trim for true peak, exact picture length, stems that sum."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 36,
+    "inventory_class": "generic"
+   },
+   "same_source_as": [
+    "sv-006"
+   ]
+  },
+  {
+   "id": "pl-037",
+   "name": "Repetition report",
+   "source_paths": [
+    "sound/v2/tools/repetition.py"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "src/slate/sound",
+    "status": "dropped",
+    "reason": "A v2 measuring tool (HANDOVER.md section 5); a candidate for the no-repeats gate at the proof-3 re-inventory."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 37,
+    "inventory_class": "generic"
+   },
+   "same_source_as": [
+    "sv-025"
+   ]
+  },
+  {
+   "id": "pl-038",
+   "name": "Captions record (captions.json)",
+   "source_paths": [
+    "build/captions/captions.json"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "src/slate/schemas",
+    "status": "generalized",
+    "reason": "The captions shape as is; the SRT and VTT file names come from the film id instead of one film's name."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 38,
+    "inventory_class": "generic"
+   }
+  },
+  {
+   "id": "pl-039",
+   "name": "Per-shot QA evidence (qa/<shot>.json)",
+   "source_paths": [
+    "build/qa/S05.json"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "src/slate/schemas",
+    "status": "ported",
+    "reason": "The per-shot evidence shape as is."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 39,
+    "inventory_class": "generic"
+   }
+  },
+  {
+   "id": "pl-040",
+   "name": "Act-join record (boundaries.json)",
+   "source_paths": [
+    "build/qa/boundaries.json"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "src/slate/schemas",
+    "status": "ported",
+    "reason": "The act-join record as is."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 40,
+    "inventory_class": "generic"
+   }
+  },
+  {
+   "id": "pl-041",
+   "name": "Frame-glitch scan",
+   "source_paths": [
+    "pipeline/tools/glitch_scan.py"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "src/slate/qa",
+    "status": "ported",
+    "reason": "Ported with triage around planned beats, because it flags smooth motion faster than about 3 px a frame."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 41,
+    "inventory_class": "generic"
+   },
+   "same_source_as": [
+    "aq-023"
+   ]
+  },
+  {
+   "id": "pl-042",
+   "name": "Render registry (renders.json)",
+   "source_paths": [
+    "build/renders.nosync/r3f/renders.json"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "src/slate/render",
+    "status": "generalized",
+    "reason": "Carries over as renders/registry.json with the fields three engines need (engine, frames, samples, sha256, bundle hash, made_at); the history of partial re-renders and splices stays."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 42,
+    "inventory_class": "generic"
+   }
+  },
+  {
+   "id": "pl-043",
+   "name": "Proven range splice",
+   "source_paths": [
+    "pipeline/tools/splice_render.py"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "src/slate/render",
+    "status": "ported",
+    "reason": "render.splice as is."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 43,
+    "inventory_class": "generic"
+   },
+   "same_source_as": [
+    "aq-035",
+    "ve-059"
+   ]
+  },
+  {
+   "id": "pl-044",
+   "name": "Film-level validator",
+   "source_paths": [
+    "pipeline/tools/validate_film.py"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/qa",
+    "status": "generalized",
+    "reason": "Every gate takes the film folder (it once read the wrong film's files), and the brand word and banned list come from the brand's truth instead of code."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 44,
+    "inventory_class": "needs-generalizing"
+   },
+   "same_source_as": [
+    "aq-022"
+   ]
+  },
+  {
+   "id": "pl-045",
+   "name": "AE project audit",
+   "source_paths": [
+    "pipeline/scripts/validate.jsx"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "engine/ae",
+    "status": "generalized",
+    "reason": "Comp names come from config instead of one film's names."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 45,
+    "inventory_class": "needs-generalizing"
+   },
+   "same_source_as": [
+    "aq-005"
+   ]
+  },
+  {
+   "id": "pl-046",
+   "name": "Delivery manifest (MANIFEST.json)",
+   "source_paths": [
+    "build/renders.nosync/final/MANIFEST.json"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "src/slate/schemas",
+    "status": "ported",
+    "reason": "The manifest shape as is: film, frames, fps, deliverables with bytes, sha256 and media, and what's missing."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 46,
+    "inventory_class": "generic"
+   },
+   "same_source_as": [
+    "aq-050"
+   ]
+  },
+  {
+   "id": "pl-047",
+   "name": "Review and phone cuts",
+   "source_paths": [
+    "pipeline/tools/review_cuts.sh"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "src/slate/finish",
+    "status": "generalized",
+    "reason": "`slate review` builds the cuts and sheets, asserting the renders cover the film with no gaps."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 47,
+    "inventory_class": "generic"
+   },
+   "same_source_as": [
+    "aq-032"
+   ]
+  },
+  {
+   "id": "pl-048",
+   "name": "Plate selection (plates_selected.json)",
+   "source_paths": [
+    "build/plates_selected.json"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/schemas",
+    "status": "generalized",
+    "reason": "The plate-selection shape (job, file, ambience, ridge key, fps, size, offset) for `slate plates`; this film's choices stay behind."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 48,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "pl-049",
+   "name": "Generation provenance manifest",
+   "source_paths": [
+    "assets/higgsfield/manifest.json"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "src/slate/gen",
+    "status": "ported",
+    "reason": "The provenance shape (model, prompt, request id, cost, licence) as is, alongside the spend ledger rows."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 49,
+    "inventory_class": "generic"
+   }
+  },
+  {
+   "id": "pl-050",
+   "name": "Reference-film scenes (scenes.json)",
+   "source_paths": [
+    "analysis/scenes.json"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "src/slate/analyze",
+    "status": "ported",
+    "reason": "The scenes shape as is, written by `slate analyze`; this file's content is the original film's and stays behind."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 50,
+    "inventory_class": "generic"
+   }
+  },
+  {
+   "id": "pl-051",
+   "name": "Measured eases (measured_eases.json)",
+   "source_paths": [
+    "analysis/references/measured_eases.json"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "src/slate/analyze",
+    "status": "ported",
+    "reason": "The measured-ease shape as is; onboarding writes one per brand, and motion.json cites it as lineage."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 51,
+    "inventory_class": "generic"
+   }
+  },
+  {
+   "id": "pl-052",
+   "name": "Composition plan (A1v2_score.json)",
+   "source_paths": [
+    "sound/music/plans/A1v2_score.json"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/schemas",
+    "status": "generalized",
+    "reason": "The Eleven Music plan shape (global and local positive and negative styles, sections cut to the shots). Style words come from the brand's sound palette, with the effects' materials banned automatically."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 52,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "pl-053",
+   "name": "Score assembly record",
+   "source_paths": [
+    "sound/music/score_film_v2_takes.json"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "src/slate/schemas",
+    "status": "ported",
+    "reason": "The assembly record as is: parts with file, start and repairs, plus planned stops with reasons."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 53,
+    "inventory_class": "generic"
+   }
+  },
+  {
+   "id": "pl-054",
+   "name": "First film's score assembly",
+   "source_paths": [
+    "sound/tools/assemble_score.py"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/sound",
+    "status": "dropped",
+    "reason": "Superseded by the measured assembler. Its landing kinds (a held breath, a bloom on the impact, a dead stop before a reveal) are among the assembler's typed joins, read from the timeline."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 54,
+    "inventory_class": "needs-generalizing"
+   },
+   "same_source_as": [
+    "sv-009"
+   ]
+  },
+  {
+   "id": "pl-055",
+   "name": "Composed-take QA",
+   "source_paths": [
+    "sound/tools/score_qa.py"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "src/slate/sound",
+    "status": "ported",
+    "reason": "Flags silence under -45 dBFS or broadband noise lasting 1.5 s or more in a composed take, as is."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 55,
+    "inventory_class": "generic"
+   },
+   "same_source_as": [
+    "sv-008"
+   ]
+  },
+  {
+   "id": "pl-056",
+   "name": "Booth-script voicer",
+   "source_paths": [
+    "sound/tools/voice_script.py"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/voice",
+    "status": "generalized",
+    "reason": "`slate voice tts`, with no default voice id: the voice comes from the brand's VoiceProfile."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 56,
+    "inventory_class": "needs-generalizing"
+   },
+   "same_source_as": [
+    "sv-012"
+   ]
+  },
+  {
+   "id": "pl-057",
+   "name": "Voice pacing in post",
+   "source_paths": [
+    "sound/tools/vo_pace.py"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "src/slate/voice",
+    "status": "ported",
+    "reason": "`slate voice pace` as is."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 57,
+    "inventory_class": "generic"
+   },
+   "same_source_as": [
+    "sv-011"
+   ]
+  },
+  {
+   "id": "pl-058",
+   "name": "Voice preview ranking",
+   "source_paths": [
+    "sound/trudy_voice/tools/rank_previews.py"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/voice",
+    "status": "generalized",
+    "reason": "Targets (pace, pause lengths, pitch range, falling endings, noise floor, WER) come from the voice brief rather than one character's numbers; the person still picks by ear."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 58,
+    "inventory_class": "needs-generalizing"
+   },
+   "same_source_as": [
+    "sv-048"
+   ]
+  },
+  {
+   "id": "pl-059",
+   "name": "Character voice brief",
+   "source_paths": [
+    "sound/trudy_voice/TRUDY_VOICE.md"
+   ],
+   "category": "TrueSpace content",
+   "destination": {
+    "module": "skills/slate-voice",
+    "status": "dropped",
+    "reason": "The content stays behind; its structure is slate-voice's voice-brief template."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 59,
+    "inventory_class": "brand-specific"
+   },
+   "same_source_as": [
+    "sv-044"
+   ]
+  },
+  {
+   "id": "pl-060",
+   "name": "Third film's sound build (watch mode)",
+   "source_paths": [
+    "sound/v2/build_C.sh"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/state",
+    "status": "generalized",
+    "reason": "`slate make`, with one PASS/FAIL sound line in `slate status`."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 60,
+    "inventory_class": "needs-generalizing"
+   },
+   "same_source_as": [
+    "sv-033"
+   ]
+  },
+  {
+   "id": "pl-061",
+   "name": "Banned-word scan",
+   "source_paths": [
+    "pipeline/tools/banned_words_scan.py"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/qa",
+    "status": "generalized",
+    "reason": "The word list is brand data from the pack."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 61,
+    "inventory_class": "needs-generalizing"
+   },
+   "same_source_as": [
+    "aq-029"
+   ]
+  },
+  {
+   "id": "pl-062",
+   "name": "Generated bridge used only as a matte",
+   "source_paths": [
+    "pipeline/tools/bridge_matte.py"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/gen",
+    "status": "generalized",
+    "reason": "The one-shot timings and paths move to the shot; the technique (a monotonic, hole-filled matte spread with a noisy front, the real plate inside, the film's paper outside, generated texture only in the wet edge) becomes a gen function."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 62,
+    "inventory_class": "needs-generalizing"
+   },
+   "same_source_as": [
+    "ve-066"
+   ]
+  },
+  {
+   "id": "pl-063",
+   "name": "Builders' brief (KIT.md)",
+   "source_paths": [
+    "pipeline/r3f/KIT.md"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "skills/slate-build",
+    "status": "generalized",
+    "reason": "The builders' brief template; pixel contracts are one shared component rendered on both sides of a join."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 63,
+    "inventory_class": "needs-generalizing"
+   },
+   "same_source_as": [
+    "ve-072"
+   ]
+  },
+  {
+   "id": "pl-064",
+   "name": "Remotion film clock",
+   "source_paths": [
+    "pipeline/r3f/src/kit/time.tsx"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "engine/remotion/kit",
+    "status": "generalized",
+    "reason": "A film registry replaces the per-film relative imports; the never-throw lookup and the empty miss list carry over."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 64,
+    "inventory_class": "needs-generalizing"
+   },
+   "same_source_as": [
+    "ve-015"
+   ]
+  },
+  {
+   "id": "pl-065",
+   "name": "Sample company and numbers",
+   "source_paths": [
+    "pipeline/r3f/src/kit/sample.ts"
+   ],
+   "category": "TrueSpace content",
+   "destination": {
+    "module": "~/code/slate-brands (private TrueSpace pack)",
+    "status": "dropped",
+    "reason": "TrueSpace content: the private pack's sample data."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 65,
+    "inventory_class": "brand-specific"
+   },
+   "same_source_as": [
+    "ve-023"
+   ]
+  },
+  {
+   "id": "pl-066",
+   "name": "WORK render farm script",
+   "source_paths": [
+    "pipeline/r3f/work.sh"
+   ],
+   "category": "film-only",
+   "destination": {
+    "module": "src/slate/render",
+    "status": "dropped",
+    "reason": "WORK is never used for renders or builds."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 66,
+    "inventory_class": "project-specific"
+   },
+   "same_source_as": [
+    "aq-037",
+    "ve-004"
+   ]
+  },
+  {
+   "id": "pl-067",
+   "name": "Legacy beat migration",
+   "source_paths": [
+    "sound/v2/tools/map_a.py"
+   ],
+   "category": "film-only",
+   "destination": {
+    "module": "FILMROOT (left in place)",
+    "status": "dropped",
+    "reason": "A one-time migration; films start on the current events schema."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 67,
+    "inventory_class": "project-specific"
+   },
+   "same_source_as": [
+    "sv-027"
+   ]
+  },
+  {
+   "id": "pl-068",
+   "name": "Higgsedit comparison",
+   "source_paths": [
+    "build/trackA/COMPARISON.md"
+   ],
+   "category": "film-only",
+   "destination": {
+    "module": "knowledge/lessons.json",
+    "status": "dropped",
+    "reason": "Its verdict (fine for fast variants, not the flagship: no 3D, limited motion blur, not editable in a visual tool) is recorded, and it's the starting hypothesis for the phase-8 Higgsedit benchmark."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 68,
+    "inventory_class": "project-specific"
+   }
+  },
+  {
+   "id": "pl-069",
+   "name": "Moodboards and reference frames",
+   "source_paths": [
+    "build/foundation/"
+   ],
+   "category": "film-only",
+   "destination": {
+    "module": "FILMROOT (left in place)",
+    "status": "dropped",
+    "reason": "One film's look development. Onboarding's look gate asks for moodboard directions grounded in each brand's own kit."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 69,
+    "inventory_class": "project-specific"
+   }
+  },
+  {
+   "id": "pl-070",
+   "name": "Archive index pattern",
+   "source_paths": [
+    "film/archive/README.md"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "src/slate/state",
+    "status": "ported",
+    "reason": "The pattern as is: each film's archive/ keeps superseded work with a README (what it was, what replaced it) instead of deleting it."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 70,
+    "inventory_class": "generic"
+   }
+  },
+  {
+   "id": "pl-071",
+   "name": "Heavy outputs outside iCloud",
+   "source_paths": [
+    "build/renders.nosync/"
+   ],
+   "category": "film-only",
+   "destination": {
+    "module": "src/slate/state",
+    "status": "dropped",
+    "reason": "The lesson is built in: films live in ~/Movies/Slate, outside iCloud, with heavy media git-ignored, so no .nosync symlink is needed."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 71,
+    "inventory_class": "project-specific"
+   }
+  },
+  {
+   "id": "pl-072",
+   "name": "The film project's memory notes",
+   "source_paths": [
+    "~/.claude/projects/-Users-you-Documents-TrueSpace-website-build-2026-09-28/memory/"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "knowledge/lessons.json",
+    "status": "generalized",
+    "reason": "Each note becomes lessons.json entries with a destination (a code default, a gate with a test, or a skill rule), generalized; company facts stay in the notes. The folder has changed since the inventory (one note removed, eight added), so the second harvest reads it again."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 72,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "pl-073",
+   "name": "Owner-facing project status page",
+   "source_paths": [
+    "~/Library/Mobile Documents/iCloud~md~obsidian/Documents/quinn/TrueSpace Marketing Video — Project Status.md"
+   ],
+   "category": "film-only",
+   "destination": {
+    "module": "skills/slate",
+    "status": "dropped",
+    "reason": "The page stays in the vault. Its pattern (scope, current state, decisions and a dated log) is what `slate status` and brief/PRODUCTION.md give every film."
+   },
+   "source_ref": {
+    "reader": "process-lessons",
+    "index": 73,
+    "inventory_class": "project-specific"
+   }
+  },
+  {
+   "id": "cm-000",
+   "name": "Character and mark motion law (TRUDY_MOTION.md)",
+   "source_paths": [
+    "pipeline/r3f/TRUDY_MOTION.md"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "skills/slate-motion",
+    "status": "generalized",
+    "reason": "Split in two. A generic character-and-mark motion reference goes into slate-motion (one clock with no per-part timers, three phase modes, a minimum half-period of 8 frames, speed at most 30 px/frame and acceleration at most 8 px/frame^2 at 1080p, zero-velocity ends, stillness by default, keyed to the stressed syllable), and its acceptance tests become `slate qa motion` checks. The film's gesture table stays with the private pack as a worked example."
+   },
+   "source_ref": {
+    "reader": "coverage-missed",
+    "index": 0,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "cm-001",
+   "name": "Local act render queue",
+   "source_paths": [
+    "pipeline/r3f/render_local.sh"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/render",
+    "status": "generalized",
+    "reason": "The default render path: `slate render` through the job queue runs the motion-blur renderer per act, replaces a render only when its frame count matches, registers it and runs the glitch scan. Paths come from the film folder instead of zsh idioms."
+   },
+   "source_ref": {
+    "reader": "coverage-missed",
+    "index": 1,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "cm-002",
+   "name": "Render manifest generator",
+   "source_paths": [
+    "build/C/tools/c_renders_json.py"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/render",
+    "status": "generalized",
+    "reason": "Every film's renders registry is generated from shots.json: one entry per act, 'made' kept only while an act's range and file are unchanged, contiguity asserted."
+   },
+   "source_ref": {
+    "reader": "coverage-missed",
+    "index": 2,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "cm-003",
+   "name": "Placeholder act",
+   "source_paths": [
+    "pipeline/r3f/src/c/placeholder.tsx"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "engine/remotion/kit",
+    "status": "generalized",
+    "reason": "The default act scaffold for parallel builds: act and shot ids, on-screen text, VO and the motif at rest, with stable names and props so the film renders end to end while builders work."
+   },
+   "source_ref": {
+    "reader": "coverage-missed",
+    "index": 3,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "cm-004",
+   "name": "Kit review sheets",
+   "source_paths": [
+    "pipeline/r3f/src/c/kit/review/Gestures.tsx",
+    "pipeline/r3f/src/c/kit/review/Surfaces.tsx",
+    "pipeline/r3f/src/c/kit/review/LookTest.tsx"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "engine/remotion/kit",
+    "status": "generalized",
+    "reason": "Review compositions checked by eye before builders start (gestures, surfaces at rest, the look test), generated from each brand's kit; these sheets' content is brand-specific."
+   },
+   "source_ref": {
+    "reader": "coverage-missed",
+    "index": 4,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "cm-005",
+   "name": "Kit public API barrel",
+   "source_paths": [
+    "pipeline/r3f/src/kit/index.ts",
+    "pipeline/r3f/src/c/kit/index.ts",
+    "pipeline/r3f/src/c/kit/trudy/index.ts"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "engine/remotion/kit",
+    "status": "ported",
+    "reason": "The kit's public surface as one barrel, exposed as @slate/kit."
+   },
+   "source_ref": {
+    "reader": "coverage-missed",
+    "index": 5,
+    "inventory_class": "generic"
+   }
+  },
+  {
+   "id": "cm-006",
+   "name": "Remotion TypeScript config",
+   "source_paths": [
+    "pipeline/r3f/tsconfig.json"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "engine/remotion",
+    "status": "ported",
+    "reason": "Same compiler settings (ES2022, bundler resolution, strict, JSON modules, no emit) in the engine's tsconfig and the generated per-film tsconfig, so type checks run from the film folder."
+   },
+   "source_ref": {
+    "reader": "coverage-missed",
+    "index": 6,
+    "inventory_class": "generic"
+   }
+  },
+  {
+   "id": "cm-007",
+   "name": "Font re-export shim",
+   "source_paths": [
+    "pipeline/r3f/src/home/fonts.tsx"
+   ],
+   "category": "obsolete",
+   "destination": {
+    "module": "FILMROOT (left in place)",
+    "status": "dropped",
+    "reason": "Kept only so an old look test builds."
+   },
+   "source_ref": {
+    "reader": "coverage-missed",
+    "index": 7,
+    "inventory_class": "obsolete"
+   }
+  },
+  {
+   "id": "cm-008",
+   "name": "Per-film AE wrappers (third film)",
+   "source_paths": [
+    "pipeline/scripts/film/C/build_film_C.jsx",
+    "pipeline/scripts/film/C/queue_masters_C.jsx",
+    "pipeline/scripts/film/C/validate_C.jsx"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/ae",
+    "status": "dropped",
+    "reason": "No per-film wrappers: the driver passes the film to the shared ES3 scripts as a parameter."
+   },
+   "source_ref": {
+    "reader": "coverage-missed",
+    "index": 8,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "cm-009",
+   "name": "Safety saves of open AE projects",
+   "source_paths": [
+    "pipeline/preserved/"
+   ],
+   "category": "film-only",
+   "destination": {
+    "module": "src/slate/ae",
+    "status": "dropped",
+    "reason": "The files aren't needed; the rule is a driver guardrail: never discard an open AE project, save a copy first, and never quit AE with 'saving no'."
+   },
+   "source_ref": {
+    "reader": "coverage-missed",
+    "index": 9,
+    "inventory_class": "project-specific"
+   }
+  },
+  {
+   "id": "cm-010",
+   "name": "AE font report on this Mac",
+   "source_paths": [
+    "pipeline/integration/import_report.txt"
+   ],
+   "category": "film-only",
+   "destination": {
+    "module": "src/slate/doctor",
+    "status": "dropped",
+    "reason": "Evidence that a brand's fonts weren't installed for AE on this Mac. Doctor's font check (per brand pack and per engine) catches it, and the font gate fails on substitution."
+   },
+   "source_ref": {
+    "reader": "coverage-missed",
+    "index": 10,
+    "inventory_class": "project-specific"
+   }
+  },
+  {
+   "id": "cm-011",
+   "name": "Compiled Vision OCR binary",
+   "source_paths": [
+    "pipeline/tools/bin/ocr_vision"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/qa",
+    "status": "dropped",
+    "reason": "One OCR engine (Apple Vision through ocrmac) and no swiftc build, so this binary is neither shipped nor built."
+   },
+   "source_ref": {
+    "reader": "coverage-missed",
+    "index": 11,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "cm-012",
+   "name": "ElevenLabs v4 direction research (V4_TAGS.md)",
+   "source_paths": [
+    "sound/trudy_voice/V4_TAGS.md"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "skills/slate-voice",
+    "status": "generalized",
+    "reason": "Becomes slate-voice's voice-direction reference: best models, lossless PCM, no Style, Speed or SSML on v4, the tag vocabulary with placement and wording rules, neighbour context, why designed voices perform worse on v4, failure modes with guards, plus Slate's rule to never use the whisper, soft, quiet or gentle tags. Its character-specific section and results stay behind."
+   },
+   "source_ref": {
+    "reader": "coverage-missed",
+    "index": 12,
+    "inventory_class": "generic"
+   }
+  },
+  {
+   "id": "cm-013",
+   "name": "Tagged-script sampler",
+   "source_paths": [
+    "sound/trudy_voice/tools/tag_samples.py"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/voice",
+    "status": "generalized",
+    "reason": "Tagged variants on eleven_v4 with seed and plain-text neighbour context, the clean chain and pacing, Whisper WER and a tag-spoken-aloud leak check (kept as a voice-stage gate), with request id and character cost recorded. Voice and paths come from the VoiceProfile."
+   },
+   "source_ref": {
+    "reader": "coverage-missed",
+    "index": 13,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "cm-014",
+   "name": "Level-matched A/B clips",
+   "source_paths": [
+    "sound/trudy_voice/tools/tag_ab.py"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/voice",
+    "status": "generalized",
+    "reason": "Level-matched A/B clips (both at -20 LUFS) and one reel for the person choosing; paths from the film."
+   },
+   "source_ref": {
+    "reader": "coverage-missed",
+    "index": 14,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "cm-015",
+   "name": "Tagged VO script",
+   "source_paths": [
+    "sound/trudy_voice/tagged_lines.json"
+   ],
+   "category": "TrueSpace content",
+   "destination": {
+    "module": "src/slate/voice",
+    "status": "dropped",
+    "reason": "The tagged lines are the film's and stay behind. The schema and its invariant are Slate's: stripping the tags gives back the script exactly (voice.tags.strip and tags.check)."
+   },
+   "source_ref": {
+    "reader": "coverage-missed",
+    "index": 15,
+    "inventory_class": "brand-specific"
+   }
+  },
+  {
+   "id": "cm-016",
+   "name": "Credit snapshots before and after",
+   "source_paths": [
+    "sound/trudy_voice/credits_before.json",
+    "sound/trudy_voice/credits_after.json"
+   ],
+   "category": "film-only",
+   "destination": {
+    "module": "src/slate/ledger.py",
+    "status": "dropped",
+    "reason": "The files aren't needed; the pattern is in the ledger: a subscription snapshot before and after every paid session, which also reconciles generations made in chat."
+   },
+   "source_ref": {
+    "reader": "coverage-missed",
+    "index": 16,
+    "inventory_class": "project-specific"
+   }
+  },
+  {
+   "id": "cm-017",
+   "name": "Validation report (VALIDATION.md)",
+   "source_paths": [
+    "build/validation/VALIDATION.md",
+    "build/validation/validation.json",
+    "build/B/validation/"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/qa",
+    "status": "generalized",
+    "reason": "Its check table is the delivery-gate spec `slate qa` implements (frame counts, -14 LUFS at -1 dBTP or lower, stem loudness, sync within 1 frame, voice placement, planned gaps only, VO landings within 2 frames, banned words, cuts, PSNR of 40 dB or more, captions). The second film's ambience stem at -70 LUFS is a natural regression case for the silent-stem bug."
+   },
+   "source_ref": {
+    "reader": "coverage-missed",
+    "index": 17,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "cm-018",
+   "name": "Sound marker schema",
+   "source_paths": [
+    "build/audio/film_sound_markers.json",
+    "build/audio/README.md"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/schemas",
+    "status": "generalized",
+    "reason": "The sound-marker shape the gates read (film in and out, sample rate, markers with time, shot, type, stem and note)."
+   },
+   "source_ref": {
+    "reader": "coverage-missed",
+    "index": 18,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "cm-019",
+   "name": "Effects render log schema",
+   "source_paths": [
+    "build/audio_v2/film_v2_render_log.json"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/sound",
+    "status": "dropped",
+    "reason": "The v2 render log goes with the v2 cue renders (HANDOVER.md section 5). Its one idea worth keeping, designed silences ('held breath') as first-class cues, is recorded for the effects schema after proof 3."
+   },
+   "source_ref": {
+    "reader": "coverage-missed",
+    "index": 19,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "cm-020",
+   "name": "Third film's event rows",
+   "source_paths": [
+    "build/C/visual_events/"
+   ],
+   "category": "film-only",
+   "destination": {
+    "module": "src/slate/engine",
+    "status": "dropped",
+    "reason": "Film data. It exposed two gaps Slate closes: one shared `slate emit-events` instead of an events writer per act, and the events-complete gate (acts 1 and 2 had no events file, yet the sync check passed)."
+   },
+   "source_ref": {
+    "reader": "coverage-missed",
+    "index": 20,
+    "inventory_class": "project-specific"
+   }
+  },
+  {
+   "id": "cm-021",
+   "name": "Higgsedit build log",
+   "source_paths": [
+    "build/trackA/WORKLOG.md"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "knowledge/lessons.json",
+    "status": "generalized",
+    "reason": "Its engine lessons exist nowhere else (single-key tracks refused, blur halos on shadowed frames, mask quirks, expiring upload slots, the blur cap on whips, zero-credit sandbox runs, about 67 ms a frame at 1080p); they're recorded for the phase-8 Higgsedit benchmark."
+   },
+   "source_ref": {
+    "reader": "coverage-missed",
+    "index": 21,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "cm-022",
+   "name": "Higgsedit backend code",
+   "source_paths": [
+    "build/trackA/project/"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "FILMROOT (left in place)",
+    "status": "dropped",
+    "reason": "Dropped with Track A, along with its fonttools and uharfbuzz dependencies. If the phase-8 benchmark keeps Higgsedit for social cut-downs, it's rebuilt on Slate's film data; this code downloads brand fonts from a web kit, which Slate never does."
+   },
+   "source_ref": {
+    "reader": "coverage-missed",
+    "index": 22,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "cm-023",
+   "name": "Reference-film analysis outputs",
+   "source_paths": [
+    "analysis/"
+   ],
+   "category": "film-only",
+   "destination": {
+    "module": "src/slate/analyze",
+    "status": "dropped",
+    "reason": "The original film's analysis stays behind. The process, which existed only as shell commands, becomes `slate analyze <video>`: Demucs split, transcript, scene cuts, OCR, measured eases."
+   },
+   "source_ref": {
+    "reader": "coverage-missed",
+    "index": 23,
+    "inventory_class": "project-specific"
+   }
+  },
+  {
+   "id": "cm-024",
+   "name": "Higgsfield API docs snapshot",
+   "source_paths": [
+    "research/higgsfield/"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "skills/slate-generate",
+    "status": "dropped",
+    "reason": "A mirror goes stale, so it isn't shipped. Slate keeps the rule (estimate before every generation) in code and in slate-generate, prices with verified-on dates in registry.json, and a pointer to Higgsfield's live llms.txt."
+   },
+   "source_ref": {
+    "reader": "coverage-missed",
+    "index": 24,
+    "inventory_class": "generic"
+   }
+  },
+  {
+   "id": "cm-025",
+   "name": "v2 sound bank WAVs",
+   "source_paths": [
+    "sound/v2/bank/"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "src/slate/sound",
+    "status": "dropped",
+    "reason": "Built from Apple's installed content, so never shipped, and it's the retired v2 palette. Each machine builds its own bank in Slate's data folder once the effects engine needs one."
+   },
+   "source_ref": {
+    "reader": "coverage-missed",
+    "index": 25,
+    "inventory_class": "needs-generalizing"
+   }
+  },
+  {
+   "id": "cm-026",
+   "name": "The later films' readable scripts",
+   "source_paths": [
+    "build/B/SCRIPT.md",
+    "build/C/SCRIPT.md"
+   ],
+   "category": "TrueSpace content",
+   "destination": {
+    "module": "src/slate/story",
+    "status": "dropped",
+    "reason": "The scripts stay behind. The format (a preface, then per act a heading and purpose, then per shot id, duration, on-screen text and VO) is SCRIPT.md, generated by `slate script build` and never hand-edited."
+   },
+   "source_ref": {
+    "reader": "coverage-missed",
+    "index": 26,
+    "inventory_class": "brand-specific"
+   }
+  },
+  {
+   "id": "cm-027",
+   "name": "Generated shape data and ridge samples",
+   "source_paths": [
+    "build/brand_shapes.json",
+    "build/plate_ridges.json"
+   ],
+   "category": "film-only",
+   "destination": {
+    "module": "FILMROOT (left in place)",
+    "status": "dropped",
+    "reason": "Generated outputs for one film. Their generators are carried: SVG to AE shapes in src/slate/ae, the ridge tracker in src/slate/gen."
+   },
+   "source_ref": {
+    "reader": "coverage-missed",
+    "index": 27,
+    "inventory_class": "project-specific"
+   }
+  },
+  {
+   "id": "cm-028",
+   "name": "Orphan intermediates",
+   "source_paths": [
+    "build/B/vo_cues_raw.json",
+    "build/C/vo_whisper_unpaced/"
+   ],
+   "category": "obsolete",
+   "destination": {
+    "module": "FILMROOT (left in place)",
+    "status": "dropped",
+    "reason": "Nothing reads them."
+   },
+   "source_ref": {
+    "reader": "coverage-missed",
+    "index": 28,
+    "inventory_class": "obsolete"
+   }
+  },
+  {
+   "id": "cm-029",
+   "name": "Early sound proofs, including proof 2",
+   "source_paths": [
+    "sound/proofs/",
+    "sound/vo-scratch/",
+    "sound/music/score_film_takes.json",
+    "sound/higgsfield/",
+    "sound/lib/"
+   ],
+   "category": "obsolete",
+   "destination": {
+    "module": "skills/slate-sound",
+    "status": "dropped",
+    "reason": "Classed obsolete before 2026-09-30, but this folder holds proof 2 (the reveal), which the film went back to as its sound reference. The files stay in FILMROOT because they carry the film's voice and brand word; proof 2's design and measurements (-14.2 LUFS, no bells, effects centroid down from 583 to 382 Hz) seed slate-sound's starting palette. Proof 1 (chimes, rejected), the scratch voices and the empty lib/ are obsolete."
+   },
+   "source_ref": {
+    "reader": "coverage-missed",
+    "index": 29,
+    "inventory_class": "obsolete"
+   }
+  },
+  {
+   "id": "cm-030",
+   "name": "Film project README",
+   "source_paths": [
+    "README.md"
+   ],
+   "category": "film-only",
+   "destination": {
+    "module": "FILMROOT (left in place)",
+    "status": "dropped",
+    "reason": "The film project's shared, partly stale index. Slate has its own README and docs."
+   },
+   "source_ref": {
+    "reader": "coverage-missed",
+    "index": 30,
+    "inventory_class": "project-specific"
+   }
+  },
+  {
+   "id": "cm-031",
+   "name": "Brand inputs and product-truth corpus",
+   "source_paths": [
+    "research/app/",
+    "research/web/",
+    "reference/",
+    "assets/brand/"
+   ],
+   "category": "TrueSpace content",
+   "destination": {
+    "module": "~/code/slate-brands (private TrueSpace pack)",
+    "status": "dropped",
+    "reason": "Company material, never shipped. Slate models these inputs as a brand pack (tokens, fonts, logos, claim sources, product UI references, reference films) that onboarding builds; the TrueSpace pack stays on PERSONAL only."
+   },
+   "source_ref": {
+    "reader": "coverage-missed",
+    "index": 31,
+    "inventory_class": "brand-specific"
+   }
+  },
+  {
+   "id": "cm-032",
+   "name": "Website-only material",
+   "source_paths": [
+    "framer-code/",
+    "framer/",
+    "build/framer/",
+    "build/framer-files/",
+    "deliverables/",
+    "screenshots/",
+    "tsconfig*.json",
+    ".claude/settings.local.json"
+   ],
+   "category": "TrueSpace content",
+   "destination": {
+    "module": "FILMROOT (left in place)",
+    "status": "dropped",
+    "reason": "Website tooling, left behind."
+   },
+   "source_ref": {
+    "reader": "coverage-missed",
+    "index": 32,
+    "inventory_class": "brand-specific"
+   }
+  },
+  {
+   "id": "cm-033",
+   "name": "Higgsfield generate skill",
+   "source_paths": [
+    "~/.claude/skills/higgsfield-generate"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "install.sh",
+    "status": "ported",
+    "reason": "Depended on, never copied: Higgsfield's skills stay global, and install.sh adds them for Codex and OpenClaw (decision 11). Outside Slate they generate on app credits, which aren't funded; inside Slate every generation runs on the Cloud API."
+   },
+   "source_ref": {
+    "reader": "coverage-missed",
+    "index": 33,
+    "inventory_class": "generic"
+   }
+  },
+  {
+   "id": "cm-034",
+   "name": "Higgsfield explainer skill",
+   "source_paths": [
+    "~/.claude/skills/higgsfield-video-explainer"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "skills/slate",
+    "status": "ported",
+    "reason": "The fast lane Slate offers at its one question on open requests, never for brand work; installed globally with the other Higgsfield skills."
+   },
+   "source_ref": {
+    "reader": "coverage-missed",
+    "index": 34,
+    "inventory_class": "generic"
+   }
+  },
+  {
+   "id": "cm-035",
+   "name": "Higgsfield brand-kit skill and its relatives",
+   "source_paths": [
+    "~/.claude/skills/higgsfield-brandkit",
+    "~/.claude/skills/higgsfield-soul-id",
+    "~/.claude/skills/higgsfield-youtube-thumbnail",
+    "~/.claude/skills/higgsfield-product-photoshoot",
+    "~/.claude/skills/higgsfield-marketplace-cards",
+    "~/.claude/skills/higgsfield-websites"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "skills/slate-brand",
+    "status": "ported",
+    "reason": "An onboarding input for a brand with no design system; slate-brand can start a pack from it. The related Higgsfield skills install with the set and stay outside Slate's flow."
+   },
+   "source_ref": {
+    "reader": "coverage-missed",
+    "index": 35,
+    "inventory_class": "generic"
+   }
+  },
+  {
+   "id": "cm-036",
+   "name": "video-verifier skill",
+   "source_paths": [
+    "~/.agents/skills/video-verifier",
+    "~/.claude/skills/video-verifier",
+    "~/.codex/skills/video-verifier"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "src/slate/capture",
+    "status": "ported",
+    "reason": "Depended on for UI screen recordings only (routing evals keep those requests with it), with its web path replaced by Aside. `slate capture ios` follows its Simulator recording approach in Slate's own code (the skill has no licence file), and where its frame metrics overlap the glitch scan, the glitch scan stays the film gate."
+   },
+   "source_ref": {
+    "reader": "coverage-missed",
+    "index": 36,
+    "inventory_class": "generic"
+   }
+  },
+  {
+   "id": "cm-037",
+   "name": "asset-creator skill",
+   "source_paths": [
+    "~/.claude/skills/asset-creator"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "skills/slate-build",
+    "status": "ported",
+    "reason": "Optional: vector drawing for scenes when it's installed; third-party and never copied."
+   },
+   "source_ref": {
+    "reader": "coverage-missed",
+    "index": 37,
+    "inventory_class": "generic"
+   }
+  },
+  {
+   "id": "cm-038",
+   "name": "skills CLI lockfile and skill roots",
+   "source_paths": [
+    "~/.agents/.skill-lock.json"
+   ],
+   "category": "reusable as is",
+   "destination": {
+    "module": "install.sh",
+    "status": "generalized",
+    "reason": "Its map of skill roots per agent becomes the installer's targets: Claude Code reads ~/.claude/skills, and Codex and OpenClaw read ~/.agents/skills only, so no skill lists twice. Vendor skills are installed by their own tools, never copied."
+   },
+   "source_ref": {
+    "reader": "coverage-missed",
+    "index": 38,
+    "inventory_class": "generic"
+   }
+  },
+  {
+   "id": "cm-039",
+   "name": "Agent MCP configs and credential names",
+   "source_paths": [
+    "~/.codex/config.toml",
+    "~/.claude.json",
+    "~/.openclaw/openclaw.json"
+   ],
+   "category": "reusable once generalized",
+   "destination": {
+    "module": "install.sh",
+    "status": "generalized",
+    "reason": "The installer registers Slate's MCP server per client (claude mcp add, codex mcp add, openclaw mcp set) and doctor checks each. Credentials become slate.secrets' names (ELEVENLABS_API_KEY or the Keychain item elevenlabs-api-key; HF_KEY or higgsfield-cloud-api; the Higgsfield CLI's own sign-in, run by the person). The other servers in these files aren't Slate's (docs/DEPENDENCIES.md)."
+   },
+   "source_ref": {
+    "reader": "coverage-missed",
+    "index": 39,
+    "inventory_class": "needs-generalizing"
+   }
+  }
+ ]
+}

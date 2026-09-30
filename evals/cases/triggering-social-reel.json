@@ -1,0 +1,21 @@
+{
+ "id": "triggering-social-reel",
+ "title": "A scoped reel brief in a different shape also loads slate",
+ "group": "triggering",
+ "status": "active",
+ "plan_points": ["P057", "P060", "P187", "P188", "P189", "P190", "P362", "P374"],
+ "why": "Triggering shouldn't depend on the words 'launch video': a reel with an aspect, a length and captions is just as scoped.",
+ "prompt": "Cut a 15-second 9:16 reel for {brand}'s spring sale, with the captions burned in.",
+ "vars": {"brand": "the demo brand"},
+ "configs": ["claude-code", "codex", "pursuit-slice", "openclaw"],
+ "needs_eval_env": true,
+ "expect": [
+  {"check": "skill_loaded", "skill": "slate", "before": {"slate": ""}},
+  {"check": "lane_question_not_asked", "mentions": [
+   ["(?i)full[- ]?(?:production|film|pipeline|video)", "(?i)(?<!pre-)(?<!pre)\\bproduction\\b", "(?i)produced (?:film|video)"],
+   ["(?i)quick(?:ly)?\\b.{0,30}\\bclip", "(?i)generated (?:clip|video)", "(?i)fast lane"]
+  ]},
+  {"check": "fast_lane_not_used"},
+  {"check": "no_vendor_spend"}
+ ]
+}

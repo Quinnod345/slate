@@ -1,0 +1,29 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "slate/visual_events",
+ "title": "timing/visual_events/actN.json",
+ "description": "The beats an act's picture lands, exported for sound and QA (the films' v2 beat vocabulary). t is film seconds. An act with no beats says so: {\"silent\": true, \"reason\": \"…\"}. The films named their character kind after the character; here it is \"character\".",
+ "oneOf": [
+  {"type": "array", "items": {"$ref": "#/$defs/beat"}},
+  {"type": "object", "required": ["silent", "reason"],
+   "properties": {"silent": {"const": true}, "reason": {"type": "string", "minLength": 1}}}
+ ],
+ "$defs": {
+  "beat": {
+   "type": "object",
+   "required": ["shot", "id", "t", "kind"],
+   "properties": {
+    "shot": {"type": "string"},
+    "id": {"type": "string"},
+    "t": {"type": "number", "minimum": 0},
+    "frame": {"type": "integer", "minimum": 0},
+    "kind": {"enum": ["tap", "type", "land", "snap", "count", "draw", "data", "page", "stamp", "whoosh", "swell",
+                      "character", "impact"]},
+    "size": {"enum": ["s", "m", "l"]},
+    "note": {"type": "string"},
+    "from": {"type": "number"},
+    "to": {"type": "number"}
+   }
+  }
+ }
+}

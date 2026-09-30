@@ -1,0 +1,507 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "https://slate.local/schemas/generation.schema.json",
+ "title": "Generation record",
+ "description": "One shot's generated takes on the Higgsfield Cloud API (plates/<shot>/generation.json), written by `slate gen run`. $defs also holds the shot's generate block and the approval request an autonomous film sends a person.",
+ "type": "object",
+ "required": [
+  "schema",
+  "shot",
+  "lane",
+  "role",
+  "model",
+  "block",
+  "takes"
+ ],
+ "properties": {
+  "generated": {
+   "type": "string"
+  },
+  "schema": {
+   "const": 1
+  },
+  "film": {
+   "type": [
+    "string",
+    "null"
+   ]
+  },
+  "shot": {
+   "$ref": "#/$defs/shot_id"
+  },
+  "lane": {
+   "const": "cloud-api",
+   "description": "Slate generates only on the Cloud API; the CLI and app credits are off."
+  },
+  "role": {
+   "type": "string",
+   "pattern": "^plate_[a-z_]+$"
+  },
+  "model": {
+   "type": "string",
+   "minLength": 3
+  },
+  "model_source": {
+   "enum": [
+    "shot",
+    "pin",
+    "film",
+    "config",
+    "registry"
+   ]
+  },
+  "policy": {
+   "type": "object",
+   "required": [
+    "allowed",
+    "why"
+   ],
+   "properties": {
+    "allowed": {
+     "type": "boolean"
+    },
+    "why": {
+     "type": "string"
+    },
+    "setting": {
+     "enum": [
+      "none",
+      "rarely",
+      "where-it-helps"
+     ]
+    },
+    "reason": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "mode": {
+     "enum": [
+      "supervised",
+      "express",
+      "draft",
+      "autonomous"
+     ]
+    }
+   }
+  },
+  "block": {
+   "$ref": "#/$defs/block"
+  },
+  "body": {
+   "type": "object",
+   "description": "The request body as sent, with uploaded files shown as <upload:path> (no signed or public URLs are kept)."
+  },
+  "body_sha256": {
+   "$ref": "#/$defs/sha256"
+  },
+  "uploads": {
+   "type": "array",
+   "items": {
+    "$ref": "#/$defs/upload"
+   }
+  },
+  "takes_wanted": {
+   "type": "integer",
+   "minimum": 2
+  },
+  "approval": {
+   "type": [
+    "object",
+    "null"
+   ],
+   "properties": {
+    "id": {
+     "type": "string",
+     "pattern": "^appr_[0-9a-f]{8,32}$"
+    },
+    "request": {
+     "type": "string"
+    },
+    "yes": {
+     "type": [
+      "string",
+      "null"
+     ],
+     "description": "the recorded yes (ap_…) that covered the request"
+    }
+   }
+  },
+  "takes": {
+   "type": "array",
+   "items": {
+    "$ref": "#/$defs/take"
+   }
+  },
+  "judge": {
+   "type": [
+    "object",
+    "null"
+   ],
+   "properties": {
+    "sheet": {
+     "type": "string"
+    },
+    "gate": {
+     "type": "string"
+    },
+    "at": {
+     "type": "string"
+    }
+   }
+  },
+  "picked": {
+   "type": [
+    "string",
+    "null"
+   ],
+   "pattern": "^t[0-9]+$"
+  },
+  "updated_at": {
+   "type": "string"
+  }
+ },
+ "$defs": {
+  "shot_id": {
+   "type": "string",
+   "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+  },
+  "sha256": {
+   "type": "string",
+   "pattern": "^[0-9a-f]{64}$"
+  },
+  "block": {
+   "description": "A shot's generate block (in script.json, carried through to shots.json). Code builds anything designed; a shot generates only with a reason category.",
+   "type": "object",
+   "required": [
+    "reason"
+   ],
+   "properties": {
+    "reason": {
+     "enum": [
+      "real-people",
+      "real-scene",
+      "stock",
+      "adds-something",
+      "bridge-matte"
+     ]
+    },
+    "why": {
+     "type": "string"
+    },
+    "role": {
+     "type": "string",
+     "pattern": "^plate_[a-z_]+$"
+    },
+    "model": {
+     "type": "string",
+     "minLength": 3
+    },
+    "prompt": {
+     "type": "string",
+     "minLength": 1
+    },
+    "duration": {
+     "type": "number",
+     "exclusiveMinimum": 0,
+     "maximum": 60
+    },
+    "resolution": {
+     "type": "string"
+    },
+    "aspect_ratio": {
+     "type": "string",
+     "pattern": "^[0-9]{1,2}:[0-9]{1,2}$"
+    },
+    "image": {
+     "type": "string",
+     "minLength": 1
+    },
+    "end_image": {
+     "type": "string",
+     "minLength": 1
+    },
+    "reference_images": {
+     "type": "array",
+     "items": {
+      "type": "string",
+      "minLength": 1
+     },
+     "maxItems": 10
+    },
+    "video": {
+     "type": "string",
+     "minLength": 1
+    },
+    "audio": {
+     "type": "boolean"
+    },
+    "params": {
+     "type": "object"
+    },
+    "takes": {
+     "type": "integer",
+     "minimum": 2,
+     "maximum": 8
+    },
+    "contains": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "covers": {
+     "type": "array",
+     "items": {
+      "$ref": "#/$defs/shot_id"
+     }
+    }
+   }
+  },
+  "upload": {
+   "type": "object",
+   "required": [
+    "field",
+    "file",
+    "sha256"
+   ],
+   "properties": {
+    "field": {
+     "type": "string"
+    },
+    "file": {
+     "type": "string"
+    },
+    "sha256": {
+     "$ref": "#/$defs/sha256"
+    },
+    "generator_output": {
+     "type": "boolean"
+    }
+   }
+  },
+  "take": {
+   "type": "object",
+   "required": [
+    "id",
+    "status",
+    "verdict"
+   ],
+   "properties": {
+    "id": {
+     "type": "string",
+     "pattern": "^t[0-9]+$"
+    },
+    "status": {
+     "enum": [
+      "submitted",
+      "queued",
+      "in_progress",
+      "completed",
+      "failed",
+      "nsfw",
+      "canceled",
+      "timeout",
+      "error"
+     ]
+    },
+    "verdict": {
+     "enum": [
+      "unjudged",
+      "approved",
+      "rejected"
+     ]
+    },
+    "request_id": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "ledger_row": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "quote": {
+     "type": "object",
+     "properties": {
+      "usd": {
+       "type": [
+        "number",
+        "null"
+       ]
+      },
+      "discounted_usd": {
+       "type": [
+        "number",
+        "null"
+       ]
+      }
+     }
+    },
+    "actual_usd": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "submitted_at": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "finished_at": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "files": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "probe": {
+     "type": [
+      "object",
+      "null"
+     ]
+    },
+    "replay": {
+     "type": "boolean"
+    },
+    "error": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "verdict_by": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "verdict_at": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "verdict_why": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "sha256": {
+     "oneOf": [
+      {
+       "$ref": "#/$defs/sha256"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    }
+   }
+  },
+  "approval_request": {
+   "description": "What an autonomous film asks a person before it generates (plates/<shot>/approval_request.json). Never edited after it's written: the approval records its SHA-256.",
+   "type": "object",
+   "required": [
+    "schema",
+    "id",
+    "shot",
+    "model",
+    "takes",
+    "estimate_usd_total",
+    "body_sha256",
+    "created_at",
+    "message"
+   ],
+   "properties": {
+    "generated": {
+     "type": "string"
+    },
+    "schema": {
+     "const": 1
+    },
+    "id": {
+     "type": "string",
+     "pattern": "^appr_[0-9a-f]{8,32}$"
+    },
+    "film": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "shot": {
+     "$ref": "#/$defs/shot_id"
+    },
+    "reason": {
+     "type": "string"
+    },
+    "why": {
+     "type": "string"
+    },
+    "prompt": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "role": {
+     "type": "string"
+    },
+    "model": {
+     "type": "string"
+    },
+    "takes": {
+     "type": "integer",
+     "minimum": 2
+    },
+    "estimate_usd_per_take": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "estimate_usd_total": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "body_sha256": {
+     "$ref": "#/$defs/sha256"
+    },
+    "uploads": {
+     "type": "array",
+     "items": {
+      "$ref": "#/$defs/upload"
+     }
+    },
+    "created_at": {
+     "type": "string"
+    },
+    "message": {
+     "type": "string",
+     "minLength": 1
+    },
+    "notify": {
+     "type": "object"
+    },
+    "replay": {
+     "type": "boolean"
+    }
+   }
+  }
+ }
+}

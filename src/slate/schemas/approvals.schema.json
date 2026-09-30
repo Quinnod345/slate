@@ -1,0 +1,108 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "https://slate.local/schemas/approvals.schema.json",
+ "x-slate-files": ["approvals.json"],
+ "title": "Slate approvals",
+ "description": "approvals.json in the film folder: every approval a person gave (with the SHA-256 of exactly what they approved), the questions waiting for a person (a question can park the film), and the revisions made under 'perfect, don't replace'. Written only by slate.state.",
+ "type": "object",
+ "required": ["schema", "approvals", "questions", "revisions"],
+ "additionalProperties": false,
+ "properties": {
+  "schema": {"const": 1},
+  "generated": {"type": "string"},
+  "approvals": {"type": "array", "items": {"$ref": "#/$defs/approval"}},
+  "questions": {"type": "array", "items": {"$ref": "#/$defs/question"}},
+  "revisions": {"type": "array", "items": {"$ref": "#/$defs/revision"}}
+ },
+ "$defs": {
+  "sha": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+  "approval": {
+   "type": "object",
+   "required": ["id", "what", "kind", "path", "sha256", "basis", "approved_by", "at", "sitting", "blocking"],
+   "additionalProperties": false,
+   "properties": {
+    "id": {"type": "string", "pattern": "^ap_[0-9a-f]{10}$"},
+    "what": {"type": "string", "pattern": "^[a-z][a-z0-9_-]{0,39}(:[A-Za-z0-9][A-Za-z0-9._/-]{0,119})?$",
+             "description": "The approval as named by whoever asked for it; may be qualified, e.g. plate-take:S05."},
+    "kind": {"enum": ["checklist", "claims", "script", "voice_shortlist", "look_test", "final_cut", "hero", "plate",
+                      "sound_proof", "take", "score_take", "spend", "other"],
+             "description": "What it counts as (sittings, locking): the part before the colon, through Slate's aliases."},
+    "path": {"type": "string", "minLength": 1},
+    "sha256": {"$ref": "#/$defs/sha"},
+    "basis": {"enum": ["file", "tree", "asks"],
+              "description": "What the hash covers: the file's bytes, a folder's files, or (for the checklist) the asks themselves, not their status."},
+    "approved_by": {"type": "string", "minLength": 1},
+    "at": {"type": "string"},
+    "note": {"type": ["string", "null"]},
+    "sitting": {"type": ["string", "null"], "enum": ["preproduction", "final_cut", "packet", null]},
+    "blocking": {"type": "boolean"},
+    "version": {"type": ["integer", "null"]},
+    "recorded_by": {"type": ["string", "null"], "description": "Who typed the command (an agent's name, or 'terminal')."},
+    "mode": {"type": ["string", "null"]},
+    "inherited_from": {
+     "type": ["object", "null"],
+     "properties": {"film": {"type": "string"}, "dir": {"type": "string"}, "approval": {"type": "string"}}
+    }
+   }
+  },
+  "question": {
+   "type": "object",
+   "required": ["id", "text", "evidence", "source", "asked_at", "parks"],
+   "additionalProperties": false,
+   "properties": {
+    "id": {"type": "string", "pattern": "^q[0-9]+$"},
+    "text": {"type": "string", "minLength": 1},
+    "evidence": {"type": "array", "items": {"type": "string"}},
+    "source": {"type": "string"},
+    "asked_at": {"type": "string"},
+    "parks": {"type": "boolean", "description": "True when the film waits for the answer (autonomous films park)."},
+    "for": {"type": ["string", "null"]},
+    "revision": {"type": ["string", "null"]},
+    "answer": {"type": ["string", "null"]},
+    "answered_by": {"type": ["string", "null"]},
+    "answered_at": {"type": ["string", "null"]}
+   }
+  },
+  "revision": {
+   "type": "object",
+   "required": ["id", "artifact", "what", "approval", "approved_sha", "notes", "by", "started_at", "items", "questions",
+                "baseline", "status"],
+   "additionalProperties": false,
+   "properties": {
+    "id": {"type": "string", "pattern": "^rv[0-9]+$"},
+    "artifact": {"type": "string"},
+    "what": {"type": "string"},
+    "approval": {"type": "string"},
+    "approved_sha": {"$ref": "#/$defs/sha"},
+    "basis": {"type": ["string", "null"]},
+    "snapshot": {"type": ["string", "null"]},
+    "notes": {"type": "string"},
+    "by": {"type": "string"},
+    "started_at": {"type": "string"},
+    "direction": {"type": ["integer", "null"]},
+    "items": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "required": ["n", "text", "status"],
+      "properties": {
+       "n": {"type": "integer", "minimum": 1},
+       "text": {"type": "string"},
+       "status": {"enum": ["open", "done"]},
+       "scope": {"type": "array", "items": {"type": "string"}},
+       "evidence": {"type": ["string", "null"]}
+      }
+     }
+    },
+    "questions": {"type": "array", "items": {"type": "string"}},
+    "baseline": {"type": "object", "additionalProperties": {"$ref": "#/$defs/sha"}},
+    "keep": {"type": ["string", "null"]},
+    "checks": {"type": "array"},
+    "checked_at": {"type": ["string", "null"]},
+    "status": {"enum": ["open", "done"]},
+    "closed_at": {"type": ["string", "null"]},
+    "closing": {"type": ["object", "null"]}
+   }
+  }
+ }
+}

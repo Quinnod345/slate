@@ -1,0 +1,13 @@
+{
+ "case": "negative-email",
+ "config": "claude-code",
+ "synthetic": true,
+ "note": "Just writes the email: no skill, no tools.",
+ "exit_code": 0,
+ "killed": false,
+ "duration_s": 42.0,
+ "expect": {
+  "status": "PASS",
+  "failed": []
+ }
+}

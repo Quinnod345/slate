@@ -1,0 +1,15 @@
+{
+ "case": "oneiro-strategist-slate-move",
+ "config": "oneiro-strategist",
+ "synthetic": true,
+ "note": "The strategist plans without video: no move uses Slate.",
+ "exit_code": 0,
+ "killed": false,
+ "duration_s": 42.0,
+ "expect": {
+  "status": "FAIL",
+  "failed": [
+   "strategist_proposes"
+  ]
+ }
+}

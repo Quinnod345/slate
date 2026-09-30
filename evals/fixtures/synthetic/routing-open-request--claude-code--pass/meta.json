@@ -1,0 +1,13 @@
+{
+ "case": "routing-open-request",
+ "config": "claude-code",
+ "synthetic": true,
+ "note": "Loads slate and asks exactly the one lane question before doing anything.",
+ "exit_code": 0,
+ "killed": false,
+ "duration_s": 42.0,
+ "expect": {
+  "status": "PASS",
+  "failed": []
+ }
+}

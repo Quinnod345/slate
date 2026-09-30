@@ -1,0 +1,98 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "slate/voice_profile",
+ "title": "VoiceProfile",
+ "description": "A brand's voice (brand.json \"voice\"), optionally overridden per film (film.json \"voice\"). Designed or library voices by default. The only clone Slate accepts is the owner's own professional voice clone, verified by the owner with ElevenLabs; anyone else's voice is only ever a real recording, never a clone, and never a public figure's.",
+ "type": "object",
+ "properties": {
+  "provider": {"enum": ["elevenlabs", "recording"], "description": "elevenlabs: text to speech; recording: real recordings, no synthesis"},
+  "source": {"enum": ["library", "designed", "clone", "recording"]},
+  "voice_id": {"type": ["string", "null"], "minLength": 1},
+  "voice_name": {"type": ["string", "null"]},
+  "model": {"type": ["string", "null"], "description": "TTS model id; default: registry role tts (eleven_v4)"},
+  "settings": {
+   "type": "object",
+   "properties": {
+    "stability": {"type": "number", "minimum": 0, "maximum": 1},
+    "similarity_boost": {"type": "number", "minimum": 0, "maximum": 1},
+    "style": {"type": "number", "minimum": 0, "maximum": 1},
+    "speed": {"type": "number", "minimum": 0.5, "maximum": 2},
+    "use_speaker_boost": {"type": "boolean"}
+   },
+   "additionalProperties": false
+  },
+  "seed": {"type": ["integer", "null"], "minimum": 0, "maximum": 4294967295},
+  "output_format": {"type": "string", "pattern": "^(pcm|wav|mp3|opus|ulaw|alaw)_[0-9a-z_]+$"},
+  "language": {"type": "string", "minLength": 2},
+  "lexicon": {"type": "array", "items": {"type": "string", "minLength": 1}, "description": "brand words Whisper must hear in full"},
+  "tag_policy": {
+   "type": "object",
+   "properties": {
+    "banned_extra": {"type": "array", "items": {"type": "string"}},
+    "allowed": {"type": ["array", "null"], "items": {"type": "string"}},
+    "max_tags_per_line": {"type": ["integer", "null"], "minimum": 0}
+   },
+   "additionalProperties": false
+  },
+  "clone_of": {"type": ["string", "null"], "description": "\"owner\" for the owner's own voice; any other value names someone else (refused as a clone)"},
+  "clone_kind": {"enum": ["professional", "instant", null]},
+  "verified_by_owner": {"type": "boolean", "description": "the owner completed ElevenLabs' own voice verification for this professional clone"},
+  "public_figure": {"type": "boolean"},
+  "speaker": {"type": ["string", "null"], "description": "whose real recordings these are (source: recording)"},
+  "pace": {
+   "type": "object",
+   "properties": {
+    "tempo": {"type": "number", "minimum": 0.5, "maximum": 2},
+    "pause_keep": {"type": "number", "minimum": 0.1, "maximum": 1},
+    "min_pause": {"type": "number", "minimum": 0, "maximum": 5},
+    "threshold_db": {"type": "number", "maximum": 0}
+   },
+   "additionalProperties": false
+  },
+  "clean": {
+   "type": "object",
+   "properties": {"chain": {"type": ["string", "null"]}},
+   "additionalProperties": false
+  },
+  "fit": {
+   "type": "object",
+   "properties": {"lead_s": {"type": "number", "minimum": 0}, "tail_s": {"type": "number", "minimum": 0}},
+   "additionalProperties": false
+  },
+  "targets": {
+   "type": "object",
+   "properties": {
+    "wpm": {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2},
+    "sentence_pause_s": {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2},
+    "sentence_pause_min_s": {"type": "number"},
+    "f0_range_st": {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2},
+    "f0_hz": {"type": ["array", "null"], "items": {"type": "number"}, "minItems": 2, "maxItems": 2},
+    "gap_floor_dbfs": {"type": "number"}
+   },
+   "additionalProperties": false
+  },
+  "candidates": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "required": ["voice_id"],
+    "properties": {
+     "voice_id": {"type": "string", "minLength": 1},
+     "name": {"type": "string"},
+     "source": {"enum": ["library", "designed", "clone"]},
+     "clone_of": {"type": ["string", "null"]},
+     "clone_kind": {"enum": ["professional", "instant", null]},
+     "verified_by_owner": {"type": "boolean"},
+     "public_figure": {"type": "boolean"}
+    }
+   }
+  },
+  "cast_text": {"type": ["string", "null"], "description": "the line a casting shootout reads when the film has no storyboard yet"},
+  "brand": {"type": ["string", "null"]}
+ },
+ "required": ["provider", "source"],
+ "allOf": [
+  {"if": {"properties": {"source": {"const": "clone"}}}, "then": {"required": ["clone_of"]}},
+  {"if": {"properties": {"source": {"const": "recording"}}}, "then": {"properties": {"provider": {"const": "recording"}}}}
+ ]
+}

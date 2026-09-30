@@ -1,0 +1,924 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "https://slate.local/schemas/capture.schema.json",
+ "title": "Capture record",
+ "description": "A scripted app or web capture (captures/<name>/capture.json), written by `slate capture ios|web|conform|beatmap`: the spec that asked for it, the pinned build or fixed viewport it ran at, the raw recording, the JPEG sequence at the film's frame rate, and the beat map that lands its taps on voice words. $defs/spec is the capture spec a person or agent writes.",
+ "type": "object",
+ "required": [
+  "schema",
+  "name",
+  "kind",
+  "spec",
+  "film",
+  "frames"
+ ],
+ "properties": {
+  "generated": {
+   "type": "string"
+  },
+  "schema": {
+   "const": 1
+  },
+  "name": {
+   "$ref": "#/$defs/name"
+  },
+  "kind": {
+   "enum": [
+    "ios",
+    "web",
+    "file"
+   ]
+  },
+  "spec": {
+   "$ref": "#/$defs/spec"
+  },
+  "film": {
+   "type": "object",
+   "required": [
+    "fps_num",
+    "fps_den",
+    "width",
+    "height"
+   ],
+   "properties": {
+    "id": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "fps_num": {
+     "type": "integer",
+     "minimum": 1
+    },
+    "fps_den": {
+     "type": "integer",
+     "minimum": 1
+    },
+    "width": {
+     "type": "integer",
+     "minimum": 1
+    },
+    "height": {
+     "type": "integer",
+     "minimum": 1
+    }
+   }
+  },
+  "source": {
+   "type": [
+    "object",
+    "null"
+   ],
+   "properties": {
+    "file": {
+     "type": "string"
+    },
+    "sha256": {
+     "type": "string"
+    },
+    "width": {
+     "type": "integer"
+    },
+    "height": {
+     "type": "integer"
+    },
+    "codec": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "duration": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "frames": {
+     "type": [
+      "integer",
+      "null"
+     ]
+    },
+    "vfr": {
+     "type": "boolean"
+    },
+    "timestamps": {
+     "type": [
+      "string",
+      "null"
+     ]
+    }
+   }
+  },
+  "ios": {
+   "type": [
+    "object",
+    "null"
+   ]
+  },
+  "web": {
+   "type": [
+    "object",
+    "null"
+   ]
+  },
+  "raw": {
+   "$ref": "#/$defs/sequence"
+  },
+  "frames": {
+   "oneOf": [
+    {
+     "$ref": "#/$defs/sequence"
+    },
+    {
+     "type": "object",
+     "required": [
+      "count"
+     ],
+     "properties": {
+      "count": {
+       "const": 0
+      },
+      "reason": {
+       "type": "string"
+      }
+     }
+    }
+   ]
+  },
+  "steps": {
+   "type": "array",
+   "items": {
+    "type": "object"
+   }
+  },
+  "taps": {
+   "type": "array",
+   "items": {
+    "$ref": "#/$defs/tap"
+   }
+  },
+  "retime": {
+   "type": "array",
+   "items": {
+    "$ref": "#/$defs/edit"
+   }
+  },
+  "beats": {
+   "type": [
+    "object",
+    "null"
+   ],
+   "properties": {
+    "file": {
+     "type": "string"
+    },
+    "count": {
+     "type": "integer",
+     "minimum": 0
+    }
+   }
+  },
+  "misses": {
+   "type": "array",
+   "items": {
+    "type": "string"
+   }
+  },
+  "replay": {
+   "type": "boolean"
+  },
+  "made_at": {
+   "type": "string"
+  },
+  "notes": {
+   "type": "array",
+   "items": {
+    "type": "string"
+   }
+  }
+ },
+ "$defs": {
+  "name": {
+   "type": "string",
+   "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
+  },
+  "shot_id": {
+   "type": "string",
+   "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+  },
+  "sequence": {
+   "type": "object",
+   "required": [
+    "dir",
+    "count",
+    "fps_num",
+    "fps_den",
+    "width",
+    "height"
+   ],
+   "properties": {
+    "dir": {
+     "type": "string"
+    },
+    "pattern": {
+     "const": "f%05d.jpg"
+    },
+    "count": {
+     "type": "integer",
+     "minimum": 1
+    },
+    "fps_num": {
+     "type": "integer",
+     "minimum": 1
+    },
+    "fps_den": {
+     "type": "integer",
+     "minimum": 1
+    },
+    "width": {
+     "type": "integer",
+     "minimum": 1
+    },
+    "height": {
+     "type": "integer",
+     "minimum": 1
+    },
+    "fit": {
+     "enum": [
+      "native",
+      "contain",
+      "cover"
+     ]
+    },
+    "film_in": {
+     "type": [
+      "integer",
+      "null"
+     ],
+     "minimum": 0
+    }
+   }
+  },
+  "word": {
+   "description": "The voice word a tap lands on: slate.timing.words.word_time(shot, text, occ, which), plus an optional offset in seconds.",
+   "type": "object",
+   "required": [
+    "shot",
+    "text"
+   ],
+   "additionalProperties": false,
+   "properties": {
+    "shot": {
+     "$ref": "#/$defs/shot_id"
+    },
+    "text": {
+     "type": "string",
+     "minLength": 1
+    },
+    "occ": {
+     "type": "integer",
+     "minimum": 1
+    },
+    "which": {
+     "enum": [
+      "start",
+      "end"
+     ]
+    },
+    "offset": {
+     "type": "number",
+     "minimum": -2,
+     "maximum": 2
+    }
+   }
+  },
+  "step": {
+   "type": "object",
+   "required": [
+    "at",
+    "do"
+   ],
+   "additionalProperties": false,
+   "properties": {
+    "at": {
+     "type": "number",
+     "minimum": 0
+    },
+    "do": {
+     "enum": [
+      "launch",
+      "openurl",
+      "tap",
+      "type",
+      "wait",
+      "terminate",
+      "click",
+      "scroll",
+      "key",
+      "mark"
+     ]
+    },
+    "id": {
+     "type": "string",
+     "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+    },
+    "x": {
+     "type": "number",
+     "minimum": 0
+    },
+    "y": {
+     "type": "number",
+     "minimum": 0
+    },
+    "selector": {
+     "type": "string",
+     "minLength": 1
+    },
+    "url": {
+     "type": "string",
+     "minLength": 1
+    },
+    "text": {
+     "type": "string"
+    },
+    "to": {
+     "type": "number",
+     "minimum": 0
+    },
+    "seconds": {
+     "type": "number",
+     "minimum": 0
+    },
+    "args": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "size": {
+     "enum": [
+      "small",
+      "medium",
+      "large"
+     ]
+    },
+    "note": {
+     "type": "string"
+    },
+    "sound": {
+     "type": "boolean"
+    },
+    "word": {
+     "$ref": "#/$defs/word"
+    }
+   },
+   "allOf": [
+    {
+     "if": {
+      "properties": {
+       "do": {
+        "const": "tap"
+       }
+      }
+     },
+     "then": {
+      "required": [
+       "x",
+       "y"
+      ]
+     }
+    },
+    {
+     "if": {
+      "properties": {
+       "do": {
+        "const": "click"
+       }
+      }
+     },
+     "then": {
+      "anyOf": [
+       {
+        "required": [
+         "selector"
+        ]
+       },
+       {
+        "required": [
+         "x",
+         "y"
+        ]
+       }
+      ]
+     }
+    },
+    {
+     "if": {
+      "properties": {
+       "do": {
+        "const": "openurl"
+       }
+      }
+     },
+     "then": {
+      "required": [
+       "url"
+      ]
+     }
+    },
+    {
+     "if": {
+      "properties": {
+       "do": {
+        "const": "type"
+       }
+      }
+     },
+     "then": {
+      "required": [
+       "text"
+      ]
+     }
+    },
+    {
+     "if": {
+      "properties": {
+       "do": {
+        "const": "key"
+       }
+      }
+     },
+     "then": {
+      "required": [
+       "text"
+      ]
+     }
+    },
+    {
+     "if": {
+      "properties": {
+       "do": {
+        "const": "scroll"
+       }
+      }
+     },
+     "then": {
+      "required": [
+       "to"
+      ]
+     }
+    }
+   ],
+   "description": "One scripted step at `at` seconds from the recording's start. `mark` performs nothing: it marks a moment already in the recording (a tap the app plays itself, say) so it can land on a word and make a sound."
+  },
+  "app": {
+   "description": "The pinned build: the app bundle and the SHA-256 it must hash to (a capture refuses on any other build).",
+   "type": "object",
+   "required": [
+    "path",
+    "build_sha256"
+   ],
+   "additionalProperties": false,
+   "properties": {
+    "path": {
+     "type": "string",
+     "minLength": 1
+    },
+    "bundle_id": {
+     "type": "string",
+     "pattern": "^[A-Za-z0-9.-]+$"
+    },
+    "build_sha256": {
+     "type": "string",
+     "pattern": "^[0-9a-f]{64}$"
+    }
+   }
+  },
+  "account": {
+   "description": "The seeded demo account the capture runs as: launch arguments, environment, an .xcappdata container and media. Never a personal account.",
+   "type": "object",
+   "required": [
+    "kind"
+   ],
+   "additionalProperties": false,
+   "properties": {
+    "kind": {
+     "const": "demo"
+    },
+    "launch_args": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "env": {
+     "type": "object",
+     "additionalProperties": {
+      "type": "string"
+     }
+    },
+    "app_data": {
+     "type": "string"
+    },
+    "media": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "note": {
+     "type": "string"
+    }
+   },
+   "anyOf": [
+    {
+     "required": [
+      "launch_args"
+     ]
+    },
+    {
+     "required": [
+      "env"
+     ]
+    },
+    {
+     "required": [
+      "app_data"
+     ]
+    }
+   ]
+  },
+  "status_bar": {
+   "type": "object",
+   "additionalProperties": false,
+   "properties": {
+    "time": {
+     "type": "string",
+     "minLength": 1
+    },
+    "battery": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 100
+    },
+    "battery_state": {
+     "enum": [
+      "charging",
+      "charged",
+      "discharging"
+     ]
+    },
+    "wifi_bars": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 3
+    },
+    "cell_bars": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 4
+    },
+    "data_network": {
+     "enum": [
+      "hide",
+      "wifi",
+      "3g",
+      "4g",
+      "lte",
+      "lte-a",
+      "lte+",
+      "5g",
+      "5g+",
+      "5g-uwb",
+      "5g-uc"
+     ]
+    },
+    "operator": {
+     "type": "string"
+    }
+   }
+  },
+  "viewport": {
+   "type": "object",
+   "required": [
+    "width",
+    "height"
+   ],
+   "additionalProperties": false,
+   "properties": {
+    "width": {
+     "type": "integer",
+     "minimum": 64,
+     "maximum": 7680
+    },
+    "height": {
+     "type": "integer",
+     "minimum": 64,
+     "maximum": 7680
+    }
+   }
+  },
+  "spec": {
+   "description": "What to capture. ios: a pinned build on a named Simulator with a seeded demo account and status-bar overrides. web: a page through Aside at a fixed viewport. Times are seconds from the start of the recording.",
+   "type": "object",
+   "required": [
+    "kind",
+    "name",
+    "duration"
+   ],
+   "additionalProperties": false,
+   "properties": {
+    "kind": {
+     "enum": [
+      "ios",
+      "web",
+      "file"
+     ]
+    },
+    "name": {
+     "$ref": "#/$defs/name"
+    },
+    "duration": {
+     "type": "number",
+     "exclusiveMinimum": 0,
+     "maximum": 600
+    },
+    "size": {
+     "type": "object",
+     "required": [
+      "width",
+      "height"
+     ],
+     "additionalProperties": false,
+     "properties": {
+      "width": {
+       "type": "integer",
+       "minimum": 2
+      },
+      "height": {
+       "type": "integer",
+       "minimum": 2
+      }
+     }
+    },
+    "fit": {
+     "enum": [
+      "native",
+      "contain",
+      "cover"
+     ]
+    },
+    "background": {
+     "type": "string",
+     "pattern": "^#[0-9a-fA-F]{6}$"
+    },
+    "place": {
+     "type": "object",
+     "required": [
+      "shot"
+     ],
+     "additionalProperties": false,
+     "properties": {
+      "shot": {
+       "$ref": "#/$defs/shot_id"
+      },
+      "at": {
+       "type": "number",
+       "minimum": 0
+      }
+     }
+    },
+    "tolerance_frames": {
+     "type": "number",
+     "minimum": 0,
+     "maximum": 3
+    },
+    "response": {
+     "type": "number",
+     "minimum": 0,
+     "maximum": 5
+    },
+    "steps": {
+     "type": "array",
+     "items": {
+      "$ref": "#/$defs/step"
+     }
+    },
+    "note": {
+     "type": "string"
+    },
+    "device": {
+     "type": "string",
+     "minLength": 1
+    },
+    "isolate": {
+     "type": "boolean"
+    },
+    "app": {
+     "$ref": "#/$defs/app"
+    },
+    "account": {
+     "$ref": "#/$defs/account"
+    },
+    "status_bar": {
+     "$ref": "#/$defs/status_bar"
+    },
+    "tap_driver": {
+     "enum": [
+      "auto",
+      "idb",
+      "axe",
+      "scripted"
+     ]
+    },
+    "url": {
+     "type": "string",
+     "pattern": "^https?://"
+    },
+    "root": {
+     "type": "string",
+     "minLength": 1
+    },
+    "page": {
+     "type": "string"
+    },
+    "viewport": {
+     "$ref": "#/$defs/viewport"
+    },
+    "clock": {
+     "enum": [
+      "virtual",
+      "real"
+     ]
+    },
+    "frame": {
+     "enum": [
+      "iframe",
+      "direct"
+     ]
+    },
+    "quality": {
+     "type": "integer",
+     "minimum": 50,
+     "maximum": 100
+    },
+    "source": {
+     "type": "string",
+     "minLength": 1,
+     "description": "file captures: the recording to conform (a screen recording made by hand, say)"
+    }
+   },
+   "allOf": [
+    {
+     "if": {
+      "properties": {
+       "kind": {
+        "const": "ios"
+       }
+      }
+     },
+     "then": {
+      "required": [
+       "app",
+       "account"
+      ]
+     }
+    },
+    {
+     "if": {
+      "properties": {
+       "kind": {
+        "const": "web"
+       }
+      }
+     },
+     "then": {
+      "required": [
+       "viewport"
+      ],
+      "oneOf": [
+       {
+        "required": [
+         "url"
+        ]
+       },
+       {
+        "required": [
+         "root"
+        ]
+       }
+      ]
+     }
+    },
+    {
+     "if": {
+      "properties": {
+       "kind": {
+        "const": "file"
+       }
+      }
+     },
+     "then": {
+      "required": [
+       "source"
+      ]
+     }
+    }
+   ]
+  },
+  "tap": {
+   "type": "object",
+   "required": [
+    "id",
+    "at"
+   ],
+   "properties": {
+    "id": {
+     "type": "string"
+    },
+    "do": {
+     "type": "string"
+    },
+    "at": {
+     "type": "number"
+    },
+    "actual": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "word": {
+     "oneOf": [
+      {
+       "$ref": "#/$defs/word"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "film_t": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "exact": {
+     "type": [
+      "boolean",
+      "null"
+     ]
+    },
+    "landed_t": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "error_frames": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "sound": {
+     "type": "boolean"
+    }
+   }
+  },
+  "edit": {
+   "type": "object",
+   "required": [
+    "kind",
+    "at_frame",
+    "frames"
+   ],
+   "properties": {
+    "kind": {
+     "enum": [
+      "hold",
+      "cut"
+     ]
+    },
+    "at_frame": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "frames": {
+     "type": "integer",
+     "minimum": 1
+    },
+    "static": {
+     "type": "boolean"
+    },
+    "reason": {
+     "type": "string"
+    }
+   }
+  }
+ }
+}

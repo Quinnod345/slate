@@ -1,0 +1,67 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "https://slate.local/schemas/sound_cues.schema.json",
+ "title": "The effect cue sheet (sound/sound_cues.json)",
+ "description": "Every designed sound in a film: one cue per picture beat, one deliberate sound per kind of interaction, each able to be measured on its own. The effects engine writes it (gated on proof 3); a person can also write one for hand-made stems. `slate verify` reads it for cue sync (every anchor within a frame of its beat) and repeats. Times are film seconds; `t` is when the cue's own audio starts, `beat` is the picture moment it serves, and `anchor` says what the ear syncs to: onset (the first sample within 12 dB of the sound's peak), onset30 (paper: within 30 dB), peak20 / peak50 (the loudest 20 or 50 ms of air or a swell), end / end30 (where a lift or a drawn line finishes), none (beds). A gesture of overlapping notes lists them in `notes`, and each note is measured on its own.",
+ "type": "object",
+ "required": ["cues"],
+ "properties": {
+  "generated": {"type": "string"},
+  "film": {"type": "string"},
+  "sample_rate": {"type": "integer", "minimum": 8000},
+  "fps_num": {"type": "integer", "minimum": 1},
+  "fps_den": {"type": "integer", "minimum": 1},
+  "palette": {"type": ["string", "null"], "description": "the brand whose palette made these cues"},
+  "seed": {"type": "integer"},
+  "cues": {"type": "array", "items": {"$ref": "#/$defs/cue"}},
+  "silences": {"type": "array", "items": {"$ref": "#/$defs/span"}, "description": "planned silences (a held breath): effects stop dead"},
+  "beds": {"type": "array", "items": {"$ref": "#/$defs/span"}, "description": "planned continuous beds (plate audio), exempt from the drone check"},
+  "warnings": {"type": "array", "items": {"type": "string"}}
+ },
+ "$defs": {
+  "anchor": {"enum": ["onset", "onset12", "onset30", "peak20", "peak50", "end", "end30", "end40", "none", "bed", "vo"]},
+  "span": {
+   "type": "object",
+   "required": ["from", "to"],
+   "properties": {"from": {"type": "number"}, "to": {"type": "number"}, "why": {"type": "string"}, "stems": {"type": "array", "items": {"type": "string"}}}
+  },
+  "hit": {
+   "type": "object",
+   "required": ["t", "beat"],
+   "properties": {
+    "t": {"type": "number", "description": "film time the note's own audio starts"},
+    "beat": {"type": "number", "description": "the picture moment it serves"},
+    "file": {"type": "string"},
+    "trim": {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2},
+    "gain_db": {"type": "number"},
+    "params": {"type": "object"}
+   }
+  },
+  "cue": {
+   "type": "object",
+   "required": ["id", "kind", "sound", "stem"],
+   "properties": {
+    "id": {"type": "string", "minLength": 1},
+    "kind": {"type": "string", "description": "the kind of interaction (tap, type, land, snap, count, draw, data, page, stamp, whoosh, swell, character, impact, or a brand's own)"},
+    "sound": {"type": "string", "description": "the one deliberate sound this kind uses (a material, the same for every cue of the kind)"},
+    "stem": {"enum": ["ui", "fx", "tonal", "amb", "verb", "tverb"]},
+    "shot": {"type": "string"},
+    "event": {"type": "string", "description": "the picture beat's id in timing/visual_events"},
+    "t": {"type": "number"},
+    "beat": {"type": "number"},
+    "anchor": {"$ref": "#/$defs/anchor"},
+    "file": {"type": "string", "description": "the cue rendered on its own (film-relative or absolute)"},
+    "trim": {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2},
+    "gain_db": {"type": "number"},
+    "pan": {"type": "number", "minimum": -1, "maximum": 1},
+    "params": {"type": "object", "description": "what shapes the sound (pitch, cents, velocity, take, seed): its identity when there's no file"},
+    "notes": {"type": "array", "items": {"$ref": "#/$defs/hit"}, "minItems": 1},
+    "note": {"type": "string"}
+   },
+   "anyOf": [
+    {"required": ["t", "beat"]},
+    {"required": ["notes"]}
+   ]
+  }
+ }
+}

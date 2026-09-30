@@ -1,0 +1,29 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "https://slate.local/schemas/eval-fixture-meta.schema.json",
+ "title": "Slate eval fixture metadata",
+ "description": "meta.json beside a transcript: which case and configuration it belongs to, how the run ended, what the sandbox held afterwards, and, for synthetic fixtures, the verdict the graders must reach.",
+ "type": "object",
+ "required": ["case", "config", "synthetic"],
+ "properties": {
+  "case": {"type": "string"},
+  "config": {"type": "string"},
+  "synthetic": {"type": "boolean", "description": "True for hand-written transcripts that prove the graders. They never count toward the eval matrix."},
+  "note": {"type": "string"},
+  "exit_code": {"type": ["integer", "null"]},
+  "killed": {"type": "boolean"},
+  "duration_s": {"type": ["number", "null"]},
+  "run_error": {"type": ["string", "null"]},
+  "artifacts": {"type": "array", "items": {"type": "string"}, "description": "Files under the run's sandbox after it ended, relative to {workdir}."},
+  "expect": {
+   "type": "object",
+   "required": ["status", "failed"],
+   "additionalProperties": false,
+   "properties": {
+    "status": {"enum": ["PASS", "FAIL", "UNCHECKED"]},
+    "failed": {"type": "array", "items": {"type": "string"}, "description": "Exactly the check ids that must come out FAIL."},
+    "unchecked": {"type": "array", "items": {"type": "string"}, "description": "Exactly the check ids that must come out UNCHECKED (empty when omitted)."}
+   }
+  }
+ }
+}

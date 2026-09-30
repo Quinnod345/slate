@@ -1,0 +1,13 @@
+{
+ "name": "fixture-reel",
+ "note": "Test fixture: a neutral 9:16 reel-shaped format.",
+ "width": 720,
+ "height": 1280,
+ "fps": "25/1",
+ "runtime_s": [15, 45],
+ "lufs": -14,
+ "true_peak": -1,
+ "budget": {"elevenlabs": 3000, "higgsfield": 0},
+ "type_scale": 1.25,
+ "safe_zones": {"tiktok": {"top": 0.12, "bottom": 0.2, "left": 0.05, "right": 0.12}, "reels": {"top": 0.1, "bottom": 0.18}}
+}

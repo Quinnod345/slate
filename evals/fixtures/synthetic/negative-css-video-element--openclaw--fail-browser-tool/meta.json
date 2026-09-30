@@ -1,0 +1,16 @@
+{
+ "case": "negative-css-video-element",
+ "config": "openclaw",
+ "synthetic": true,
+ "note": "Over-triggers on the word 'video' (loads slate) and checks its fix in OpenClaw's own browser.",
+ "exit_code": 0,
+ "killed": false,
+ "duration_s": 42.0,
+ "expect": {
+  "status": "FAIL",
+  "failed": [
+   "no_slate_skill",
+   "no_browser"
+  ]
+ }
+}

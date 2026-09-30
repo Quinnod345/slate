@@ -1,0 +1,21 @@
+{
+ "id": "triggering-launch-video",
+ "title": "A scoped brief loads the slate skill, in every agent",
+ "group": "triggering",
+ "status": "active",
+ "plan_points": ["P057", "P060", "P187", "P188", "P189", "P190", "P362", "P374"],
+ "why": "The front door has to claim a clearly scoped brief and go straight to production: no lane question, no Higgsfield shortcut. The brand is the neutral demo pack, so no real brand's material is involved.",
+ "prompt": "make a 45-second launch video for {brand}",
+ "vars": {"brand": "the demo brand"},
+ "configs": ["claude-code", "codex", "pursuit-slice", "openclaw"],
+ "needs_eval_env": true,
+ "expect": [
+  {"check": "skill_loaded", "skill": "slate", "before": {"slate": ""}, "why": "the skill is read before the agent runs any Slate command"},
+  {"check": "lane_question_not_asked", "mentions": [
+   ["(?i)full[- ]?(?:production|film|pipeline|video)", "(?i)(?<!pre-)(?<!pre)\\bproduction\\b", "(?i)produced (?:film|video)"],
+   ["(?i)quick(?:ly)?\\b.{0,30}\\bclip", "(?i)generated (?:clip|video)", "(?i)fast lane"]
+  ], "why": "a scoped brief skips the full-or-quick question"},
+  {"check": "fast_lane_not_used", "why": "brand work never takes the fast lane"},
+  {"check": "no_vendor_spend"}
+ ]
+}

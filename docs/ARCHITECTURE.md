@@ -60,17 +60,25 @@ ae-qa-delivery.md, process-lessons.md, agents-wiring.md, packaging-research.md, 
     capture/     ios (simctl), web (Aside), conform, beat map                                  [gen-capture]
     render/      remotion + web engine drivers, chunked renders, splice, registry, stills      [render]
     ae/          driver, prefs, masters, project build, smoke, bridge wrapper, ES3 kit glue    [ae]
+    vendors/     elevenlabs.py (TTS, design, remix, isolator, alignment, music, subscription) [voice]
+                 higgsfield.py (Cloud API: estimate, submit, wait, cancel, upload, probe)     [gen-capture]
+    engine/      Python side of the Node boundary: bridge, install, `engine|emit-events|check` [engine-core]
+    doctor/      doctor + connect                                                            [doctor]
+    notify.py    iMessage + push for held films and questions (never sent in tests)          [finish]
+    evals/       eval runner and cases                                                        [knowledge]
     qa/          film gates, glitch, boundary, motion, ocr, banned, readtime, access           [qa]
     finish/      master (AE / ffmpeg), deliver (manifest, cuts, derived), review packets       [finish]
     analyze/     reference-film analysis                                                       [finish]
     brand/       pack schema, validate, init, onboard (references + approvals)                 [brand]
     mcp/         stdio MCP server over the CLI and job queue                                   [packaging]
     skills_build.py  guide.py  demo.py                                                        [packaging]/[integration]
-  engine/                        Node engine (package.json pins remotion 4.0.521 exactly)
-    remotion/                    kit, looks, motif rig, render_mb.mjs, stills.mjs, entry generation      [engine]
+  engine/                        Node engine (package.json pins remotion 4.0.521 exactly; installed already)
+    remotion/kit/                kit, looks, motif rig, eases, fonts, logo build, review sheets          [engine-kit]
+    remotion/                    render_mb.mjs, stills.mjs, entry generation, bundling (not kit/)        [engine-core]
     web/                         open web renderer: seekable page runtime + puppeteer capture           [web-engine]
     ae/                          ES3 library + build/queue/validate/smoke scripts                       [ae]
-    cli.mjs                      versioned JSON commands the Python CLI calls                            [engine]
+    cli.mjs                      versioned JSON commands the Python CLI calls                            [engine-core]
+    tests/                       vitest (each builder its own subfolder: tests/kit, tests/core, tests/web)
   skills/<name>/SKILL.md + references/     ten skills (spec-only frontmatter)                          [skills]
   plugins/slate/                 .claude-plugin/plugin.json, .mcp.json, plugin.json (Agent Plugins)      [packaging]
   .claude-plugin/marketplace.json                                                                       [packaging]
@@ -211,3 +219,76 @@ Supervised outranks autonomous. `slate … --detach` returns a job id at once; `
 Python: stdlib + numpy/scipy/Pillow unless the module says otherwise; type hints; small functions; docstrings that say
 why. TypeScript: strict. Comments and docs in Quinn's voice. No TODO stubs presented as done: if something can't be
 built yet (e.g. the effects engine before proof 3), it refuses with a clear message and a test proves the refusal.
+
+## 12. Module interfaces (call these across modules)
+
+Builders work in parallel, so these are the only cross-module calls. The owner provides exactly these names and
+signatures (more is fine). A caller whose dependency isn't there yet writes against this table, uses a small fake in
+its own tests, and says so in its report. Film paths are always the film folder (`Path`); results are plain dicts or
+`GateResult`s.
+
+**state** (`slate.state`)
+- `film.create(film_id, *, brand, format, mode="supervised", title=None, parent=None, derivation=None, generation="rarely", films_dir=None) -> Path`
+- `film.load(film_dir) -> dict` · `film.save(film_dir, data) -> None` (validated, atomic)
+- `lock.record(film_dir, rel_path, *, producer, inputs, tool_version=None) -> dict` (a film.lock.json entry)
+- `lock.is_stale(film_dir, rel_path) -> bool` · `lock.lock_asset(film_dir, rel_path, *, reason) -> None` · `lock.is_locked(film_dir, rel_path) -> bool`
+- `pins.pin(film_dir, key, value, *, repin=False) -> value` (first use wins) · `pins.get(film_dir, key) -> value | None`
+- `approvals.record(film_dir, *, what, path, approved_by, note=None) -> dict` (records sha256) · `approvals.is_approved(film_dir, what, path) -> bool` (sha must match)
+- `production.add_direction(film_dir, text, *, source) -> int` (numbered, verbatim) · `status.compute(film_dir) -> dict`
+- `derive.create(parent_dir, child_id, *, format=None, aspect=None, language=None, cut=None) -> Path` (derived film)
+
+**story / timing** (`slate.story`, `slate.timing`)
+- `story.build(film_dir) -> list[GateResult]` · `story.gates.check_script(script, *, brand, fmt) -> list[GateResult]`
+- `timing.build(film_dir) -> list[Path]` (shots, vo_cues, vo_words, timeline) · `timing.load_shots(film_dir) -> dict`
+- `timing.words.word_time(film_dir, shot_id, word, occ=1, which="start") -> tuple[float, bool]` (never raises; bool = exact)
+- `timing.spoken.forms(token, lang="en") -> list[list[str]]` (how a number/symbol is said; language tables, no literals in logic)
+
+**brand** (`slate.brand.pack`)
+- `find(name) -> Path` · `load(name_or_path) -> dict` · `references_approved(pack) -> bool` · `missing_references(pack) -> list[str]`
+- `banned_words(pack) -> list[str]` · `approved_claims(pack) -> list[dict]` · `motion(pack) -> dict` · `palette(pack) -> dict`
+- `contrast_pairs(pack) -> list[dict]` ({fg, bg, role: body|large})
+
+**vendors** (`slate.vendors.elevenlabs.Client()`, `slate.vendors.higgsfield.Client()`) — replay-aware; every paid call goes
+through `slate.ledger`. ElevenLabs: `subscription()`, `tts(...)`, `design(...)`, `remix(...)`, `isolate(...)`,
+`align(...)`, `compose_music(...)`. Higgsfield: `probe()`, `estimate(path, body)`, `submit(path, body)`, `wait(request_id)`,
+`cancel(request_id)`, `upload(path)`. `sync_agents` does not exist and never will.
+
+**voice** (`slate.voice`): `tags.strip(text) -> str` · `tags.check(tagged, line) -> list[str]` (problems; banned tags refused)
+· `profile.load(brand_pack) -> dict` · `captions.build(film_dir) -> list[Path]`
+
+**sound** (`slate.sound`): `measure.loudness(path) -> dict` (integrated LUFS, true peak, LRA) · `mix.run(film_dir) -> Path`
+· `verify.run(film_dir) -> list[GateResult]` · `effects.require_proof3()` (raises Refused until proof 3 is approved)
+
+**gen / capture**: `gen.policy.allowed(film_json, shot) -> tuple[bool, str]` · `capture.ios.capture(film_dir, spec) -> Path`
+· `capture.web.capture(film_dir, spec) -> Path` · `capture.conform.to_sequence(src, film_dir, name) -> Path`
+
+**engine** (`slate.engine`): `bridge.call(command, args, *, timeout=None) -> dict` (runs `node engine/cli.mjs <command>
+--json '<args>'`) · `bridge.engine_dir() -> Path` · `install.ensure(version=None) -> Path`
+
+**render** (`slate.render`): `run(film_dir, *, act=None, frames=None, engine="remotion", samples=None, out=None) -> dict`
+· `registry.entries(film_dir) -> list[dict]` · `registry.register(film_dir, entry) -> None`
+· `splice.splice(film_dir, base, patch, frame_in, frame_out) -> dict` (proof: frame hashes + PSNR)
+
+**qa** (`slate.qa`): `run(film_dir, names=None) -> list[GateResult]` (writes qa/gates.json) · `GATES: dict[str, callable]`
+· `measure.psnr(a, b) -> float` · `ocr.available() -> tuple[bool, dict]`. qa-motion adds its gates to `GATES` from
+`slate.qa.motion` and `slate.qa.access`.
+
+**ae** (`slate.ae`): `prefs` (byte-safe: `check()`, `get()`, `set()`, `restore()`) · `driver.run_jsx(path, *, args=None) -> dict`
+· `driver.ae_lock()` (context manager, shared with the bridge's lock) · `smoke.run(out_dir) -> GateResult`
+· `masters.render(film_dir, **kw) -> dict` · `project.build(film_dir) -> Path` · `bridge.status() -> dict`
+
+**finish** (`slate.finish`): `master.run(film_dir, *, method) -> dict` · `deliver.run(film_dir) -> Path` (manifest, written last)
+· `review.packet(film_dir) -> Path` · `slate.notify.imessage(text, attachment=None)` / `slate.notify.push(title, body)`
+**formats** (`slate.formats`): `load(name) -> dict` · `names() -> list[str]` · `safe_zones(fmt, platform) -> dict`
+
+**jobs** (`slate.jobs`): `client.submit(kind, argv, *, film=None, resources=(), priority="supervised", disk_gb=0.0, cwd=None) -> str`
+· `client.status(job_id) -> dict` · `client.wait(job_id, timeout=None) -> dict` · `client.cancel(job_id) -> None`
+· `locks.hold(resource, *, timeout=None, owner=None)` (context manager; resources: `render`, `ae`, `elevenlabs_tts`,
+`elevenlabs_music`, `higgsfield`, `whisper`) · `disk.reserve(path, gb)` (context manager)
+
+**doctor** (`slate.doctor`): `checks(context=None) -> list[dict]` (each `{id, status: green|yellow|red, summary, fix}`)
+
+**Engine data contracts** (files, so three engines share them): the kit and the web engine write a motion trace per
+act, `timing/motion/actN.json` = `[{id, shot, prop, ease, frame_in, frame_out, from, to, samples: [[frame, value]…],
+entrance: bool, loop_period: int|null, rig: str|null}]`, which `slate qa motion` checks. Renders register in
+`renders/registry.json` = `{entries: [{act, engine, file, frames: [in, out], samples, sha256, made_at, bundle_hash}]}`.

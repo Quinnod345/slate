@@ -1,0 +1,17 @@
+{
+ "case": "dry-run-script-stage",
+ "config": "pursuit-slice",
+ "synthetic": true,
+ "note": "The dry run inside the slice setup: stdin closed, no prompts, done well inside ten minutes.",
+ "exit_code": 0,
+ "killed": false,
+ "duration_s": 212.4,
+ "expect": {
+  "status": "PASS",
+  "failed": []
+ },
+ "artifacts": [
+  "films/demo-feature-reel/script/script.json",
+  "films/demo-feature-reel/script/storyboard.json"
+ ]
+}

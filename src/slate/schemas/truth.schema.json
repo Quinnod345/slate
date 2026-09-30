@@ -1,0 +1,39 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "slate/truth",
+ "title": "brief/truth.json",
+ "description": "The film's truth pack: pinned sources (each with a pin: a commit, a date or a SHA-256), researched claims that cite them, what the film never claims, and its sample data. The script gates accept a claim or a number when it is on the brand's approved list or cites a pinned source here.",
+ "type": "object",
+ "properties": {
+  "claim_authority": {"type": ["string", "object", "null"], "description": "who rules on claims for this film"},
+  "sources": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "required": ["id"],
+    "properties": {
+     "id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"},
+     "title": {"type": "string"},
+     "pin": {"type": "string", "minLength": 1, "description": "what makes it pinned: a commit, a retrieval date, a hash"},
+     "url": {"type": "string"},
+     "path": {"type": "string"},
+     "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+     "retrieved_at": {"type": "string"},
+     "note": {"type": "string"}
+    }
+   }
+  },
+  "claims": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "required": ["id", "text", "source"],
+    "properties": {"id": {"type": "string"}, "text": {"type": "string"}, "source": {"type": "string"},
+                   "where": {"type": "string"}, "numbers": {"type": "array"}}
+   }
+  },
+  "never_claim": {"type": "array", "items": {"oneOf": [{"type": "string"},
+                                                         {"type": "object", "required": ["text"]}]}},
+  "sample_data": {}
+ }
+}

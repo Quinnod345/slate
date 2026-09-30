@@ -1,0 +1,18 @@
+{
+ "id": "routing-fast-lane-not-picked",
+ "title": "A Higgsfield-able ask that doesn't pick a lane gets the question, not the fast lane",
+ "group": "routing",
+ "status": "active",
+ "plan_points": ["P057", "P059", "P060", "P187", "P188", "P189", "P190", "P374"],
+ "why": "A generated clip could serve this, but nobody picked it. The fast lane only runs once it's picked at Slate's question.",
+ "prompt": "Make a short video of a paper boat sailing through a storm.",
+ "configs": ["claude-code", "codex", "pursuit-slice", "openclaw"],
+ "expect": [
+  {"check": "skill_loaded", "skill": "slate"},
+  {"check": "asks_one_question", "mentions": [
+   ["(?i)full[- ]?(?:production|film|pipeline|video)", "(?i)(?<!pre-)(?<!pre)\\bproduction\\b", "(?i)produced (?:film|video)"],
+   ["(?i)quick(?:ly)?\\b.{0,30}\\bclip", "(?i)generated (?:clip|video)", "(?i)fast lane"]
+  ]},
+  {"check": "fast_lane_not_used"}
+ ]
+}

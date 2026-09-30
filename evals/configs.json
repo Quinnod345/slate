@@ -1,0 +1,306 @@
+{
+ "schema": 1,
+ "note": "How each agent is run non-interactively for an eval, exactly. `slate evals run --dry-run` prints these filled in; `slate evals run --live` runs them. Placeholders in braces are filled per run (see slate/evals/commands.py). Nothing here is run by tests.",
+ "verified_on": "2026-09-30",
+ "global_checks": ["no_browser", "slate_children_browser_none"],
+ "eval_env": {
+  "note": "Every run gets replay mode, its own film, data and brand folders, a zero-cap budget, the child-process probe and the BROWSER tripwire, and none of the vendor or provider keys. The agents keep their own logins.",
+  "set": {
+   "SLATE_FAKE_VENDORS": "1",
+   "SLATE_FILMS": "{workdir}/films",
+   "SLATE_DATA": "{pair_dir}/slate-data",
+   "SLATE_BRANDS": "{pair_dir}/slate-brands",
+   "SLATE_CONTEXT": "{context}",
+   "SLATE_EVAL": "1",
+   "SLATE_EVAL_RUN": "{run_id}/{case_id}/{config_id}",
+   "BROWSER": "{evals_dir}/tripwire/browser",
+   "SLATE_EVAL_TRIPWIRE_LOG": "{pair_dir}/tripwire.log",
+   "SLATE_EVAL_PROBE_LOG": "{pair_dir}/probe.jsonl",
+   "PYTHONPATH": "{probe_dir}"
+  },
+  "unset": ["SLATE_LIVE", "SLATE_RECORD", "SLATE_FILM", "SLATE_FIXTURES", "HF_KEY", "HF_API_KEY", "HF_API_SECRET", "ELEVENLABS_API_KEY", "SLATE_ONEIRO_ELEVENLABS_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_BASE_URL"],
+  "budget": {
+   "note": "Zero caps for every mode: with replay mode on nothing spends anyway, and a stray --live is refused by the ledger before it can.",
+   "monthly": {
+    "supervised": {"elevenlabs": 0, "higgsfield": 0},
+    "express": {"elevenlabs": 0, "higgsfield": 0},
+    "draft": {"elevenlabs": 0, "higgsfield": 0},
+    "autonomous": {"elevenlabs": 0, "higgsfield": 0}
+   }
+  }
+ },
+ "configurations": {
+  "claude-code": {
+   "label": "Claude Code on Opus 5.5 (print mode, stream-json)",
+   "agent": "claude-code",
+   "context": "claude-code",
+   "plan_points": ["P187"],
+   "binary": "{home}/.local/bin/claude",
+   "model": "claude-opus-5-5",
+   "argv": [
+    "{binary}", "-p", "{prompt}",
+    "--output-format", "stream-json", "--verbose",
+    "--model", "{model}", "--effort", "max",
+    "--permission-mode", "auto", "--permission-prompts", "none",
+    "--no-session-persistence", "--no-chrome",
+    "--strict-mcp-config", "--mcp-config", "{mcp_config}",
+    "--disallowedTools", "{deny}"
+   ],
+   "deny": [
+    "Bash(open *)", "Bash(osascript *)", "Bash(higgsfield *)", "Bash(playwright *)", "Bash(npx playwright *)",
+    "Bash(xdg-open *)", "mcp__claude-in-chrome", "mcp__Claude_Browser", "mcp__mac-cua"
+   ],
+   "blocks": {
+    "aside_actions": {"deny": ["mcp__aside__exec", "mcp__aside__repl"], "note": "Aside's acting tools are denied for this case; reading still works"}
+   },
+   "mcp_template": "mcp/claude-code.json",
+   "stdin": "devnull",
+   "timeout_s": 900,
+   "kill": "group",
+   "kill_grace_s": 2,
+   "kill_is_real": false,
+   "env": {"set": {"ENABLE_CLAUDEAI_MCP_SERVERS": "false"}},
+   "transcript": {"format": "claude-stream-json", "source": "stdout"},
+   "env_reaches_tools": true,
+   "verified": {
+    "on": "2026-09-30",
+    "help_checked": ["claude --version", "claude --help"],
+    "how": [
+     "`claude --help` (Claude Code 2.1.282 at ~/.local/bin/claude) lists every flag used: -p/--print; --output-format stream-json (print mode only; --verbose is passed with it); --model; --effort low|medium|high|xhigh|max; --permission-mode auto; --permission-prompts none (anything that would prompt is denied); --no-session-persistence; --no-chrome; --strict-mcp-config with --mcp-config; --disallowedTools as a comma-separated list.",
+     "The prompt goes right after -p, the documented print-mode form, so the variadic --disallowedTools at the end can't swallow it.",
+     "Stream-json lines are system/init, assistant messages with tool_use parts, user messages carrying tool_results, and a final result. A loaded skill shows up as a Skill tool call; a denied call still appears as its tool_use, so the graders see attempts."
+    ],
+    "deviations": [
+     "Only the aside and slate MCP servers load (--strict-mcp-config, plus ENABLE_CLAUDEAI_MCP_SERVERS=false as a second guard), so claude.ai connectors such as Gmail and Higgsfield can't send, post or generate during an eval.",
+     "Browser tools and browser-opening commands are denied at the harness (the deny list), and the transcript still fails any attempt to use them."
+    ],
+    "not_exercised": [
+     "No live run in the build session. The first live run confirms that auto mode approves the dry run's Bash and Write steps without prompting; if it doesn't, switch --permission-mode to bypassPermissions (the deny list still applies).",
+     "That --strict-mcp-config also keeps claude.ai connectors out is read from the help text, not observed."
+    ]
+   },
+   "notes": ["Hooks in ~/.claude/settings.json still run, as they do for you. Sessions aren't saved (--no-session-persistence)."]
+  },
+  "codex": {
+   "label": "Codex CLI on gpt-6-astra (codex exec --json)",
+   "agent": "codex",
+   "context": "codex",
+   "plan_points": ["P188"],
+   "binary": "/opt/homebrew/bin/codex",
+   "model": "gpt-6-astra",
+   "argv": [
+    "{binary}", "exec", "--json", "--ephemeral", "--skip-git-repo-check",
+    "--cd", "{workdir}", "--model", "{model}",
+    "-c", "mcp_servers.mac-cua.enabled=false",
+    "-c", "plugins.chrome@openai-bundled.enabled=false",
+    "-c", "plugins.browser@openai-bundled.enabled=false",
+    "-c", "plugins.computer-use@openai-bundled.enabled=false",
+    "-c", "plugins.unified-computer-use@openai-bundled.enabled=false",
+    "-c", "plugins.gmail@openai-curated.enabled=false",
+    "-c", "plugins.google-calendar@openai-curated.enabled=false",
+    "-c", "plugins.github@openai-curated.enabled=false",
+    "--disable", "browser_use", "--disable", "browser_use_external", "--disable", "browser_use_full_cdp_access",
+    "--disable", "computer_use", "--disable", "in_app_browser",
+    "{block_args}",
+    "--", "{prompt}"
+   ],
+   "blocks": {
+    "aside_actions": {"args": ["-c", "mcp_servers.aside.enabled=false"], "note": "the aside MCP server is off for this case (Codex can't deny single tools from the command line)"}
+   },
+   "stdin": "devnull",
+   "timeout_s": 900,
+   "kill": "group",
+   "kill_grace_s": 2,
+   "kill_is_real": false,
+   "transcript": {"format": "codex-jsonl", "source": "stdout"},
+   "env_reaches_tools": true,
+   "verified": {
+    "on": "2026-09-30",
+    "help_checked": ["codex --version", "codex exec --help", "codex features list", "codex mcp list --json"],
+    "how": [
+     "`codex exec --help` (codex-cli 0.153.4 at /opt/homebrew/bin/codex) lists --json (JSONL events on stdout), --ephemeral, --skip-git-repo-check, -C/--cd, -m/--model, -c key=value (TOML value), --disable FEATURE, and the prompt as the positional argument. It also says a piped stdin is appended to the prompt, which is why stdin here is /dev/null.",
+     "`codex features list --disable browser_use --disable browser_use_external --disable browser_use_full_cdp_access --disable computer_use --disable in_app_browser` showed all five effective states turn false.",
+     "`codex mcp list --json` with the -c overrides above showed mac-cua disabled and the computer-use plugin's cua_repl server gone, which proves the plugins.<name>@<marketplace>.enabled keys parse.",
+     "The JSONL event names (thread.started, item.started/completed, command_execution, file_change, mcp_tool_call, agent_message, turn.completed) match what Oneiro's engine parses from the same Codex (oca-cognitive/reasoning/pursuit-work.js)."
+    ],
+    "deviations": [
+     "Your ~/.codex/config.toml stays loaded (gpt-6-astra at xhigh, approval never, full access, your skills and MCP servers). For eval runs only, the surfaces that act outside the sandbox are switched off: mac-cua (its browser half drives Dia), the Chrome, browser and computer-use plugins, Codex's own browser features, and the Gmail, Calendar and GitHub plugins.",
+     "--ephemeral keeps eval sessions out of your Codex history."
+    ],
+    "not_exercised": ["No live run in the build session."]
+   }
+  },
+  "pursuit-slice": {
+   "label": "Oneiro's pursuit-slice setup: codex exec --ignore-user-config on gpt-6-sol, aside and apple MCPs only",
+   "agent": "codex",
+   "context": "codex",
+   "plan_points": ["P189"],
+   "binary": "/Applications/ChatGPT.app/Contents/Resources/codex",
+   "node": "/opt/homebrew/bin/node",
+   "model": "gpt-6-sol",
+   "argv": [
+    "{binary}", "exec", "--json", "--ephemeral", "--ignore-user-config", "--skip-git-repo-check",
+    "--sandbox", "danger-full-access", "--config", "approval_policy=\"never\"",
+    "--cd", "{workdir}", "--model", "{model}", "--config", "model_reasoning_effort=\"xhigh\"",
+    "-c", "mcp_servers.aside.command=\"{node}\"",
+    "-c", "mcp_servers.aside.args=[\"{home}/oneiro/oca-cognitive/aside-mcp.js\"]",
+    "-c", "mcp_servers.aside.startup_timeout_sec=30",
+    "-c", "mcp_servers.aside.tool_timeout_sec=960",
+    "-c", "mcp_servers.aside.tools.aside_read.approval_mode=\"approve\"",
+    "-c", "mcp_servers.aside.tools.aside_search.approval_mode=\"approve\"",
+    "-c", "mcp_servers.aside.tools.aside_snapshot.approval_mode=\"approve\"",
+    "-c", "mcp_servers.aside.tools.aside_open.approval_mode=\"approve\"",
+    "-c", "mcp_servers.aside.tools.aside_tabs.approval_mode=\"approve\"",
+    "-c", "mcp_servers.aside.tools.aside_read_tab.approval_mode=\"approve\"",
+    "-c", "mcp_servers.aside.tools.aside_snapshot_tab.approval_mode=\"approve\"",
+    "-c", "mcp_servers.aside.tools.aside_click.approval_mode=\"approve\"",
+    "-c", "mcp_servers.aside.tools.aside_type.approval_mode=\"approve\"",
+    "-c", "mcp_servers.aside.tools.aside_select.approval_mode=\"approve\"",
+    "-c", "mcp_servers.aside.tools.aside_press.approval_mode=\"approve\"",
+    "-c", "mcp_servers.aside.tools.aside_scroll.approval_mode=\"approve\"",
+    "-c", "mcp_servers.aside.tools.aside_sign_in.approval_mode=\"approve\"",
+    "-c", "mcp_servers.aside.tools.aside_do.approval_mode=\"approve\"",
+    "-c", "mcp_servers.aside.tools.aside_go.approval_mode=\"approve\"",
+    "-c", "mcp_servers.apple.command=\"{node}\"",
+    "-c", "mcp_servers.apple.args=[\"{home}/oneiro/oca-cognitive/apple-mcp.js\"]",
+    "-c", "mcp_servers.apple.startup_timeout_sec=30",
+    "-c", "mcp_servers.apple.tool_timeout_sec=600",
+    "-c", "mcp_servers.apple.tools.apple_call.approval_mode=\"approve\"",
+    "-c", "mcp_servers.apple.tools.apple_status.approval_mode=\"approve\"",
+    "-c", "mcp_servers.apple.tools.apple_journal.approval_mode=\"approve\"",
+    "-c", "mcp_servers.apple.tools.apple_reconcile.approval_mode=\"approve\"",
+    "-c", "mcp_servers.apple.tools.apple_ads_setup.approval_mode=\"approve\"",
+    "-"
+   ],
+   "blocks": {
+    "aside_actions": {"note": "not blocked here: the slice's aside server is the engine's own, and it already sends every committing action through the actuator for your yes"}
+   },
+   "stdin": "prompt",
+   "timeout_s": 600,
+   "kill": "group",
+   "kill_grace_s": 2,
+   "kill_is_real": true,
+   "env": {
+    "path": ["{home}/.local/bin", "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"],
+    "set": {"TERM": "dumb"},
+    "unset": ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_BASE_URL"]
+   },
+   "transcript": {"format": "codex-jsonl", "source": "stdout"},
+   "env_reaches_tools": true,
+   "extra_checks": ["no_stdin_wait"],
+   "verified": {
+    "on": "2026-09-30",
+    "help_checked": ["/Applications/ChatGPT.app/Contents/Resources/codex --version", "/Applications/ChatGPT.app/Contents/Resources/codex exec --help"],
+    "sources": ["~/oneiro/oca-cognitive/codex-cli.js (buildCodexArgs, buildCodexEnvironment, runCodex)", "~/oneiro/oca-cognitive/reasoning/pursuit-work.js (the slice's runner call)", "~/Library/LaunchAgents/com.oneiro.oca.plist (ONEIRO_CODEX_CLI, OCA_PURSUIT_MODEL, OCA_PURSUIT_EFFORT)", "~/oneiro/oca-cognitive/aside-mcp.js and apple-mcp.js (the tool lists)"],
+    "how": [
+     "The argv mirrors buildCodexArgs as a research slice calls it: exec --json --ignore-user-config --skip-git-repo-check --sandbox danger-full-access --config approval_policy=\"never\" --cd <folder> --model gpt-6-sol --config model_reasoning_effort=\"xhigh\", then the aside and apple MCP servers injected with -c (every tool pre-approved, as the engine does), then '-' so the prompt is read from stdin.",
+     "The engine runs slices with ONEIRO_CODEX_CLI=/Applications/ChatGPT.app/Contents/Resources/codex (0.155.0-alpha.16.4); its `exec --help` lists the same flags as 0.153.4 plus --worktree.",
+     "stdin is a pipe: the prompt is written, then the pipe is closed (child.stdin.end(prompt) in runCodex). The child runs in its own process group and is killed after 10 minutes (timeoutMs 10 × 60,000 in pursuit-work.js): SIGTERM to the group, SIGKILL 2 s later.",
+     "The environment mirrors buildCodexEnvironment: OPENAI_API_KEY, ANTHROPIC_API_KEY and OPENAI_BASE_URL removed so the ChatGPT login is used, PATH set to ~/.local/bin, /opt/homebrew/bin, /usr/local/bin, /usr/bin, /bin, and TERM=dumb."
+    ],
+    "deviations": [
+     "--ephemeral is added: the engine's slices persist so they can resume, and an eval never resumes.",
+     "The working folder is the eval's sandbox instead of pursuit-work/<chain>."
+    ],
+    "not_exercised": ["No live run in the build session."]
+   }
+  },
+  "openclaw": {
+   "label": "OpenClaw main (Oneiro) on gpt-5.6-sol, through the running Gateway",
+   "agent": "openclaw",
+   "context": "openclaw",
+   "plan_points": ["P190"],
+   "binary": "/opt/homebrew/bin/openclaw",
+   "model": "openai/gpt-5.6-sol",
+   "session_key": "agent:main:slate-eval-{run_id}-{case_id}",
+   "argv": [
+    "{binary}", "agent", "--agent", "main", "--session-key", "{session_key}",
+    "--model", "{model}", "--thinking", "xhigh", "--timeout", "600", "--json",
+    "--message", "{prompt}"
+   ],
+   "blocks": {
+    "aside_actions": {"note": "not blocked here: main's aside server is the engine's own, and it already sends every committing action through the actuator for your yes"}
+   },
+   "stdin": "devnull",
+   "timeout_s": 900,
+   "kill": "group",
+   "kill_grace_s": 2,
+   "kill_is_real": false,
+   "transcript": {"format": "openclaw", "source": "collect"},
+   "collect": [
+    {"argv": ["{binary}", "transcripts", "path", "{session_id}", "--transcript"], "stdout": "path", "needs": ["session_id"], "note": "the full session transcript, by the session id in the run's JSON"},
+    {"argv": ["{binary}", "gateway", "call", "chat.history", "--json", "--timeout", "30000", "--params", "{history_params}"], "stdout": "transcript", "note": "fallback: the Gateway's display-normalised history"}
+   ],
+   "env_reaches_tools": false,
+   "unavailable_checks": {
+    "slate_children_browser_none": "the Gateway runs main's tools in its own environment, so the child-process probe can't reach them; the other three configurations check Slate's child processes"
+   },
+   "verified": {
+    "on": "2026-09-30",
+    "help_checked": ["openclaw --version", "openclaw --help", "openclaw agent --help", "openclaw agent exec --help", "openclaw transcripts --help", "openclaw transcripts path --help", "openclaw sessions --help", "openclaw gateway call --help"],
+    "sources": ["/opt/homebrew/lib/node_modules/openclaw/docs/cli/agent.md", "/opt/homebrew/lib/node_modules/openclaw/docs/tools/exec.md", "~/oneiro/oca-cognitive/gateway.js", "~/Library/LaunchAgents/com.oneiro.oca.plist (OCA_AGENT_MODEL, OCA_AGENT_THINKING)"],
+    "how": [
+     "`openclaw agent --help` (OpenClaw 2026.9.4): `agent` runs one agent turn through the Gateway, with --agent, --session-key, --model, --thinking (xhigh), --timeout, --json and --message. Without --deliver the reply stays in the session and goes to no channel.",
+     "Model and thinking are the engine's deployed-agent settings: OCA_AGENT_MODEL=openai/gpt-5.6-sol and OCA_AGENT_THINKING=xhigh, on agent main.",
+     "The turn is read back with `openclaw transcripts path <session id> --transcript` (the full transcript; the session id comes from the --json envelope), falling back to `openclaw gateway call chat.history`, which Oneiro's gateway.js uses.",
+     "Why the Gateway and not --local: `--local` refuses to start while a running Gateway owns the state directory (docs/cli/agent.md), and `agent exec` runs with throwaway state and without main's workspace, so it isn't Oneiro main."
+    ],
+    "deviations": [
+     "The Gateway runs main's tools in its own environment, so the eval's environment (replay mode, sandbox folders, the child-process probe, the BROWSER tripwire) doesn't reach them. Cases that make films are skipped here unless you pass --allow-host-env; with it, their films land in your real Slate folders and the report lists them for you to delete. The transcript checks, including the no-browser check, run as usual.",
+     "The eval's session stays in main's session list (agent:main:slate-eval-…)."
+    ],
+    "not_exercised": ["No live run in the build session. The envelope field that carries the session id (sessionId, possibly under meta) is read wherever it appears."]
+   }
+  }
+ },
+ "harnesses": {
+  "oneiro-strategist": {
+   "label": "Oneiro's strategist, one answer-only Codex call on a pursuit snapshot",
+   "agent": "codex",
+   "context": "codex",
+   "plan_points": ["P374"],
+   "binary": "/Applications/ChatGPT.app/Contents/Resources/codex",
+   "model": "gpt-6-astra",
+   "argv": [
+    "{binary}", "exec", "--json", "--ephemeral", "--ignore-user-config", "--skip-git-repo-check",
+    "--sandbox", "read-only", "--config", "approval_policy=\"never\"",
+    "--cd", "{workdir}", "--model", "{model}", "--config", "model_reasoning_effort=\"high\"",
+    "--disable", "shell_tool", "--disable", "code_mode_host", "--disable", "browser_use",
+    "--disable", "browser_use_external", "--disable", "computer_use", "--disable", "multi_agent",
+    "--disable", "apps", "--disable", "plugins", "--disable", "image_generation", "--disable", "memories",
+    "--disable", "skill_search", "--disable", "goals", "--disable", "sleep_tool",
+    "-"
+   ],
+   "stdin": "prompt",
+   "timeout_s": 600,
+   "kill": "group",
+   "kill_grace_s": 2,
+   "kill_is_real": false,
+   "env": {
+    "path": ["{home}/.local/bin", "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"],
+    "set": {"TERM": "dumb"},
+    "unset": ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_BASE_URL"]
+   },
+   "transcript": {"format": "codex-jsonl", "source": "stdout"},
+   "env_reaches_tools": true,
+   "compose": {
+    "max_moves": 3,
+    "said_heading": "What Quinn said:",
+    "said_sources": "stated by Quinn|observed by quinn",
+    "stated_sources": "stated by Quinn",
+    "said_ids": "^person-"
+   },
+   "verified": {
+    "on": "2026-09-30",
+    "help_checked": ["/Applications/ChatGPT.app/Contents/Resources/codex exec --help", "codex features list"],
+    "sources": ["~/oneiro/oca-cognitive/llm.js (callCodex, buildTextPrompt, the cloud policy)", "~/oneiro/oca-cognitive/codex-cli.js (runCodex with answerOnly, ANSWER_ONLY_DISABLED)", "~/oneiro/oca-cognitive/reasoning/agents.js (strategize)"],
+    "how": [
+     "The engine's cloud steps call runCodex with answerOnly: --sandbox read-only, --ephemeral, --ignore-user-config, and the 13 features in ANSWER_ONLY_DISABLED switched off, so the model answers from its prompt with no shell, browser or tools. The model and effort are llm.js's cloud defaults (gpt-6-astra, high; OCA_CODEX_MODEL=gpt-6-astra in the LaunchAgent).",
+     "The prompt is buildTextPrompt's shape: the strategist's system prompt, a blank line, then 'User: ' and the message strategize() composes. The system prompt is read from agents.js at run time; the message is composed from the pursuit's snapshot (slate/evals/strategist.py)."
+    ],
+    "deviations": ["Recent agent work, actions, durable dispositions and charter grants come from the engine's database; the dry run leaves them at the engine's own empty defaults."],
+    "not_exercised": ["No live run in the build session; the case stays pending until the self-want lands."]
+   }
+  }
+ }
+}

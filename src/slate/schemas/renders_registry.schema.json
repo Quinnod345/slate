@@ -1,0 +1,49 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "slate:renders_registry",
+ "title": "Renders registry (renders/registry.json)",
+ "description": "One entry per registered act render, written by `slate render`. frames are film frames [in, out), in inclusive and out exclusive, the act's range in timing/shots.json when it was rendered. file is relative to the film folder. Registering an act render locks the film's timeline. The AE project build, review cuts and QA read this file.",
+ "type": "object",
+ "required": ["entries"],
+ "properties": {
+  "generated": {"type": "string"},
+  "entries": {"type": "array", "items": {"$ref": "#/$defs/entry"}}
+ },
+ "additionalProperties": true,
+ "$defs": {
+  "entry": {
+   "type": "object",
+   "required": ["act", "engine", "file", "frames", "samples", "sha256", "made_at", "bundle_hash"],
+   "properties": {
+    "act": {"type": "integer", "minimum": 0, "description": "The act's index in timing/shots.json."},
+    "engine": {"enum": ["remotion", "web", "ae"]},
+    "file": {"type": "string", "minLength": 1, "description": "The render, relative to the film folder."},
+    "frames": {
+     "type": "array", "items": {"type": "integer", "minimum": 0}, "minItems": 2, "maxItems": 2,
+     "description": "Film frames [in, out): in inclusive, out exclusive."
+    },
+    "samples": {
+     "type": ["integer", "null"], "minimum": 1,
+     "description": "Motion-blur sub-frames averaged per frame; null for After Effects, which uses its own motion blur."
+    },
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "made_at": {"type": "string", "minLength": 10},
+    "bundle_hash": {
+     "type": ["string", "null"],
+     "description": "The engine's bundle (source) hash, or Slate's hash of the render's sources when the engine gives none."
+    },
+    "source_hash": {"type": ["string", "null"]},
+    "shots": {"type": "string"},
+    "width": {"type": "integer", "minimum": 1},
+    "height": {"type": "integer", "minimum": 1},
+    "fps_num": {"type": "integer", "minimum": 1},
+    "fps_den": {"type": "integer", "minimum": 1},
+    "codec": {"type": "string"},
+    "draft": {"type": "boolean"},
+    "proof": {"type": "object"},
+    "history": {"type": "array", "items": {"type": "object"}}
+   },
+   "additionalProperties": true
+  }
+ }
+}

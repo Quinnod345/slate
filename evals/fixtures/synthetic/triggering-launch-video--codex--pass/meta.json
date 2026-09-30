@@ -1,0 +1,13 @@
+{
+ "case": "triggering-launch-video",
+ "config": "codex",
+ "synthetic": true,
+ "note": "Reads the slate skill first, then goes straight to production.",
+ "exit_code": 0,
+ "killed": false,
+ "duration_s": 42.0,
+ "expect": {
+  "status": "PASS",
+  "failed": []
+ }
+}

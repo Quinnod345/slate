@@ -175,3 +175,14 @@ def test_cli_version_and_exit_codes(slate_home):
     assert code == 0 and "slate" in out
     code, out, err = run_cli([])
     assert code == 2
+
+
+def test_child_path_prefers_arm64_homebrew_over_usr_local(monkeypatch):
+    # /etc/paths puts /usr/local/bin first; stale Intel tools there must never win.
+    monkeypatch.setenv("PATH", "/usr/local/bin:/usr/bin:/bin")
+    parts = procs.child_env()["PATH"].split(":")
+    assert parts.index("/opt/homebrew/bin") < parts.index("/usr/local/bin")
+    assert len(parts) == len(set(parts))
+    node = procs.which("node")
+    if node and os.path.exists("/opt/homebrew/bin/node"):
+        assert node == "/opt/homebrew/bin/node"
