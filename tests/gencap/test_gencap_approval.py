@@ -50,6 +50,25 @@ def test_when_sending_is_allowed_it_goes_by_imessage_and_push(auto_film, monkeyp
     assert sent == ["imessage", "push"] and req["notify"]["sent"] is True
 
 
+def test_a_channel_that_isnt_set_up_is_reported_and_never_stops_the_other(auto_film, monkeypatch):
+    from slate.errors import MissingPrerequisite
+
+    def no_handle(text, attachment=None):
+        raise MissingPrerequisite("No iMessage handle is set for the owner, so Slate can't send this.")
+
+    fake_notify = types.SimpleNamespace(imessage=no_handle, push=lambda title, body: {"sent": True, "why": "sent"})
+    monkeypatch.setattr(deps, "notify_module", lambda: fake_notify)
+    monkeypatch.setattr(deps, "notify_allowed", lambda: True)
+    note = gen_run.request_approval(auto_film, "S02")["notify"]
+    assert note["imessage"] is False and "handle" in note["imessage_error"]
+    assert note["push"] is True and note["sent"] is True
+    blocked = types.SimpleNamespace(imessage=lambda text, attachment=None: {"sent": False, "why": "not sent: dry run"},
+                                    push=lambda title, body: {"sent": False, "why": "not sent: dry run"})
+    monkeypatch.setattr(deps, "notify_module", lambda: blocked)
+    note = gen_run.request_approval(auto_film, "S02")["notify"]
+    assert note["sent"] is False and note["imessage"] is False and "yourself" in note["why"]
+
+
 def test_waiting_approving_then_generating(auto_film):
     _, req, _ = run_json(["gen", "request-approval", "--film", str(auto_film), "--shot", "S02"])
     code, out, _ = run_json(["gen", "run", "--film", str(auto_film), "--shot", "S02", "--approval", req["id"]])
@@ -62,7 +81,9 @@ def test_waiting_approving_then_generating(auto_film):
     code, out, err = run_json(["gen", "run", "--film", str(auto_film), "--shot", "S02", "--approval", req["id"]])
     assert code == 0, err
     rows = ledger.rows(provider="higgsfield")
-    assert len(rows) == 2 and {r["approval_id"] for r in rows} == {yes} and {r["mode"] for r in rows} == {"autonomous"}
+    assert len(rows) == 2 and {r["mode"] for r in rows} == {"autonomous"}
+    # the ledger lets an approval id pay for one call: each take spends under its own slot of the one yes
+    assert sorted(r["approval_id"] for r in rows) == [f"{yes}#1", f"{yes}#2"]
     rec = store.load_record(auto_film, "S02")
     assert rec["approval"]["id"] == req["id"] and rec["approval"]["yes"] == yes
 
@@ -100,3 +121,39 @@ def test_supervised_films_dont_wait(film):
     prep = gen_run.prepare(film, "S02")
     assert not prep.needs_approval
     assert gen_run.check_approval(prep, None) == (None, None)
+
+
+def _still(dest, stem):
+    from PIL import Image
+
+    dest.mkdir(parents=True, exist_ok=True)
+    path = dest / f"{stem}.png"
+    Image.new("RGB", (32, 18), (90, 90, 90)).save(path)
+    return path
+
+
+def test_live_autonomous_takes_each_spend_their_own_slot_of_the_yes(auto_film, slate_home, monkeypatch):
+    """Live, against a fake API: the ledger checks everything replay skips. The person's one yes covered two takes;
+    both go through, each under its own slot, and the yes can't pay for a third."""
+    from test_gencap_client import FakeTransport
+    from slate.vendors import higgsfield
+
+    monkeypatch.setenv("SLATE_FAKE_VENDORS", "0")
+    # a person raised both caps (autonomous films start at $0 of Higgsfield a month, and this film at $0)
+    (slate_home["data"] / "budget.json").write_text(json.dumps({"monthly": {"autonomous": {"higgsfield": 10}}}))
+    fj = jsonio.read(auto_film / "film.json")
+    fj.setdefault("budget", {})["higgsfield"] = 10
+    jsonio.write_atomic(auto_film / "film.json", fj)
+    fake = FakeTransport(status_answers=[{"status": "completed", "images": [{"url": "https://cdn.example/x.png"}]}])
+    client = higgsfield.Client(transport=fake, key="k:s", fake=False, sleep=lambda s: None)
+    monkeypatch.setattr(client, "download", lambda url, dest, stem: _still(dest, stem))
+    req = gen_run.request_approval(auto_film, "S04", client=client)
+    yes = gen_run.approve(auto_film, req["id"], by="Quinn")["yes"]
+    out = gen_run.run(auto_film, "S04", approval=req["id"], client=client)
+    assert out["completed"] == 2
+    rows = ledger.rows(provider="higgsfield")
+    assert sorted(r["approval_id"] for r in rows) == [f"{yes}#1", f"{yes}#2"]
+    assert all(r["status"] == "done" and r["actual"] == 1.0 and not r["replay"] for r in rows)
+    with pytest.raises(SpendRefused) as exc:
+        gen_run.approval_slot(yes, 2)
+    assert "every one of them has been paid for" in exc.value.message

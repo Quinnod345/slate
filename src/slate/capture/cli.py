@@ -137,8 +137,10 @@ def _beatmap(args: argparse.Namespace) -> int:
     human = (f"{gate['status']}: {gate['summary']}\n{result['frames']['count']} frames from film frame "
              f"{result['film_in']}, {len(result['edits'])} retime edit(s), {result['events']} event(s)")
     human += "".join(f"\nmiss: {m}" for m in result["misses"])
+    if gate["status"] == "UNCHECKED":
+        human += "\n(unchecked is never passed: place the capture on the film clock, or anchor a step to a word)"
     log.result(result, human)
-    return 0 if gate["status"] in ("PASS", "UNCHECKED") else 1
+    return 0 if gate["status"] == "PASS" else 1  # only PASS counts as passed
 
 
 def register(sub) -> None:

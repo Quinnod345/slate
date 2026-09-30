@@ -168,7 +168,12 @@ def test_build_writes_every_clients_copy(skills_src, build_out):
     entries = json.loads((build_out / "openclaw/entries.json").read_text())
     assert entries["skills"] == ["demo-craft", "demo-front"]
     assert entries["openclaw_json"]["skills"]["entries"]["demo-front"] == {"enabled": True}
-    assert entries["openclaw_json"]["mcp"]["servers"]["slate"] == {"command": "slate", "args": ["mcp"]}
+    # The same wait `slate install` registers: OpenClaw probes the server, and `slate mcp` can take over 5 seconds.
+    assert entries["openclaw_json"]["mcp"]["servers"]["slate"] == {"command": "slate", "args": ["mcp"],
+                                                                   "connectionTimeoutMs": 30000}
+    assert "openclaw mcp add slate --command slate --arg mcp --connect-timeout 30" in entries["about"]
+    assert "mcp set" not in entries["about"] and "plugins/slate/skills" not in entries["about"], \
+        "the installer links ~/.agents/skills to the checkout's skills/ folder, and registers with `mcp add`"
     assert "sync_agents" in entries["denied_connector_tools"]["tools"]
 
 

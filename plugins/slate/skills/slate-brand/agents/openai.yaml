@@ -1,0 +1,6 @@
+# do not edit by hand: slate skills build (from skills/slate-brand/SKILL.md). Edit the skill, not this file.
+interface:
+  display_name: "Slate Brand"
+  short_description: "Onboard a brand into Slate once, before its first film, and keep its brand pack."
+policy:
+  allow_implicit_invocation: true

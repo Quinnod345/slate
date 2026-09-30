@@ -1,0 +1,6 @@
+# do not edit by hand: slate skills build (from skills/slate-finish/SKILL.md). Edit the skill, not this file.
+interface:
+  display_name: "Slate Finish"
+  short_description: "Render, master, derive and deliver a Slate film."
+policy:
+  allow_implicit_invocation: true

@@ -55,7 +55,7 @@ def test_the_matte_reveals_real_frames_and_hands_over_exactly(tmp_path):
 
 def test_sizes_are_fractions_of_the_frame(tmp_path):
     small = matte.composite(_bridge(), _real(tmp_path), BASE, size=(W, H), fps=10, bridge_fps=8, count=4,
-                            params={"tint": "#224650"}, out_dir=tmp_path / "a")
+                            params={"tint": "#606060"}, out_dir=tmp_path / "a")
     assert len(small) == 4
     assert 0 < matte.DEFAULTS["blur"] < 1 and 0 < matte.DEFAULTS["reach"] < 2  # fractions, not pixels
     with pytest.raises(Exception):

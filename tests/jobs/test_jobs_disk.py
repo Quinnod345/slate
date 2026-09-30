@@ -76,10 +76,15 @@ def test_a_running_job_is_stopped_safely_before_the_disk_fills(queue_home, monke
     level.write_text("100")
     monkeypatch.setenv("SLATE_FAKE_DISK_FREE_GB", f"@{level}")
     marker = tmp_path / "started"
-    code = f"import time; open({str(marker)!r}, 'w').write('x'); time.sleep(60)"
+    # the job's tool runs in a session of its own, as slate.procs.run starts every child: the stop must reach it too
+    code = ("import subprocess, time\n"
+            "tool = subprocess.Popen(['sleep', '60'], start_new_session=True)\n"
+            f"open({str(marker)!r}, 'w').write(str(tool.pid))\n"
+            "time.sleep(60)\n")
     job_id = client.submit("master", [sys.executable, "-c", code], disk_gb=2, start_runner=False)
     assert runner.schedule() == [job_id]
-    wait_for(marker.exists, what="the job to start")
+    wait_for(lambda: marker.exists() and marker.read_text(), what="the job to start")
+    tool = int(marker.read_text())
     wait_for(lambda: store.load(job_id).get("phase") == "running", what="the supervisor to report running")
     assert disk.outstanding_gb(tmp_path) == 2  # the supervisor holds the job's reservation
     level.write_text("1.5")  # the disk is filling up
@@ -90,6 +95,9 @@ def test_a_running_job_is_stopped_safely_before_the_disk_fills(queue_home, monke
     assert job["reason"].startswith("stopped safely: disk nearly full")
     assert f"slate job retry {job_id}" in job["reason"]
     assert job["signal"] == "SIGTERM"
+    from slate.jobs import proc
+
+    wait_for(lambda: not proc.alive(tool), timeout=15, what="the job's own tool to be stopped")
     wait_for(lambda: disk.outstanding_gb(tmp_path) == 0, what="the reservation to be released")
     # resumable later: once there's room, a retry puts it back in the queue
     level.write_text("100")

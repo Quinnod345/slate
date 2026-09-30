@@ -97,6 +97,14 @@ def resolve(topic: str, src: str | os.PathLike | None = None) -> dict:
     if len(hits) > 1:
         raise UsageError(f"{topic!r} matches more than one guide: {', '.join(t['topic'] for t in hits)}.",
                          hint="Name the skill too, e.g. slate guide " + hits[0]["topic"])
+    # A reference name more than one skill uses (signature-moments is in both slate-story and slate-motion): it exists,
+    # so say where, rather than "no guide called".
+    shared = [t for t in every if t["kind"] == "reference" and t["short"].lower() == wanted]
+    if shared:
+        where = "; ".join(f"{_short(t['skill'])}/{t['short']} ({t['title']})" for t in shared)
+        raise UsageError(f"{topic!r} is a guide in {len(shared)} skills: {where}. Say which one.",
+                         hint="slate guide " + " or slate guide ".join(f"{_short(t['skill'])}/{t['short']}"
+                                                                        for t in shared))
     names = sorted({n for t in every for n in t["names"]})
     close = difflib.get_close_matches(wanted, names, n=4, cutoff=0.5)
     raise UsageError(f"No guide called {topic!r}.",

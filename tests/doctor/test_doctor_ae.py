@@ -100,11 +100,30 @@ def test_bridge_registration_is_read_from_claude_json(denv):
     assert row["status"] == "yellow" and "not registered with Claude Code" in row["summary"]
 
 
-def test_automation_is_deferred_when_ae_is_closed(denv):
-    row = rows(denv)["ae.automation"]
+def test_automation_is_deferred_when_ae_is_closed_and_green_only_once_a_smoke_test_proved_it(denv):
+    row = rows(denv)["ae.automation"]  # the fake's last smoke test passed
     assert row["status"] == "green" and row["details"]["deferred"] is True
-    assert "first supervised AE step" in row["summary"] and "never launches AE" in row["summary"]
+    assert row["details"]["proven_by"] == "the last smoke test" and "never launches it" in row["summary"]
     assert never_touched_ae(denv)
+
+
+def test_an_unproven_automation_permission_is_never_green(denv):
+    """AE closed and no smoke test yet: nothing checked the permission, and doctor won't launch AE to find out."""
+    for smoke in (GateResult.unchecked("ae.smoke", "the smoke test hasn't run on this Mac yet"),
+                  GateResult.fail("ae.smoke", "aerender made 12 frames of 30")):
+        denv.smoke = smoke
+        row = rows(denv)["ae.automation"]
+        assert row["status"] == "yellow" and row["details"]["deferred"] is True, row
+        assert "isn't checked yet" in row["summary"] and "slate connect aftereffects" in row["fix"]
+    assert never_touched_ae(denv)
+
+
+def test_ae_closing_while_doctor_looks_is_still_unchecked(denv):
+    denv.ae_is_running = True
+    denv.set_response("osascript", "-e", out="not running\n")
+    denv.smoke = GateResult.unchecked("ae.smoke", "not run yet")
+    row = rows(denv)["ae.automation"]
+    assert row["status"] == "yellow" and "closed while doctor looked" in row["summary"]
 
 
 def test_automation_is_asked_only_when_ae_is_already_open(denv):

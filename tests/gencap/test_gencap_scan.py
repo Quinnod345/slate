@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -44,16 +45,51 @@ def _slate_tree():
     return [p for p in _code_files(roots) if "tests" not in p.relative_to(REPO).parts]
 
 
+def _json_mentions(data, where=()):
+    """(key path, value) for every string in a JSON document that names a denied tool."""
+    if isinstance(data, dict):
+        for key, value in data.items():
+            yield from _json_mentions(value, (*where, str(key)))
+    elif isinstance(data, list):
+        for value in data:
+            yield from _json_mentions(value, where)
+    elif isinstance(data, str) and DENIED_TOOLS.search(data):
+        yield where, data
+
+
 def test_denied_connector_tools_exist_nowhere_but_in_denials():
+    """In JSON, a name is a denial when a key on its path says so (denied_connector_tools.tools, say); elsewhere, when
+    the lines just above it do."""
     offenders, denials = [], []
     for path in _slate_tree():
-        lines = path.read_text(errors="replace").splitlines()
+        text = path.read_text(errors="replace")
+        rel = path.relative_to(REPO)
+        if path.suffix == ".json":
+            try:
+                doc = json.loads(text)
+            except json.JSONDecodeError:
+                doc = None
+            if doc is not None:
+                for where, value in _json_mentions(doc):
+                    (denials if any(DENIAL.search(k) for k in where) else offenders).append(
+                        f"{rel}:{'.'.join(where)}={value[:60]}")
+                continue
+        lines = text.splitlines()
         for i, line in enumerate(lines):
             if DENIED_TOOLS.search(line):
                 context = "\n".join(lines[max(0, i - 5):i + 1])
-                (denials if DENIAL.search(context) else offenders).append(f"{path.relative_to(REPO)}:{i + 1}")
+                (denials if DENIAL.search(context) else offenders).append(f"{rel}:{i + 1}")
     assert offenders == [], f"sync_agents / TikTok / website publishing appear outside a denial: {offenders}"
     assert any("vendors/higgsfield.py" in d for d in denials)  # the scan does see the one list that names them
+
+
+def test_the_scan_still_catches_a_real_allow_list(tmp_path):
+    """The JSON reading can't be fooled: the same names under an allow key are offenders."""
+    allowed = {"mcp": {"higgsfield": {"allow": ["generate_video", "sync_agents"]}}}
+    denied = {"denied_connector_tools": {"tools": ["sync_agents"]}}
+    assert [w for w, _ in _json_mentions(allowed)] == [("mcp", "higgsfield", "allow")]
+    assert not any(DENIAL.search(k) for w, _ in _json_mentions(allowed) for k in w)
+    assert all(any(DENIAL.search(k) for k in w) for w, _ in _json_mentions(denied))
 
 
 def test_slate_never_generates_through_the_higgsfield_cli():

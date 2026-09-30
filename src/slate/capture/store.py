@@ -54,9 +54,19 @@ def require(film_dir: Path, name: str) -> dict:
 
 
 def save(film_dir: Path, name: str, rec: dict, command: str) -> Path:
+    """Write capture.json and record it in film.lock.json (made by `command` from its spec and its recording)."""
     rec = jsonio.mark_generated(rec, command)
     deps.require_part(rec, "capture", what=f"capture {name}'s record")
-    return jsonio.write_atomic(record_path(film_dir, name), rec)
+    path = jsonio.write_atomic(record_path(film_dir, name), rec)
+    inputs = [p for p in (spec_path(film_dir, name), capture_dir(film_dir, name) / "beats.json") if p.is_file()]
+    source = (rec.get("source") or {}).get("file")
+    if source:
+        full = Path(source) if Path(source).is_absolute() else Path(film_dir) / source
+        if full.is_file():
+            inputs.append(full)
+    deps.record_made(film_dir, deps.rel(film_dir, path), producer=command,
+                     inputs={deps.rel(film_dir, p): None for p in inputs})
+    return path
 
 
 def film_block(film: dict) -> dict:

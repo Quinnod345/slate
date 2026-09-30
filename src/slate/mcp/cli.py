@@ -7,7 +7,7 @@
     slate mcpb build --check   check the manifest against Slate itself; write nothing
     slate mcpb build --sync    rewrite the manifest's version and tool list from Slate itself
 
-Registering the server with each agent (claude mcp add, codex mcp add, openclaw mcp set) is install.sh's job; the
+Registering the server with each agent (claude mcp add, codex mcp add, openclaw mcp add) is install.sh's job; the
 plugin in plugins/slate carries the same server for other people.
 """
 

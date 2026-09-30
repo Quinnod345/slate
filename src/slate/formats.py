@@ -16,9 +16,14 @@ master quality through the full pipeline; social cut-downs (Instagram, TikTok, S
 route. Higgsedit becomes that fast route only if `slate bench higgsedit` says it wins (decision 9).
 
 A few resolved keys exist for the modules that read formats directly: `width`/`height` (the chosen aspect's size),
-`captions.min_seconds` (the QA gate's name for `min_s`), and, for formats that only come in 9:16, top-level
-`platforms` and `safe_zones` (the access gate reads those to decide which platform zones to check). Every aspect's
-zones are always in `zones`.
+`captions.min_seconds` (the QA gate's name for `min_s`), `pace.speech_rate` and `read_time` (story's planning rate and
+read-time rule, from _shared.json unless the format sets its own), and, whenever the aspect is unambiguous (the format
+comes in one aspect, or the caller asked for one), top-level `platforms` and `safe_zones` for that aspect: state
+records them on derived films and the access gate reads them. A multi-aspect format loaded without an aspect has
+neither, so nobody reads one aspect's zones for another. Every aspect's zones are always in `zones`.
+
+A format's `encode.files` is its platform delivery as data (the App Store preview's H.264, the hero loop's MP4 and
+WebM): `slate deliver` encodes each from the master and checks it against `encode.max_fps` and `encode.max_bytes`.
 """
 
 from __future__ import annotations
@@ -248,6 +253,34 @@ def semantic_problems(fmt: dict, *, name: str | None = None) -> list[str]:
         for key in per_aspect:
             if key not in aspects:
                 out.append(f"zone_overrides/{ch}: the format has no {key} aspect")
+    out += _encode_problems(fmt.get("encode") or {}, audio=audio, fps=fps)
+    return out
+
+
+# Which video codecs each container carries here: WebM is VP9 or AV1 (browsers), the others H.264.
+_CONTAINER_CODECS = {"webm": {"vp9", "av1"}, "mp4": {"h264"}, "mov": {"h264"}, "m4v": {"h264"}}
+
+
+def _encode_problems(encode: dict, *, audio: str, fps: float) -> list[str]:
+    """The platform files a delivery encodes must be makeable: known codecs in the right containers, no audio where
+    the film has none (and none in a WebM, which would need Opus), unique names, a clock the platform takes."""
+    out: list[str] = []
+    seen: set[str] = set()
+    for spec in encode.get("files") or []:
+        fid = spec.get("id")
+        if fid in seen:
+            out.append(f"encode.files: the id {fid!r} is used twice (it names the file)")
+        seen.add(fid)
+        container, codec = spec.get("container"), (spec.get("video") or {}).get("codec")
+        if codec not in _CONTAINER_CODECS.get(container, set()):
+            out.append(f"encode.files/{fid}: a .{container} file here carries "
+                       f"{' or '.join(sorted(_CONTAINER_CODECS.get(container, set())))}, not {codec}")
+        if spec.get("audio") is not None and (audio == "none" or container == "webm"):
+            why = "the film has no audio track" if audio == "none" else "a WebM here carries no audio"
+            out.append(f"encode.files/{fid}: {why}, so its audio must be null")
+    max_fps = encode.get("max_fps")
+    if max_fps and fps > float(max_fps) + 1e-9:
+        out.append(f"encode: the format runs at {fps:.3f} fps, faster than its platform takes ({max_fps})")
     return out
 
 
@@ -456,10 +489,17 @@ def _resolve(data: dict, aspect: str | None, path: Path) -> dict:
     cap["max_chars_by_aspect"] = by_aspect
     cap["max_chars"] = by_aspect[chosen]
     cap["min_seconds"] = cap["min_s"]
-    if set(out["aspects"]) == {VERTICAL}:
-        vertical = out["aspects"][VERTICAL]["channels"]
-        out["platforms"] = list(vertical)
-        out["safe_zones"] = {ch: z for ch, z in out["zones"][VERTICAL].items() if z}
+    # Story's planning rate and read-time rule: the shared defaults, the format's own values winning key by key.
+    pace = out["pace"]
+    if "speech_rate" not in pace and cfg["pace"].get("speech_rate") is not None:
+        pace["speech_rate"] = cfg["pace"]["speech_rate"]
+    shared_rt = {k: v for k, v in (cfg.get("read_time") or {}).items() if k not in ("source", "note")}
+    out["read_time"] = {**shared_rt, **(out.get("read_time") or {})}
+    # One aspect's channels and zones at the top level, but only when there's no doubt which aspect is meant: a
+    # derived 9:16 film must never record a 16:9 parent format's zones as its own.
+    if len(out["aspects"]) == 1 or aspect is not None:
+        out["platforms"] = list(spec["channels"])
+        out["safe_zones"] = {ch: z for ch, z in out["zones"][chosen].items() if z}
     return out
 
 
@@ -607,7 +647,15 @@ def describe(fmt: dict) -> str:
     lines.append(f"  clock      {fps_label(fmt['fps_num'], fmt['fps_den'])}")
     pace = fmt["pace"]
     placement = ", ".join(f"{k.replace('_', ' ')} {pace[k]:g} s" for k in ("lead", "tail", "act_tail") if k in pace)
-    lines.append(f"  pace       at most {pace['max_words_per_second']:g} words a second" + (f"; {placement}" if placement else ""))
+    lines.append(f"  pace       at most {pace['max_words_per_second']:g} words a second" + (f"; {placement}" if placement else "")
+                 + (f"; planned at {pace['speech_rate']:g} words a second of speech" if pace.get("speech_rate") else ""))
+    rt_read = fmt.get("read_time") or {}
+    if {"floor", "base", "per_word"} <= set(rt_read):
+        density = fmt.get("on_screen_max_words")
+        lines.append(f"  read time  on-screen text holds at least max({rt_read['floor']:g} s, {rt_read['base']:g} s + "
+                     f"{rt_read['per_word']:g} s a word) once settled"
+                     + ("" if density is None else "; no words in the picture" if density == 0
+                        else f"; at most {density} words a shot"))
     st = fmt["structure"]
     lines.append(f"  structure  {st['acts']['min']}-{st['acts']['max']} acts: " + " → ".join(b["name"] for b in st["beats"]))
     loud = fmt["loudness"]
@@ -643,6 +691,14 @@ def describe(fmt: dict) -> str:
     lines.append("  routes     " + "; ".join(route_text[r] for r in routes))
     lines.append(f"  broadcast  {'yes' if fmt['broadcast'] else 'no'}"
                  + ("" if fmt["broadcast"] else " (set broadcast: true in film.json for film, TV or radio: Eleven Music Enterprise and broadcast loudness)"))
+    enc = fmt.get("encode") or {}
+    codecs = {"h264": "H.264", "vp9": "VP9", "av1": "AV1"}
+    for spec in enc.get("files") or []:
+        v = spec["video"]
+        rate = f" at {v['bitrate']}bps" if v.get("bitrate") else (f" at crf {v['crf']}" if v.get("crf") is not None else "")
+        sound = "no audio track" if spec.get("audio") is None else f"{spec['audio']['codec'].upper()} sound"
+        lines.append(f"  platform   {spec['label']}: .{spec['container']}, {codecs.get(v['codec'], v['codec'])}{rate}, "
+                     f"{sound}" + (" (slate deliver makes it from the master)" if spec is enc["files"][0] else ""))
     lines.append(f"  generation {fmt['generation']}; engines {', '.join(fmt['engines'])}")
     if fmt.get("autonomous_default"):
         lines.append("  default    autonomous films use this format when none is named")

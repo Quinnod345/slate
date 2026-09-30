@@ -27,6 +27,9 @@ from slate.errors import Busy, Refused, UsageError
 from slate.jobs import model, proc, runner, store
 
 
+SUPERVISOR_EXIT_S = 15.0  # after its command stops, a supervisor on a busy Mac gets this long to record the exit
+
+
 def _resolve_film(film) -> tuple[str | None, Path | None, str | None]:
     if film is None:
         return None, None, None
@@ -159,18 +162,22 @@ def cancel(job_id: str, *, grace: float | None = None) -> None:
         supervisor = job.get("pid")
         stamp = job.get("proc_start")
         record = dict(job)
-    if not pgid:
-        return
     wait_s = runner.kill_grace() if grace is None else grace
     if supervisor and proc.alive(supervisor, stamp):
-        proc.stop_group(pgid, grace=wait_s, spare=supervisor)  # the supervisor stays to record the exit
-        for _ in range(int(max(wait_s, 1) * 10)):
+        # The command and everything it started (each tool in a group of its own); the supervisor stays to record it.
+        proc.stop_tree(supervisor, grace=wait_s, spare=supervisor)
+        deadline = time.monotonic() + max(wait_s, 1) + SUPERVISOR_EXIT_S
+        while time.monotonic() < deadline:  # it writes down how the job ended, then leaves
             if not proc.alive(supervisor, stamp):
                 return
             time.sleep(0.1)
-        proc.stop_group(pgid, grace=0)  # a wedged supervisor: it's ours (identity checked above), so stop it too
-    elif proc.group_is_job(pgid, record):
-        proc.stop_group(pgid, grace=wait_s)  # the supervisor is gone but its command isn't
+        # a wedged supervisor: it's ours (identity checked above), so stop it and what's left under it
+        proc.stop_tree(supervisor, grace=0, include_root=True, stamp=stamp)
+        return
+    if record.get("cmd_pid"):  # the supervisor is gone but its command may not be: it was recorded with its start
+        proc.stop_tree(int(record["cmd_pid"]), grace=wait_s, include_root=True, stamp=record.get("cmd_start"))
+    if pgid and proc.group_is_job(pgid, record):
+        proc.stop_group(pgid, grace=wait_s)
 
 
 def retry(job_id: str) -> dict:

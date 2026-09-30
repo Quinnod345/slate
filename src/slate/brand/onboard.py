@@ -18,6 +18,11 @@ someone at the brand stands behind. Onboarding produces four references a person
 (`onboarding/<step>/CHECKLIST.md` and `step.json`), and says what's next. Without `--step` it prints where all four
 stand. It never runs on the repo's neutral packs, and it never quietly changes what an approved reference covers:
 that needs `--revise`, and then a person's approval again ("perfect, don't replace").
+
+**Spend.** Onboarding itself makes no paid call. The paid parts (Voice Design, about 5,000 credits; look tests, about
+$15-20) are made by the voice and generation stages for the brand, and they bill against the onboarding budget:
+`billing(name)` is what they pass to the ledger (as `film=`), so `slate.ledger` holds them to
+`ledger.format_budget('onboarding')` and counts them per brand. `spend(name)` says where that budget stands.
 """
 
 from __future__ import annotations
@@ -167,6 +172,57 @@ def items_for(step: str, folder: Path, raw: dict) -> list[Item]:
     return {"truth": truth_items, "look": look_items, "voice": voice_items, "sound": sound_items}[step](folder, raw)
 
 
+# --------------------------------------------------------------------------------------------------------- spend
+BUDGET_FAMILY = "onboarding"  # the ledger's budget row for a brand's one-time onboarding (plan §8)
+
+
+def billing(name_or_pack: Any) -> dict:
+    """What a paid call made for this brand's onboarding bills against. Pass it to the ledger as `film=` (or to a
+    vendor client's `film=`): it carries no budget of its own, so the ledger holds the call to
+    `ledger.format_budget('onboarding')` (Voice Design about 5,000 credits, look tests $15-20) and counts it per brand,
+    once. Its `brand` also means an autonomous run is refused: onboarding needs a person, and autonomous spend needs
+    a brand whose four references are approved."""
+    p = pack.load(name_or_pack) if isinstance(name_or_pack, (str, Path)) else dict(name_or_pack or {})
+    name = str(p.get("name") or (Path(p["_dir"]).name if p.get("_dir") else "")).strip()
+    if not name:
+        raise UsageError("Onboarding spend needs a brand: a pack name, or a loaded pack.")
+    return {"id": f"onboarding-{name}", "title": f"{name}: brand onboarding", "brand": name, "format": BUDGET_FAMILY,
+            "kind": "brand_onboarding"}
+
+
+def spend(name_or_pack: Any) -> dict:
+    """Where this brand's onboarding budget stands: {provider: {budget, spent, unit, source}} (read-only). Empty when
+    the ledger can't be read, which never stops onboarding."""
+    try:
+        from slate import ledger  # noqa: PLC0415 - the spend ledger (foundation), read only
+
+        limits = ledger.film_limits(billing(name_or_pack))
+    except Exception:  # noqa: BLE001 - a missing or unreadable ledger mustn't stop onboarding's bookkeeping
+        return {}
+    return {p: {k: v.get(k) for k in ("budget", "spent", "unit", "source")} for p, v in limits["providers"].items()}
+
+
+def spend_line(sp: dict) -> str | None:
+    """One line for people: what onboarding has spent against its budget, per provider."""
+    if not sp:
+        return None
+
+    def dollars(v: float) -> str:
+        return f"${v:,.0f}" if float(v).is_integer() else f"${v:,.2f}"
+
+    parts = []
+    for provider, row in sp.items():
+        if row.get("budget") is None:
+            continue
+        unit = str(row.get("unit") or "")
+        spent, budget = float(row.get("spent") or 0), float(row["budget"])
+        if unit.lower() in ("usd", "$"):
+            parts.append(f"{provider} {dollars(spent)} of {dollars(budget)}")
+        else:
+            parts.append(f"{provider} {spent:,.0f} of {budget:,.0f} {unit}".rstrip())
+    return ("onboarding spend: " + "; ".join(parts)) if parts else None
+
+
 def overview(name: str) -> dict:
     """Where all four steps stand (read-only)."""
     folder, raw = open_pack(name, write=False)
@@ -184,7 +240,7 @@ def _overview(folder: Path, raw: dict) -> dict:
                        "open": [i.text for i in items if not i.done and i.required],
                        "next": next((i.next for i in items if not i.done and i.next), _cmd(view["name"], step))}
     return {"brand": view["name"], "status": st["status"], "missing": st["missing"], "steps": steps,
-            "next": st["next"]}
+            "next": st["next"], "spend": spend(view), "billing": billing(view)}
 
 
 def write_overview(folder: Path, raw: dict) -> Path:
@@ -196,6 +252,10 @@ def write_overview(folder: Path, raw: dict) -> Path:
     for step, s in ov["steps"].items():
         lines.append(f"- **{TITLES[step]}** ({s['reference']}: {s['state'].replace('_', ' ')}), {s['done']} of "
                      f"{s['of']} done" + (f"; next: `{s['next']}`" if s["state"] != "approved" else ""))
+    line = spend_line(ov["spend"])
+    if line:
+        lines += ["", f"{line[:1].upper()}{line[1:]} (the paid parts are billed as `{ov['billing']['id']}` "
+                      "against the ledger's onboarding budget)."]
     return _write_text(folder, "onboarding/CHECKLIST.md", "\n".join(lines) + "\n")
 
 

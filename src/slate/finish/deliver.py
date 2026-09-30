@@ -7,6 +7,9 @@
     captions/     SRT, WebVTT and the machine cues
     cuts/         a half-size review cut and a phone cut (clean: no burn-in), made from the master
     thumbnails/   stills from the master
+    platform/     the platform's own files when the film's format names them (encode.files: the App Store
+                  preview's H.264, the hero loop's MP4 and WebM), encoded from the master and checked against the
+                  platform's frame-rate and size limits
     ae/           the editable After Effects project, when After Effects finished the film
     validation/   every gate's latest result
     script/       the script
@@ -45,6 +48,8 @@ PUBLISHING = "not approved for publishing"
 DRAFTS = "deliver/drafts"
 RULE = ("Every file here is not approved for publishing until the owner approves that exact file (its sha256). After "
         "their yes, only that exact file is posted, never another version.")
+DRAFT_APPROVE = ("Nothing in a draft is ever approved for publishing: deliver the film as final (slate deliver), then "
+                 "the owner approves a file from deliver/vN/.")
 MASTER_LABELS = {"prores_422_hq": "master, ProRes 422 HQ", "h264": "master, H.264"}
 
 
@@ -68,11 +73,30 @@ def _masters(film: Film) -> tuple[dict, list[dict]]:
     return rec, ms
 
 
+def platform_specs(film: Film) -> tuple[dict, list[dict]]:
+    """(the format's encode block, its platform files) at the film's aspect; ({}, []) when the format names none."""
+    fmt = deps.film_format(film.data) or {}
+    enc = fmt.get("encode") if isinstance(fmt.get("encode"), dict) else {}
+    return enc, [f for f in enc.get("files") or [] if isinstance(f, dict) and f.get("id") and f.get("container")]
+
+
+def platform_problems(film: Film, enc: dict, specs: list[dict]) -> list[str]:
+    """What stops this film's platform files meeting their spec before anything is encoded (its clock, for now)."""
+    max_fps = enc.get("max_fps")
+    if specs and max_fps and film.clock.fps_num / film.clock.fps_den > float(max_fps) + 1e-9:
+        names = ", ".join(str(s.get("label") or s["id"]) for s in specs)
+        return [f"the platform takes at most {float(max_fps):g} fps and the film runs at {film.rate} ({names})"]
+    return []
+
+
 def blockers(film: Film) -> dict:
     """Everything that stops a final delivery right now (empty lists when nothing does)."""
     why: list[str] = []
     if film.mode == "draft":
         why.append("draft films are never delivered as final")
+    enc, specs = platform_specs(film)
+    platform = platform_problems(film, enc, specs)
+    why += platform
     replayed = synthetic.replayed(film)
     if replayed:
         listed = ", ".join(r["what"] for r in replayed[:4]) + (f" and {len(replayed) - 4} more" if len(replayed) > 4
@@ -89,7 +113,7 @@ def blockers(film: Film) -> dict:
     parked = [q for q in deps.open_questions(film.dir) if q.get("parks")]
     if parked:
         why.append(f"the film is parked, waiting on a person: {parked[0].get('text')}")
-    return {"why_not_final": why, "gates": fg, "replayed": replayed}
+    return {"why_not_final": why, "gates": fg, "replayed": replayed, "platform": platform}
 
 
 def _hint(film: Film, b: dict) -> str:
@@ -97,6 +121,9 @@ def _hint(film: Film, b: dict) -> str:
         return "slate deliver --draft makes a non-final set; a final delivery needs a supervised or express film"
     if b["replayed"]:
         return "re-make the replayed assets with --live (they spend), or deliver a draft with --draft"
+    if b.get("platform"):
+        return ("the platform needs a slower clock than this film's, and a derived film keeps its parent's: make the "
+                "film from the platform's own format (slate new … --format <format>), or deliver a draft with --draft")
     if b["gates"]["blocking"]:
         return checks.next_for(b["gates"]["blocking"])
     return "slate film questions shows what the film is waiting on"
@@ -159,6 +186,41 @@ def _copy_items(film: Film, rec: dict, masters: list[dict]) -> tuple[list[dict],
     return items, missing
 
 
+def _platform_files(film: Film, staging: Path, n: int, src, master_rel: str, *, final: bool, missing: list[dict],
+                    skip: bool) -> list[dict]:
+    """Encode the format's platform files from the master into staging/platform/. A file over the platform's size
+    limit refuses a final delivery (and is left out of a draft, named in `missing`); so does a clock the platform
+    doesn't take (checked before anything is encoded)."""
+    enc, specs = platform_specs(film)
+    if not specs:
+        return []
+    fmt = film.data.get("format")
+    if skip:  # only a draft gets here with a clock the platform doesn't take (blockers refuse a final delivery)
+        for spec in specs:
+            missing.append({"what": str(spec.get("label") or spec["id"]),
+                            "expected": f"platform/{spec['id']}: " + "; ".join(platform_problems(film, enc, specs))})
+        return []
+    out = []
+    limit = enc.get("max_bytes")
+    for spec in specs:
+        log.info(f"deliver v{n}: {spec.get('label') or spec['id']}")
+        got = cuts.platform_file(film, spec, staging / "platform" / f"{film.id}_v{n}_{spec['id']}.{spec['container']}",
+                                 source=src)
+        path, size = Path(got["file"]), int(got["bytes"])
+        if limit and size > int(limit):
+            path.unlink(missing_ok=True)
+            problem = (f"{spec.get('label') or spec['id']} came out at {size:,} bytes, over the platform's limit of "
+                       f"{int(limit):,}")
+            if final:
+                raise Refused(f"Not a final delivery yet: {problem}.",
+                              hint=f"Shorten the film, or lower the bitrate in the {fmt} format's encode spec.")
+            missing.append({"what": str(spec.get("label") or spec["id"]), "expected": problem})
+            continue
+        out.append(_entry(staging, path, what=str(spec.get("label") or spec["id"]), kind=f"platform:{spec['id']}",
+                          source=f"made from {master_rel} to the {fmt} format's encode spec"))
+    return out
+
+
 def _entry(folder: Path, path: Path, *, what: str, kind: str, source: str | None, sha: str | None = None) -> dict:
     return {"what": what, "kind": kind, "file": path.relative_to(folder).as_posix(), "source": source,
             "bytes": path.stat().st_size, "sha256": sha or jsonio.sha256(path), "media": media.probe_summary(path),
@@ -195,7 +257,10 @@ def plan(film_dir: Path, *, final: bool = True) -> dict:
     n = ver["version"]
     items, missing = _copy_items(film, rec, ms)
     out.update(version=n, would_start_version=bool(ver.get("would_start")), method=rec.get("method"),
-               copies=[i["dest"] for i in items], makes=["cuts/ (review and phone cuts)", "thumbnails/"],
+               copies=[i["dest"] for i in items],
+               makes=["cuts/ (review and phone cuts)", "thumbnails/"] + [
+                   f"platform/{film.id}_v{n}_{s['id']}.{s['container']} ({s.get('label') or s['id']})"
+                   for s in platform_specs(film)[1]],
                missing=missing, why_not_final=b["why_not_final"], blocking=b["gates"]["blocking"])
     if final and versions.delivered(film, n) and not ver.get("would_start"):
         out["would"] = "nothing: this version is delivered and nothing has changed"
@@ -283,6 +348,8 @@ def deliver(film_dir: Path, *, final: bool = True) -> dict:
                                   what=f"thumbnail, film frame {t['frame']} ({t['timecode']}"
                                        + (f", {t['shot']})" if t["shot"] else ")"),
                                   kind="thumbnail", source=f"made from {master_rel}"))
+        entries += _platform_files(film, staging, n, src, master_rel, final=final, missing=missing,
+                                   skip=bool(b.get("platform")))
         folder_rel = film.rel(target)
         post = next((e["file"] for e in entries if e["kind"] == "master:h264"), entries[0]["file"])
         manifest = {
@@ -301,7 +368,8 @@ def deliver(film_dir: Path, *, final: bool = True) -> dict:
             "method": rec.get("method") or "ffmpeg",
             "content_fingerprint": fp,
             "publishing": {"approved": False, "status": PUBLISHING, "rule": RULE,
-                           "approve": f"slate approve final_cut {folder_rel}/{post} --by NAME",
+                           "approve": (f"slate approve final_cut {folder_rel}/{post} --by NAME" if final
+                                       else DRAFT_APPROVE),
                            "check": "slate approved <file>   (exit 0 only when that exact file was approved)"},
             "gates": {"passed": b["gates"]["passed"], "required": b["gates"]["required"],
                       "results": [{"gate": r["gate"], "status": r["status"], "summary": r.get("summary"),
@@ -371,9 +439,11 @@ def describe(out: dict) -> str:
     if out.get("status") == "already_delivered":
         return out["message"]
     lines = [f"Delivered {out['film']} v{out['version']}" + ("" if out["final"] else " as a draft (never final)")
-             + f" to {out['folder']}: {out['files']} files, {out['bytes'] / 1e6:.1f} MB, manifest written last.",
-             f"Every file is {PUBLISHING} until the owner approves that exact file:",
-             f"  {out['approve']}"]
+             + f" to {out['folder']}: {out['files']} files, {out['bytes'] / 1e6:.1f} MB, manifest written last."]
+    if out["final"]:
+        lines += [f"Every file is {PUBLISHING} until the owner approves that exact file:", f"  {out['approve']}"]
+    else:
+        lines.append(out["approve"])
     if out.get("missing"):
         lines.append("Expected but missing: " + ", ".join(m["what"] for m in out["missing"]) + ".")
     if not out["final"]:

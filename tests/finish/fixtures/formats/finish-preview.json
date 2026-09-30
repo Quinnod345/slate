@@ -1,0 +1,23 @@
+{
+ "name": "finish-preview",
+ "note": "Test fixture: finish-reel's frame with a platform encode spec shaped like an app-store preview's (H.264 High at level 4.0 with stereo AAC, a frame-rate cap and a size cap).",
+ "width": 90,
+ "height": 160,
+ "fps_num": 25,
+ "fps_den": 1,
+ "runtime_s": [1, 45],
+ "lufs": -14,
+ "true_peak": -1,
+ "budget": {"elevenlabs": 100, "higgsfield": 0},
+ "safe_zones": {"tiktok": {"top": 0.12, "bottom": 0.2}},
+ "encode": {
+  "files": [
+   {"id": "store", "label": "store preview, H.264", "container": "mp4",
+    "video": {"codec": "h264", "profile": "high", "level": "4.0", "bitrate": "1M", "maxrate": "1M", "bufsize": "1M",
+              "preset": "veryfast", "pix_fmt": "yuv420p"},
+    "audio": {"codec": "aac", "bitrate": "128k", "channels": 2, "rate": 48000}, "faststart": true}
+  ],
+  "max_fps": 30,
+  "max_bytes": 500000000
+ }
+}

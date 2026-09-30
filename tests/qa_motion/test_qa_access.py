@@ -136,7 +136,7 @@ def _film(home, **kw):
 
 
 def test_contrast_gate_reads_the_brand_pack(slate_home, monkeypatch, no_brand_module):
-    pack = {"name": "neutral-test", "palette": {"ink": "#1a1a1a", "paper": "#fafafa", "soft": "#9a9a9a"},
+    pack = {"name": "neutral-test", "palette": {"ink": "#1a1a1a", "paper": "#fafafa", "soft": "#999999"},
             "contrast_pairs": [{"fg": "ink", "bg": "paper", "role": "body"}, {"fg": "soft", "bg": "paper",
                                                                                "role": "body"}]}
     from slate.qa import brandinfo

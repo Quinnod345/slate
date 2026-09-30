@@ -12,6 +12,8 @@
               own rest-to-rest curves (sway, land) and a carry the even travel profile; any move may use one of those
               the brand declares (EXTRA_CURVES).
 - durations   every move lasts one of the brand's duration tokens (exits at its exit factor), to within a frame.
+              Rig parts, loops, allowed linear moves, reading sweeps and even-profile drifts longer than the
+              longest token keep their own timing (the law: anything past the scale is a drift or time-based).
 - staggers    a staggered group spreads no wider than the brand's caps, steps on whole frames, and staggers only on
               eases the brand lets stagger. A declared reading sweep is time-based, not a stagger.
 - entrances   entrances start from at least 85% scale: nothing scales from zero.
@@ -246,8 +248,8 @@ def element_class(m: "Move") -> tuple[str, str]:
         return "rig", "a rig part"
     firsts = {(re.split(r"[^a-z0-9]+", str(v).lower().strip()) or [""])[0] for v in (m.id, m.prop)}
     if firsts & _CAMERA_WORDS:
-        return "carry", "the camera (by its name)"
-    return "ui", "a UI element (no class declared)"
+        return "carry", "the camera, by its name"
+    return "ui", "no class declared"
 
 
 def min_loop_period(fps: float, brand_frames: float | None = None) -> float:
@@ -1436,6 +1438,13 @@ def _exempt_from_scale(data: MotionData, m: Move) -> str | None:
     e = data.law.ease(m.ease_used) if data.law else None
     if (e is not None and e.kind == "linear") or (e is None and str(m.ease_used or "").lower() == "linear"):
         return "linear" if linear_allowed(data, m) else None
+    x = data.law.extra_curve(m.ease_used) if data.law and e is None else None
+    if x is not None and x.name == "even" and x.name in allowed_extras(data.law, m) and data.law.durations and \
+            data.fps_float and m.duration > max(span_frames(s, data.fps_float) for s in data.law.durations.values()) + \
+            LAW["duration_tolerance_frames"]:
+        # The law: anything longer than the longest token is a continuous drift (or time-based). The even travel
+        # profile is the films' drift, so an even move past the scale is a drift, not a move off it.
+        return "drift (even, longer than the scale)"
     return None
 
 
@@ -1702,7 +1711,7 @@ def check_speed(data: MotionData, ctx=None):
             whip = row["speed"] is None
             speed_limit = carry["speed"] if whip else row["speed"]
             accel_limit = carry["accel"] if row["accel"] is None else row["accel"]
-            label = CLASS_LABEL[cls] + ("" if why == "declared" else f" ({why})")
+            label = CLASS_LABEL[cls] + ("" if why in ("declared", "a rig part") else f" ({why})")
             undeclared = cls == "ui" and why != "declared"
             carry_hint = (' (a page or card carried across the frame says "class": "carry" in its trace, and '
                           f"carries go to {_fmt(carry['speed'])} px/frame)") if undeclared else ""

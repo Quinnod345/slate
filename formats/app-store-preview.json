@@ -51,6 +51,14 @@
  "encode": {
   "deliver": ["H.264 in .mov, .m4v or .mp4: 10-12 Mbps, progressive, High Profile Level 4.0 or lower",
               "or ProRes 422 HQ in .mov (about 220 Mbps)"],
+  "files": [
+   {"id": "app-store", "label": "App Store preview, H.264", "container": "mp4",
+    "video": {"codec": "h264", "profile": "high", "level": "4.0", "bitrate": "11M", "maxrate": "12M", "bufsize": "12M",
+              "preset": "slow", "pix_fmt": "yuv420p"},
+    "audio": {"codec": "aac", "bitrate": "256k", "channels": 2, "rate": 48000},
+    "faststart": true,
+    "note": "The middle of Apple's 10-12 Mbps, capped at 12; the delivery's ProRes 422 HQ master is the other accepted form."}
+  ],
   "max_fps": 30,
   "max_bytes": 500000000,
   "audio": "Stereo; 256 kbps AAC with H.264, PCM or 256 kbps AAC with ProRes; 44.1 or 48 kHz; every track enabled.",

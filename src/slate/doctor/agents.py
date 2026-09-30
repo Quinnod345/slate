@@ -287,7 +287,7 @@ def _mcp_openclaw(env: Env) -> dict:
                         "Run `openclaw mcp list` yourself; `slate connect claude` registers Slate there too.", group=G)
     if MCP_NAME not in servers:
         return R.yellow(rid, "Slate's MCP server isn't registered with OpenClaw. The gateway can use the CLI without it.",
-                        f"`{CONNECT}` registers it (openclaw mcp set slate …).", group=G)
+                        f"`{CONNECT}` registers it (openclaw mcp add slate --command … --arg mcp).", group=G)
     return R.green(rid, "Slate's MCP server is registered with OpenClaw.", group=G)
 
 
@@ -336,13 +336,30 @@ def check_cli_path(env: Env, ctx: Ctx) -> list[dict]:
     return [_cli_path(env)]
 
 
+GATEWAY_LINK = Path("/opt/homebrew/bin/slate")
+
+
+def gateway_link(env: Env) -> Path:
+    """Where the installer put the CLI for the OpenClaw gateway: /opt/homebrew/bin/slate, unless its manifest records
+    another shim. A sandboxed install (a test's temp home, `slate install --home`) mirrors /opt/homebrew/bin inside
+    that home, so doctor run there checks the link that install really made."""
+    data = env.read_json(Path(env.data_dir()) / "install" / "manifest.json")
+    local = os.path.normpath(env.home / ".local" / "bin" / "slate")
+    for rec in (data.get("links") or []) if isinstance(data, dict) else []:
+        target = rec.get("target") if isinstance(rec, dict) else None
+        if rec.get("kind") == "shim" and target and os.path.normpath(target) != local:
+            return Path(target)
+    return GATEWAY_LINK
+
+
 def _cli_path(env: Env) -> dict:
     rid = "agents.cli-path"
     local = env.home / ".local" / "bin" / "slate"
-    brew = Path("/opt/homebrew/bin/slate")
-    states = {"~/.local/bin/slate": _cli_state(env, local), "/opt/homebrew/bin/slate": _cli_state(env, brew)}
+    brew = gateway_link(env)
+    brew_label = tilde(env, brew)
+    states = {"~/.local/bin/slate": _cli_state(env, local), brew_label: _cli_state(env, brew)}
     gateway = bool(env.which("openclaw"))
-    details = {"states": states, "openclaw": gateway}
+    details = {"states": states, "openclaw": gateway, "gateway_link": str(brew)}
     via = f"{env.repo()}/.venv/bin/slate"
     if states["~/.local/bin/slate"] in ("missing", "broken"):
         what = ("is a broken link in ~/.local/bin" if states["~/.local/bin/slate"] == "broken" else
@@ -351,16 +368,16 @@ def _cli_path(env: Env) -> dict:
                           "it.",
                      f"Run `{via} connect claude` (it puts the CLI on PATH, with the skills and the MCP server).",
                      group=G, details=details)
-    if gateway and states["/opt/homebrew/bin/slate"] in ("missing", "broken"):
-        return R.red(rid, "The slate command isn't in /opt/homebrew/bin, and the OpenClaw gateway's PATH doesn't include "
-                          "~/.local/bin, so Oneiro can't run Slate.", f"`{CONNECT}` links it there too.", group=G,
-                     details=details)
+    if gateway and states[brew_label] in ("missing", "broken"):
+        return R.red(rid, f"The slate command isn't in {tilde(env, brew.parent)}, and the OpenClaw gateway's PATH "
+                          "doesn't include ~/.local/bin, so Oneiro can't run Slate.", f"`{CONNECT}` links it there too.",
+                     group=G, details=details)
     others = [k for k, v in states.items() if v == "other"]
     if others:
         return R.yellow(rid, f"{', '.join(others)} runs a different Slate checkout than this one ({env.repo()}).",
                         f"`{CONNECT}` points it at this checkout (the old one is moved aside, not deleted).", group=G,
                         details=details)
-    where = "~/.local/bin and /opt/homebrew/bin" if states["/opt/homebrew/bin/slate"] == "ours" else "~/.local/bin"
+    where = f"~/.local/bin and {tilde(env, brew.parent)}" if states[brew_label] == "ours" else "~/.local/bin"
     return R.green(rid, f"The slate command is on PATH in {where}, from this checkout.", group=G, details=details)
 
 

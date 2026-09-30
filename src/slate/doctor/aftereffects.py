@@ -9,8 +9,8 @@ Doctor never launches After Effects or aerender, and never changes an AE setting
   the person turns it on;
 - Higgsfield's AE bridge: installed, at the pinned version, accepted on this version, and where it's registered;
 - macOS's Automation permission for the app running Slate to control AE. Testing it means sending AE an Apple Event,
-  which would launch AE if it weren't open, so doctor only asks when AE is already open; otherwise it's checked at
-  the first supervised AE step (which a person starts);
+  which would launch AE if it weren't open, so doctor only asks when AE is already open. Otherwise the last smoke test
+  is the proof; with neither, the row is yellow (unchecked is never green) and the fix is the smoke test;
 - the last 1-second smoke test's result (slate.ae.smoke without a go only reports; `slate connect aftereffects` runs
   it).
 """
@@ -196,27 +196,38 @@ def _smoke(env: Env) -> dict:
                     group=G, details=details)
 
 
+def _deferred(host: str, smoke: dict, details: dict, *, closed_while_looking: bool = False) -> dict:
+    """AE isn't open, so doctor can't ask it (asking would launch it). Green only when the last smoke test proved the
+    permission; otherwise it's unchecked, and unchecked is never green."""
+    rid = "ae.automation"
+    details["deferred"] = True
+    lead = ("After Effects closed while doctor looked, so it couldn't be asked" if closed_while_looking else
+            "After Effects isn't open (doctor never launches it to test this)")
+    if (smoke.get("details") or {}).get("status") == "PASS":
+        details["proven_by"] = "the last smoke test"
+        return R.green(rid, f"macOS's Automation permission to control After Effects was proven by the last smoke test, "
+                            f"for the app that ran it. {lead}; if a different app ({host}) runs an AE step, macOS asks "
+                            "you once at that step.", group=G, details=details)
+    return R.yellow(rid, f"macOS's Automation permission ({host} controlling After Effects) isn't checked yet. {lead}, "
+                         "and no smoke test has proven it.",
+                    "Run `slate connect aftereffects` in your own Terminal: its 1-second smoke test proves the "
+                    "permission (macOS asks you the first time). Or run `slate doctor` while After Effects is open.",
+                    group=G, details=details)
+
+
 def _automation(env: Env, ctx: Ctx, smoke: dict) -> dict:
     rid = "ae.automation"
     host = ctx.host_app
     details: dict = {"host": host, "bundle_id": AE_BUNDLE_ID}
     if not env.ae_running():
-        proven = ""
-        if (smoke.get("details") or {}).get("status") == "PASS":
-            proven = " The last smoke test proved it for whichever app ran that test."
-        details["deferred"] = True
-        return R.green(rid, f"macOS's Automation permission ({host} controlling After Effects) gets checked at the first "
-                            "supervised AE step: doctor never launches AE to test it." + proven, group=G,
-                       details=details)
+        return _deferred(host, smoke, details)
     ran = env.run(["/usr/bin/osascript", "-e", AUTOMATION_SCRIPT], timeout=20, cache=False)
     details["deferred"] = False
     text = ran.text
     fix = (f"Only you can allow it: System Settings > Privacy & Security > Automation, then turn on After Effects "
            f"under {host}.")
     if ran.ok and "not running" in ran.stdout:
-        details["deferred"] = True
-        return R.green(rid, f"After Effects closed while doctor looked, so the Automation permission ({host}) gets "
-                            "checked at the first supervised AE step.", group=G, details=details)
+        return _deferred(host, smoke, details, closed_while_looking=True)
     if ran.ok:
         return R.green(rid, f"{host} may control After Effects (macOS's Automation permission; AE was already open, and "
                             f"answered version {first_line(ran.stdout)}).", group=G, details=details)

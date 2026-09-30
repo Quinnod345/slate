@@ -100,6 +100,19 @@ def safe_zones(fmt: dict, platform: str) -> dict | None:
     return None
 
 
+def zones_for(fmt: dict | str | None, aspect: str | None) -> dict | None:
+    """Every channel's safe zone at one aspect ({channel: zone}), from slate.formats.zones_for when the formats module
+    knows this format at this aspect; None otherwise (the caller falls back to the format's own safe_zones)."""
+    mod = _module("slate.formats")
+    if not fmt or mod is None or not hasattr(mod, "zones_for"):
+        return None
+    try:
+        zones = mod.zones_for(fmt, aspect)
+    except Exception:  # noqa: BLE001 - not an aspect this format comes in: the caller's fallback answers
+        return None
+    return {str(k): v for k, v in zones.items() if v} if isinstance(zones, dict) else None
+
+
 def format_platforms(fmt: dict) -> list[str]:
     zones = fmt.get("safe_zones")
     platforms = fmt.get("platforms")

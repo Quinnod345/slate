@@ -613,6 +613,8 @@ def run(film_dir: Path, names: list[str] | None = None, *, write: bool = True) -
             results.append(GATES[key](ctx))
         except MissingPrerequisite as exc:
             results.append(gates.GateResult.unchecked(key, exc.message, engine=_engine(), details={"hint": exc.hint}))
+    for r in results:
+        r.details.setdefault("stage", "sound")  # sound.voice_sync would otherwise read as a voice gate in `slate status`
     if write:
         gates.write_report(film.dir, results)
         jsonio.write_atomic(film.path(f"{MIX_DIR}/verify.json"),

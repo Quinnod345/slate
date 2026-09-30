@@ -517,10 +517,12 @@ def test_a_trace_that_cant_be_written_is_reported_and_the_render_still_stands(fa
     assert r["trace"]["written"] is False and "throws while loading" in r["trace"]["reason"]
 
 
-def test_the_web_engine_writes_its_trace_while_it_renders(fakes, film):
+def test_the_web_engine_writes_its_trace_while_it_renders_and_it_is_recorded(fakes, film):
     result = runner.run(film, act=2, engine="web")
-    assert "trace" not in [c for c, _a in fakes.bridge.calls]
-    assert "trace" not in result["renders"][0]
+    assert "trace" not in [c for c, _a in fakes.bridge.calls]  # nothing to refresh: the renderer wrote it
+    assert result["renders"][0]["trace"] == {"written": True, "file": "timing/motion/act2.json", "entries": 0}
+    row = next(r for r in fakes.state.records if r["path"] == "timing/motion/act2.json")
+    assert row["producer"] == "slate render --act 2" and "timing/shots.json" in row["inputs"]
 
 
 def test_the_engines_own_gates_come_back_as_render_gates_worst_across_chunks(fakes, film):

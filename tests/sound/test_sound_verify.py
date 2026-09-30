@@ -336,3 +336,15 @@ def test_unknown_gate_is_a_usage_error(sound_film):
     mix.run(sound_film)
     code, _, _ = run_cli(["verify", "loudnes", "--film", str(sound_film)])
     assert code == 2
+
+
+def test_every_sound_gate_names_its_stage(sound_film):
+    """sound.voice_sync has "voice" in its name; the stage it declares keeps it in the sound stage of `slate status`."""
+    from slate.sound import mix as smix
+    from slate.sound import verify as sverify
+
+    smix.run(sound_film)
+    results = sverify.run(sound_film, ["voice_sync", "loudness"])
+    assert {r.details["stage"] for r in results} == {"sound"}
+    status = pytest.importorskip("slate.state.status")
+    assert {status._gate_stage(r) for r in results} == {"sound"}  # noqa: SLF001

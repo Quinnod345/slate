@@ -16,7 +16,8 @@ def test_ensure_copies_the_sources_and_nothing_else(slate_home):
     dest = install.ensure()
     assert dest == paths.engine_home(config.engine_version())
     for rel in ["cli.mjs", "package.json", "package-lock.json", "tsconfig.json", "remotion/entry.mjs",
-                "remotion/render_mb.mjs", "remotion/lib/common.mjs", "remotion/neutral/film.json"]:
+                "remotion/render_mb.mjs", "remotion/lib/common.mjs", "remotion/neutral/film.json",
+                ".puppeteerrc.cjs"]:
         assert (dest / rel).is_file(), rel
     assert not (dest / "node_modules").exists()
     assert not (dest / "tests").exists()

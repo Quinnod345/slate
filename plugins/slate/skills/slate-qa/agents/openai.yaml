@@ -1,0 +1,6 @@
+# do not edit by hand: slate skills build (from skills/slate-qa/SKILL.md). Edit the skill, not this file.
+interface:
+  display_name: "Slate Qa"
+  short_description: "Check a Slate film and decide what's truly done."
+policy:
+  allow_implicit_invocation: true

@@ -21,7 +21,7 @@ def test_good_spans_pass():
     good = [_beat("draw", 2.0, start=1.2, dur=0.8), _beat("count", 3.0, start=2.0, dur=1.0, **{"from": 0, "to": 120}),
             _beat("whoosh", 4.1, start=3.9, dur=0.5), _beat("swell", 6.0, start=4.0, dur=2.6),
             _beat("land", 7.0), _beat("type", 7.5, start=7.2, dur=0.6)]
-    assert beats.problems(good, fps=30000 / 1001) == []
+    assert beats.problems(good, fps=24000 / 1001) == []
     assert jsonio.validate(good, "visual_events") == []
 
 
@@ -48,7 +48,7 @@ def test_spans_that_contradict_their_beat_are_named(beat, words):
 
 
 def test_half_a_frame_of_rounding_is_allowed_and_no_more():
-    fps = 30000 / 1001
+    fps = 24000 / 1001
     half = 0.5 / fps
     assert beats.problems([_beat("draw", 2.0 + half * 0.9, start=1.0, dur=1.0)], fps=fps) == []
     assert beats.problems([_beat("draw", 2.0 + half * 1.1, start=1.0, dur=1.0)], fps=fps)

@@ -354,7 +354,8 @@ def run(film_dir: Path, *, force: bool = False, engine: str = "whisper", realign
     for rel in FILES.values():
         _record_lock(film_dir, rel, inputs)
     for r in out.results:
-        r.inputs = gates.inputs_for(film_dir, [STORYBOARD, "film.json", *[t.rel for t in takes.values()]])
+        # film.json's clock and size are the timing files' lock inputs (film:<key>); the gates keep to the files
+        r.inputs = gates.inputs_for(film_dir, [STORYBOARD, *[t.rel for t in takes.values()]])
     gates.write_report(film_dir, out.results)
     return out
 

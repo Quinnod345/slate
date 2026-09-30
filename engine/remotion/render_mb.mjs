@@ -248,7 +248,11 @@ export async function renderMb(ctx, args, {onTrace = null} = {}) {
     };
     const fonts = await fontGate(logs.lines);
     if (fonts) result.gates.push(fonts);
-    if (args.trace && onTrace && target.kind === 'act') result.trace = await onTrace(ctx, target.act);
+    if (args.trace && onTrace && target.kind === 'act') {
+      // the same '@film/data' (brand included) the picture rendered with; the scene files it read stay out of the result
+      const {sources: _sources, ...trace} = await onTrace(ctx, target.act, {brandPath: args.brand_path ?? null});
+      result.trace = trace;
+    }
     return result;
   } catch (e) {
     // A failed font gate cancels the render with its report in the message: hand the gate result back with the error.

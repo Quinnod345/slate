@@ -51,6 +51,7 @@ def registry() -> list[tuple[str, str, Check]]:
         ("tools", "optional", tools.check_optional_tools),
         ("tools", "higgsfield", tools.check_higgsfield_cli),
         ("tools", "aside", tools.check_aside),
+        ("tools", "stale-copies", tools.check_stale_copies),
         ("engine", "engine", tools.check_engine),
         ("keys", "keys", keys.check_keys),
         ("aftereffects", "aftereffects", aftereffects.check_ae),

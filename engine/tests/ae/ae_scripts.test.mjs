@@ -13,6 +13,7 @@ import {loadMath, runVectors} from '../../ae/tests/run_vectors.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const AE = path.resolve(here, '../../ae');
+const REPO = path.resolve(here, '../../..');
 const SL = loadMath();
 
 // ---------------------------------------------------------------------------------------------------- fixtures
@@ -129,7 +130,15 @@ describe('the ExtendScript ease kit', () => {
     const res = runVectors();
     expect(res.failures).toEqual([]);
     expect(res.ok).toBe(true);
-    expect(res.counts.value).toBeGreaterThan(100);
+    // the shared files themselves (tests/vectors/eases.json and t90.json), never the local stand-in
+    expect(res.source).toBe('shared');
+    const eases = JSON.parse(readFileSync(path.join(REPO, 'tests/vectors/eases.json'), 'utf8'));
+    const t90 = JSON.parse(readFileSync(path.join(REPO, 'tests/vectors/t90.json'), 'utf8'));
+    expect(res.counts.eases).toBe(eases.eases.length);
+    expect(res.counts.value).toBe(eases.eases.reduce((n, e) => n + e.samples.length, 0));
+    const levels = t90.t90.reduce((n, r) => n + ['t50', 't90', 't99'].filter((k) => r[k] !== undefined).length, 0);
+    expect(res.counts.t90).toBe(eases.eases.filter((e) => e.t90 !== undefined).length + levels);
+    expect(res.counts.start).toBe(t90.start_for.length);
   });
 
   it('matches the local stand-in too', () => {
@@ -378,6 +387,11 @@ describe('queue_masters.jsx, trace_export.jsx and smoke_build.jsx', () => {
     expect(cardPos.frame_in).toBe(0);
     expect(cardPos.frame_out).toBe(24);
     expect(cardPos.samples).toHaveLength(25);
+    // every key frame, as AE holds it, so qa motion can split moves chained without a stop
+    expect(cardPos.keys[0]).toBe(0);
+    expect(cardPos.keys.at(-1)).toBe(24);
+    expect(cardPos.keys).toEqual([...cardPos.keys].sort((a, b) => a - b));
+    for (const t of tr) expect(t.keys.length).toBeGreaterThanOrEqual(2);
   });
 
   it('smoke: stops on unsaved work, and otherwise draws the ease within a hair', () => {

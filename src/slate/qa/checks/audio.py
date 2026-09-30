@@ -137,7 +137,7 @@ def bit_depth(film_dir: Path) -> GateResult:
     else:
         sub = Sub("format", "PASS", f"{plural(len(rows), 'file')} at {want_bits}-bit PCM, {want_rate} Hz", rows)
     return combine("bit_depth", [sub], engine=engine, inputs=inputs,
-                   details={"want_bits": want_bits, "want_sample_rate": want_rate})
+                   details={"want_bits": want_bits, "want_sample_rate": want_rate, "stage": "sound"})
 
 
 # ---------------------------------------------------------------------------------------------- silent stems

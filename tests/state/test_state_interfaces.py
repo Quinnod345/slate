@@ -44,3 +44,7 @@ def test_section_12_signatures():
     _check(state.frozen_shot_ids, ["film_dir"], {})
     _check(lock.guard_regenerate, ["film_dir", "rel_path"], {"force": False, "approval_id": None})
     _check(park.park, ["film_dir"], {"reason": EMPTY, "evidence": (), "source": EMPTY})
+    # the renumber rule the story stage shares, and Slate's own (film-less) approvals
+    _check(lock.check_renumber, ["film_dir", "mapping"], {})
+    _check(lock.scene_references, ["film_dir", "ids"], {})
+    _check(approvals.record_global, [], {"what": EMPTY, "path": EMPTY, "approved_by": EMPTY, "note": None})

@@ -32,11 +32,12 @@ def _score_plan(args: argparse.Namespace) -> int:
 
     dry = bool(getattr(args, "dry_run", False))
     p = splan.build(film(args), seeds=args.seeds, write=not dry)
-    lines = [f"{'Would plan' if dry else 'Planned'} {len(p['parts'])} part(s) on {p['model_id']} "
+    lines = [f"{'Would plan' if dry else 'Planned'} {len(p['parts'])} part(s) on {p['model_id']} as {p['plan_schema']} "
              f"(pre-roll {p['pre_roll_s']:g} s, every part under {p['max_part_s']:g} s):"]
     for part in p["parts"]:
         lines.append(f"  {part['id']:8s} {part['join']:6s} landing {part['landing_s']:8.3f} s  hand-over "
-                     f"{part['hand_over_s']:8.3f} s  {part['seconds']:5.1f} s composed, {len(part['composition_plan']['sections'])} sections")
+                     f"{part['hand_over_s']:8.3f} s  {part['seconds']:5.1f} s composed, "
+                     f"{len(splan.plan_blocks(part['composition_plan']))} {p['plan_schema']}")
     if p["planned_stops"]:
         lines.append("  planned stops: " + ", ".join(f"{s['from']}-{s['to']} s" for s in p["planned_stops"]))
     if p["licence"]["needs_enterprise"]:

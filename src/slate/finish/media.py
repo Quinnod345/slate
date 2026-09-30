@@ -203,7 +203,7 @@ def frames(path: str | os.PathLike) -> int | None:
 def probe_summary(path: str | os.PathLike) -> dict | None:
     """What ffprobe reads from a media file, for the manifest (duration, video and audio streams); None otherwise."""
     p = Path(path)
-    if p.suffix.lower() not in (".mov", ".mp4", ".m4v", ".mkv", ".wav", ".aiff", ".m4a", ".mp3"):
+    if p.suffix.lower() not in (".mov", ".mp4", ".m4v", ".mkv", ".webm", ".wav", ".aiff", ".m4a", ".mp3"):
         return None
     try:
         data = _qa_media().probe(p)

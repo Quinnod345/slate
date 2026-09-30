@@ -7,9 +7,10 @@ a person in Terminal can run the same way.
 It's built from the pipeline behind three brand films, with every brand pulled out: brands are data packs, and each
 one gets its own look, motion, voice and sound during onboarding.
 
-> **Status:** 0.1.0 is being built. The film state, story and timing, voice, sound, generation and capture, QA, After
-> Effects, render, jobs and packaging modules are in; doctor and connect, brand onboarding, formats, the finish stages
-> and `install.sh` are next. `CHANGELOG.md` keeps the list.
+> **Status:** 0.1.0 is being built. Every stage has its command, from `slate doctor` and `slate connect` to
+> `slate deliver`, along with the installer, `slate update`, the MCP server, the ten skills and the open web renderer;
+> brand onboarding, formats and the finish stages are being finished. Still to come: `slate demo` (a neutral
+> 15-second film, end to end) and `slate knowledge check`. `CHANGELOG.md` keeps the list.
 
 ## Download
 
@@ -21,6 +22,9 @@ git clone https://github.com/Quinnod345/slate.git ~/code/slate && ~/code/slate/i
 
 The repository is private for now, so your git credentials need access to it (`gh auth setup-git` once, if git asks).
 The installer asks before it installs anything.
+
+Already installed? `slate update` pulls the latest and re-links every agent at once, and `slate install --check` says
+whether each agent is wired up. `INSTALL_FOR_AGENTS.md` walks an agent through all of it.
 
 ## Connect it: five steps
 
@@ -94,8 +98,10 @@ see MCP servers.
   slate mcp`); the command in `~/.local/bin`.
 - **Codex:** the skills in `~/.agents/skills` (only there: Codex also reads `~/.codex/skills`, and a skill in both is
   listed twice); `codex mcp add slate -- slate mcp`.
-- **OpenClaw:** the skills in `~/.agents/skills`; `openclaw mcp set` for the server; the command also linked into
-  `/opt/homebrew/bin`, because the gateway's PATH lacks `~/.local/bin`.
+- **OpenClaw:** the skills in `~/.agents/skills`; for the server,
+  `openclaw mcp add slate --command slate --arg mcp --connect-timeout 30` (OpenClaw checks a server before saving it,
+  and waits only 5 seconds unless told otherwise); the command also linked into `/opt/homebrew/bin`, because the
+  gateway's PATH lacks `~/.local/bin`.
 - **Claude chats:** the knowledge-only skill, uploaded from `plugins/slate/claude-ai/`, and the desktop extension.
 - **Everyone else:** the plugin in `plugins/slate`, from this repository's marketplace
   (`/plugin marketplace add Quinnod345/slate`, then `/plugin install slate@slate`).
@@ -106,15 +112,19 @@ see MCP servers.
 
 Every paid call goes through one ledger: estimate first, budget check, a row with the vendor's request id before Slate
 waits, so a restart never pays twice. Each film has a budget and each mode a monthly cap. Slate never buys credits,
-upgrades a plan or starts a licence; when a balance runs out, the work stops and asks. Tests, evals and `slate demo`
-replay recorded vendor answers (`SLATE_FAKE_VENDORS=1`) and spend nothing.
+upgrades a plan or starts a licence; when a balance runs out, the work stops and asks. Tests, evals and the demo film
+(`slate demo`, still to come) replay recorded vendor answers (`SLATE_FAKE_VENDORS=1`) and spend nothing.
+
+Generations made in a chat through Higgsfield's or ElevenLabs' own connectors bypass the ledger. So a working session
+starts and ends with `slate ledger snapshot --all --session <label>`, then closes with
+`slate ledger reconcile --session <label>`; the front-door skill tells every agent to.
 
 ## The Remotion licence
 
 Slate's default renderer is Remotion. Remotion is free for individuals, companies of up to three people, non-profits
 and evaluation. **A company of four or more needs its own Remotion company licence** to use Slate's Remotion path for
 its work. Or it can use Slate's paths that need no Remotion at all: the open web renderer (`slate render --engine
-web`, three.js and GSAP captured frame by frame from local pages; still being built) or After Effects (`--engine ae`).
+web`, three.js and GSAP captured frame by frame from local pages) or After Effects (`--engine ae`).
 Slate never buys or starts a licence for you.
 
 Other dependencies keep their own licences too; GSAP, for one, is under its own no-charge Standard License.

@@ -184,3 +184,22 @@ def test_dry_run_changes_nothing(new_film):
         assert json.loads(out).get("dry_run") is True or argv[0] == "status", argv
     after = {p: p.read_bytes() for p in fd.rglob("*") if p.is_file() and ".git" not in p.parts and ".slate" not in p.parts}
     assert before == after
+
+
+def test_questions_answer_by_id_in_either_case(new_film):
+    """Ids are written "q1"; a person typing "Q1" means the same question (it used to say there was no such question)."""
+    import json
+
+    from slate.cli import run_cli
+
+    fd = new_film()
+    code, out, _ = run_cli(["film", "park", "Is the logo final?", "--source", "reviewer", "--film", str(fd), "--json"])
+    assert code == 0 and json.loads(out)["id"] == "q1"
+    code, out, err = run_cli(["film", "answer", "Q1", "--by", "Test Person", "--text", "Yes, it's final.",
+                              "--film", str(fd), "--json"])
+    assert code == 0, err
+    assert json.loads(out)["question"]["answer"] == "Yes, it's final." and not json.loads(out)["still_parked"]
+    code, out, _ = run_cli(["film", "answer", "q1", "--by", "Test Person", "--text", "again", "--film", str(fd),
+                            "--json"])
+    assert code == 2 and "already answered" in json.loads(out)["message"]
+    assert run_cli(["film", "answer", "q9", "--by", "Test Person", "--text", "x", "--film", str(fd)])[0] == 2

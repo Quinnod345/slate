@@ -221,6 +221,46 @@ describe('entry', () => {
     expect(text).toMatch(/export const timeline: unknown = null;/);
   });
 
+  it("imports the language's match rules the Python bridge writes (.slate/lang.json), and every import starts ./ or ../", async () => {
+    const dir = film(root, 'lang', (d) => {
+      writeJson(path.join(d, '.slate/lang.json'), {lang: 'en', keep: '%&$', strip_keep: '%&$', negative_marks: '-', max_run: 6});
+    });
+    ok('entry', {film: dir}, {data});
+    const text = fs.readFileSync(path.join(dir, '.slate/film-data.ts'), 'utf8');
+    expect(text).toMatch(/import langJson from '\.\/lang\.json';/);
+    expect(text).toMatch(/const data = \{film, shots, lang, fps, acts, brandDir\};/);
+    // a data module written at the film's root (the web renderer's) must not read '.slate/…' as a package name
+    const {importPath} = await import('../../remotion/entry.mjs');
+    expect(importPath('/f', '/f/.slate/spoken.json')).toBe('./.slate/spoken.json');
+    expect(importPath('/f/.slate', '/f/timing/shots.json')).toBe('../timing/shots.json');
+    expect(importPath('/f', '/f/timing/shots.json')).toBe('./timing/shots.json');
+  });
+
+  it("reads a derived film's reused timing and captures from its parent, where .slate/refs.json says they are", async () => {
+    const parent = film(root, 'refs-parent', (d) => {
+      fs.mkdirSync(path.join(d, 'captures/demo/frames'), {recursive: true});
+      fs.writeFileSync(path.join(d, 'captures/demo/frames/f00001.jpg'), 'jpeg');
+    });
+    const child = film(root, 'refs-child', (d) => {
+      fs.rmSync(path.join(d, 'timing'), {recursive: true, force: true});
+      writeJson(path.join(d, '.slate/refs.json'), {'timing/shots.json': path.join(parent, 'timing/shots.json'), captures: path.join(parent, 'captures')});
+    });
+    const e = ok('entry', {film: child}, {data});
+    expect(e.acts.map((a) => [a.act, a.frames])).toEqual([[1, 30]]);
+    const text = fs.readFileSync(path.join(child, '.slate/film-data.ts'), 'utf8');
+    expect(text).toContain(`import shotsJson from '../../refs-parent/timing/shots.json';`);
+    // captures are linked from the parent, never copied
+    const {publicDir} = await import('../../remotion/bundle.mjs');
+    const {loadFilm} = await import('../../remotion/lib/film.mjs');
+    const pub = publicDir(loadFilm(child));
+    expect(pub.links).toContain('captures');
+    expect(fs.readlinkSync(path.join(pub.dir, 'captures'))).toBe(path.join(parent, 'captures'));
+    expect(fs.existsSync(path.join(pub.dir, 'captures/demo/frames/f00001.jpg'))).toBe(true);
+    // without refs, a film with no timing is still a clear usage error
+    fs.rmSync(path.join(child, '.slate/refs.json'));
+    expect(cli('entry', {film: child}, {data}).code).toBe(2);
+  });
+
   it('inlines the brand pack with its logo SVGs as text', () => {
     const brandDir = path.join(root, 'brand-x');
     fs.mkdirSync(brandDir, {recursive: true});

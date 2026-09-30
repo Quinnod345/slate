@@ -157,10 +157,15 @@ def _run(names: list[str], *, quick: bool) -> int:
     results = qa.run(film_dir, names or None, quick=quick)
     summary = gates.summarize(results)
     parked = park.status(film_dir)
+    ran = {r.gate for r in results}
+    skipped = [n for n in qa.GATES if n in qa.SLOW and n not in ran] if quick and not names else []
     obj = {"film": film_dir.name, "film_dir": str(film_dir), "status": summary["status"], "counts": summary["counts"],
            "not_passed": summary["not_passed"], "results": [r.to_dict() for r in results],
-           "report": str(film_dir / "qa" / "gates.json"), "parked": parked}
+           "report": str(film_dir / "qa" / "gates.json"), "parked": parked, "skipped": skipped}
     human = [gates.format_table(results), f"report: {film_dir / 'qa' / 'gates.json'}"]
+    if skipped:
+        human.append(f"not run (--quick): {', '.join(skipped)}. The film hasn't passed them; run `slate qa` "
+                     "without --quick for those.")
     if parked:
         human.append(f"PARKED: {parked.get('why')} Release: {parked.get('release')}")
     if summary["status"] != "PASS":

@@ -42,7 +42,7 @@ from typing import Any, Callable
 import numpy as np
 
 from slate import config, http, jsonio, ledger, log, paths, procs, replay, secrets
-from slate.errors import MissingPrerequisite, UsageError
+from slate.errors import Busy, MissingPrerequisite, UsageError
 from slate.voice import audio as audio_mod
 
 PROVIDER = "elevenlabs"
@@ -63,7 +63,68 @@ SUBSCRIPTION_FIELDS = ("tier", "status", "character_count", "character_limit", "
 DESIGN_LIMITS = {"voice_description": (20, 1000), "text": (100, 1000), "guidance_scale": (0.0, 100.0),
                  "loudness": (-1.0, 1.0)}
 MUSIC_MIN_SECTION_MS = 3000
+MUSIC_MAX_SECTION_MS = 120000  # a section (v1) or chunk (v2 and later) runs 3-120 s
+MUSIC_MAX_NAME = 100
+MUSIC_MAX_LINES, MUSIC_MAX_LINE_CHARS = 30, 200
 DEFAULT_MUSIC_SECONDS = 30.0  # what a prompt without a length is estimated at
+PLAN_SCHEMAS = ("sections", "chunks")
+
+
+def music_plan_schema(model_id: str) -> str:
+    """Which composition plan a music model takes: "sections" (music_v1: global styles plus sections) or "chunks"
+    (music_v2, music_v2_5 and later: a list of chunks, each with its own text and styles). A v1 section plan sent
+    to a v2 model is rejected, so plans are built for the model they're sent to. registry.json can say it outright
+    (limits.plan_schema); otherwise the model id does."""
+    stated = (config.model_info(model_id).get("limits") or {}).get("plan_schema")
+    if stated in PLAN_SCHEMAS:
+        return stated
+    m = re.match(r"^music_v(\d+)", model_id or "")
+    return "sections" if m and int(m.group(1)) < 2 else "chunks"
+
+
+def plan_shape(plan: dict) -> str | None:
+    """"sections", "chunks", or None when a composition plan is neither (or claims both)."""
+    has_sections, has_chunks = "sections" in (plan or {}), "chunks" in (plan or {})
+    if has_sections == has_chunks:
+        return None
+    return "sections" if has_sections else "chunks"
+
+
+def plan_problems(plan: dict, model_id: str) -> list[str]:
+    """Why Eleven Music would reject this composition plan for this model (empty when it wouldn't)."""
+    want, shape = music_plan_schema(model_id), plan_shape(plan)
+    if shape is None:
+        return ["a composition plan has either sections (music_v1) or chunks (music_v2 and later), and this one has "
+                + ("both" if plan and "sections" in plan else "neither")]
+    if shape != want:
+        return [f"{model_id} takes a plan made of {want}, and this one has {shape}"
+                + (" (a music_v1 section plan is rejected by the v2 models)" if want == "chunks" else "")]
+    blocks = plan[shape]
+    if not blocks:
+        return [f"the plan has no {shape}"]
+    problems = []
+    for i, b in enumerate(blocks):
+        label = (b.get("section_name") if shape == "sections" else b.get("text")) or f"#{i + 1}"
+        ms = b.get("duration_ms")
+        if not isinstance(ms, int) or isinstance(ms, bool) or not MUSIC_MIN_SECTION_MS <= ms <= MUSIC_MAX_SECTION_MS:
+            problems.append(f"{label}: duration_ms must be a whole number from {MUSIC_MIN_SECTION_MS} to "
+                            f"{MUSIC_MAX_SECTION_MS} (got {ms!r})")
+        if shape == "sections":
+            name = b.get("section_name") or ""
+            if not 1 <= len(name) <= MUSIC_MAX_NAME:
+                problems.append(f"section {i + 1}: section_name must be 1-{MUSIC_MAX_NAME} characters")
+        else:
+            text = b.get("text")
+            if not isinstance(text, str) or not text.strip():
+                problems.append(f"chunk {i + 1}: text is required (at least its [section name])")
+            else:
+                lines = text.splitlines()
+                if len(lines) > MUSIC_MAX_LINES or any(len(line) > MUSIC_MAX_LINE_CHARS for line in lines):
+                    problems.append(f"chunk {i + 1}: text is at most {MUSIC_MAX_LINES} lines of "
+                                    f"{MUSIC_MAX_LINE_CHARS} characters")
+            if not isinstance(b.get("positive_styles"), list):
+                problems.append(f"chunk {i + 1}: positive_styles is required (a list)")
+    return problems
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -322,6 +383,23 @@ def _number(value: Any) -> float | None:
         return None
 
 
+def _vendor_refusal(exc: http.HttpError, provider: str) -> Exception | None:
+    """ElevenLabs answers that mean "not now" or "no credits left", as Slate's own errors (None for anything else).
+
+    - quota_exceeded (401) or 402: the balance has run out. Slate never buys credits, so the work stops and asks
+      (exit 4).
+    - 429 (too many requests at once, or the system is busy): nothing was billed; exit 5, which the job queue retries
+      later instead of failing."""
+    body = (exc.body or "").lower()
+    if exc.status == 402 or (exc.status == 401 and "quota" in body):
+        return ledger.out_of_balance(provider, f"HTTP {exc.status}: {exc.body[:200]}")
+    if exc.status == 429:
+        return Busy("ElevenLabs is turning requests away right now (HTTP 429: too many at once, or the service is "
+                    "busy). Nothing was billed.", hint="Run it again in a minute; a queued job retries by itself.",
+                    details={"status": 429, "detail": exc.body[:300]})
+    return None
+
+
 def _check_range(name: str, value: float | int | None, lo: float, hi: float) -> None:
     if value is not None and not lo <= value <= hi:
         raise UsageError(f"{name} must be between {lo:g} and {hi:g} (got {value}).")
@@ -376,8 +454,11 @@ class Client:
         if files is not None:
             data, ctype = http.multipart(fields or {}, files)
             headers["Content-Type"] = ctype
-        _status, resp_headers, body = http.request(method, self._url(path, query), headers=headers,
-                                                   json_body=json_body, data=data, timeout=timeout)
+        try:
+            _status, resp_headers, body = http.request(method, self._url(path, query), headers=headers,
+                                                       json_body=json_body, data=data, timeout=timeout)
+        except http.HttpError as exc:
+            raise _vendor_refusal(exc, self.provider) or exc
         return _lower(resp_headers), body
 
     def _replay(self, op: str, request: dict) -> tuple[dict, dict]:
@@ -836,21 +917,26 @@ class Client:
                       force_instrumental: bool | None = None, seed: int | None = None,
                       respect_sections_durations: bool = True, output_format: str | None = None,
                       out: str | Path | None = None, note: str | None = None) -> dict:
-        """Eleven Music: one composition from a plan (sections with durations) or a prompt. `model_id` is always
-        sent (default: the registry's music model, music_v2_5), because the API's own default is older."""
+        """Eleven Music: one composition from a plan or a prompt. `model_id` is always sent (default: the registry's
+        music model, music_v2_5), because the API's own default is older.
+
+        The plan must be the shape the model takes (`music_plan_schema`): chunks for music_v2 and later, sections for
+        music_v1; a mismatch is refused before anything is spent. `respect_sections_durations` is a music_v1 option
+        and is only sent with a section plan (the v2 models always keep chunk durations)."""
         if (composition_plan is None) == (prompt is None):
             raise UsageError("Pass exactly one of composition_plan or prompt.")
         model = model_id or config.model("music")
         body: dict[str, Any] = {"model_id": model}
         if composition_plan is not None:
-            sections = composition_plan.get("sections") or []
-            short = [s.get("section_name") or f"#{i + 1}" for i, s in enumerate(sections)
-                     if int(s.get("duration_ms") or 0) < MUSIC_MIN_SECTION_MS]
-            if short:
-                raise UsageError(f"Music sections must be at least {MUSIC_MIN_SECTION_MS / 1000:g} s: {', '.join(short)}.")
+            problems = plan_problems(composition_plan, model)
+            if problems:
+                raise UsageError("Eleven Music would reject this composition plan: " + "; ".join(problems[:5]) + ".",
+                                 hint="Build the plan for the model it's sent to: `slate score plan` does.")
+            shape = plan_shape(composition_plan)
             body["composition_plan"] = composition_plan
-            body["respect_sections_durations"] = bool(respect_sections_durations)
-            seconds = sum(int(s.get("duration_ms") or 0) for s in sections) / 1000.0
+            if shape == "sections":
+                body["respect_sections_durations"] = bool(respect_sections_durations)
+            seconds = sum(int(b["duration_ms"]) for b in composition_plan[shape]) / 1000.0
         else:
             body["prompt"] = prompt
             if music_length_ms is not None:
@@ -899,6 +985,20 @@ def _resume():
         raise
 
 
+def balance_own() -> float:
+    """The balance reader the job queue uses for `slate ledger snapshot` (the owner's key)."""
+    return remaining_credits(PROVIDER)
+
+
+def balance_oneiro() -> float:
+    """The balance reader for Oneiro's capped key."""
+    return remaining_credits("elevenlabs_oneiro")
+
+
+# What this module registers with slate.jobs.resume (tests re-install these, since the registry is process-wide).
+BALANCE_READERS = {PROVIDER: balance_own, "elevenlabs_oneiro": balance_oneiro}
+
+
 def _register_resume_hooks() -> None:
     # ElevenLabs answers in the same request it bills, so there's no request to poll after a crash (the queue closes
     # such rows as orphaned and `slate ledger reconcile` settles them). Balances, though, it can read for free.
@@ -906,8 +1006,8 @@ def _register_resume_hooks() -> None:
     if resume is None:
         return
     if hasattr(resume, "register_balance"):
-        resume.register_balance(PROVIDER, lambda: remaining_credits(PROVIDER))
-        resume.register_balance("elevenlabs_oneiro", lambda: remaining_credits("elevenlabs_oneiro"))
+        for name, reader in BALANCE_READERS.items():
+            resume.register_balance(name, reader)
 
 
 _register_resume_hooks()

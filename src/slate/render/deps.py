@@ -77,8 +77,17 @@ def load_film(film_dir: Path) -> dict:
 
 
 def load_shots(film_dir: Path) -> dict:
-    """timing/shots.json, through slate.timing when it's there, otherwise read as it is."""
+    """timing/shots.json, through slate.timing when it's there, otherwise read as it is. A derived film may hold it only
+    by reference (slate.state.derive): then it's the parent's file, found through slate.state.lock.resolve."""
     path = Path(film_dir) / "timing" / "shots.json"
+    state_lock_mod = optional("slate.state.lock")
+    if not path.exists() and state_lock_mod is not None and hasattr(state_lock_mod, "resolve"):
+        try:
+            real = Path(state_lock_mod.resolve(Path(film_dir), "timing/shots.json"))
+        except Exception:  # noqa: BLE001 - an unreadable lock file means no reference
+            real = path
+        if real.is_file():
+            return jsonio.read(real)
     if not path.exists():
         raise MissingPrerequisite("This film has no timing yet (timing/shots.json), so there are no acts to render.",
                                   hint="slate timing")

@@ -59,6 +59,11 @@ ALIASES = {"plate-take": "plate", "plate_take": "plate", "generation": "spend", 
            "voice_take": "take", "score-take": "score_take", "sound-proof": "sound_proof", "look-test": "look_test",
            "final-cut": "final_cut", "voice-shortlist": "voice_shortlist"}
 WHAT_RE = re.compile(r"^[a-z][a-z0-9_-]{0,39}(:[A-Za-z0-9][A-Za-z0-9._/-]{0,119})?$")
+# Approvals that belong to Slate rather than one film. They live in DATA/approvals.json, where the module that
+# waits on them reads them (proof 3: slate.sound.effects.require_proof3, which gates the effects engine).
+GLOBAL_KINDS: dict[str, str] = {
+    "proof3": "proof 3 of the sound design; the effects engine starts only after a person approves it",
+}
 
 
 def empty() -> dict:
@@ -171,8 +176,79 @@ def record(film_dir: Path, *, what: str, path: str, approved_by: str, note: str 
     if spec["locks"] and basis in ("file", "tree"):
         lock.lock_asset(film_dir, rel, reason=f"approved {what} ({approved_by.strip()}, {rec['at'][:10]})",
                         by=approved_by.strip())
+    if kind == "final_cut":
+        _release_hold(film_dir, rec)
     production.render(film_dir)
     return rec
+
+
+HOLD_SOURCE = "slate review"  # a held film's question comes from its review packet ("slate review v3")
+
+
+def _release_hold(film_dir: Path, rec: dict) -> None:
+    """A final-cut approval is the answer to the question a held film parked on (finish's review packet asks it), so
+    an approved film doesn't stay parked."""
+    for q in open_questions(film_dir, parking=True):
+        if str(q.get("source") or "").startswith(HOLD_SOURCE):
+            answer(film_dir, q["id"], by=rec["approved_by"],
+                   text=f"Approved the final cut: {rec['path']} (sha256 {str(rec['sha256'])[:12]}, {rec['id']}).")
+
+
+def is_global(what: str) -> bool:
+    """True for an approval that belongs to Slate, not one film (proof 3)."""
+    return str(what or "").strip().lower() in GLOBAL_KINDS
+
+
+def global_file() -> Path:
+    from slate import paths  # noqa: PLC0415
+
+    return paths.data() / APPROVALS
+
+
+def record_global(*, what: str, path: str, approved_by: str, note: str | None = None) -> dict:
+    """Record a person's approval of one of Slate's own gates (GLOBAL_KINDS) in DATA/approvals.json, with the SHA-256 of
+    exactly the file approved. The record is appended; the newest one for a gate is the one that counts."""
+    from slate import paths  # noqa: PLC0415
+
+    what = str(what or "").strip().lower()
+    if what not in GLOBAL_KINDS:
+        raise UsageError(f"{what!r} isn't one of Slate's own approvals ({', '.join(GLOBAL_KINDS)}).")
+    who = (approved_by or "").strip()
+    if not who:
+        raise UsageError("An approval needs the person who gave it (--by NAME).")
+    target = Path(path).expanduser()
+    if not target.is_file():
+        raise UsageError(f"{target} isn't a file, so there's nothing to approve.",
+                         hint="Name the exact file the person approved (the rendered proof).")
+    target = target.resolve()
+    rec = {"id": f"ap_{_secrets.token_hex(5)}", "what": what, "path": str(target), "sha256": jsonio.sha256(target),
+           "approved_by": who, "approved_at": _util.now(), "note": note, "recorded_by": _recorder()}
+    folder = paths.data()
+    folder.mkdir(parents=True, exist_ok=True)
+    with _util.state_lock(folder):
+        records = _global_records(jsonio.read(global_file(), default=None))
+        jsonio.write_atomic(global_file(), {"generated": "do not edit by hand: slate approve "
+                                                         + " | ".join(GLOBAL_KINDS),
+                                            "approvals": records + [rec]})
+    return rec
+
+
+def _global_records(data: Any) -> list[dict]:
+    """Every record already in DATA/approvals.json, whichever shape it was written in (a list, {"approvals": [...]}, or
+    one record per gate name), so writing a new one never drops an older one."""
+    if isinstance(data, list):
+        return [r for r in data if isinstance(r, dict)]
+    if not isinstance(data, dict):
+        return []
+    if isinstance(data.get("approvals"), list):
+        return [r for r in data["approvals"] if isinstance(r, dict)]
+    out: list[dict] = []
+    for key, value in data.items():
+        if isinstance(value, dict):
+            out.append({"what": key, **value})
+        elif isinstance(value, list):
+            out.extend({"what": key, **v} for v in value if isinstance(v, dict))
+    return out
 
 
 @functools.lru_cache(maxsize=1)
@@ -357,11 +433,14 @@ def answer(film_dir: Path, question_id: str, *, text: str, by: str) -> dict:
     if not (text or "").strip() or not (by or "").strip():
         raise UsageError("An answer needs the words (--text) and who gave them (--by).")
 
+    wanted = str(question_id or "").strip().lower()  # "Q1" and "q1" are the same question
+
     def change(data: dict) -> dict:
         for q in data["questions"]:
-            if q["id"] == question_id:
+            if str(q["id"]).lower() == wanted:
+                question_id_ = q["id"]
                 if q.get("answered_at"):
-                    raise UsageError(f"{question_id} was already answered by {q['answered_by']}.")
+                    raise UsageError(f"{question_id_} was already answered by {q['answered_by']}.")
                 q.update(answer=text.strip(), answered_by=by.strip(), answered_at=_util.now())
                 return q
         raise UsageError(f"There's no question {question_id}.", hint="slate film questions lists them.")
@@ -369,7 +448,7 @@ def answer(film_dir: Path, question_id: str, *, text: str, by: str) -> dict:
     q = edit(film_dir, change)
     from slate.state import production  # noqa: PLC0415
 
-    production.add_direction(film_dir, text.strip(), source=by.strip(), kind=f"answer to {question_id}: {q['text']}")
+    production.add_direction(film_dir, text.strip(), source=by.strip(), kind=f"answer to {q['id']}: {q['text']}")
     return q
 
 

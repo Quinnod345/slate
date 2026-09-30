@@ -99,6 +99,18 @@ export async function renderStills(ctx, b, list, opts) {
   return out;
 }
 
+/** A PNG's pixel size, read from its IHDR chunk (bytes 16–24), or null when the file isn't a PNG. */
+export function pngSize(file) {
+  const fd = fs.openSync(file, 'r');
+  try {
+    const head = Buffer.alloc(24);
+    if (fs.readSync(fd, head, 0, 24, 0) < 24 || head.toString('latin1', 12, 16) !== 'IHDR') return null;
+    return [head.readUInt32BE(16), head.readUInt32BE(20)];
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
 async function tile(cells, {columns, outFile, pad}) {
   const ffmpeg = requireTool('ffmpeg');
   const rows = Math.ceil(cells.length / columns);
@@ -178,12 +190,19 @@ export async function stillsCommand(ctx, args) {
         const name = cs.name ?? `${comp}_sheet`;
         const file = path.join(outDir, `${name}.png`);
         fs.mkdirSync(outDir, {recursive: true});
-        const grid = await tile(cells, {columns: Math.max(1, Number(cs.columns ?? 6)), outFile: file, pad: Number(cs.padding ?? 8)});
+        const pad = Number(cs.padding ?? 8);
+        const grid = await tile(cells, {columns: Math.max(1, Number(cs.columns ?? 6)), outFile: file, pad});
+        // The sheet's geometry, so a reader (slate qa access) can cut the cells back out without guessing: every cell
+        // is `cell` px, with `padding` px between cells and a `margin` of the same all round (ffmpeg's tile filter).
         const index = {
           generated: 'do not edit by hand: slate stills (contact sheet)',
           comp,
           file: path.basename(file),
           ...grid,
+          cell: pngSize(cells[0].file),
+          padding: pad,
+          margin: pad,
+          labels: Boolean(labels),
           cells: frames.map((frame, i) => {
             const ff = filmFrameOf(ctx, comp, frame);
             const shot = ff === null ? null : shotAtFrame(ctx, ff);

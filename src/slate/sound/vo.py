@@ -27,7 +27,7 @@ VOICED = 0.02
 
 
 def cues(film: Film) -> list[dict]:
-    path = film.path("timing/vo_cues.json")
+    path = film.source("timing/vo_cues.json")
     if not path.exists():
         return []
     return list(jsonio.read(path).get("cues") or [])

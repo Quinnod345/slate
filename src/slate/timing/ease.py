@@ -4,6 +4,10 @@ An entrance lands when it has covered 90% of its travel (the films' definition; 
 word). For a cubic-bezier ease and a duration, T90 is the time at which progress reaches 0.9, and the move starts at
 landing − T90. The eases themselves are brand data (the brand pack's named eases); this module only does the curve
 maths, with the same bisection the films used so resolved frames match the delivered timelines exactly.
+
+A brand's eases aren't all beziers: a zero-bounce spring ("spring0"), "sine" and "linear" are curves too. Those go
+through the motion law's own maths (`slate.motion.eases`, the kit's twin, held to the shared T90 vectors), so a move
+that lands on a spring lands where the kit draws it.
 """
 
 from __future__ import annotations
@@ -36,8 +40,14 @@ def t_at(curve: tuple[float, float, float, float], dur: float, progress: float =
     return (lo + hi) / 2 * dur
 
 
-def t90(curve: tuple[float, float, float, float], dur: float) -> float:
-    return t_at(curve, dur, 0.9)
+def t90(curve, dur: float) -> float:
+    """Seconds into a move of length `dur` at which it has covered 90% of its travel. `curve` is a bezier tuple, or a
+    spring, sine or linear curve from the motion law."""
+    if isinstance(curve, tuple):
+        return t_at(curve, dur, 0.9)
+    from slate.motion import eases as motion_eases  # noqa: PLC0415
+
+    return motion_eases.t90(curve) * dur
 
 
 def _curve(value: Any) -> tuple[float, float, float, float] | None:
@@ -59,20 +69,39 @@ def _curve(value: Any) -> tuple[float, float, float, float] | None:
     return None
 
 
-def eases_from_motion(motion: dict | None) -> dict[str, tuple[float, float, float, float]]:
-    """Named eases from a brand pack's motion block ({"eases": {name: curve}} or a list of {name, …})."""
-    out: dict[str, tuple[float, float, float, float]] = {"linear": LINEAR}
+def _other_curve(value: Any):
+    """A spring, sine or linear ease (or a bezier in a shape `_curve` doesn't read), through the motion law's parser.
+    Returns a bezier tuple, a motion-law curve, or None when nobody can read it."""
+    try:
+        from slate.motion import eases as motion_eases  # noqa: PLC0415
+    except ImportError:
+        return None
+    spec = motion_eases.parse(value)
+    if spec is None:
+        return None
+    if spec.kind == "bezier" and spec.bezier:
+        return tuple(float(v) for v in spec.bezier)
+    return spec
+
+
+def eases_from_motion(motion: dict | None) -> dict[str, Any]:
+    """Named eases from a brand pack's motion block ({"eases": {name: curve}} or a list of {name, …}).
+
+    Beziers come back as (x1, y1, x2, y2); springs, sine and linear as the motion law's curves. A name whose value no
+    one can read maps to None, so a landing on it says what's wrong instead of claiming the brand lacks it."""
+    out: dict[str, Any] = {"linear": LINEAR}
     raw = (motion or {}).get("eases") or {}
     if isinstance(raw, list):
         raw = {str(e.get("name") or e.get("id")): e for e in raw if isinstance(e, dict)}
     for name, value in raw.items():
-        curve = _curve(value)
-        if curve:
-            out[str(name)] = curve
+        curve = _curve(value) or _other_curve(value)
+        if str(name) == "linear" and curve is None:
+            continue  # linear is always there
+        out[str(name)] = curve
     return out
 
 
-def parse_land(spec: str, eases: dict[str, tuple[float, float, float, float]]) -> tuple[str, float, tuple]:
+def parse_land(spec: str, eases: dict[str, Any]) -> tuple[str, float, Any]:
     """"arrive:0.53" -> ("arrive", 0.53, curve). Unknown eases are a usage error naming the brand's eases."""
     name, _, dur = str(spec).partition(":")
     name = name.strip()
@@ -81,6 +110,9 @@ def parse_land(spec: str, eases: dict[str, tuple[float, float, float, float]]) -
     except ValueError as exc:
         raise UsageError(f"A landing is written ease:seconds (e.g. 'arrive:0.5'); got {spec!r}.") from exc
     if name not in eases:
-        known = ", ".join(sorted(eases)) or "none"
+        known = ", ".join(sorted(k for k, v in eases.items() if v is not None)) or "none"
         raise UsageError(f"The brand has no ease called {name!r} (it has: {known}).")
+    if eases[name] is None:
+        raise UsageError(f"The brand's ease {name!r} isn't a curve a landing can be timed with (a bezier, linear, sine "
+                         "or a zero-bounce spring); fix it in the brand pack, or land this move on another ease.")
     return name, seconds, eases[name]

@@ -442,6 +442,13 @@
     "resend": {
      "type": "boolean",
      "description": "The submit died before Higgsfield answered; `slate gen run` sends it again, exactly as written ahead in takes/<take>/submit.json, under the same Idempotency-Key."
+    },
+    "approval_slot": {
+     "type": [
+      "string",
+      "null"
+     ],
+     "description": "Autonomous films: the slot of the person's yes this take spent under (<yes>#k of the request's N takes); the ledger lets each approval id pay for one call."
     }
    }
   },

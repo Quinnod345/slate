@@ -247,3 +247,59 @@ def test_call_resolves_a_browser_path_from_where_the_caller_stands(fake, slate_h
     assert res["echo"]["browser"] == str((tmp_path / "bin" / "chrome").resolve())
     # a web scene's own path belongs to the film: the web renderer resolves it against the film folder
     assert res["echo"]["scene"] == "scenes/act1/web"
+
+
+# --- derived films: what the engine reads may live in the parent, by reference ---------------------------------------
+
+def _derived(slate_home) -> tuple[Path, Path]:
+    """A parent film and a child that reuses the parent's timing and one capture by reference (nothing copied)."""
+    lock = pytest.importorskip("slate.state.lock")
+    from slate import jsonio
+
+    parent = _film(slate_home, vo="664 people & 54% of them")
+    cap = parent / "captures" / "demo" / "frames"
+    cap.mkdir(parents=True)
+    (cap / "f00001.jpg").write_bytes(b"\xff\xd8 not really a jpeg")
+    child = slate_home["films"] / "child-aspect"
+    child.mkdir()
+    film_json = json.loads((parent / "film.json").read_text())
+    (child / "film.json").write_text(json.dumps({**film_json, "id": "child-aspect", "parent": film_json["id"]}))
+    refs = [{"path": rel, "parent_path": rel, "sha256": jsonio.sha256(parent / rel), "kind": "file"}
+            for rel in ("timing/shots.json", "captures/demo/frames/f00001.jpg")]
+    lock.add_refs(child, refs, parent_id=film_json["id"], parent_dir=parent)
+    return parent, child
+
+
+def test_a_derived_film_reads_its_parents_timing_and_captures_through_the_lock(slate_home):
+    parent, child = _derived(slate_home)
+    assert bridge.refs_map(child) == {"timing/shots.json": str((parent / "timing" / "shots.json").resolve()),
+                                      "captures": str((parent / "captures").resolve())}
+    bridge.prepare(child)
+    assert json.loads((child / ".slate" / "refs.json").read_text())["timing/shots.json"].endswith("timing/shots.json")
+    if (child / ".slate" / "spoken.json").exists():  # the parent's reads are the child's reads
+        assert "664" in json.loads((child / ".slate" / "spoken.json").read_text())
+    # once the child has its own copy, it stops reading the parent's
+    (child / "timing").mkdir()
+    shutil.copy(parent / "timing" / "shots.json", child / "timing" / "shots.json")
+    shutil.copytree(parent / "captures", child / "captures")
+    bridge.prepare(child)
+    assert not (child / ".slate" / "refs.json").exists()
+
+
+def test_a_film_with_its_own_files_has_no_references(slate_home):
+    film = _film(slate_home)
+    assert bridge.refs_map(film) == {}
+    bridge.prepare(film)
+    assert not (film / ".slate" / "refs.json").exists()
+
+
+def test_the_engine_builds_a_derived_films_entry_from_its_parents_timing(slate_home, monkeypatch):
+    """Through the real engine: the child film has no timing of its own, and renders from its parent's by reference."""
+    monkeypatch.delenv("SLATE_ENGINE_DIR", raising=False)
+    parent, child = _derived(slate_home)
+    res = bridge.call("entry", {"film": str(child)}, timeout=120)
+    assert [(a["act"], a["frames"]) for a in res["acts"]] == [(1, 30)]
+    data_ts = (child / ".slate" / "film-data.ts").read_text()
+    shots_import = os.path.relpath(parent / "timing" / "shots.json", child / ".slate")
+    assert f"import shotsJson from '{shots_import}';" in data_ts
+    assert not (child / "timing" / "shots.json").exists()  # nothing was copied

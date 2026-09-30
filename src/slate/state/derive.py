@@ -17,13 +17,17 @@ What each kind reuses:
 |--------------------------------|--------|----------|----------|
 | script and storyboard          | yes    | no (a cut) | no (a translation) |
 | voice takes                    | yes    | yes      | no       |
-| shots and timeline             | yes    | no (re-derived for the cut) | no |
+| shots and timeline             | no (rebuilt at the new size; the frames don't move) | no (re-derived for the cut) | no |
 | cues, words, events, beats     | yes    | yes      | no       |
 | motion traces                  | no (re-staged) | yes | no  |
 | captures                       | yes    | yes      | no       |
 | generated plates, score takes  | yes    | yes      | yes      |
 
 A film that is two kinds at once (a 15-second 9:16 cut) reuses only what both kinds reuse.
+
+timing/shots.json carries the frame size with the frames, and every engine and QA check holds it to film.json's
+("one clock, one size"), so a new aspect makes its own with `slate timing`: the same frames from the parent's
+storyboard and takes (read by reference), at the child's size.
 """
 
 from __future__ import annotations
@@ -43,8 +47,8 @@ PATH_RULES: tuple[tuple[str, frozenset[str]], ...] = (
     ("script/storyboard.json", frozenset({"aspect"})),
     ("script/SCRIPT.md", frozenset({"aspect"})),
     ("voice/", frozenset({"aspect", "cutdown"})),
-    ("timing/shots.json", frozenset({"aspect"})),
-    ("timing/timeline.json", frozenset({"aspect"})),
+    ("timing/shots.json", frozenset()),  # it names the frame size: each film makes its own (same frames)
+    ("timing/timeline.json", frozenset()),
     ("timing/vo_cues.json", frozenset({"aspect", "cutdown"})),
     ("timing/vo_words.json", frozenset({"aspect", "cutdown"})),
     ("timing/events.json", frozenset({"aspect", "cutdown"})),
@@ -191,18 +195,23 @@ def create(parent_dir: Path, child_id: str, *, format: str | None = None, aspect
         restage_why.append(f"text in {language} runs to different lengths")
     if "cutdown" in kinds:
         restage_why.append("the acts are re-cut to the kept shots, and every join is checked again")
-    zones = {}
+    # Every channel's zone at the child's own aspect, from the formats module when it knows the format there (any
+    # format, not only a 9:16-only one); else the named format's own safe_zones.
     source_fmt = fmt or {}
-    for platform in deps.format_platforms(source_fmt):
-        z = deps.safe_zones(source_fmt, platform)
-        if z is not None:
-            zones[platform] = z
+    zones = deps.zones_for(fmt or pj.get("format"), aspect if "aspect" in kinds else None) or {}
+    if not zones:
+        for platform in deps.format_platforms(source_fmt):
+            z = deps.safe_zones(source_fmt, platform)
+            if z is not None:
+                zones[platform] = z
     type_block = source_fmt.get("type") if isinstance(source_fmt.get("type"), dict) else {}
     type_scale = source_fmt.get("type_scale") or type_block.get("scale")
     redo = ["scenes: re-stage", "sound: re-plan", "render", "master", "qa: every gate", "deliver", "review",
             "final cut: its own approval"]
     if "cutdown" in kinds:
         redo[0:0] = ["script: choose the shots for the cut (script/script.json cut.keep)", "timing: re-derived"]
+    elif "aspect" in kinds:
+        redo[0:0] = ["timing: rebuilt at the new frame size (slate timing; the frames don't move)"]
     if "language" in kinds:
         redo[0:0] = [f"script: translate into {language}", "claims: approve in the new language",
                      f"voice: every line in {language}", "timing: re-derived from the new takes"]

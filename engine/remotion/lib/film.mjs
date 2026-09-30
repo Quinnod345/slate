@@ -16,6 +16,8 @@ export const TIMING_FILES = {
   events: 'timing/events.json',
   captions: 'timing/captions.json',
   spoken: 'timing/spoken.json',
+  // how the film's language turns a word into a match key (written by the Python bridge from slate.timing's table)
+  lang: '.slate/lang.json',
 };
 
 /** The key each one has in '@film/data''s default export: the kit's FilmData (engine/remotion/kit/core/types.ts). */
@@ -27,6 +29,7 @@ export const DATA_KEYS = {
   events: 'events',
   captions: 'captions',
   spoken: 'spoken',
+  lang: 'lang',
 };
 
 /**
@@ -35,6 +38,32 @@ export const DATA_KEYS = {
  * check and render reads the same map.
  */
 export const SPOKEN_FALLBACK = '.slate/spoken.json';
+
+/**
+ * Where a derived film's reused files really are: .slate/refs.json, {film-relative path: absolute path in the parent},
+ * written by the Python bridge from slate.state.lock.resolve before every call. A derived film reuses its parent's
+ * timings and captures by reference and copies nothing, so they aren't in its own folder.
+ */
+export const REFS_FILE = '.slate/refs.json';
+
+function refsOf(dir) {
+  const file = path.join(dir, REFS_FILE);
+  if (!fs.existsSync(file)) return {};
+  try {
+    const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+    return data && typeof data === 'object' && !Array.isArray(data) ? data : {};
+  } catch {
+    return {};
+  }
+}
+
+/** A film's file (or folder): its own copy, else the parent's that .slate/refs.json names, else its own (missing) path. */
+export function realFile(dir, rel) {
+  const own = path.join(dir, rel);
+  if (fs.existsSync(own)) return own;
+  const real = refsOf(dir)[rel];
+  return typeof real === 'string' && path.isAbsolute(real) && fs.existsSync(real) ? real : own;
+}
 
 function positiveInt(value, what, file) {
   const n = Number(value);
@@ -66,7 +95,7 @@ export function loadFilm(filmArg, {requireShots = true} = {}) {
     shots: null,
     acts: [],
   };
-  const shotsFile = path.join(dir, TIMING_FILES.shots);
+  const shotsFile = realFile(dir, TIMING_FILES.shots);
   if (!fs.existsSync(shotsFile)) {
     if (requireShots) throw usage(`${ctx.id} has no timing/shots.json yet.`, 'Run `slate timing` first: the engine reads frames from it.');
     return ctx;

@@ -45,6 +45,24 @@ def _gate_text(results) -> str:
     return gates.format_table(results)
 
 
+def _queue(args: argparse.Namespace, film: Path, kind: str, tail: list[str], *, what: str, action: str) -> int:
+    """--detach: refuse now what the job would refuse later (no go, an autonomous film), then queue this same command
+    as a job holding the render slot and After Effects, and hand back its id at once. The job runs the command without
+    --detach, still with the person's --go; slate.ae's lock uses the job's `ae` slot instead of waiting on itself."""
+    import sys  # noqa: PLC0415
+
+    from slate.ae import guard  # noqa: PLC0415
+    from slate.jobs import client  # noqa: PLC0415
+
+    guard.person_start(args.go, what, film_dir=film, action=action)
+    argv = [sys.executable, "-m", "slate", "ae", *tail, "--film", str(film), "--json", "--go"]
+    job = client.submit(kind, argv, film=str(film), resources=("render", "ae"), priority="supervised", cwd=str(film))
+    log.result({"ok": True, "ran": "queue", "job_id": job, "command": ["slate", *argv[3:]]},
+               f"Queued as job {job}. After Effects must be closed when it starts (save your work and quit it); "
+               f"follow it with `slate job status {job}`.")
+    return 0
+
+
 # ---------------------------------------------------------------------------------------------------------------
 # prefs
 
@@ -194,6 +212,13 @@ def _masters(args: argparse.Namespace) -> int:
     from slate.ae import masters, spec
 
     film = slate_cli.film(args)
+    if args.detach and not _dry(args):
+        if args.requeue:
+            raise UsageError("--requeue opens After Effects for a moment to re-queue the chunks; run it without --detach.")
+        tail = ["masters"] + (["--chunks", str(args.chunks)] if args.chunks else []) + \
+            [flag for flag, on in (("--keep-chunks", args.keep_chunks), ("--silent", args.silent),
+                                   ("--keep-cache", args.keep_cache)) if on]
+        return _queue(args, film, "ae_masters", tail, what="Rendering the masters with aerender", action="ae_master")
     if args.requeue:
         rec = masters.queue(film, go=args.go, chunks=args.chunks)
         log.result(rec, f"queued {len(rec['chunks'])} chunks in {rec['aep']}\nnext: save and quit After Effects, then "
@@ -251,6 +276,9 @@ def _acts_export(args: argparse.Namespace) -> int:
 def _acts_render(args: argparse.Namespace) -> int:
     from slate.ae import acts
 
+    if args.detach:
+        return _queue(args, slate_cli.film(args), "ae_render", ["acts", "render", str(args.act)],
+                      what="Rendering an act with aerender", action="ae_render")
     res = acts.render(slate_cli.film(args), args.act, go=args.go)
     log.result(res, f"act {res['act']}: {res['file']} ({res['frames'][1] - res['frames'][0]} frames)"
                + (", registered" if res["registered"] else ""))
@@ -391,6 +419,8 @@ def register(sub) -> None:
     p.add_argument("--keep-chunks", action="store_true", help="keep the chunk files after the joins")
     p.add_argument("--silent", action="store_true", help="a picture-only master when the film has no mix yet")
     p.add_argument("--keep-cache", action="store_true", help="leave AE's disk cache as it is during the render")
+    p.add_argument("--detach", action="store_true",
+                   help="queue it as a job (your --go goes with it) and return the job id at once")
 
     p = slate_cli.add_command(ae, "audit", _audit, help="audit the film's AE project (gate results)")
     p.add_argument("aep", nargs="?", help="the project (default: the film's)")
@@ -403,6 +433,8 @@ def register(sub) -> None:
     p.add_argument("act", type=int, nargs="?", help="the act (default: every act built in AE)")
     p = slate_cli.add_command(acts_g, "render", _acts_render, help="render an AE-built act with aerender, register it")
     p.add_argument("act", type=int)
+    p.add_argument("--detach", action="store_true",
+                   help="queue it as a job (your --go goes with it) and return the job id at once")
     _go(p)
     p = slate_cli.add_command(acts_g, "measure", _acts_measure,
                               help="sample an act's motion as AE evaluates it (for acts built through the bridge)")

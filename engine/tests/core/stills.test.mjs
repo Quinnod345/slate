@@ -41,6 +41,8 @@ describe('stills', () => {
     // 3 cells of 160 across, 8 px padding and margins: 3 × 160 + 4 × 8
     expect(probe(r.sheet.file)).toMatchObject({width: 3 * 160 + 4 * 8, height: 2 * 90 + 3 * 8});
     const index = readJson(r.sheet.index);
+    // the geometry a reader needs to cut the cells back out (slate qa access), never guessed from the sheet's size
+    expect(index).toMatchObject({cell: [160, 90], padding: 8, margin: 8, labels: true, rows: 2, columns: 3});
     expect(index.cells.map((c) => [c.frame, c.shot, c.timecode])).toEqual([
       [0, 'S01', '00:00:00:00'],
       [8, 'S01', '00:00:00:08'],

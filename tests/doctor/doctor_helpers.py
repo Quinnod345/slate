@@ -135,7 +135,9 @@ class FakeEnv(Env):
         self.font_checks: list[list[str]] = []
         self.font_check_result: dict = {"missing": []}
         self.jobs: dict | Exception = {"label": "dev.slate.jobs", "installed": True, "loaded": True,
-                                       "runner_serving": False, "plist": "/x.plist"}
+                                       "runner_serving": True, "plist": "/x.plist", "log": "/logs/runner.launchd.log"}
+        self.queue: dict | Exception = {"runner": True, "counts": {"queued": 0, "running": 0, "done": 3},
+                                        "next": None, "running": []}
         self.ocr: tuple[bool, dict] = (True, {"name": "Apple Vision (ocrmac)", "version": "1.0.0",
                                               "recognition_level": "accurate"})
         self.instruments: list[dict] | Exception = [
@@ -231,6 +233,9 @@ class FakeEnv(Env):
     def run(self, argv, *, timeout=30.0, cache=True, no_open=False):
         argv = [str(a) for a in argv]
         self.calls.append(argv)
+        full = (argv[0], *argv[1:])  # a response keyed by the full path wins (two copies of one tool)
+        if full in self.responses:
+            return self.responses[full]
         key = (os.path.basename(argv[0]), *argv[1:])
         if key in self.responses:
             return self.responses[key]
@@ -389,6 +394,11 @@ class FakeEnv(Env):
         if isinstance(self.jobs, Exception):
             raise self.jobs
         return dict(self.jobs)
+
+    def jobs_summary(self):
+        if isinstance(self.queue, Exception):
+            raise self.queue
+        return dict(self.queue)
 
     def ocr_available(self):
         return self.ocr

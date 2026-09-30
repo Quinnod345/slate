@@ -152,7 +152,7 @@ def test_a_lost_submit_is_resent_with_the_same_idempotency_key_and_reads_retry(s
     counts = {"submit": 0, "status": 0}
     agents, keys, bodies = [], [], []
 
-    def fake_urlopen(req, timeout=60):
+    def fake_urlopen(req, timeout=60, **kw):  # kw: the SSL context slate.http passes
         agents.append(req.get_header("User-agent"))
         url = req.full_url
         if "/estimate/" in url:
@@ -231,6 +231,42 @@ def test_a_server_error_is_resent_and_a_changed_body_under_the_same_key_is_named
     assert fake.submits == 1  # nothing new was created or billed
     failed = [r for r in ledger.rows(provider="higgsfield") if r["status"] == "failed"]
     assert len(failed) == 1 and failed[0]["actual"] == 0.0
+
+
+def test_rate_limits_and_the_concurrency_cap_are_busy_not_failures(slate_home):
+    """Nothing was created, so the job queue may simply try again later (exit 5); nothing is counted."""
+    for status, body in ((429, b'{"detail": "rate limited"}'),
+                         (400, b'{"detail": "Maximum number of concurrent requests (4) has been reached"}')):
+        fake = FakeTransport(fail_status=status, fail=9)
+        fake_body = body
+
+        def transport(method, url, *, headers, json_body=None, data=None, timeout=60, _f=fake, _b=fake_body,
+                      _s=status):
+            if method == "POST" and url.endswith(PATH):
+                _f.calls.append({"method": method, "url": url, "headers": dict(headers), "body": json_body})
+                return _s, {}, _b
+            return _f(method, url, headers=headers, json_body=json_body, data=data, timeout=timeout)
+
+        client = higgsfield.Client(transport=transport, key="k:s", fake=False, sleep=lambda s: None)
+        with pytest.raises(higgsfield.HiggsfieldBusy) as exc:
+            client.submit(PATH, {**BODY, "prompt": f"busy {status}"})
+        assert exc.value.exit_code == 5 and "Nothing was created or billed" in exc.value.message
+    assert all(r["status"] == "failed" and r["actual"] == 0.0 for r in ledger.rows(provider="higgsfield"))
+    assert ledger.spent("higgsfield") == 0
+
+
+def test_an_empty_balance_stops_and_asks(slate_home):
+    def transport(method, url, *, headers, json_body=None, data=None, timeout=60):
+        if "/estimate/" in url:
+            return 200, {}, json.dumps({"usd": 1.0}).encode()
+        return 403, {}, b'{"detail": "Insufficient credits"}'
+
+    client = higgsfield.Client(transport=transport, key="k:s", fake=False, sleep=lambda s: None)
+    with pytest.raises(SlateError) as exc:
+        client.submit(PATH, BODY)
+    assert exc.value.exit_code == 4 and "never buys credits" in exc.value.message
+    (row,) = ledger.rows(provider="higgsfield")
+    assert row["status"] == "failed" and row["actual"] == 0.0
 
 
 def _crashed_row(monkeypatch, est, *, key, request_id=None):

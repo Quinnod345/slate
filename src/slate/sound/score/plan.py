@@ -19,6 +19,13 @@ cadence). Ends (how a part goes out): handover (the next part's join), or stop (
 next landing: a held breath, recorded as a planned stop).
 
 Writes sound/score/plan.json (generated) and sound/score/plans/<part>.json (exactly what's sent to the API).
+
+The plan is built for the model it's sent to (`slate.vendors.elevenlabs.music_plan_schema`). music_v2 and music_v2_5
+(and later) take chunks: each chunk carries its own `[name]` text, duration and styles, and the global styles (the
+brand's key, tempo, instrumentation; the effects' materials and banned timbres as negatives) ride on every chunk,
+since there are no global styles any more and the first chunk's styles set the tone. music_v1 takes the older
+sections with global styles. A v1 section plan sent to a v2 model is rejected, so the shape always follows the model.
+Either way the score is instrumental: no lyrics lines in a section, nothing but the name in a chunk's text.
 """
 
 from __future__ import annotations
@@ -35,6 +42,8 @@ PRE_ROLL_S = 3.0
 TAIL_S = 3.0
 STOP_TAIL_S = 4.5  # a part that stops dead is composed to build this far past the hand-over, so it's at level when cut
 MIN_SECTION_S = 3.0
+MAX_SECTION_S = 120.0  # Eleven Music's limit for one section or chunk
+MAX_NAME = 100  # a section name (v1) or a chunk's [name] (v2 and later)
 DEFAULT_MAX_PART_S = 90.0
 JOINS = ("start", "act", "bloom", "lift", "arrive")
 ENDS = ("handover", "stop")
@@ -97,9 +106,9 @@ def _word_time(film: Film, spec: dict) -> float | None:
             return float(t)
     except (ImportError, AttributeError):
         pass
-    cues = jsonio.read(film.path("timing/vo_cues.json"), default={}) or {}
+    cues = jsonio.read(film.source("timing/vo_cues.json"), default={}) or {}
     shot_cue = next((c for c in cues.get("cues") or [] if c.get("shot") == shot), None)
-    words = (jsonio.read(film.path("timing/vo_words.json"), default={}) or {}).get("shots", {}).get(shot, {}).get("words")
+    words = (jsonio.read(film.source("timing/vo_words.json"), default={}) or {}).get("shots", {}).get(shot, {}).get("words")
     if not shot_cue or not words:
         return None
     norm = lambda w: re.sub(r"[^a-z0-9']", "", w.lower())  # noqa: E731
@@ -155,47 +164,100 @@ def _split(shots: list[dict], film: Film, limit_body: float, at: list[str]) -> l
     return out
 
 
-def _sections(body: list[tuple[str, float, float]], start: float, end: float, pre_s: float, tail_s: float,
-              styles: dict, shots_by_id: dict) -> list[dict]:
-    """Section list for a part: pre-roll, one section per shot span inside [start, end] (merged to at least 3 s),
-    tail. Durations come from rounded cumulative boundaries, so they add up exactly."""
+def plan_schema(model_id: str) -> str:
+    """"chunks" (music_v2 and later) or "sections" (music_v1): the plan shape this model takes."""
+    try:
+        from slate.vendors.elevenlabs import music_plan_schema  # noqa: PLC0415
+    except ImportError:  # the vendor client isn't installed: read the id the same way it does
+        m = re.match(r"^music_v(\d+)", model_id or "")
+        return "sections" if m and int(m.group(1)) < 2 else "chunks"
+    return music_plan_schema(model_id)
+
+
+def _name(ids: list[str]) -> str:
+    """A section's name from the shots it spans (S04+S05), shortened to Eleven Music's 100 characters."""
+    name = "+".join(ids)
+    if len(name) <= MAX_NAME:
+        return name
+    short = f"{ids[0]}…{ids[-1]} ({len(ids)} shots)"
+    return short if len(short) <= MAX_NAME else short[:MAX_NAME]
+
+
+def _blocks(body: list[tuple[str, float, float]], start: float, end: float, pre_s: float, tail_s: float,
+            styles: dict, shots_by_id: dict) -> list[dict]:
+    """A part's blocks, whatever the plan's shape: pre-roll, one per shot span inside [start, end] (merged to at least
+    3 s), tail. Durations come from rounded cumulative boundaries, so they add up exactly."""
     spans = []
     for sid, a, b in body:
         a, b = max(a, start), min(b, end)
         if b - a > 1e-6:
-            spans.append([sid, a - start + pre_s, b - start + pre_s])
-    # every section at least 3 s: a short one joins the section after it (so a short last shot joins the tail)
-    rows = [["pre-roll", 0.0, pre_s]] + spans + [["tail", pre_s + (end - start), pre_s + (end - start) + tail_s]]
+            spans.append([[sid], a - start + pre_s, b - start + pre_s])
+    # every block at least 3 s: a short one joins the block after it (so a short last shot joins the tail)
+    rows = [[["pre-roll"], 0.0, pre_s]] + spans + [[["tail"], pre_s + (end - start), pre_s + (end - start) + tail_s]]
     i = 1
     while i < len(rows) - 1:
         if rows[i][2] - rows[i][1] < MIN_SECTION_S:
             j = i + 1 if i + 1 < len(rows) else i - 1
             lo, hi = min(i, j), max(i, j)
-            name = rows[i][0] + "+" + rows[j][0] if j > i else rows[j][0] + "+" + rows[i][0]
-            rows[lo:hi + 1] = [[name, rows[lo][1], rows[hi][2]]]
+            rows[lo:hi + 1] = [[rows[lo][0] + rows[hi][0], rows[lo][1], rows[hi][2]]]
             i = max(1, lo)
             continue
         i += 1
     ms = [int(round(r[1] * 1000)) for r in rows] + [int(round(rows[-1][2] * 1000))]
-    names = [r[0] for r in rows]
-    sections = []
-    for i, name in enumerate(names):
+    out = []
+    for i, (ids, _a, _b) in enumerate(rows):
         pos, neg = [], []
-        if name == "pre-roll":
+        if ids == ["pre-roll"]:
             pos = ["the part's opening, already at its full level by the end of this section"]
             neg = ["silence", "fade-in from nothing"]
-        elif name.endswith("tail"):
+        elif ids[-1] == "tail":
             pos = ["carries on at the same level, no ending, no fade"]
             neg = ["ending", "fade out", "silence"]
         else:
-            for sid in name.split("+"):
+            for sid in ids:
                 pos += list((styles.get(sid) or []))
                 note = (shots_by_id.get(sid) or {}).get("music")
                 if note:
                     pos += [note] if isinstance(note, str) else list(note)
-        sections.append({"section_name": name, "positive_local_styles": pos, "negative_local_styles": neg,
-                         "duration_ms": ms[i + 1] - ms[i], "lines": []})
-    return sections
+        out.append({"name": _name(ids), "shots": [x for x in ids if x not in ("pre-roll", "tail")],
+                    "positive": pos, "negative": neg, "duration_ms": ms[i + 1] - ms[i]})
+    return out
+
+
+def _sections(blocks: list[dict]) -> list[dict]:
+    """music_v1's sections (instrumental: no lyrics lines)."""
+    return [{"section_name": b["name"], "positive_local_styles": b["positive"], "negative_local_styles": b["negative"],
+             "duration_ms": b["duration_ms"], "lines": []} for b in blocks]
+
+
+def _chunks(blocks: list[dict], pos_g: list[str], neg_g: list[str]) -> list[dict]:
+    """music_v2's chunks: the global styles ride on every chunk (there are none above them any more), then the
+    block's own. The text is only the block's [name]: an instrumental score has no lyrics."""
+    out = []
+    for b in blocks:
+        pos = list(dict.fromkeys([*pos_g, *b["positive"], "instrumental"]))
+        neg = list(dict.fromkeys([*neg_g, *b["negative"], "vocals"]))
+        out.append({"text": f"[{b['name']}]", "duration_ms": b["duration_ms"], "positive_styles": pos,
+                    "negative_styles": neg})
+    return out
+
+
+def composition_plan(blocks: list[dict], schema: str, pos_g: list[str], neg_g: list[str]) -> dict:
+    """What's sent to Eleven Music, in the shape the model takes."""
+    if schema == "sections":
+        return {"positive_global_styles": pos_g, "negative_global_styles": neg_g, "sections": _sections(blocks)}
+    return {"chunks": _chunks(blocks, pos_g, neg_g)}
+
+
+def plan_blocks(comp: dict) -> list[tuple[str, int]]:
+    """[(name, duration_ms)] of a composition plan of either shape (assembly compares them across recomposes)."""
+    if "chunks" in comp:
+        out = []
+        for i, c in enumerate(comp.get("chunks") or []):
+            m = re.match(r"^\[([^\]]+)\]", str(c.get("text") or ""))
+            out.append((m.group(1) if m else f"#{i + 1}", int(c.get("duration_ms") or 0)))
+        return out
+    return [(str(s.get("section_name")), int(s.get("duration_ms") or 0)) for s in comp.get("sections") or []]
 
 
 def global_styles(film: Film, extra: dict | None = None) -> tuple[list[str], list[str]]:
@@ -229,6 +291,7 @@ def build(film_dir: Path, *, seeds: list[int] | None = None, write: bool = True)
     film = load(film_dir)
     d = directions(film)
     model_id = config.model("music", film.data)
+    schema = plan_schema(model_id)
     limit = max_part_s(model_id)
     shots_by_id = film.shots_by_id()
     part_dirs = d.get("parts") or {}
@@ -274,16 +337,20 @@ def build(film_dir: Path, *, seeds: list[int] | None = None, write: bool = True)
     parts = []
     for p in raw:
         tail = STOP_TAIL_S if p["end_kind"] == "stop" else TAIL_S
-        sections = _sections(body_all, p["landing_s"], p["hand_over_s"], pre_s, tail, d.get("section_styles") or {},
-                             shots_by_id)
-        total_ms = sum(s["duration_ms"] for s in sections)
+        blocks = _blocks(body_all, p["landing_s"], p["hand_over_s"], pre_s, tail, d.get("section_styles") or {},
+                         shots_by_id)
+        total_ms = sum(b["duration_ms"] for b in blocks)
         if total_ms / 1000 >= limit:
             raise UsageError(f"Part {p['id']} would be {total_ms / 1000:.1f} s with its pre-roll and tail, not under the "
                              f"{limit:g} s limit; split it (directions.json \"split\").")
-        short = [s for s in sections if s["duration_ms"] < MIN_SECTION_S * 1000]
+        short = [b for b in blocks if b["duration_ms"] < MIN_SECTION_S * 1000]
         if short:
-            raise UsageError(f"Part {p['id']}: section {short[0]['section_name']} is under {MIN_SECTION_S:g} s.")
-        comp = {"positive_global_styles": pos_g, "negative_global_styles": neg_g, "sections": sections}
+            raise UsageError(f"Part {p['id']}: section {short[0]['name']} is under {MIN_SECTION_S:g} s.")
+        long_ = [b for b in blocks if b["duration_ms"] > MAX_SECTION_S * 1000]
+        if long_:
+            raise UsageError(f"Part {p['id']}: section {long_[0]['name']} runs {long_[0]['duration_ms'] / 1000:.1f} s, "
+                             f"past Eleven Music's {MAX_SECTION_S:g} s; split the shot (directions.json \"split\").")
+        comp = composition_plan(blocks, schema, pos_g, neg_g)
         if p["end_kind"] == "stop":
             stops.append({"from": round(p["hand_over_s"] - p["stop_before_s"], 3), "to": round(p["hand_over_s"], 3),
                           "why": f"{p['id']} stops dead {p['stop_before_s']:g} s before {p['hand_over_s']:.3f} s (a held breath)"})
@@ -292,6 +359,8 @@ def build(film_dir: Path, *, seeds: list[int] | None = None, write: bool = True)
                       "landing_s": round(p["landing_s"], 6), "landing_from": p["landing_from"],
                       "hand_over_s": round(p["hand_over_s"], 6), "pre_roll_s": pre_s, "tail_s": tail,
                       "seconds": round(total_ms / 1000, 3), "shape_db": p["shape_db"],
+                      "plan_schema": schema, "blocks": [{"name": b["name"], "shots": b["shots"],
+                                                         "duration_ms": b["duration_ms"]} for b in blocks],
                       "plan_file": f"{SCORE_DIR}/plans/{p['id']}.json", "composition_plan": comp})
     broadcast = film.broadcast()
     licence = {"broadcast": broadcast, "needs_enterprise": broadcast,
@@ -300,7 +369,7 @@ def build(film_dir: Path, *, seeds: list[int] | None = None, write: bool = True)
                         "an Enterprise licence before the film airs.") if broadcast else
                        "Online use: a paid Eleven Music plan covers it."}
     plan = {"kind": "plan", "film": film.id, "model_id": model_id, "model_note": "always passed explicitly: the API's "
-            "default is an older model", "sample_rate": film.sr, "duration_s": round(film.duration_s, 6),
+            "default is an older model", "plan_schema": schema, "sample_rate": film.sr, "duration_s": round(film.duration_s, 6),
             "fps_num": film.fps_num, "fps_den": film.fps_den, "pre_roll_s": pre_s, "max_part_s": limit,
             "min_section_s": MIN_SECTION_S, "seeds": list(seeds or d.get("seeds") or (film.palette.get("score") or {}).get("seeds") or [7, 21]),
             "level_lufs": float((film.palette.get("score") or {}).get("level_lufs", -16.0)),
@@ -316,6 +385,10 @@ def build(film_dir: Path, *, seeds: list[int] | None = None, write: bool = True)
         for part in parts:
             jsonio.write_atomic(film.path(part["plan_file"]), copy.deepcopy(part["composition_plan"]))
         jsonio.write_atomic(out / "plan.json", jsonio.mark_generated(plan, "slate score plan"))
+        from slate.sound.film import record_lock  # noqa: PLC0415
+
+        record_lock(film, f"{SCORE_DIR}/plan.json", producer="slate score plan",
+                    inputs=[p for p in ("timing/shots.json", f"{SCORE_DIR}/directions.json") if film.path(p).exists()])
     return plan
 
 

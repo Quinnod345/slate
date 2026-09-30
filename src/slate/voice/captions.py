@@ -243,15 +243,17 @@ def gather(film_dir: Path) -> dict:
     from slate.voice.film import VoiceFilm  # noqa: PLC0415
     from slate.voice.measure import whisper_words  # noqa: PLC0415
 
+    from slate.voice.film import source as film_source  # noqa: PLC0415
+
     vf = VoiceFilm(film_dir)
-    timing = vf.dir / "timing"
-    if not (timing / "shots.json").is_file():
+    timing = {name: film_source(vf.dir, f"timing/{name}") for name in ("shots.json", "vo_words.json", "vo_cues.json")}
+    if not timing["shots.json"].is_file():
         raise MissingPrerequisite("Captions need the film's timing (timing/shots.json).", hint="Run `slate timing`.")
-    shots_json = jsonio.read(timing / "shots.json")
+    shots_json = jsonio.read(timing["shots.json"])
     shots = {s["id"]: s for s in shots_json.get("shots") or []}
     source = "timing/vo_words.json"
-    if (timing / "vo_words.json").is_file():
-        words = jsonio.read(timing / "vo_words.json").get("shots") or {}
+    if timing["vo_words.json"].is_file():
+        words = jsonio.read(timing["vo_words.json"]).get("shots") or {}
     else:
         source = "voice/align"
         words = {}
@@ -267,14 +269,14 @@ def gather(film_dir: Path) -> dict:
     if missing:
         raise MissingPrerequisite(f"Word timings for shots the timing doesn't have: {', '.join(missing)}.",
                                   hint="Run `slate timing` again.")
-    cue_at = {c["shot"]: float(c["at"]) for c in (jsonio.read(timing / "vo_cues.json", default={}) or {}).get("cues", [])
+    cue_at = {c["shot"]: float(c["at"]) for c in (jsonio.read(timing["vo_cues.json"], default={}) or {}).get("cues", [])
               if c.get("shot") and c.get("at") is not None}
     for sid in words:
         cue_at.setdefault(sid, vf.lead(sid))
     fps_num = int(shots_json.get("fps_num") or vf.data.get("fps_num"))
     fps_den = int(shots_json.get("fps_den") or vf.data.get("fps_den") or 1)
     return {"film": vf, "shots": shots, "words": words, "cue_at": cue_at, "fps_num": fps_num, "fps_den": fps_den,
-            "source": source}
+            "source": source, "inputs": [p for p in timing.values() if p.is_file()]}
 
 
 def build(film_dir: str | Path, *, parity: bool = False) -> list[Path]:
@@ -299,4 +301,16 @@ def build(film_dir: str | Path, *, parity: bool = False) -> list[Path]:
     if problems_schema:  # pragma: no cover - a bug here, not in the film
         raise MissingPrerequisite("captions.json doesn't match its schema: " + "; ".join(problems_schema[:5]))
     out = jsonio.write_atomic(folder / "captions.json", data)
+    from slate.voice.film import record  # noqa: PLC0415
+
+    inputs = list(g["inputs"])
+    if g["source"] == "voice/align":
+        inputs += sorted((vf.dir / "voice" / "align").glob("*.json"))
+    for path in (out, srt, vtt):
+        try:
+            record(vf.dir, vf.rel(path), producer="slate voice captions", inputs=[str(p) for p in inputs])
+        except Exception as exc:  # noqa: BLE001 - the captions are written either way; say what couldn't be recorded
+            from slate import log  # noqa: PLC0415
+
+            log.warn(f"couldn't record {vf.rel(path)} in film.lock.json: {getattr(exc, 'message', exc)}")
     return [out, srt, vtt]

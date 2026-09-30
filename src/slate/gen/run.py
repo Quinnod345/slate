@@ -152,16 +152,24 @@ def _notify(message: str, *, title: str) -> dict:
     if notify is None:
         return {"sent": False, "why": "slate.notify isn't installed yet: send the message yourself"}
     sent: dict = {"sent": False}
-    try:
-        if hasattr(notify, "imessage"):
-            notify.imessage(message)
-            sent["imessage"] = True
-        if hasattr(notify, "push"):
-            notify.push(title, message)
-            sent["push"] = True
-        sent["sent"] = bool(sent.get("imessage") or sent.get("push"))
-    except Exception as exc:  # noqa: BLE001 - a failed notification mustn't lose the request; it's written anyway
-        sent["error"] = str(exc)[:300]
+    # Each channel on its own: a route that isn't set up (no iMessage handle, no push route) is reported, and never
+    # stops the other. What notify says it sent is what's recorded, never assumed.
+    for channel, send in (("imessage", lambda: notify.imessage(message)),
+                          ("push", lambda: notify.push(title, message))):
+        if not hasattr(notify, channel):
+            continue
+        try:
+            res = send()
+            ok = bool(res.get("sent", True)) if isinstance(res, dict) else True
+            sent[channel] = ok
+            if not ok and isinstance(res, dict) and res.get("why"):
+                sent[f"{channel}_why"] = str(res["why"])[:200]
+        except Exception as exc:  # noqa: BLE001 - a failed notification mustn't lose the request; it's written anyway
+            sent[channel] = False
+            sent[f"{channel}_error"] = str(getattr(exc, "message", exc))[:300]
+    sent["sent"] = bool(sent.get("imessage") or sent.get("push"))
+    if not sent["sent"]:
+        sent["why"] = "nothing went out: send the message yourself (the request is written either way)"
     return sent
 
 
@@ -302,11 +310,14 @@ def run(film_dir: Path, shot_id: str, *, takes: int | None = None, approval: str
                     "verdict_by": None, "verdict_at": None, "verdict_why": None, "sha256": None}
             key = request_key_for(prep.film, shot_id, take["id"], prep.model, body)
             take.update(request_key=key, idempotency_key=higgsfield.idempotency_key(key))
+            if request:
+                take["approval_slot"] = approval_slot(approval_id, int(request.get("takes") or prep.takes))
             rec["takes"].append(take)
             store.save_record(film_dir, shot_id, rec)
             _write_ahead(film_dir, shot_id, take, prep.model, body)  # the exact body, before the POST
             try:
-                sub = client.submit(prep.model, body, film=film_dir, mode=prep.mode, approval_id=approval_id,
+                sub = client.submit(prep.model, body, film=film_dir, mode=prep.mode,
+                                    approval_id=take.get("approval_slot") or approval_id,
                                     note=_take_note(rec, take["id"]), key=key)
             except SlateError as exc:
                 take.update(status="error", error=exc.message, finished_at=deps.now_iso())
@@ -328,6 +339,21 @@ def run(film_dir: Path, shot_id: str, *, takes: int | None = None, approval: str
     summary["next"] = (f"slate gen judge --shot {shot_id}" if summary["completed"] >= policy.MIN_TAKES
                        else f"slate gen run --shot {shot_id}")
     return summary
+
+
+def approval_slot(yes_id: str, takes: int) -> str:
+    """The ledger approval for one take: the person's yes covers the request's N takes, and the ledger lets an
+    approval id pay for one call, so each take spends under its own slot of the yes (`<yes>#1` … `#N`). A slot whose
+    call failed or was cancelled (nothing billed) is free again; when every slot is used, the yes is spent."""
+    used = {r.get("approval_id") for r in ledger.rows(provider=higgsfield.PROVIDER)
+            if str(r.get("approval_id") or "").startswith(f"{yes_id}#") and r.get("status") not in ("failed",
+                                                                                                    "cancelled")}
+    for k in range(1, max(1, takes) + 1):
+        slot = f"{yes_id}#{k}"
+        if slot not in used:
+            return slot
+    raise SpendRefused(f"The yes {yes_id} covered {takes} take(s), and every one of them has been paid for.",
+                       hint="Ask the person again for more takes (slate gen request-approval).")
 
 
 def _take_note(rec: dict, take_id: str) -> str:
@@ -406,8 +432,9 @@ def _resubmit(film_dir: Path, rec: dict, take: dict, client: higgsfield.Client, 
     if sent.get("request_key") != take.get("request_key"):
         raise Refused(f"{rec['shot']} {take['id']}: its write-ahead record doesn't match the take, so it isn't sent "
                       "again.", hint="Check the Higgsfield console for the request, then run a new take.")
-    sub = client.submit(sent["model"], sent["body"], film=film_dir, mode=prep.mode, approval_id=approval_id,
-                        note=_take_note(rec, take["id"]), key=take["request_key"])
+    sub = client.submit(sent["model"], sent["body"], film=film_dir, mode=prep.mode,
+                        approval_id=take.get("approval_slot") or approval_id, note=_take_note(rec, take["id"]),
+                        key=take["request_key"])
     take.pop("resend", None)
     take["error"] = None
     _took(take, sub)
@@ -460,6 +487,10 @@ def _apply_final(film_dir: Path, rec: dict, take: dict, final: dict, client: hig
         except SlateError as exc:
             take["error"] = f"download failed ({exc.message}); retry with slate gen takes --refresh"
     take["files"] = [deps.rel(film_dir, f) for f in files]
+    ahead = _submit_record(film_dir, rec["shot"], take["id"])
+    for f in files:  # made by the request written ahead of the POST (the exact body)
+        deps.record_made(film_dir, deps.rel(film_dir, f), producer="slate gen run",
+                         inputs={deps.rel(film_dir, ahead): None} if ahead.is_file() else {})
     if files:
         take["probe"] = _probe(files[0])
 

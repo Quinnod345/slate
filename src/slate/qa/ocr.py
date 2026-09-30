@@ -19,6 +19,7 @@ import contextlib
 import importlib
 import os
 import platform
+import sys
 from dataclasses import dataclass
 from importlib import metadata
 from pathlib import Path
@@ -66,6 +67,34 @@ def _ocrmac_version() -> str:
         return str(getattr(mod, "__version__", "unknown"))
 
 
+@contextlib.contextmanager
+def stdout_to_stderr() -> Iterator[None]:
+    """Send file descriptor 1 to stderr for the duration of the block.
+
+    Apple Vision writes diagnostics ("Unable to find a valid E5 …") straight to fd 1 from native code, below Python's
+    sys.stdout, so a `slate … --json` run that reads the picture would print them into its JSON. Everything the block
+    writes to fd 1 lands on stderr instead, where logs go; stdout carries only the command's own output."""
+    try:
+        sys.stdout.flush()
+    except (AttributeError, ValueError, OSError):
+        pass
+    try:
+        saved = os.dup(1)
+    except OSError:  # no fd 1 to protect (a detached process): nothing to redirect
+        yield
+        return
+    try:
+        os.dup2(2, 1)
+        yield
+    finally:
+        try:
+            sys.stdout.flush()
+        except (AttributeError, ValueError, OSError):
+            pass
+        os.dup2(saved, 1)
+        os.close(saved)
+
+
 @dataclass
 class VisionBackend:
     """Apple Vision's text recognizer through ocrmac."""
@@ -76,7 +105,8 @@ class VisionBackend:
     def recognize(self, image) -> list[dict]:
         from ocrmac import ocrmac  # noqa: PLC0415 - optional extra, imported only when OCR actually runs
 
-        rows = ocrmac.OCR(image, framework="vision", recognition_level=self.recognition_level).recognize()
+        with stdout_to_stderr():  # Vision's own diagnostics must never reach a --json stdout
+            rows = ocrmac.OCR(image, framework="vision", recognition_level=self.recognition_level).recognize()
         out = []
         for row in rows:
             text, conf, box = row[0], float(row[1]), list(row[2]) if len(row) > 2 else None
@@ -95,7 +125,8 @@ def _engine(lvl: str, version: str) -> dict:
 def _probe(lvl: str) -> tuple[Backend | None, dict]:
     """Import ocrmac and read a tiny rendered word, so 'available' means Vision really runs at this level."""
     try:
-        importlib.import_module("ocrmac.ocrmac")
+        with stdout_to_stderr():  # loading Vision can print to fd 1 too
+            importlib.import_module("ocrmac.ocrmac")
     except Exception as exc:  # noqa: BLE001 - ImportError, or pyobjc failing to load Vision
         return None, {"name": ENGINE_NAME, "version": "not installed", "recognition_level": lvl, "macos": _macos(),
                       "reason": f"ocrmac isn't importable in Slate's environment ({type(exc).__name__}: {exc})",

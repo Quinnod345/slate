@@ -316,3 +316,13 @@ def test_the_estimate_shows_the_price_and_the_saving_apart(film, monkeypatch):
     assert code == 0
     assert out["estimate_usd_per_take"] == 0.308 and out["saving_usd_per_take"] == 0.252
     assert out["list_usd_per_take"] == pytest.approx(0.56) and out["estimate_usd_total"] == pytest.approx(0.616)
+
+
+def test_gates_name_their_stage_for_slate_status(film):
+    """gen_takes:<shot> has "takes" in its name, which `slate status` would read as a voice gate without its stage."""
+    _generate(film)
+    run_json(["gen", "judge", "--film", str(film), "--shot", "S02"])
+    report = gates.load_report(film)
+    assert report["gen_takes:S02"].details["stage"] == "generated"
+    status = pytest.importorskip("slate.state.status")
+    assert status._gate_stage(report["gen_takes:S02"]) == "generated"  # noqa: SLF001

@@ -161,6 +161,76 @@ def review_half(film: Film, out: Path, *, source: Source | None = None) -> dict:
             "sound": bool(audio_map)}
 
 
+# ---------------------------------------------------------------------------------------------------------------
+# Platform files (a format's encode.files: the App Store preview's H.264, the hero loop's MP4 and WebM)
+
+CONTAINERS = {"mp4": "mp4", "m4v": "mp4", "mov": "mov", "webm": "webm"}
+ENCODERS = {"h264": "libx264", "vp9": "libvpx-vp9", "av1": "libsvtav1"}
+
+
+def _platform_video_args(video: dict) -> list[str]:
+    """Encoder arguments for one platform file's picture, from its spec (sizes and rates always the film's own)."""
+    codec = video.get("codec")
+    encoder = ENCODERS.get(codec)
+    if encoder is None:
+        raise SlateError(f"No encoder for a {codec!r} platform file; the formats know h264, vp9 and av1.")
+    if not media.has_encoder(encoder):
+        raise MissingPrerequisite(f"This ffmpeg has no {encoder}, which the platform's {codec} file needs.",
+                                  hint="Install an ffmpeg built with it (`brew install ffmpeg`), or run `slate doctor`.")
+    args = ["-c:v", encoder]
+    if codec == "h264":
+        args += ["-preset", str(video.get("preset") or "medium")]
+        args += ["-b:v", str(video["bitrate"])] if video.get("bitrate") else ["-crf", str(video.get("crf", 20))]
+        if video.get("maxrate"):
+            args += ["-maxrate", str(video["maxrate"]), "-bufsize", str(video.get("bufsize") or video["maxrate"])]
+        if video.get("profile"):
+            args += ["-profile:v", str(video["profile"])]
+        if video.get("level"):
+            args += ["-level:v", str(video["level"])]
+    elif codec == "vp9":
+        args += (["-b:v", str(video["bitrate"])] if video.get("bitrate")
+                 else ["-b:v", "0", "-crf", str(video.get("crf", 33))])
+        args += ["-deadline", "good", "-cpu-used", "2", "-row-mt", "1"]
+    else:
+        args += ["-crf", str(video.get("crf", 35)), "-preset", str(video.get("preset") or "8")]
+    return args + ["-pix_fmt", str(video.get("pix_fmt") or "yuv420p"), *media.BT709]
+
+
+def platform_file(film: Film, spec: dict, out: Path, *, source: Source | None = None) -> dict:
+    """One platform file, encoded from the source (the master, in a delivery) to the format's spec: the film's own
+    size and clock, exactly its frames, and sound only when the spec asks for it (a hero loop carries no audio track
+    at all, so browsers may autoplay it)."""
+    media.require()
+    source = source or source_for(film)
+    video, sound = spec.get("video") or {}, spec.get("audio")
+    container = CONTAINERS.get(str(spec.get("container")))
+    if container is None:
+        raise SlateError(f"Unknown container {spec.get('container')!r} for {spec.get('id')}.")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    part = out.with_name(f".{out.stem}.part{out.suffix}")
+    with tempfile.TemporaryDirectory(prefix="slate-platform-") as tmp_s:
+        inputs, audio_map, _n = source.ffmpeg_inputs(Path(tmp_s))
+        keep_sound = bool(sound) and audio_map is not None
+        argv = ["ffmpeg", "-v", "error", "-nostdin", "-y", *inputs, "-map", "0:v:0"]
+        argv += ["-map", audio_map] if keep_sound else []
+        argv += _platform_video_args(video)
+        if keep_sound:
+            argv += ["-c:a", "aac", "-b:a", str(sound.get("bitrate") or "256k"), "-ac", str(sound.get("channels") or 2),
+                     "-ar", str(sound.get("rate") or 48000)]
+        else:
+            argv += ["-an"]
+        if spec.get("faststart") and container in ("mp4", "mov"):
+            argv += ["-movflags", "+faststart"]
+        argv += ["-f", container, str(part)]
+        media.run(argv, what=f"Encoding {spec.get('label') or spec.get('id')}",
+                  timeout=media.timeout_for(film.total_frames, 1.0))
+    _check_frames(film, part, str(spec.get("label") or spec.get("id")))
+    part.replace(out)
+    return {"file": out, "id": spec.get("id"), "label": spec.get("label"), "container": spec.get("container"),
+            "codec": video.get("codec"), "frames": film.total_frames, "sound": keep_sound,
+            "bytes": out.stat().st_size}
+
+
 def thumbnail_frames(film: Film) -> list[int]:
     """Film frames for the thumbnails: film.json "deliver": {"thumbnails": [...]} (frames or shot ids), else the
     middle of each act's longest shot, at most [finish.deliver] thumbnails of them, spread across the film."""

@@ -66,8 +66,14 @@ def read_info(app: Path) -> dict:
     plist = app / "Info.plist"
     if not plist.is_file():
         return {}
-    with plist.open("rb") as fh:
-        info = plistlib.load(fh)
+    try:
+        with plist.open("rb") as fh:
+            info = plistlib.load(fh)
+    except (plistlib.InvalidFileException, ValueError, OSError) as exc:
+        raise UsageError(f"{plist} isn't a readable property list, so {app.name} doesn't look like an app bundle.",
+                         hint="Point the spec's app.path at the .app Xcode built for the Simulator.") from exc
+    if not isinstance(info, dict):
+        raise UsageError(f"{plist} doesn't describe an app (it isn't a dictionary of bundle keys).")
     return {"bundle_id": info.get("CFBundleIdentifier"), "version": info.get("CFBundleShortVersionString"),
             "build": info.get("CFBundleVersion"), "name": info.get("CFBundleName")}
 

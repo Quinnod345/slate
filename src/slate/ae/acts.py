@@ -409,6 +409,11 @@ def export(film_dir: str | os.PathLike, act: int, *, spec: dict | None = None) -
     events_path = film_dir / "timing" / "visual_events" / f"act{act}.json"
     jsonio.write_atomic(motion_path, trace)
     jsonio.write_atomic(events_path, evs if isinstance(evs, list) else {**evs, "generated": GENERATED})
+    from slate.ae import provenance  # noqa: PLC0415
+
+    provenance.note(film_dir, [motion_path.relative_to(film_dir), events_path.relative_to(film_dir)],
+                    producer="slate ae acts export",
+                    inputs=[f"{SCENE_DIR}/act{act}.json", "timing/shots.json", "timing/timeline.json"])
     return {"act": act, "motion": str(motion_path.relative_to(film_dir)), "entries": len(trace),
             "events": str(events_path.relative_to(film_dir)),
             "beats": len(evs) if isinstance(evs, list) else 0, "silent": not isinstance(evs, list)}
@@ -427,7 +432,8 @@ def trace_from_samples(raw: list[dict], act: dict, shots: dict, *, act_offset: b
     """engine/ae/trace_export.jsx samples (as AE evaluated them) -> §12 trace entries in film frames.
 
     The ease is recorded as "measured": the curve is whatever AE drew, and `slate qa motion` checks the samples
-    against the brand's eases by shape.
+    against the brand's eases by shape. `keys` (film frames) says where each of the property's key frames sits, so the
+    gate can split two moves chained without a stop at the key they share.
     """
     a_in = int(act["frame_in"]) if act_offset else 0
     out = []
@@ -437,10 +443,13 @@ def trace_from_samples(raw: list[dict], act: dict, shots: dict, *, act_offset: b
             continue
         prop = _PROP_NAMES.get(r.get("match_name"), str(r.get("prop") or r.get("match_name") or "other").lower())
         f0, f1 = samples[0][0], samples[-1][0]
-        out.append({"id": f"{r.get('layer')}.{prop}", "shot": shot_at(shots, act, f0), "prop": prop,
-                    "ease": "measured", "frame_in": f0, "frame_out": f1, "from": samples[0][1], "to": samples[-1][1],
-                    "samples": samples, "entrance": False, "loop_period": None, "rig": None, "engine": "ae",
-                    "layer": r.get("layer")})
+        entry = {"id": f"{r.get('layer')}.{prop}", "shot": shot_at(shots, act, f0), "prop": prop,
+                 "ease": "measured", "frame_in": f0, "frame_out": f1, "from": samples[0][1], "to": samples[-1][1],
+                 "samples": samples, "entrance": False, "loop_period": None, "rig": None, "engine": "ae",
+                 "layer": r.get("layer")}
+        if isinstance(r.get("keys"), list):
+            entry["keys"] = sorted({int(k) + a_in for k in r["keys"]})
+        out.append(entry)
     return out
 
 
@@ -463,6 +472,10 @@ def export_measured(film_dir: str | os.PathLike, act: int, *, go: bool = False, 
     trace = trace_from_samples(raw, entry, shots)
     path = film_dir / "timing" / "motion" / f"act{act}.json"
     jsonio.write_atomic(path, trace)
+    from slate.ae import provenance  # noqa: PLC0415
+
+    provenance.note(film_dir, [path.relative_to(film_dir)], producer=f"slate ae acts measure {act}",
+                    inputs=[spec_path, spec["paths"]["aep"]])
     return {"act": act, "motion": str(path.relative_to(film_dir)), "entries": len(trace), "measured": True}
 
 

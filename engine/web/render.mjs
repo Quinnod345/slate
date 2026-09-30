@@ -156,8 +156,8 @@ function globalsFor(job, fonts) {
  */
 export function filmDataFor(ctx, brandJson = null, brandDir = null) {
   const brand = brandJson ? inlineBrand(brandJson, brandDir) : null;
-  const source = filmDataSource(ctx, path.join(ctx.dir, 'slate-web-film-data.ts'), {brand, brandDir});
-  const contents = source.replace(/(\bfrom\s+')(\.[^./'][^']*')/g, '$1./$2');
+  // written as if it sat at the film's root, so its imports ('./timing/shots.json', './.slate/spoken.json') resolve there
+  const contents = filmDataSource(ctx, path.join(ctx.dir, 'slate-web-film-data.ts'), {brand, brandDir});
   return {contents, resolveDir: ctx.dir};
 }
 

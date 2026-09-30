@@ -26,6 +26,9 @@ import {browserLogCollector, fontGate} from './kit_bridge.mjs';
 
 const SOURCE_EXT = /\.(tsx?|jsx?|mjs)$/;
 
+/** The stage `slate status` files the hand-in gates under (their names don't say it; "banned" reads as the script's). */
+export const STAGE = 'scenes';
+
 function gate(name, status, summary, extra = {}) {
   return {
     gate: name,
@@ -35,7 +38,7 @@ function gate(name, status, summary, extra = {}) {
     engine: extra.engine ?? {name: 'slate engine', version: 'unknown'},
     inputs: extra.inputs ?? {},
     checked_at: new Date().toISOString(),
-    details: extra.details ?? {},
+    details: {...(extra.details ?? {}), stage: STAGE},
   };
 }
 
@@ -501,7 +504,7 @@ export async function checkAct(ctx, args, {bundles = null} = {}) {
     const c = await contractsGate(ctx, act, loaded, `${p}.contracts`, args, bundles);
     gates.push(c.gate);
     // the contract stills ran the kit's font gate: its verdict is part of the hand-in too
-    if (c.fonts) gates.push({...c.fonts, gate: `${p}.fonts`});
+    if (c.fonts) gates.push({...c.fonts, gate: `${p}.fonts`, details: {...(c.fonts.details ?? {}), stage: STAGE}});
   }
   const worst = ['FAIL', 'STALE', 'UNCHECKED', 'REVIEW', 'PASS'].find((s) => gates.some((g) => g.status === s));
   return {act, gates, status: worst, passed: gates.every((g) => g.status === 'PASS')};

@@ -1,0 +1,13 @@
+{
+ "id": "kit-e2e",
+ "title": "Kit end to end",
+ "format": "test",
+ "language": "en",
+ "fps_num": 25,
+ "fps_den": 1,
+ "width": 320,
+ "height": 180,
+ "brand": "kit-e2e-brand",
+ "mode": "draft",
+ "note": "A neutral fixture film for the engines' end-to-end tests: act 1 is built with the kit (Remotion), act 2 is left for the open web renderer's template. 25 fps and 320 x 180 on purpose, so nothing leans on a common rate or size."
+}

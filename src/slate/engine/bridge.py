@@ -123,9 +123,22 @@ def brand_path(film_dir: Path) -> Path | None:
     return None
 
 
+def film_file(film_dir: Path, rel: str) -> Path:
+    """A film's file: its own copy, else (a derived film) the parent's file its film.lock.json points to."""
+    own = Path(film_dir) / rel
+    if own.exists():
+        return own
+    try:
+        from slate.state import lock  # noqa: PLC0415 (the state module is optional here)
+
+        return Path(lock.resolve(Path(film_dir), rel))
+    except Exception:  # noqa: BLE001 - no state module, or no reference: the film's own (missing) path
+        return own
+
+
 def _heard_words(film_dir: Path) -> list[str]:
     """Every word the reads were heard as (timing/vo_words.json), so a heard "12" can answer a lookup for "twelve"."""
-    doc = jsonio.read(film_dir / "timing" / "vo_words.json", default=None)
+    doc = jsonio.read(film_file(film_dir, "timing/vo_words.json"), default=None)
     shots = doc.get("shots") if isinstance(doc, dict) else None
     if not isinstance(shots, dict):
         return []
@@ -139,7 +152,7 @@ def spoken_map(film_dir: Path) -> dict[str, list[list[str]]] | None:
     It covers the script's words (each shot's VO line) and what the reads were heard as, so the kit's clock can match a
     script word to a heard number either way round, as slate.timing.words does.
     """
-    shots = jsonio.read(film_dir / "timing" / "shots.json", default=None)
+    shots = jsonio.read(film_file(film_dir, "timing/shots.json"), default=None)
     if not shots:
         return None
     try:
@@ -196,8 +209,57 @@ def _write_if_changed(target: Path, obj: Any) -> None:
         jsonio.write_text_atomic(target, text)
 
 
+# What the engine reads from a film folder that a derived film (slate.state.derive) may hold only by reference: the
+# timing files '@film/data' is made from, and the media folders scenes read as image sequences.
+REF_FILES = ("timing/shots.json", "timing/timeline.json", "timing/vo_words.json", "timing/vo_cues.json",
+             "timing/events.json", "timing/captions.json")
+REF_DIRS = ("captures", "plates")
+
+
+def refs_map(film_dir: Path) -> dict[str, str]:
+    """Where a derived film's reused files really are: {film-relative path: absolute path in the parent film}.
+
+    A derived film reuses its parent's timings and captures by reference (its film.lock.json points into the parent;
+    nothing is copied), so the engine can't find them in the film's own folder. slate.state.lock.resolve knows where
+    they are. A film with its own copies (every film that isn't derived) gets an empty map.
+    """
+    try:
+        from slate.state import lock  # noqa: PLC0415 (the state module is optional here)
+    except Exception:  # noqa: BLE001
+        return {}
+    film_dir = Path(film_dir)
+    out: dict[str, str] = {}
+    for rel in REF_FILES:
+        own = film_dir / rel
+        real = film_file(film_dir, rel)
+        if real != own and real.is_file():
+            out[rel] = str(real.resolve())
+    try:
+        entries = lock.load(film_dir).get("files") or {}
+    except Exception:  # noqa: BLE001
+        entries = {}
+    for folder in REF_DIRS:
+        if (film_dir / folder).exists():
+            continue
+        for rel, entry in sorted(entries.items()):
+            parts = Path(rel).parts
+            if len(parts) < 2 or parts[0] != folder or not (entry or {}).get("ref"):
+                continue
+            try:
+                real = Path(lock.resolve(film_dir, rel))
+            except Exception:  # noqa: BLE001
+                continue
+            root = real.parents[len(parts) - 2] if len(real.parents) >= len(parts) - 1 else None
+            if root is not None and root.name == folder and root.is_dir():
+                out[folder] = str(root.resolve())
+                break
+    return out
+
+
 def prepare(film_dir: Path) -> None:
-    """Write .slate/spoken.json and .slate/lang.json when they change (the engine inlines both into '@film/data')."""
+    """Write what '@film/data' and the bundle need that only Python knows, when it changes: .slate/spoken.json (how
+    each number and symbol is said), .slate/lang.json (the language's match rules) and, for a derived film,
+    .slate/refs.json (where its reused files really are)."""
     film_dir = Path(film_dir)
     if not (film_dir / "film.json").is_file():
         return
@@ -207,6 +269,12 @@ def prepare(film_dir: Path) -> None:
     rules = lang_rules(film_dir)
     if rules is not None:
         _write_if_changed(film_dir / ".slate" / "lang.json", rules)
+    refs = refs_map(film_dir)
+    target = film_dir / ".slate" / "refs.json"
+    if refs:
+        _write_if_changed(target, refs)
+    elif target.is_file():
+        target.unlink()  # a film that now has its own copies must not keep reading its parent's
 
 
 # --- calling the engine ---------------------------------------------------------------------------------------------

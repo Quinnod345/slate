@@ -2,7 +2,16 @@
  "$comment": "Slate's own defaults that every format shares: the pace ceiling, caption limits, loudness presets, the default budgets from plan §8, the two channel routes and the format aliases. A format file states its own values; slate.formats checks them against these (a format may be tighter, never looser). Edit here, then run `slate formats check`.",
  "pace": {
   "max_words_per_second": 2.6,
-  "source": "Plan §7, stage 3: voice-over at no more than 2.6 words per second of shot."
+  "speech_rate": 2.7,
+  "source": "Plan §7, stage 3: voice-over at no more than 2.6 words per second of shot. speech_rate is the planning rate of speech itself (the films' storyboard generators planned at 2.7 words a second, about 160 a minute); a shot is planned at it until its take exists, then the take's measured length replaces it."
+ },
+ "read_time": {
+  "floor": 1.5,
+  "base": 0.4,
+  "per_word": 0.3,
+  "exit_factor": 0.75,
+  "default_entrance": 0.5,
+  "source": "The films' motion law, section 7 (minimum text read time): hold at least max(1.5 s, 0.4 s + 0.3 s x words), counted from the frame the text has settled (about 200 words a minute plus time to find the text). Exits take 0.75x their entrance; an entrance the brand's duration scale doesn't name counts as 0.5 s. A format's own read_time wins key by key; on_screen_max_words sets the density."
  },
  "captions": {
   "max_lines": 2,

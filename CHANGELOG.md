@@ -32,10 +32,26 @@ are data packs, and the tests use a neutral demo brand.
 - **Engine and render.** The Remotion kit (film clock, motion law, cards, type, app UI, charts, logo build, motif rig,
   captions, review sheets), `slate engine`, `slate emit-events` and `slate check`, and `slate render`: chunked,
   resumable renders with proven joins and splices.
+- **Open web renderer.** `slate render --engine web`: a scene as a local page, seeked frame by frame in headless
+  Chrome that only ever loads Slate's own pages, then encoded. It needs no Remotion licence.
+- **Reference analysis.** `slate analyze <video>`: cuts, on-screen text, measured eases, the transcript, stems and
+  beats of a reference film.
 - **Jobs and spend.** One machine-wide queue for long work (`slate job`, `slate jobs`), resource slots, disk
   reservations, resumable jobs, and `slate budget` and `slate ledger` with per-film and monthly caps.
 - **Evals.** `slate evals`: triggering, routing, negative cases, the dry run and the no-browser check across four agent
   configurations.
+- **Doctor and connect.** `slate doctor` checks everything Slate needs on this Mac and only reads: tools the way Slate
+  runs them (and the stale Intel copies an old Homebrew left in `/usr/local/bin`), the engine and its Chrome, keys by
+  presence and the vendors' free probes, After Effects without ever launching it, every agent's skills and MCP
+  registration, the job queue's runner and launchd agent, the default browser, and `~/.codex/AGENTS.md`'s Dia line.
+  Nothing unchecked is green. `slate connect claude|higgsfield|elevenlabs|aftereffects` does the promise's connect
+  steps; keys are typed only by a person, in their own Terminal.
+- **Install and update.** `install.sh` (one command, safe to run again), `slate install`, `slate uninstall` and
+  `slate update`: skills symlinked from one checkout into `~/.claude/skills` and `~/.agents/skills` (never
+  `~/.codex/skills`), the CLI in `~/.local/bin` and `/opt/homebrew/bin`, and the MCP server registered with Claude
+  Code, Codex and OpenClaw (`openclaw mcp add`, with a 30-second connect timeout); a scripted fresh-home test.
+- **Skills.** The ten skills in the open Agent Skills format (the `slate` front door plus story, motion, build, voice,
+  sound, generate, finish, QA and brand) and `docs/METHOD.md`.
 - **Packaging.** `slate mcp`, Slate's MCP server over the command line and job queue (long work always becomes a job);
   the desktop extension for the Claude app (`mcpb/`, packed by `slate mcpb build`); the plugin for Claude Code and
   Agent Plugins clients (`plugins/slate`) with its marketplace (`.claude-plugin/marketplace.json`); `slate skills
@@ -45,6 +61,5 @@ are data packs, and the tests use a neutral demo brand.
 
 ### Still to come in 0.1.0
 
-The skills themselves, brand packs and onboarding, formats, doctor and connect, the finish stages (`slate master`,
-`deliver`, `review`), reference analysis, the open web renderer, the knowledge ledger (`slate knowledge check`), the
-demo film, `slate update` and `install.sh`.
+Being finished: brand packs and onboarding, formats, and the finish stages (`slate master`, `deliver`, `review`).
+Not built yet: the knowledge ledger (`slate knowledge check`) and the demo film (`slate demo`).

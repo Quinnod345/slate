@@ -38,10 +38,10 @@ import numpy as np
 from slate import gates, jsonio, log
 from slate.errors import Busy, MissingPrerequisite, UsageError
 from slate.sound import audio, dsp, gap, measure, vo
-from slate.sound.film import MIX_DIR, SCORE_DIR, Film, load
+from slate.sound.film import MIX_DIR, SCORE_DIR, Film, load, record_lock
 from slate.sound.score import qa
 from slate.sound.score.compose import takes_for
-from slate.sound.score.plan import load_plan
+from slate.sound.score.plan import load_plan, plan_blocks
 
 JOIN_IN = {"start": (0.0, 0.02), "act": (-0.6, 0.6), "bloom": (0.0, 0.025), "lift": (-0.05, 0.10),
            "arrive": (-0.08, 0.12)}
@@ -115,18 +115,19 @@ def _lock(film: Film) -> Iterator[None]:
 
 
 def _drift(film: Film, take: Path, part: dict) -> dict | None:
-    """How far the part's sections have moved since this take was composed (from the plan saved beside it)."""
+    """How far the part's sections (or chunks) have moved since this take was composed (from the plan saved beside
+    it). A take composed from the other plan shape is compared by its blocks' names just the same."""
     snap = take.with_name(f"{take.stem}.plan.json")
     if not snap.exists():
         return None
-    then = jsonio.read(snap).get("sections") or []
-    now = part["composition_plan"]["sections"]
+    then = plan_blocks(jsonio.read(snap))
+    now = plan_blocks(part["composition_plan"])
 
-    def starts(secs: list) -> dict:
+    def starts(blocks: list[tuple[str, int]]) -> dict:
         out, at = {}, 0
-        for s in secs:
-            out[s["section_name"]] = at
-            at += int(s["duration_ms"])
+        for name, ms in blocks:
+            out[name] = at
+            at += int(ms)
         out["(end)"] = at
         return out
 
@@ -274,6 +275,8 @@ def assemble(film_dir: Path, picks: dict[str, str] | None = None, *, out: str | 
         record = _record(film, plan, chosen, mix, out_path)
         jsonio.write_atomic(film.path(f"{SCORE_DIR}/score.json") if not out else out_path.with_suffix(".json"),
                             jsonio.mark_generated(record, "slate score assemble"))
+        record_lock(film, film.rel(out_path), producer="slate score assemble",
+                    inputs=[f"{SCORE_DIR}/plan.json", *sorted({film.rel(c.path) for c in chosen})])
     return record
 
 

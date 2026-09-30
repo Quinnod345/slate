@@ -22,6 +22,9 @@ GUARDED = {
     # the films' voice ids and brand-kit id, their brand colours and the other font kit
     "2e7dc20ed2ed1d97", "4715650ab9e0c9ba", "4b916c20ce35d6ba", "55dba21b14c7d258", "30c07346a4e77ab1",
     "a30a9e529370f662", "bad936c77484aada", "7fa259c033887a81",
+    # the films' other distinctive colours (their teals, oranges, creams and reds)
+    "fb2b95447a31b356", "212c6e34978bf31f", "1f2401c1733346fa", "7ba2337ec67b6b43", "4bc7eb0c4824f537",
+    "394d55263b21668e", "14cae19d49b9701b", "c52a77f328a6c02c", "934cd28b6e3678a3",
 }
 OWNED = [paths.PACKAGE / "brand", paths.SCHEMAS_DIR / "brand.schema.json", paths.BRANDS_REPO / "_template",
          paths.BRANDS_REPO / "demo", Path(__file__).parent]

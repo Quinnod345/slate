@@ -28,6 +28,9 @@ CHECKS = ("project.bpc", "project.workingSpace", "project.linearBlending", "shot
           "footage.missing", "renders.format", "master.frames", "master.audio", "master.markers", "queue.chunks", "fonts",
           "expressions", "motionblur.native")
 ENGINE = "After Effects validate.jsx"
+# `slate status` files these under the master stage: names like ae.shots.comps or ae.fonts would otherwise read as
+# timing or scene gates.
+STAGE = "master"
 AUDIT_FILE = Path("ae") / "audit.json"
 Runner = Callable[..., Any]
 
@@ -53,14 +56,15 @@ def gates_from_report(checks: list[dict], *, aep: Path | None = None, ae_version
         c = seen.get(name)
         if c is None:
             out.append(GateResult.unchecked(f"ae.{name}", "the audit didn't report this check", engine=engine,
-                                            inputs=inputs, evidence=[str(aep)] if aep else []))
+                                            inputs=inputs, evidence=[str(aep)] if aep else [],
+                                            details={"check": name, "stage": STAGE}))
             continue
         status = str(c.get("status", "UNCHECKED")).upper()
         if status not in ("PASS", "FAIL", "UNCHECKED", "REVIEW"):
             status = "UNCHECKED"
         evidence = [str(c.get("evidence") or "")] + ([str(aep)] if aep else [])
         out.append(GateResult(f"ae.{name}", status, str(c.get("evidence") or name), evidence=evidence, engine=engine,
-                              inputs=inputs, details={"check": name}))
+                              inputs=inputs, details={"check": name, "stage": STAGE}))
     return out
 
 

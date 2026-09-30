@@ -226,7 +226,8 @@ def voice(film_dir: str | Path, *, only: str | list[str] | None = None, force: b
             data_m = vf.manifest()
             data_m["shots"][ln.shot]["approved"] = None  # the new take needs its own approval
             vf.save_manifest(data_m)
-        record(vf.dir, vf.rel(wav), producer="slate voice tts", inputs={}, tool_version=res["model"])
+        record(vf.dir, vf.rel(wav), producer="slate voice tts", tool_version=res["model"],
+               inputs=[f"film:pins.{k}" for k in PIN_KEYS if get_pin(vf.dir, k) is not None])
         if not res["replay"]:
             pin(vf.dir, f"request_id.{ln.shot}", res["request_id"], source="slate voice tts (first take)")
         if fit["fits"] is False:

@@ -14,7 +14,9 @@
   "paths": {
    "@slate/kit": ["./remotion/kit"],
    "@slate/kit/*": ["./remotion/kit/*"],
-   "@film/data": ["./remotion/data/neutral-film-data.ts"]
+   "@film/data": ["./remotion/data/neutral-film-data.ts"],
+   "@slate/web": ["./web/runtime/index.ts"],
+   "@slate/web/*": ["./web/runtime/*"]
   }
  },
  "include": ["remotion/**/*.ts", "remotion/**/*.tsx", "web/**/*.ts", "web/**/*.tsx"],

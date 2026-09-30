@@ -72,14 +72,22 @@ globally, and don't run `npm install`.
 # one module's tests
 .venv/bin/python -m pytest tests/<module> -q -p no:cacheprovider
 
+# the slow ones too (a whole install into a fresh home, a minute or more); the default run skips them
+SLATE_TEST_SLOW=1 .venv/bin/python -m pytest tests/install -q -p no:cacheprovider
+
 # the engine's tests
 cd engine && npx --no-install vitest run
 
 # generated copies and manifests still match their sources
 .venv/bin/python -m slate skills build --check
 .venv/bin/python -m slate mcpb build --check
+
+# every lesson mapped (the knowledge module is still to come; until it lands this command doesn't exist yet)
 .venv/bin/python -m slate knowledge check
 ```
+
+Tests stay fast and offline: anything that runs a real model, a long render, a real install or the network goes
+behind an opt-in switch, with recorded fixtures by default.
 
 To run `slate` by hand, point it at scratch folders first, so nothing touches the real runtime folder, films or brand
 packs:

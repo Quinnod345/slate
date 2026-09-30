@@ -1,0 +1,7 @@
+{
+ "generated": "hand-made fixture for the engines' end-to-end tests",
+ "cues": [
+  {"shot": "E01", "at": 0.0},
+  {"shot": "E02", "at": 0.0}
+ ]
+}

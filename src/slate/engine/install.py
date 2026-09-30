@@ -23,7 +23,8 @@ MARKER = ".slate-engine.json"
 # web renderer never uses them: it drives the engine's chrome-headless-shell (Remotion's, `browser-ensure`) by path.
 NPM_CI_ENV = {"PUPPETEER_SKIP_DOWNLOAD": "1"}
 # What an installed engine is made of. Everything else in the engine folder (tests, caches) stays in the repo.
-SOURCE_FILES = ["cli.mjs", "package.json", "package-lock.json", "tsconfig.json", "vitest.config.mjs", "README.md"]
+SOURCE_FILES = ["cli.mjs", "package.json", "package-lock.json", "tsconfig.json", "vitest.config.mjs", "README.md",
+                ".puppeteerrc.cjs"]
 SOURCE_DIRS = ["remotion", "web", "ae"]
 SKIP = shutil.ignore_patterns("node_modules", "tests", ".cache", "__pycache__", "*.part", ".DS_Store", ".slate-exports")
 

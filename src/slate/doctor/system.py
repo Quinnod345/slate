@@ -119,30 +119,67 @@ def check_browser(env: Env, ctx: Ctx) -> list[dict]:
 # The job agent, OCR, modules
 
 
+def _queue_words(q: dict | None) -> tuple[str, int]:
+    """'the queue is empty' or '1 running, 2 queued', and how many jobs are waiting."""
+    counts = (q or {}).get("counts") or {}
+    queued, running = int(counts.get("queued") or 0), int(counts.get("running") or 0)
+    if q is None:
+        return "the queue itself couldn't be read", 0
+    if not queued and not running:
+        return "the queue is empty", 0
+    return f"{running} running, {queued} queued", queued
+
+
 def check_jobs_agent(env: Env, ctx: Ctx) -> list[dict]:
+    """The launchd agent that keeps the queue going, and the runner and queue right now (`slate jobs status`).
+
+    The agent runs `slate jobs serve` with KeepAlive, so a loaded agent with no runner serving means the runner keeps
+    exiting (launchd restarts it every 10 seconds): that's a fault, not an idle queue.
+    """
     rid = "system.jobs-agent"
     try:
         st = env.jobs_agent()
     except Exception as exc:  # noqa: BLE001
         return [R.yellow(rid, f"Couldn't read the job queue's launchd agent: {getattr(exc, 'message', exc)}",
                          "Run `slate jobs status` to see why.", group="system")]
+    try:
+        q = env.jobs_summary()
+    except Exception:  # noqa: BLE001 - the agent's state still says most of it
+        q = None
     label = st.get("label") or "the job agent"
-    serving = st.get("runner_serving")
-    details = {k: st.get(k) for k in ("label", "installed", "loaded", "pid", "runner_serving", "plist")}
+    serving = bool(q.get("runner")) if isinstance(q, dict) else bool(st.get("runner_serving"))
+    queue, waiting = _queue_words(q if isinstance(q, dict) else None)
+    details = {k: st.get(k) for k in ("label", "installed", "loaded", "pid", "state", "last_exit", "plist", "log")}
+    details.update({"runner_serving": serving, "queue": (q or {}).get("counts"), "next": (q or {}).get("next"),
+                    "running": (q or {}).get("running")})
     item = {"id": "jobs-agent", "what": "the job queue's launchd agent (a login item that keeps long jobs going after "
                                         "the agent that started them has gone)", "call": "jobs-agent",
             "shows": "slate jobs agent install --yes", "kind": "slate"}
+    runner = "a runner is serving it" if serving else "no runner is serving it"
+    stuck = ""
+    if waiting and not serving:
+        many = waiting != 1
+        stuck = (f" {waiting} job{'s are' if many else ' is'} waiting with nothing running {'them' if many else 'it'}: "
+                 "the next `slate job` command starts a runner, or run `slate jobs serve --once`.")
     if st.get("loaded"):
-        runner = "a runner is serving the queue" if serving else "its runner is idle"
-        return [R.green(rid, f"The job queue's launchd agent ({label}) is loaded; {runner}.", group="system",
-                        details=details)]
+        if serving:
+            return [R.green(rid, f"The job queue's launchd agent ({label}) is loaded and its runner is serving the queue "
+                                 f"({queue}).", group="system", details=details)]
+        exit_note = f" (its last exit: {st['last_exit']})" if st.get("last_exit") else ""
+        return [R.yellow(rid, f"The job queue's launchd agent ({label}) is loaded, but no runner is serving the queue"
+                              f"{exit_note}. launchd restarts it every 10 seconds, so it's most likely failing as it "
+                              f"starts ({queue}).{stuck}",
+                         f"Read its log ({st.get('log') or 'the jobs log in the data folder'}); `slate jobs serve "
+                         "--once` in your own Terminal shows the same error directly.", group="system",
+                         details=details)]
     if st.get("installed"):
         return [R.yellow(rid, f"The job queue's launchd agent ({label}) is installed but not loaded, so nothing restarts "
-                              "the queue after a reboot.",
+                              f"the queue after a reboot. Right now {runner} ({queue}).{stuck}",
                          "Run `slate jobs agent install` in your own Terminal to load it again.", group="system",
                          details=details, install=item)]
     return [R.yellow(rid, "The job queue's launchd agent isn't installed. Jobs still run (each `slate job` command starts a "
-                          "one-shot runner), but nothing keeps the queue going after a reboot.",
+                          f"one-shot runner), but nothing keeps the queue going after a reboot. Right now {runner} "
+                          f"({queue}).{stuck}",
                      "Run `slate jobs agent install` in your own Terminal (it adds a login item, so it's your call), or "
                      "say yes to it in `slate doctor --install`.", group="system", details=details, install=item)]
 

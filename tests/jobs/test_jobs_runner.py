@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import subprocess
 import sys
 import time
@@ -19,9 +20,10 @@ def _group_commands(pgid: int) -> str:
 
 
 def test_real_detached_job_moves_through_its_states(queue_home, tmp_path):
-    marker = tmp_path / "running"
-    code = (f"import sys, time; open({str(marker)!r}, 'w').write('x'); "
-            "print('stdin:', repr(sys.stdin.read()), flush=True); time.sleep(1); print('finished')")
+    marker, go = tmp_path / "running", tmp_path / "go"
+    code = (f"import sys, time, os; open({str(marker)!r}, 'w').write('x'); "
+            "print('stdin:', repr(sys.stdin.read()), flush=True); "
+            f"[time.sleep(0.1) for _ in range(300) if not os.path.exists({str(go)!r})]; print('finished')")
     # Submit from another process that exits at once, the way a research slice would: the job must outlive it.
     submitter = (f"from slate.jobs import client; print(client.submit('test', [{PY!r}, '-c', {code!r}]))")
     out = subprocess.run([PY, "-c", submitter], capture_output=True, text=True, check=True, env=dict(os.environ))
@@ -33,7 +35,12 @@ def test_real_detached_job_moves_through_its_states(queue_home, tmp_path):
     supervisor = job["pid"]
     assert os.getsid(supervisor) == supervisor  # its own session: nothing that dies upstream takes it down
     assert job["pgid"] == supervisor
-    assert "caffeinate -i" in _group_commands(supervisor)  # the Mac doesn't idle-sleep under it
+    # the command runs in a group of its own (slate.procs starts every child that way), recorded with its start time
+    job = wait_for(lambda: (j := store.load(job_id)).get("cmd_pid") and j, what="the command to be recorded")
+    assert job["cmd_pgid"] == job["cmd_pid"] and job["cmd_start"]
+    assert "caffeinate -i" in " ".join(job["run_argv"])  # the Mac doesn't idle-sleep under it
+    assert _group_commands(job["cmd_pgid"])  # the recorded group is the running command's
+    go.write_text("go")
     wait_for(lambda: job_state(job_id) == "done", what="the job to finish")
     job = store.load(job_id)
     assert job["exit_code"] == 0 and job["finished_at"] and job["phase"] is None and job["holds"] == []
@@ -68,6 +75,86 @@ def test_cancel_kills_the_whole_process_group(queue_home, tmp_path):
     proc.reap()
     wait_for(lambda: not proc.alive(supervisor), what="the supervisor to exit")
     assert not proc.group_alive(supervisor)
+
+
+def test_cancel_reaches_tools_the_command_started_in_their_own_sessions(queue_home, tmp_path):
+    """slate.procs.run starts every tool in a session of its own (a render's node, Chrome, ffmpeg), so stopping one
+    process group isn't enough: cancel stops the command's whole tree, and nothing is left running."""
+    child_pid_file = tmp_path / "tool.pid"
+    code = ("import subprocess, time\n"
+            "p = subprocess.Popen(['sleep', '60'], start_new_session=True)\n"
+            f"open({str(child_pid_file)!r}, 'w').write(str(p.pid))\n"
+            "time.sleep(60)\n")
+    job_id = client.submit("test", [PY, "-c", code], start_runner=False)
+    assert runner.schedule() == [job_id]
+    wait_for(child_pid_file.exists, what="the command's tool to start")
+    tool = int(child_pid_file.read_text())
+    assert os.getpgid(tool) == tool != store.load(job_id)["pid"]  # a group of its own, as procs.run makes it
+    client.cancel(job_id, grace=2)
+    wait_for(lambda: not proc.alive(tool), timeout=15, what="the tool in its own session to be stopped")
+    wait_for(lambda: store.load(job_id).get("exit_code") is not None, what="the supervisor to record the exit")
+    assert store.load(job_id)["state"] == "cancelled"
+
+
+def test_a_dead_supervisors_orphaned_command_is_stopped_before_the_job_is_failed(queue_home, tmp_path):
+    marker = tmp_path / "running"
+    code = f"import time; open({str(marker)!r}, 'w').write('x'); time.sleep(60)"
+    job_id = client.submit("test", [PY, "-c", code], resumable=False, start_runner=False)
+    assert runner.schedule() == [job_id]
+    wait_for(marker.exists, what="the command to start")
+    job = wait_for(lambda: (j := store.load(job_id)).get("cmd_pid") and j, what="the command to be recorded")
+    os.kill(job["pid"], signal.SIGKILL)  # the supervisor dies; its command lives on as an orphan
+    wait_for(lambda: not proc.alive(job["pid"]), what="the supervisor to be gone")
+    assert proc.alive(job["cmd_pid"], job["cmd_start"])
+    assert runner.reconcile()["failed"] == [job_id]
+    assert not proc.alive(job["cmd_pid"], job["cmd_start"])  # stopped, not left running beside a new attempt
+    assert "isn't resumable" in store.load(job_id)["reason"]
+
+
+def test_an_orphan_the_supervisor_never_wrote_down_is_found_by_its_exact_command(queue_home, tmp_path):
+    """The supervisor can die in the moment between starting the command and recording it. The runner then finds the
+    orphan by the exact command line it launched (and only among processes launchd adopted), never by a guess."""
+    marker = tmp_path / "running"
+    code = f"import time; open({str(marker)!r}, 'w').write('x'); time.sleep(60)"
+    job_id = client.submit("test", [PY, "-c", code], resumable=False, start_runner=False)
+    assert runner.schedule() == [job_id]
+    wait_for(marker.exists, what="the command to start")
+    job = wait_for(lambda: (j := store.load(job_id)).get("cmd_pid") and j, what="the command to be recorded")
+    os.kill(job["pid"], signal.SIGKILL)
+    wait_for(lambda: not proc.alive(job["pid"]), what="the supervisor to be gone")
+    with store.update(job_id) as j:  # as if it had died before writing these down
+        j["cmd_pid"] = j["cmd_pgid"] = j["cmd_start"] = None
+    wait_for(lambda: proc.orphans_of(store.load(job_id)), what="launchd to adopt the orphan")
+    assert [o["pid"] for o in proc.orphans_of(store.load(job_id))] == [job["cmd_pid"]]
+    assert runner.reconcile()["failed"] == [job_id]
+    assert not proc.alive(job["cmd_pid"], job["cmd_start"])
+    assert proc.orphans_of({"run_argv": ["/no/such/command", "--at-all"]}) == []
+
+
+def test_stop_tree_checks_identity_and_spares_who_it_is_told_to(tmp_path):
+    marker = tmp_path / "up"
+    parent = subprocess.Popen([PY, "-c", "import subprocess, time, sys\n"
+                               "subprocess.Popen(['sleep', '60'], start_new_session=True)\n"
+                               f"open({str(marker)!r}, 'w').write('x')\n"
+                               "time.sleep(60)\n"], stdin=subprocess.DEVNULL)
+    try:
+        wait_for(marker.exists, what="the tree to start")
+        tab = proc.table()
+        kids = proc.descendants(parent.pid, tab)
+        assert kids and all(tab[k]["ppid"] in (parent.pid, *kids) for k in kids)
+        assert proc.stop_tree(parent.pid, grace=5, include_root=True, stamp="Mon Jan  1 00:00:00 1990") == "gone"
+        assert parent.poll() is None  # a stale stamp means the number is someone else's: nothing was signalled
+        assert proc.stop_tree(parent.pid, grace=5, spare=parent.pid) in ("terminated", "killed")
+        assert parent.poll() is None and not [k for k in kids if proc.alive(k)]  # the tree went, the spared stayed
+    finally:
+        parent.kill()
+        parent.wait()
+
+
+def test_stopping_a_tree_never_stops_whoever_asked():
+    """A job record can name the caller's own pid (a test's fake job, or a confused record); stopping must spare it."""
+    assert proc.stop_tree(os.getpid(), grace=0, include_root=True, stamp=proc.own_stamp()) in ("gone", "terminated")
+    assert proc.signal_tree(os.getppid(), signal.SIGCONT) >= 0  # our parent's tree includes us: we're skipped
 
 
 def test_failure_records_the_exit_code_and_reason(queue_home):

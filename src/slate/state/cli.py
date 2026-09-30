@@ -151,6 +151,13 @@ def cmd_make(args: argparse.Namespace) -> int:
 
 
 def cmd_approve(args: argparse.Namespace) -> int:
+    if approvals.is_global(args.what):  # Slate's own gates (proof 3) aren't a film's: no film needed
+        if _dry_stop(args, f"record {args.by}'s approval of {args.what} for {args.path}"):
+            return 0
+        rec = approvals.record_global(what=args.what, path=args.path, approved_by=args.by, note=args.note)
+        log.result(rec, f"Approved {rec['what']}: {rec['path']} by {rec['approved_by']} "
+                        f"(sha256 {_util.short(rec['sha256'])}, id {rec['id']}), recorded in {approvals.global_file()}")
+        return 0
     film_dir = cli.film(args)
     if _dry(args):
         rel = _util.film_rel(film_dir, args.path)
@@ -435,9 +442,12 @@ def register(sub) -> None:
                             "Records the SHA-256 of what was approved. Sittings: preproduction (checklist, claims, "
                             "script, voice_shortlist, look_test) and final_cut block; packets (hero, plate, "
                             "sound_proof, take, score_take) don't. Takes, score takes, plates and the final cut are "
-                            "locked by content hash. 'spend' records a yes to spend again and prints its id."))
-    p.add_argument("what", help=", ".join(approvals.KINDS) + " (a qualifier may follow a colon, e.g. plate:S05)")
-    p.add_argument("path", help="the file or folder approved (film-relative)")
+                            "locked by content hash. 'spend' records a yes to spend again and prints its id. "
+                            "'proof3' is Slate's own: the approved proof's path and SHA-256 go to "
+                            "DATA/approvals.json, which the effects engine waits on (no film needed)."))
+    p.add_argument("what", help=", ".join(approvals.KINDS) + " (a qualifier may follow a colon, e.g. plate:S05); "
+                   "or Slate's own " + ", ".join(approvals.GLOBAL_KINDS) + ", which needs no film")
+    p.add_argument("path", help="the file or folder approved (film-relative; for proof3, the proof's own path)")
     p.add_argument("--by", required=True, help="the person who approved it")
     p.add_argument("--note", help="their words, or where they said it")
 

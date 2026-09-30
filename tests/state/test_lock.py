@@ -140,10 +140,11 @@ def test_timeline_locks_once_an_act_render_is_registered(new_film):
         film.set_value(fd, "width", 640)
 
 
-def test_shot_ids_freeze_and_renumbering_is_refused(new_film):
+def test_shot_ids_freeze_and_a_renumber_is_refused_once_a_scene_uses_them(new_film):
+    """docs/PLAN.md §3: shot ids freeze at the build gate, and a renumber is refused once any scene uses them."""
     fd = new_film()
     assert lock.frozen_shot_ids(fd) == []
-    lock.check_renumber(fd, {"S01": "S02"})  # nothing frozen yet: fine
+    assert lock.check_renumber(fd, {"S01": "S02"})["allowed"]  # nothing frozen yet: fine
     _write(fd, "script/storyboard.json", "{}")
     rec = lock.freeze_shot_ids(fd, ["S01", "S02", "S03"])
     assert rec["ids"] == ["S01", "S02", "S03"] and rec["sha256"]
@@ -151,15 +152,38 @@ def test_shot_ids_freeze_and_renumbering_is_refused(new_film):
     from slate.state import frozen_shot_ids
 
     assert frozen_shot_ids(fd) == ["S01", "S02", "S03"]  # the helper the story stage calls
-    with pytest.raises(Refused):
+    # frozen, but no scene uses the ids yet: a renumber is allowed, and says what it moves
+    early = lock.check_renumber(fd, {"S02": "S03", "S03": "S04"})
+    assert early["allowed"] and early["renumber"] == ["S02→S03", "S03→S04"] and early["scene_refs"] == {}
+    assert lock.check_renumber(fd, {"S01": "S01", "S04": "S04"})["renumber"] == []  # keeping ids, adding new ones
+    # once a scene names a frozen id, any renumber is refused, and the refusal names the scene
+    _write(fd, "scenes/act1/index.tsx", "export const beats = [{shot: 'S02', id: 'door'}];\n")
+    with pytest.raises(Refused, match="scenes use them") as moved:
         lock.check_renumber(fd, {"S02": "S03", "S03": "S04"})
+    assert "scenes/act1/index.tsx" in moved.value.message
     with pytest.raises(Refused):
-        lock.check_renumber(fd, {"S09": "S02"})  # a new shot can't take a frozen id
-    lock.check_renumber(fd, {"S01": "S01", "S04": "S04"})  # keeping ids and adding new ones is fine
+        lock.check_renumber(fd, {"S09": "S03"})  # a new shot can't take a frozen id either
+    assert lock.check_renumber(fd, {"S01": "S01", "S04": "S04"})["allowed"]  # adding new ids stays fine
+    # cutting a shot is fine unless a scene still uses its id
+    assert lock.check_renumber(fd, {"S03": None})["cut"] == ["S03"]
+    with pytest.raises(Refused, match="would be cut, but scenes still use it"):
+        lock.check_renumber(fd, {"S02": None})
     lock.freeze_shot_ids(fd, ["S01", "S04"])
     assert lock.frozen_shot_ids(fd) == ["S01", "S02", "S03", "S04"]  # ids are only ever added
     with pytest.raises(Refused):
         film.set_value(fd, "fps_num", 50)  # the clock is fixed once ids froze
+
+
+def test_scene_references_are_whole_ids_in_text_files_only(new_film):
+    fd = new_film()
+    _write(fd, "scenes/act1/index.tsx", "word('S02', 'lands'); const S020 = 1; // S02b isn't S02 either\n")
+    _write(fd, "scenes/act1/notes.md", "S03 opens the act.\n")
+    (fd / "scenes" / "act1" / "still.png").write_bytes(b"\x89PNG\0S01 inside a binary")
+    _write(fd, "scenes/node_modules/pkg/index.js", "S01")
+    _write(fd, "scenes/.cache/x.json", "S01")
+    refs = lock.scene_references(fd, ["S01", "S02", "S03"])
+    assert refs == {"S02": ["scenes/act1/index.tsx"], "S03": ["scenes/act1/notes.md"]}
+    assert lock.scene_references(fd, []) == {}
 
 
 def test_lock_file_is_valid_and_concurrent_records_all_land(new_film):
@@ -191,6 +215,8 @@ def test_frozen_ids_fall_back_to_the_storyboards_own_record(new_film):
         {"shot_ids": {"ids": [{"id": "S01", "source_id": "S01"}, {"id": "S02", "source_id": "S02"}]}}))
     assert lock.frozen_shot_ids(fd) == ["S01", "S02"]  # a passing `slate script build` wrote it
     assert lock.clock_frozen_reason(fd)
+    assert lock.check_renumber(fd, {"S01": "S05"})["renumber"] == ["S01→S05"]  # no scene uses them yet
+    _write(fd, "scenes/act1/index.tsx", "shot('S01')\n")
     with pytest.raises(Refused):
         lock.check_renumber(fd, {"S01": "S05"})
 

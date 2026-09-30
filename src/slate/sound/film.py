@@ -62,8 +62,16 @@ class Film:
         return str(self.data.get("mode") or "supervised")
 
     def path(self, rel: str | Path) -> Path:
+        """Where this film's own file is (what the sound stages write). Reads of reused files go through source()."""
         p = Path(rel)
         return p if p.is_absolute() else self.dir / p
+
+    def source(self, rel: str | Path) -> Path:
+        """A file to read: the film's own, else, in a derived film (a cut-down or a new aspect), the parent's file it
+        reuses by reference (slate.state.lock.resolve). Never used for writing: a derived film writes its own."""
+        if Path(rel).is_absolute():
+            return Path(rel)
+        return _resolved(self.dir, str(rel))
 
     def rel(self, p: str | Path) -> str:
         p = Path(p)
@@ -84,9 +92,10 @@ class Film:
         return int(s["frame_in"]) * self.fps_den / self.fps_num
 
     def resolve_media(self, ref: str) -> Path:
-        """A media path from a cue sheet: absolute, or relative to the film folder."""
+        """A media path from a cue sheet: absolute, or relative to the film folder (a derived film's reused take
+        resolves to its parent's file)."""
         p = Path(str(ref)).expanduser()
-        return p if p.is_absolute() else self.dir / p
+        return p if p.is_absolute() else self.source(p)
 
     def broadcast(self) -> bool:
         """True when the film's use is broadcast (film, TV, radio): Eleven Music then needs its Enterprise licence."""
@@ -111,16 +120,33 @@ def _read_film_json(film_dir: Path) -> dict:
     return jsonio.read(path)
 
 
+def _resolved(film_dir: Path, rel: str) -> Path:
+    """A derived film's reused file (slate.state.lock.resolve), or the film's own path."""
+    own = Path(film_dir) / rel
+    if own.exists():
+        return own
+    try:
+        from slate.state import lock  # noqa: PLC0415
+
+        return Path(lock.resolve(film_dir, rel))
+    except Exception:  # noqa: BLE001 - no state module, or a broken reference: read as missing
+        return own
+
+
 def load_shots(film_dir: Path) -> dict:
     try:
         from slate import timing  # noqa: PLC0415
 
         loader = getattr(timing, "load_shots", None)
         if loader is not None:
-            return loader(film_dir)
+            try:
+                return loader(film_dir)
+            except MissingPrerequisite:
+                if not _resolved(film_dir, "timing/shots.json").is_file():
+                    raise  # a derived film reusing its parent's shots reads them below
     except ImportError:
         pass
-    path = film_dir / "timing" / "shots.json"
+    path = _resolved(film_dir, "timing/shots.json")
     if not path.exists():
         raise MissingPrerequisite(f"{film_dir.name} has no timing/shots.json yet, so there's no clock to place sound on.",
                                   hint="Run `slate timing` first.")
@@ -239,8 +265,8 @@ def is_locked(film: Film, rel_path: str) -> bool:
 
 def words_for(film: Film) -> list[tuple[str, float, float]]:
     """Every spoken word at film time: [(word, start s, end s)], from timing/vo_words.json placed by vo_cues.json."""
-    words_path = film.path("timing/vo_words.json")
-    cues_path = film.path("timing/vo_cues.json")
+    words_path = film.source("timing/vo_words.json")
+    cues_path = film.source("timing/vo_cues.json")
     if not words_path.exists() or not cues_path.exists():
         return []
     words = jsonio.read(words_path).get("shots") or {}

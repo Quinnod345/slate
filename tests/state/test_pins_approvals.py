@@ -165,3 +165,35 @@ def test_approve_cli(new_film):
     assert code == 2
     prod = (fd / "brief" / "PRODUCTION.md").read_text()
     assert "| script | `script/storyboard.json`" in prod
+
+
+def test_proof3_is_slates_own_approval_and_the_effects_gate_reads_it(state_env, tmp_path, monkeypatch):
+    """The sound module's ask: `slate approve proof3 <file> --by NAME` writes DATA/approvals.json with the file's
+    SHA-256; slate.sound.effects.require_proof3() reads exactly that. No film is involved."""
+    monkeypatch.delenv("SLATE_FILM", raising=False)
+    proof = tmp_path / "proofs" / "p3.wav"
+    proof.parent.mkdir()
+    proof.write_bytes(b"RIFF proof three")
+    data = state_env["data"]
+    # a hand-written record in the old one-per-gate shape is kept when a new one is added
+    (data / "approvals.json").write_text(json.dumps({"proof2": {"path": "/elsewhere/p2.wav", "approved_by": "Test Person"}}))
+    code, out, _ = run_cli(["approve", "proof3", str(proof), "--by", "Test Person", "--dry-run", "--json"])
+    assert code == 0 and json.loads(out)["dry_run"] and "proof3" not in (data / "approvals.json").read_text()
+    code, out, err = run_cli(["approve", "proof3", str(proof), "--by", "Test Person", "--note", "after the p3 mix",
+                              "--json"])
+    rec = json.loads(out)
+    assert code == 0, err
+    assert rec["what"] == "proof3" and rec["path"] == str(proof.resolve()) and rec["sha256"] == jsonio.sha256(proof)
+    stored = jsonio.read(data / "approvals.json")
+    assert [r["what"] for r in stored["approvals"]] == ["proof2", "proof3"] and stored["generated"]
+    from slate.sound.effects import gate
+
+    assert gate.status()["approved"], gate.status()["problems"]
+    proof.write_bytes(b"RIFF a different proof")  # the approval is of exactly those bytes
+    assert not gate.status()["approved"]
+    # refusals: no such file (usage), no name (argparse needs --by; an empty one is a usage error too)
+    assert run_cli(["approve", "proof3", str(tmp_path / "nope.wav"), "--by", "Test Person"])[0] == 2
+    assert run_cli(["approve", "proof3", str(proof), "--by", "  "])[0] == 2
+    assert run_cli(["approve", "proof3", str(proof)])[0] == 2
+    with pytest.raises(UsageError):
+        approvals.record_global(what="look_test", path=str(proof), approved_by="Test Person")

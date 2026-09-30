@@ -8,6 +8,7 @@ Every command takes the global flags (--json, --film, --live, --dry-run, --quiet
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 
 from slate import cli, log
 from slate.finish import approved as approved_mod
@@ -132,13 +133,27 @@ def _review_human(res: dict, sent: dict | None, film: Film) -> str:
     return "\n".join(lines)
 
 
+def _send_lines(sent: dict | None) -> list[str]:
+    """One line per channel of a (dry-run) send: what would go where, or what's missing for it."""
+    lines = []
+    for s in (sent or {}).get("sends") or []:
+        if s.get("missing"):
+            lines.append(f"  not configured: {s.get('why')}" + (f" ({s['hint']})" if s.get("hint") else ""))
+            continue
+        where = f" to {s['to']}" if s.get("to") else ""
+        with_file = f", with {Path(s['attachment']).name}" if s.get("attachment") else ""
+        lines.append(f"  {s.get('channel')}{where} via {s.get('route')}{with_file}: "
+                     + ("sent" if s.get("sent") else str(s.get("why") or "not sent")))
+    return lines
+
+
 def cmd_review(args: argparse.Namespace) -> int:
     film_dir = cli.film(args)
     if _dry(args):
         if args.version:
             p = review_mod.send(film_dir, version=args.version, to=args.to, dry_run=True, explicit=True)
-            log.result(p, f"Would send v{args.version} to {p.get('destination')}: "
-                          + (p.get("text") or p.get("folder") or p.get("why") or ""))
+            log.result(p, "\n".join([f"Would send v{args.version} to {p.get('destination')}: "
+                                     + (p.get("text") or p.get("folder") or p.get("why") or ""), *_send_lines(p)]))
             return 0
         p = review_mod.plan(film_dir, to=args.to)
         human = [f"Would {p.get('would')} for v{p['version']}" + (" (a new version)" if p.get("would_start_version")
@@ -148,6 +163,7 @@ def cmd_review(args: argparse.Namespace) -> int:
         snd = p.get("send")
         if snd:
             human.append(f"  would send: {snd.get('text') or snd.get('folder') or snd.get('why')}")
+            human += _send_lines(snd)
         log.result(p, "\n".join(human))
         return 0
     if args.detach:

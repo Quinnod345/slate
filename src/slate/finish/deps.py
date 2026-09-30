@@ -239,7 +239,46 @@ def guard_regenerate(film_dir: Path, rel: str, *, force: bool, approval_id: str 
     return {"path": rel, "allowed": True}
 
 
+def film_format(film_data: dict) -> dict | None:
+    """The film's format (slate.formats.load) at the film's own aspect, or None when there's none to read.
+
+    The format file film.json points at (`format_source`, when the film was made from a file) wins over its name. A
+    film whose aspect its format doesn't come in (a 9:16 cut of a 16:9 format) gets the format's default aspect."""
+    mod = module("slate.formats")
+    load = getattr(mod, "load", None) if mod is not None else None
+    if not callable(load):
+        return None
+    src = str(film_data.get("format_source") or "")
+    ref = src if src.endswith(".json") and Path(src).is_file() else film_data.get("format")
+    if not ref:
+        return None
+    aspect = film_data.get("aspect")
+    try:
+        try:
+            got = load(ref, aspect=aspect) if aspect else load(ref)
+        except TypeError:  # a load() that takes no aspect
+            got = load(ref)
+        except UsageError:  # the format doesn't come in the film's aspect
+            got = load(ref)
+    except Exception as exc:  # noqa: BLE001 - a format that can't be read is reported by the caller's own checks
+        _warn_once(f"format:{ref}", f"couldn't read the film's format {ref!r} ({getattr(exc, 'message', exc)})")
+        return None
+    return got if isinstance(got, dict) else None
+
+
 def format_platforms(film_dir: Path, fmt_name: str | None) -> list[str]:
+    """The channels the film is made for, at its own aspect: the format's `platforms` when it names them for that
+    aspect, else that aspect's channels, else state's reading of the format."""
+    data = jsonio.read(Path(film_dir) / "film.json", default=None) or {}
+    fmt = film_format({**data, "format": fmt_name or data.get("format")}) if isinstance(data, dict) else None
+    if fmt:
+        named = fmt.get("platforms")
+        if isinstance(named, list) and named:
+            return [str(p) for p in named]
+        aspects = fmt.get("aspects") if isinstance(fmt.get("aspects"), dict) else {}
+        here = aspects.get(fmt.get("aspect")) if isinstance(aspects.get(fmt.get("aspect")), dict) else None
+        if here and isinstance(here.get("channels"), list):
+            return [str(p) for p in here["channels"]]
     fmt_load = _fn("slate.state.deps", "format_load")
     platforms = _fn("slate.state.deps", "format_platforms")
     if fmt_load is None or platforms is None or not fmt_name:

@@ -13,9 +13,12 @@ from slate.vendors.elevenlabs import Client
 from slate.voice import audio
 
 TEST_KEY = "sk_test_not_a_real_key_0123456789"
-PLAN = {"positive_global_styles": ["warm pad"], "negative_global_styles": [],
-        "sections": [{"section_name": "one", "positive_local_styles": [], "negative_local_styles": [],
-                      "duration_ms": 4000, "lines": []}]}
+# music_v1's section plan, and the chunk plan music_v2 and music_v2_5 take instead (they reject v1 sections)
+V1_PLAN = {"positive_global_styles": ["warm pad"], "negative_global_styles": [],
+           "sections": [{"section_name": "one", "positive_local_styles": [], "negative_local_styles": [],
+                         "duration_ms": 4000, "lines": []}]}
+PLAN = {"chunks": [{"text": "[one]", "duration_ms": 4000, "positive_styles": ["warm pad"],
+                    "negative_styles": ["vocals"]}]}
 
 
 @pytest.fixture
@@ -75,6 +78,29 @@ def test_ledger_rows_carry_request_ids_and_free_calls_write_none(fx):
     assert ledger.spent("elevenlabs") == 0  # replay never counts as spend
 
 
+def test_music_plans_go_out_in_the_shape_their_model_takes(fx, monkeypatch):
+    seen = []
+    real = replay.respond
+
+    def spy(provider, op, request, key=None):
+        if op == "music":
+            seen.append(request["body"])
+        return real(provider, op, request, key)
+
+    monkeypatch.setattr(replay, "respond", spy)
+    c = Client()
+    m = c.compose_music(composition_plan=PLAN, seed=7, out=fx / "v2.wav")
+    assert m["seconds_planned"] == 4.0
+    v1 = c.compose_music(composition_plan=V1_PLAN, model_id="music_v1", seed=7, out=fx / "v1.wav")
+    assert v1["model"] == "music_v1"
+    chunks, sections = seen
+    assert chunks["model_id"] == "music_v2_5" and "chunks" in chunks["composition_plan"]
+    assert "respect_sections_durations" not in chunks  # a music_v1 option; v2 keeps chunk durations anyway
+    assert sections["model_id"] == "music_v1" and sections["respect_sections_durations"] is True
+    assert elevenlabs.music_plan_schema("music_v2") == elevenlabs.music_plan_schema("music_v2_5") == "chunks"
+    assert elevenlabs.music_plan_schema("music_v1") == "sections"
+
+
 def test_model_id_is_always_sent_for_design_and_music(fx, monkeypatch):
     seen = {}
     real = replay.respond
@@ -103,6 +129,18 @@ def test_validation_before_any_call(fx):
         c.compose_music(composition_plan={"sections": [{"section_name": "a", "duration_ms": 1500}]})
     with pytest.raises(UsageError):
         c.compose_music(prompt="x", composition_plan=PLAN)
+    with pytest.raises(UsageError) as exc:
+        c.compose_music(composition_plan=V1_PLAN)  # a v1 section plan on music_v2_5: rejected before any spend
+    assert "chunks" in exc.value.message and "slate score plan" in exc.value.hint
+    with pytest.raises(UsageError):
+        c.compose_music(composition_plan=PLAN, model_id="music_v1")  # and a chunk plan on music_v1
+    with pytest.raises(UsageError):
+        c.compose_music(composition_plan={"chunks": [{"text": "[a]", "duration_ms": 1500, "positive_styles": []}]})
+    with pytest.raises(UsageError):
+        c.compose_music(composition_plan={"chunks": [{"text": "[a]", "duration_ms": 130000,
+                                                      "positive_styles": []}]})
+    with pytest.raises(UsageError):
+        c.compose_music(composition_plan={"chunks": [{"text": "", "duration_ms": 4000, "positive_styles": []}]})
     with pytest.raises(UsageError):
         c.tts(voice_id="v", text="   ")
     assert ledger.rows() == []
@@ -227,17 +265,15 @@ def test_a_row_abandoned_mid_call_is_orphaned_and_counted(live, fx, monkeypatch)
     """A process died waiting on ElevenLabs (no answer, no request id). The queue's paid_call finds the row by its key,
     closes it as orphaned (still counted at its estimate), and makes the call once more under a new row."""
     c = Client()
-    key = __import__("slate.replay", fromlist=["request_key"]).request_key(
-        "elevenlabs", "tts", {"voice_id": "v", "body": {"text": "Twelve chars", "model_id": "eleven_v4"},
-                              "format": "pcm_44100"})
+    c.tts(voice_id="v", text="Twelve chars", output_format="pcm_44100", out=fx / "t.wav")
+    key = ledger.rows(op="tts")[-1]["key"]
     est = ledger.estimate("elevenlabs", "tts", model="eleven_v4", chars=12)
     with monkeypatch.context() as m:
         m.setattr(ledger, "_identity", lambda: {"pid": 99999, "proc_start": "gone", "job": None})
         ledger.begin(est, key=key, note="died waiting")
-    c.tts(voice_id="v", text="Twelve chars", output_format="pcm_44100", out=fx / "t.wav")
-    rows = ledger.rows(key=key)
-    assert [r["status"] for r in rows] == ["orphaned", "done"]
-    assert ledger.spent("elevenlabs") == 12.0 + 12.0  # the orphan counts at its estimate until a reconcile
+    c.tts(voice_id="v", text="Twelve chars", output_format="pcm_44100", out=fx / "t2.wav")
+    assert [r["status"] for r in ledger.rows(key=key)] == ["done", "orphaned", "done"]
+    assert ledger.spent("elevenlabs") == 12.0 * 3  # the orphan counts at its estimate until a reconcile
 
 
 def test_a_crash_between_the_answer_and_the_row_closing_settles_the_row(live, fx, monkeypatch):
@@ -258,6 +294,25 @@ def test_a_crash_between_the_answer_and_the_row_closing_settles_the_row(live, fx
     (settled,) = ledger.rows(id=row)
     assert settled["status"] == "done" and settled["actual"] == 12.0
     assert res["request_id"] == again["request_id"] == "req_live_1"
+
+
+def test_a_rate_limit_is_busy_and_an_empty_balance_stops_and_asks(live, fx, monkeypatch):
+    def refuse(status, body):
+        def fake(method, url, *, headers=None, json_body=None, data=None, timeout=60, retries=3):
+            if url.endswith("/v1/user/subscription"):
+                return live(method, url, headers=headers, json_body=json_body, data=data, timeout=timeout)
+            raise http.HttpError(status, url, body)
+        return fake
+
+    monkeypatch.setattr(http, "request", refuse(429, '{"detail": {"status": "too_many_concurrent_requests"}}'))
+    with pytest.raises(Exception) as exc:
+        Client().tts(voice_id="v", text="Twelve chars", output_format="pcm_44100")
+    assert exc.value.exit_code == 5 and "Nothing was billed" in exc.value.message
+    monkeypatch.setattr(http, "request", refuse(401, '{"detail": {"status": "quota_exceeded"}}'))
+    with pytest.raises(SpendRefused) as exc:
+        Client().tts(voice_id="v", text="Twelve chars", output_format="pcm_44100")
+    assert exc.value.exit_code == 4 and "never buys credits" in exc.value.message
+    assert all(r["status"] == "failed" for r in ledger.rows(op="tts")) and ledger.spent("elevenlabs") == 0
 
 
 def test_live_spend_refused_before_any_request(live):

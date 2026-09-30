@@ -6,7 +6,9 @@
               on the picture (the master when there is one, else each act's render);
 - contrast    every text colour pair the brand declares (slate.brand.pack.contrast_pairs) meets 4.5:1 for body text
               and 3:1 for large text, by WCAG's relative luminance;
-- captions    at most 17 characters a second, and at most 2 lines of 42 characters each;
+- captions    at most 17 characters a second, and at most 2 lines of 42 characters each (tightened, never
+              loosened, by the film's format at its aspect and by film.json: the same rule as slate.qa's captions
+              gate, so the two never disagree about one cue);
 - safe_zones  on a 9:16 film, no text sits where Instagram Reels, TikTok or YouTube Shorts draw their own buttons and
               captions (the format's zones when it has them, else built-in ones). The text boxes come from Vision OCR:
               on the picture every quarter second (the shared sweep, which holds every frame of the half-second
@@ -43,6 +45,9 @@ from typing import Any, Callable, Iterable, Iterator
 from slate import __version__, gates, jsonio
 from slate.errors import MissingPrerequisite, SlateError, UsageError
 from slate.gates import GateResult
+# The film's format is read by slate.qa.film, so every gate reads one film's format the same way.
+from slate.qa.film import _load_with, _raw_format, film_aspect  # noqa: F401 - kept importable from here
+from slate.qa.film import read_format as _read_format
 
 GATE = "access"
 
@@ -778,25 +783,13 @@ def load_captions(path: Path, fps: float | None = None) -> list[Cue]:
 
 
 def caption_limits(ctx) -> tuple[dict, str]:
-    """The law's limits, tightened (never loosened) by the film's format when it sets caption defaults."""
-    limits = dict(CAPTIONS)
-    source = "the law (17 characters a second, 2 lines of 42)"
-    fmt = _format(ctx)
-    cap = fmt.get("captions") if isinstance(fmt, dict) else None
-    if isinstance(cap, dict):
-        pairs = {"max_cps": ("max_cps", "cps", "max_chars_per_second"), "max_lines": ("max_lines", "lines"),
-                 "max_chars": ("max_chars", "max_chars_per_line", "max_line_chars", "line_length", "chars_per_line")}
-        tightened = []
-        for key, names in pairs.items():
-            for n in names:
-                v = _num(cap.get(n))
-                if v is not None and v < limits[key]:
-                    limits[key] = int(v) if key != "max_cps" else v
-                    tightened.append(f"{key} {v:g}")
-                    break
-        if tightened:
-            source = f"the law, tightened by the {ctx.film.get('format')} format ({', '.join(tightened)})"
-    return limits, source
+    """The law's limits (17 characters a second, 2 lines of 42), tightened, never loosened, by the film's format at
+    its aspect and by film.json's "captions": slate.qa's one caption rule (checks.text.caption_rules), so this check
+    and the captions gate can't disagree about one cue."""
+    from slate.qa.checks.text import caption_rules  # noqa: PLC0415
+
+    rules, source = caption_rules(ctx)
+    return {k: rules[k] for k in CAPTIONS}, source
 
 
 def check_cues(cues: list[Cue], limits: dict) -> list[dict]:
@@ -890,66 +883,12 @@ def check_captions(ctx, *, captions: str | None = None):
 
 # ---------------------------------------------------------------------------------------------------- safe zones
 def _format(ctx) -> dict | None:
-    """The film's format data: slate.formats.load when it's installed, else the format file film.json records
-    (`format_source`, where `slate new` read it), else formats/<name>.json in the repo. None when there's none."""
-    memo = getattr(ctx, "_memo", {})
-    if "access.format" in memo:
-        return memo["access.format"]
-    fmt = _read_format(ctx.film)
-    if isinstance(getattr(ctx, "_memo", None), dict):
-        ctx._memo["access.format"] = fmt
-    return fmt
+    """The film's format data (slate.qa.film.read_format, read once per run): slate.formats.load at the film's aspect
+    when it's installed, else the format file film.json records (`format_source`), else formats/<name>.json. None when
+    there's none."""
+    fmt_of = getattr(ctx, "format", None)
+    return fmt_of() if callable(fmt_of) else _read_format(ctx.film)
 
-
-def film_aspect(film: dict) -> str | None:
-    """The film's aspect as film.json says it ("9:16"), else its frame size ("1080x1920")."""
-    if film.get("aspect"):
-        return str(film["aspect"])
-    w, h = film.get("width"), film.get("height")
-    return f"{w}x{h}" if w and h else None
-
-
-def _load_with(mod, ref: str, aspect: str | None) -> dict | None:
-    """slate.formats.load(ref) at the film's aspect (or its default when it doesn't come in that one)."""
-    for kw in (({"aspect": aspect},) if aspect else ()) + ({},):
-        try:
-            fmt = mod.load(ref, **kw)
-        except TypeError:
-            continue  # a load() that takes no aspect
-        except Exception:  # noqa: BLE001 - not this aspect, or not this format
-            continue
-        if isinstance(fmt, dict):
-            return fmt
-    return None
-
-
-def _read_format(film: dict) -> dict | None:
-    """The film's format. When film.json records the file it was made from (`format_source`), that file is the
-    film's format, never another one with the same name; else the format by name."""
-    from slate import paths  # noqa: PLC0415
-
-    name = film.get("format")
-    mod = _optional("slate.formats")
-    loader = mod if mod is not None and hasattr(mod, "load") else None
-    aspect = film_aspect(film)
-    source = film.get("format_source")
-    source = Path(source).expanduser() if isinstance(source, str) and source.endswith(".json") else None
-    if source is not None and source.is_file():
-        fmt = _load_with(loader, str(source), aspect) if loader else None
-        return fmt if fmt is not None else _raw_format(source)
-    if name and loader is not None:
-        fmt = _load_with(loader, str(name), aspect)
-        if fmt is not None:
-            return fmt
-    return _raw_format(paths.FORMATS_DIR / f"{name}.json") if name else None
-
-
-def _raw_format(path: Path) -> dict | None:
-    try:
-        fmt = jsonio.read(path) if path.is_file() else None
-    except SlateError:
-        return None
-    return fmt if isinstance(fmt, dict) else None
 
 
 def platform_key(name: str) -> str:
@@ -1473,7 +1412,7 @@ def check_safe_zones(ctx, *, sheet: str | None = None, platforms: list[str] | No
                     hint=engine.get("hint") or ocr.INSTALL_HINT, engine=engine, platforms=list(zones))
     try:
         samples, engine, files = _ocr_samples(ctx, sheet)
-    except MissingPrerequisite as exc:
+    except SlateError as exc:  # no picture yet, OCR can't run, or a contact sheet whose cells can't be located
         return _sub("safe_zones", "UNCHECKED", f"the frames couldn't be read for text: {exc.message}", [],
                     hint=exc.hint, platforms=list(zones))
     read += list(files)

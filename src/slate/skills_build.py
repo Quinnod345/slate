@@ -527,15 +527,21 @@ def _denied_connector_tools() -> list[str]:
     return list(DENIED_CONNECTOR_TOOLS)
 
 
+OPENCLAW_CONNECT_TIMEOUT_MS = 30_000  # the same wait `slate install` registers (slate.install.mcp_register)
+
+
 def openclaw_entries(skills: list[Skill]) -> dict:
     return {
         "generated": GENERATED,
-        "about": ("Slate's entries for OpenClaw. Merge `openclaw_json` into ~/.openclaw/openclaw.json (JSON5), then "
-                  "restart the gateway (`openclaw gateway restart`). OpenClaw reads Slate's skills from "
-                  "~/.agents/skills, linked to plugins/slate/skills, and only when the gateway uses its default "
-                  "state folder. Its PATH lacks ~/.local/bin, so the `slate` command must also be linked into "
-                  "/opt/homebrew/bin. If OpenClaw refuses the linked skills, add this checkout's plugins/slate/skills "
-                  "to skills.load.allowSymlinkTargets."),
+        "about": ("Slate's entries for OpenClaw. `slate install` does all of this for you on a Mac with Slate "
+                  "installed. By hand: register the server with `openclaw mcp add slate --command slate --arg mcp "
+                  "--connect-timeout 30` (OpenClaw 2026.9.4 probes it before saving, and `slate mcp` can take longer "
+                  "than the default 5 seconds to answer on a busy Mac), or merge `openclaw_json` into "
+                  "~/.openclaw/openclaw.json (JSON5) and restart the gateway. OpenClaw reads Slate's skills from "
+                  "~/.agents/skills, where the installer links each one to the checkout's skills/ folder, and only "
+                  "when the gateway uses its default state folder. Its PATH lacks ~/.local/bin, so the `slate` "
+                  "command is also linked into /opt/homebrew/bin. If OpenClaw refuses the linked skills, add the "
+                  "checkout's skills/ folder to skills.load.allowSymlinkTargets."),
         "skills": [s.name for s in skills],
         "denied_connector_tools": {
             "tools": _denied_connector_tools(),
@@ -545,7 +551,8 @@ def openclaw_entries(skills: list[Skill]) -> dict:
         },
         "openclaw_json": {
             "skills": {"entries": {s.name: {"enabled": True} for s in skills}},
-            "mcp": {"servers": {"slate": {"command": "slate", "args": ["mcp"]}}},
+            "mcp": {"servers": {"slate": {"command": "slate", "args": ["mcp"],
+                                          "connectionTimeoutMs": OPENCLAW_CONNECT_TIMEOUT_MS}}},
         },
     }
 

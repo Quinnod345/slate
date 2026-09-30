@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
+import os
+import sys
+from typing import Iterator
 
 from slate import log
 from slate.cli import add_command, add_group, flag
@@ -37,11 +41,60 @@ Keychain. Slate never opens a browser: the Higgsfield sign-in is printed for you
 EPILOG = "Exit codes: 0 ok, 1 refused or failed, 2 usage, 3 missing prerequisite (the output says what to do)."
 
 
+# --- Keeping `--json` to one JSON object on stdout ---------------------------------------------------------------
+#
+# With Slate's ocr extra installed, Apple's Vision framework writes log lines ("Unable to find a valid E5 …") straight
+# to file descriptor 1, underneath Python, some of them after the report has been printed. Under --json that breaks
+# the promise of one JSON object on stdout, and every agent parsing it. So while the checks run, and after the report
+# is out, fd 1 points at stderr. This only happens when stdout is the real process stdout: in-process callers
+# (slate.cli.run_cli, tests) swap sys.stdout for a buffer and are left alone.
+
+
+def _real_stdout() -> bool:
+    try:
+        return sys.stdout is sys.__stdout__ and sys.__stdout__ is not None and sys.__stdout__.fileno() == 1
+    except (AttributeError, OSError, ValueError):
+        return False
+
+
+@contextlib.contextmanager
+def _native_writes_to_stderr(active: bool) -> Iterator[None]:
+    """While the checks run, anything written to fd 1 below Python goes to stderr instead."""
+    if not (active and _real_stdout()):
+        yield
+        return
+    sys.stdout.flush()
+    saved = os.dup(1)
+    try:
+        os.dup2(2, 1)
+        yield
+    finally:
+        sys.stdout.flush()
+        os.dup2(saved, 1)
+        os.close(saved)
+
+
+def _stdout_closed_after_report(active: bool) -> None:
+    """The JSON object is out: point fd 1 at stderr for good, so late native writes (at exit) can't follow it."""
+    if active and _real_stdout():
+        sys.stdout.flush()
+        os.dup2(2, 1)
+
+
 def cmd_doctor(args: argparse.Namespace) -> int:
+    json_out = log.json_mode()
+    code = _doctor(args)
+    # Only after a report was printed: a refusal raised above still reaches stdout as its own JSON error object.
+    _stdout_closed_after_report(json_out)
+    return code
+
+
+def _doctor(args: argparse.Namespace) -> int:
     name = args.context
     if name:
         core.check_context_name(name)
-    rep = core.report(name, brand=args.brand, only=args.only)
+    with _native_writes_to_stderr(log.json_mode()):
+        rep = core.report(name, brand=args.brand, only=args.only)
     if rep.get("refused"):
         # Off macOS there's nothing else to check, and nothing to install.
         if name:
@@ -85,7 +138,8 @@ def _install(args: argparse.Namespace, rep: dict) -> int:
         return 0 if flag(args, "dry_run", False) else 3
     log.info(f"{len(items)} free prerequisite{'s' if len(items) != 1 else ''} to offer. Each one asks first.")
     results = prereqs.interactive(items, env)
-    after = core.report(args.context, brand=args.brand, only=args.only)
+    with _native_writes_to_stderr(log.json_mode()):
+        after = core.report(args.context, brand=args.brand, only=args.only)
     after["install"] = {"items": [prereqs.public(it) for it in items], "ran": True, "results": results}
     if args.context:
         after["saved"] = str(core.save(after, args.context))

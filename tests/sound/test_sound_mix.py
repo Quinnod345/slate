@@ -182,3 +182,24 @@ def test_the_mix_is_recorded_in_the_films_lock_file(sound_film):
 
     entry = lock.load(sound_film)["files"].get("sound/mix/final_mix.wav")
     assert entry and entry["producer"] == "slate mix" and "timing/vo_cues.json" in entry["inputs"]
+
+
+def test_a_derived_film_mixes_the_voice_it_reuses_from_its_parent(slate_home):
+    """A new-aspect version reuses its parent's cues, words and takes by reference (nothing copied): the mix reads
+    them through slate.state.lock.resolve and writes only into the derived film."""
+    derive = pytest.importorskip("slate.state.derive")
+    lock = pytest.importorskip("slate.state.lock")
+    H.brand(slate_home["brands"])
+    parent = H.film(slate_home["films"], "parent", score=False)
+    for rel in ("timing/shots.json", "timing/vo_cues.json", "timing/vo_words.json"):
+        lock.record(parent, rel, producer="slate timing", inputs=[])
+    for take in sorted((parent / "voice").rglob("*.wav")):
+        lock.record(parent, str(take.relative_to(parent)), producer="slate voice tts", inputs=[])
+    child = derive.create(parent, "child", aspect="16:9", git=False)
+    assert not (child / "timing" / "vo_cues.json").exists() and not list(child.glob("voice/**/*.wav"))  # by reference
+    path = mix.run(child)
+    assert path.is_relative_to(child)
+    rep = jsonio.read(path.with_name("final_mix.json"))
+    assert rep["inputs"]["voice"]["cues"] == 4  # the parent's four takes, found through their references
+    assert abs(measure.loudness(path)["integrated_lufs"] + 14.0) <= 0.5
+    assert not (parent / "sound" / "mix").exists()  # nothing written into the parent

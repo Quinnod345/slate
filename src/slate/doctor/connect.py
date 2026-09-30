@@ -92,8 +92,10 @@ def plan_steps(env: Env, agents: list[str]) -> list[dict]:
     if "codex" in agents:
         steps.append({"what": "register it with Codex", "command": f"codex mcp add slate -- {_q(shim)} mcp"})
     if "openclaw" in agents:
-        spec = '{"command":"%s","args":["mcp"]}' % shim
-        steps.append({"what": "register it with OpenClaw", "command": f"openclaw mcp set slate {_q(spec)}"})
+        # OpenClaw 2026.9.4's form; it probes the server before saving, and `slate mcp` needs more than its default
+        # 5 seconds to answer on a busy Mac (slate.install.mcp_register explains).
+        steps.append({"what": "register it with OpenClaw",
+                      "command": f"openclaw mcp add slate --command {_q(shim)} --arg mcp --connect-timeout 30"})
     return steps
 
 

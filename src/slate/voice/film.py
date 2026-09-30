@@ -92,7 +92,22 @@ def pin(film_dir: Path, key: str, value: Any, *, repin: bool = False, approved_b
     return value
 
 
-def record(film_dir: Path, rel_path: str, *, producer: str, inputs: dict, tool_version: str | None = None) -> dict:
+def source(film_dir: Path, rel_path: str) -> Path:
+    """A file to read: the film's own, else, in a derived film, the parent's file it reuses by reference
+    (slate.state.lock.resolve). Only for reading: a derived film writes its own files."""
+    own = Path(film_dir) / rel_path
+    if own.exists():
+        return own
+    mod = _state("lock")
+    if mod is None or not hasattr(mod, "resolve"):
+        return own
+    try:
+        return Path(mod.resolve(film_dir, rel_path))
+    except Exception:  # noqa: BLE001 - a broken reference reads as missing, which every caller handles
+        return own
+
+
+def record(film_dir: Path, rel_path: str, *, producer: str, inputs: Any, tool_version: str | None = None) -> dict:
     mod = _state("lock")
     if mod is not None:
         return mod.record(film_dir, rel_path, producer=producer, inputs=inputs, tool_version=tool_version)

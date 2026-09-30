@@ -70,6 +70,86 @@ def test_ffprobe_is_checked_on_its_own(denv):
 
 
 # ---------------------------------------------------------------------------------------------------------------
+# Stale copies in /usr/local/bin (an Intel-era Homebrew's ffmpeg 7.1.1, an installer's Node 21.6.2)
+
+
+def _stale_mac(denv):
+    """This Mac as it was on 2026-09-30: Intel ffmpeg and ffprobe 7.1.1 from the old Homebrew, and Node 21.6.2 (a
+    universal build from Node's own installer) in /usr/local/bin, with the current copies in /opt/homebrew/bin."""
+    for tool in ("ffmpeg", "ffprobe"):
+        denv.present.add(f"/usr/local/bin/{tool}")
+        denv.real[f"/usr/local/bin/{tool}"] = f"/usr/local/Cellar/ffmpeg/7.1.1/bin/{tool}"
+        denv.arch_of[f"/usr/local/bin/{tool}"] = ["x86_64"]
+    denv.present.add("/usr/local/bin/node")
+    denv.arch_of["/usr/local/bin/node"] = ["x86_64", "arm64"]
+    denv.set_response("/usr/local/bin/node", "--version", out="v21.6.2\n")
+    denv.present.add("/usr/local/bin/brew")
+
+
+def test_no_stale_copies_is_green(denv):
+    row = rows_for(denv, tools.check_stale_copies)["tool.stale-copies"]
+    assert row["status"] == "green" and row["details"]["stale"] == []
+    assert not [c for c in denv.calls if c[0].startswith("/usr/local/bin/")]
+
+
+def test_stale_intel_ffmpeg_and_old_node_are_named_with_versions_and_the_way_out(denv):
+    _stale_mac(denv)
+    denv.envvars["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/bin"
+    row = rows_for(denv, tools.check_stale_copies)["tool.stale-copies"]
+    assert row["status"] == "yellow"
+    s = row["summary"]
+    assert "ffmpeg 7.1.1 (an Intel build, older than 9)" in s
+    assert "ffprobe 7.1.1 (an Intel build, older than 9)" in s
+    assert "node 21.6.2 (older than 24)" in s, s
+    assert "Slate never runs them" in s and "This PATH does put" not in s
+    assert "`arch -x86_64 /usr/local/bin/brew uninstall ffmpeg`" in row["fix"]
+    assert "/usr/local/bin/node came from an installer" in row["fix"] and "Slate never removes them" in row["fix"]
+    found = {x["tool"]: x for x in row["details"]["stale"]}
+    assert found["ffmpeg"]["homebrew_formula"] == "ffmpeg" and found["node"]["homebrew_formula"] is None
+    # The Homebrew copies' versions come from their keg path; only the installer's Node was asked (and only --version).
+    assert [c for c in denv.calls if c[0].startswith("/usr/local/bin/")] == [["/usr/local/bin/node", "--version"]]
+
+
+def test_a_path_that_puts_usr_local_first_is_called_out(denv):
+    _stale_mac(denv)
+    denv.envvars["PATH"] = "/usr/local/bin:/usr/bin:/opt/homebrew/bin"
+    row = rows_for(denv, tools.check_stale_copies)["tool.stale-copies"]
+    assert row["details"]["path_puts_usr_local_first"] is True
+    assert "This PATH does put /usr/local/bin first, so a plain `ffmpeg` here is the stale one." in row["summary"]
+
+
+def test_a_copy_slate_itself_runs_is_left_to_its_own_row(denv):
+    """/usr/local/bin/rubberband is the only Rubber Band here, so tool.rubberband reports it (yellow, Rosetta)."""
+    denv.present.add("/usr/local/bin/rubberband")
+    denv.real["/usr/local/bin/rubberband"] = "/usr/local/Cellar/rubberband/4.0.0/bin/rubberband"
+    denv.arch_of["/usr/local/bin/rubberband"] = ["x86_64"]
+    denv.tools["rubberband"] = "/usr/local/bin/rubberband"
+    row = rows_for(denv, tools.check_stale_copies)["tool.stale-copies"]
+    assert row["status"] == "green" and row["details"]["stale"] == []
+
+
+def test_a_current_native_copy_in_usr_local_isnt_stale(denv):
+    denv.present.add("/usr/local/bin/uv")
+    denv.real["/usr/local/bin/uv"] = "/usr/local/Cellar/uv/0.9.28/bin/uv"
+    denv.arch_of["/usr/local/bin/uv"] = ["arm64"]
+    assert rows_for(denv, tools.check_stale_copies)["tool.stale-copies"]["status"] == "green"
+
+
+def test_an_intel_copy_whose_version_cant_be_read_is_still_named(denv):
+    denv.present.add("/usr/local/bin/node")
+    denv.arch_of["/usr/local/bin/node"] = ["x86_64"]
+    denv.set_response("/usr/local/bin/node", "--version", code=1, err="Bad CPU type in executable")
+    row = rows_for(denv, tools.check_stale_copies)["tool.stale-copies"]
+    assert row["status"] == "yellow" and "node of unknown version (an Intel build)" in row["summary"]
+    assert "/usr/local/bin/brew" not in row["fix"]  # nothing from Homebrew to uninstall here
+
+
+def test_the_stale_copies_row_is_part_of_every_doctor_run(denv):
+    ids = [r["id"] for r in core.checks(env=denv, parallel=False)]
+    assert "tool.stale-copies" in ids
+
+
+# ---------------------------------------------------------------------------------------------------------------
 # Rubber Band, uv, Node, git, gh
 
 

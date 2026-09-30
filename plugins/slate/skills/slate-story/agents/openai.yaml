@@ -1,0 +1,6 @@
+# do not edit by hand: slate skills build (from skills/slate-story/SKILL.md). Edit the skill, not this file.
+interface:
+  display_name: "Slate Story"
+  short_description: "Write and gate a Slate film's story."
+policy:
+  allow_implicit_invocation: true

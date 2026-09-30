@@ -1,6 +1,7 @@
 """`slate render --engine web`, end to end: the render module (chunks, joins proven by PSNR, the registry) driving the
-open web renderer on a tiny neutral film, through the real engine bridge. Real headless Chrome and ffmpeg; nothing
-reaches the network and nothing leaves this Mac. 16 frames at 320 x 180, two samples each.
+open web renderer's template on a tiny neutral film, through the real engine bridge. 10 frames at 320 x 180, four samples
+each, in two chunks. Real headless Chrome and ffmpeg, so about half a minute: opt in with SLATE_TEST_RENDER=1. Nothing
+reaches the network and nothing leaves this Mac. The refusal test needs no browser and always runs.
 """
 
 from __future__ import annotations
@@ -22,9 +23,12 @@ pytestmark = pytest.mark.skipif(
     not (ENGINE / "node_modules" / "puppeteer").is_dir() or shutil.which("ffmpeg", path="/opt/homebrew/bin:/usr/local/bin:/usr/bin") is None,
     reason="the engine's packages or ffmpeg aren't installed",
 )
+# A real render (headless Chrome, ffmpeg) is opt-in, so the default run stays fast.
+OPT_IN = pytest.mark.skipif(os.environ.get("SLATE_TEST_RENDER") != "1",
+                            reason="a real render (headless Chrome, ffmpeg): opt in with SLATE_TEST_RENDER=1")
 
 
-def _film(home: dict, frames: int = 16) -> Path:
+def _film(home: dict, frames: int = 10) -> Path:
     """The web fixture film with one act of `frames` frames, its brand in the brand store, 8-frame chunks."""
     film = home["films"] / "web-fixture"
     shutil.copytree(FIXTURES / "film", film)
@@ -55,6 +59,8 @@ def _frames(path: Path) -> int:
     return json.loads(r.stdout)["streams"][0]
 
 
+@pytest.mark.render
+@OPT_IN
 def test_slate_render_engine_web_renders_joins_and_registers_an_act(slate_home):
     film = _film(slate_home)
     from slate.engine import bridge
@@ -63,20 +69,24 @@ def test_slate_render_engine_web_renders_joins_and_registers_an_act(slate_home):
     assert made["scaffolded"] is True
     assert (film / "scenes" / "act1" / "web" / "index.html").is_file()
 
-    r = _slate("--json", "--film", str(film), "render", "--act", "1", "--engine", "web", "--samples", "2", cwd=film)
+    r = _slate("--json", "--film", str(film), "render", "--act", "1", "--engine", "web", "--samples", "4", cwd=film)
     assert r.returncode == 0, (r.stdout[-2000:], r.stderr[-4000:])
     out = json.loads(r.stdout.strip().splitlines()[-1])
-    text = json.dumps(out)
-    assert '"engine": "web"' in text
+    assert out["engine"] == "web"
+    [render] = out["renders"]
+    assert render["chunks"]["total"] == 2 and render["proof"]["status"] == "PASS"  # 8 + 2 frames, the join proven
+    # the web renderer's own gates come back with the render's
+    gates = {g["gate"]: g["status"] for g in out["gates"]}
+    assert gates["render.act1.frames"] == "PASS" and gates["render.act1.web.network"] == "PASS"
 
     entries = json.loads((film / "renders" / "registry.json").read_text())["entries"]
     [entry] = [e for e in entries if e["act"] == 1]
     assert entry["engine"] == "web"
-    assert entry["samples"] == 2
-    assert entry["frames"] == [0, 16]
+    assert entry["samples"] == 4
+    assert entry["frames"] == [0, 10]
     master = film / entry["file"]
     stream = _frames(master)
-    assert int(stream["nb_read_packets"]) == 16
+    assert int(stream["nb_read_packets"]) == 10
     assert stream["codec_name"] == "prores"
 
     # the web engine wrote the act's motion trace while it rendered

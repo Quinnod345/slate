@@ -133,6 +133,7 @@ def judge(film_dir: Path, shot_id: str, *, samples: int = 6, width: int = 320) -
         evidence=[deps.rel(film_dir, sheet)] + [deps.rel(film_dir, f) for f in files],
         engine=gates.engine("slate gen judge", "1", sheet="contact sheet", measures="ffmpeg " + media.ffmpeg_version()),
         inputs=gates.inputs_for(film_dir, files), details={"takes": metrics})
+    gate.details.setdefault("stage", "generated")  # `slate status` places it (its name says "takes")
     gates.write_report(film_dir, [gate])
     rec["judge"] = {"sheet": deps.rel(film_dir, sheet), "gate": gate.gate, "at": deps.now_iso()}
     store.save_record(film_dir, shot_id, rec, "slate gen judge")
@@ -197,6 +198,7 @@ def pick(film_dir: Path, shot_id: str, *, take_id: str | None, by: str, reject: 
     else:
         gate = gates.GateResult.review(gate_name, f"{', '.join(rejected)} rejected; {len(left)} take(s) still to judge",
                                        evidence=evidence, engine=engine, details={"rejected": rejected, "why": why})
+    gate.details.setdefault("stage", "generated")  # `slate status` places it (its name says "takes")
     gates.write_report(film_dir, [gate])
     return {"shot": shot_id, "approved": approved, "rejected": rejected, "gate": gate.to_dict(),
             "next": f"slate plates conform --shot {shot_id}" if approved else

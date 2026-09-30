@@ -179,3 +179,35 @@ def test_bridge_status_install_plan_and_looks(monkeypatch, tmp_path):
     assert code == 0 and _json(out)["script"]["ops"][0]["tool"] == "ae_catalog"
     code, out, _ = run_cli(["ae", "bridge", "looks", "--json"])
     assert code == 0 and len(_json(out)["looks"]) == 13
+
+
+# ---- --detach: long AE runs through the job queue (review addition) -------------------------------------------
+
+
+def test_masters_and_act_renders_detach_into_the_queue_with_the_persons_go(film, monkeypatch):
+    from slate.jobs import client
+
+    submitted = []
+    monkeypatch.setattr(client, "submit", lambda kind, argv, **kw: submitted.append((kind, argv, kw)) or f"job-{len(submitted)}")
+    code, out, _ = run_cli(["ae", "masters", "--go", "--detach", "--keep-chunks", "--film", str(film), "--json"])
+    assert code == 0 and _json(out)["job_id"] == "job-1" and _json(out)["ran"] == "queue"
+    kind, argv, kw = submitted[0]
+    assert kind == "ae_masters" and kw["resources"] == ("render", "ae") and kw["priority"] == "supervised"
+    assert argv[3:] == ["ae", "masters", "--keep-chunks", "--film", str(film), "--json", "--go"]
+    assert "--detach" not in argv
+    code, out, _ = run_cli(["ae", "acts", "render", "2", "--go", "--detach", "--film", str(film), "--json"])
+    assert code == 0 and submitted[1][0] == "ae_render"
+    assert submitted[1][1][3:] == ["ae", "acts", "render", "2", "--film", str(film), "--json", "--go"]
+
+
+def test_detach_refuses_now_what_the_job_would_refuse(film, slate_home, monkeypatch):
+    from slate.jobs import client
+
+    monkeypatch.setattr(client, "submit", lambda *a, **k: pytest.fail("nothing may be queued"))
+    code, out, _ = run_cli(["ae", "masters", "--detach", "--film", str(film), "--json"])
+    assert code == 1 and "--go" in _json(out)["hint"]
+    auto, _ = make_film(slate_home["films"], slate_home["brands"], "auto-detach", mode="autonomous")
+    code, out, _ = run_cli(["ae", "acts", "render", "2", "--go", "--detach", "--film", str(auto), "--json"])
+    assert code == 1 and "utonomous" in _json(out)["message"]
+    code, out, _ = run_cli(["ae", "masters", "--go", "--detach", "--requeue", "--film", str(film), "--json"])
+    assert code == 2 and "without --detach" in _json(out)["message"]

@@ -61,7 +61,7 @@ def test_classes_come_from_the_trace_then_the_rig_then_the_cameras_name():
     got = {k: M.element_class(m)[0] for k, m in moves.items()}
     assert got == {"card": "carry", "tile": "rig", "camera": "carry", "stage": "carry", "label": "ui",
                    "hero": "carry", "wink": "rig"}
-    assert M.element_class(moves["label"])[1] == "a UI element (no class declared)"
+    assert M.element_class(moves["label"])[1] == "no class declared"
 
 
 def test_a_carry_at_the_films_approved_speed_passes_and_the_streaking_one_fails():
@@ -250,3 +250,16 @@ def test_the_gate_reports_limits_by_class(slate_home, monkeypatch):
     assert speed["status"] == "PASS" and "carry 170 and 45.3" in speed["summary"]
     assert set(speed["class_limits"]) == {"rig", "ui", "carry", "whip"}
     json.dumps(result.to_dict())  # the details stay JSON
+
+
+def test_an_even_drift_longer_than_the_scale_is_a_drift_and_a_shorter_one_keeps_to_the_scale():
+    # the neutral law's longest token is 1.2 s (36 frames at 30 fps)
+    drift = entry("camera", "x", 0, 96, 0, 300, ease="even", fn=even)  # 3.2 s, the films' slow camera settle
+    s = M.check_durations(data([drift]))
+    assert s.status == "PASS" and s.details["exempt"] == {"drift (even, longer than the scale)": 1}
+    off_scale = entry("camera", "x", 0, 20, 0, 300, ease="even", fn=even)  # 0.67 s: between tokens
+    assert M.check_durations(data([off_scale])).status == "FAIL"
+    on_scale = entry("camera", "x", 0, 24, 0, 300, ease="even", fn=even)  # 0.8 s: the "l" token
+    assert M.check_durations(data([on_scale])).status == "PASS"
+    label = entry("label", "x", 0, 96, 0, 300, ease="even", fn=even)  # a UI element may not use even undeclared
+    assert M.check_durations(data([label])).status == "FAIL"

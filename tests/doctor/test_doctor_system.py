@@ -94,6 +94,43 @@ def test_jobs_agent_paths(denv):
     assert one(denv, system.check_jobs_agent)["status"] == "yellow"
 
 
+def test_jobs_row_reports_the_runner_and_the_queue_like_slate_jobs_status(denv):
+    row = one(denv, system.check_jobs_agent)
+    assert row["status"] == "green" and "runner is serving the queue (the queue is empty)" in row["summary"]
+    assert row["details"]["runner_serving"] is True and row["details"]["queue"]["done"] == 3
+    denv.queue = {"runner": True, "counts": {"queued": 2, "running": 1}, "next": "j-20260930-120000-abcd",
+                  "running": ["j-20260930-115900-aaaa"]}
+    row = one(denv, system.check_jobs_agent)
+    assert "1 running, 2 queued" in row["summary"] and row["details"]["next"] == "j-20260930-120000-abcd"
+
+
+def test_a_loaded_agent_with_no_runner_is_a_fault_not_an_idle_queue(denv):
+    """The agent runs `slate jobs serve` with KeepAlive: loaded and not serving means the runner keeps exiting."""
+    denv.jobs = {**denv.jobs, "runner_serving": False, "last_exit": "1"}
+    denv.queue = {**denv.queue, "runner": False, "counts": {"queued": 1, "running": 0}}
+    row = one(denv, system.check_jobs_agent)
+    assert row["status"] == "yellow" and "no runner is serving the queue (its last exit: 1)" in row["summary"]
+    assert "1 job is waiting with nothing running it" in row["summary"]
+    assert "/logs/runner.launchd.log" in row["fix"] and "slate jobs serve --once" in row["fix"]
+
+
+def test_without_the_agent_the_row_still_says_what_the_queue_is_doing(denv):
+    denv.jobs = {**denv.jobs, "installed": False, "loaded": False, "runner_serving": False}
+    denv.queue = {"runner": False, "counts": {"queued": 3}, "next": None, "running": []}
+    row = one(denv, system.check_jobs_agent)
+    assert row["status"] == "yellow" and "no runner is serving it (0 running, 3 queued)" in row["summary"]
+    assert "3 jobs are waiting with nothing running them" in row["summary"]
+    denv.queue = RuntimeError("queue folder unreadable")
+    row = one(denv, system.check_jobs_agent)
+    assert row["status"] == "yellow" and "the queue itself couldn't be read" in row["summary"]
+
+
+def test_the_real_env_reads_the_queue_through_the_jobs_client(slate_home):
+    """Env.jobs_summary is slate.jobs.client.summary (what `slate jobs status --json` prints); an empty queue here."""
+    summary = Env().jobs_summary()
+    assert set(summary) >= {"runner", "counts", "next"} and summary["counts"].get("queued", 0) == 0
+
+
 def test_ocr_paths(denv):
     assert one(denv, system.check_ocr)["status"] == "green"
     denv.ocr = (False, {"reason": "ocrmac isn't importable in Slate's environment"})

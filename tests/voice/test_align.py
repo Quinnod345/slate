@@ -129,6 +129,7 @@ def test_live_whisper_hears_a_line_the_mac_speaks(voice_film):
     doc = align.load(voice_film, "S01")
     assert doc["engine"]["name"] == "openai-whisper" and doc["engine"]["model"] == model and not doc["replay"]
     heard = [w["word"].strip(".,").lower() for s in doc["segments"] for w in s["words"]]
-    assert {"film", "starts", "line"} <= set(heard), heard
+    said = {"every", "film", "starts", "with", "one", "line"}
+    assert len(said & set(heard)) >= 4, heard  # the small model may mishear a word ("field" for "film")
     starts = [w["start"] for s in doc["segments"] for w in s["words"]]
     assert starts == sorted(starts)

@@ -3,8 +3,10 @@
 Doctor resolves each tool exactly as slate.procs does (Homebrew's arm64 folder and ~/.local/bin first) and then runs it
 or reads its version, because being on PATH isn't enough:
 
-- `/usr/local/bin` can hold stale Intel builds (an ffmpeg 7.1 and a Node 21 were found there), so the version and
-  the architecture of what Slate will actually run are what count, and the ignored copies are named;
+- `/usr/local/bin` can hold stale Intel builds (an ffmpeg 7.1.1 and a Node 21.6.2 were found there), so the version
+  and the architecture of what Slate will actually run are what count, the ignored copies are named, and
+  `tool.stale-copies` lists each stale one with its version, why it's stale and how to remove it (anything started
+  with macOS's default PATH finds those first);
 - a Homebrew upgrade once left ffmpeg unable to load its own libraries (PIPELINE.md, "the ffmpeg fix"), so a tool that
   exists but won't run is red.
 
@@ -35,6 +37,21 @@ OPTIONAL_TOOLS = (
     ("rsvg-convert", "librsvg", "drawing a brand's SVG logos during onboarding"),
     ("potrace", "potrace", "tracing a logo from a picture during onboarding"),
 )
+# /usr/local/bin is where an Intel-era Homebrew (and Node's own installer) put their tools, and macOS's default PATH
+# (/etc/paths) lists it before /opt/homebrew/bin. Slate never runs what's there (slate.procs looks in /opt/homebrew/bin
+# first), but anything started with that default PATH, or a command typed where it comes first, does. On this kind of
+# Mac an ffmpeg 7.1.1 and ffprobe built for x86_64 and a Node 21.6.2 were found there on 2026-09-30.
+# (tool, the registry entry holding its version floor or None, how to ask its version, where the number is)
+STALE_DIR = "/usr/local/bin"
+STALE_TOOLS = (
+    ("ffmpeg", "ffmpeg", ("-hide_banner", "-version"), r"version\s+n?(\d+(?:\.\d+)*)"),
+    ("ffprobe", "ffmpeg", ("-hide_banner", "-version"), r"version\s+n?(\d+(?:\.\d+)*)"),
+    ("node", "node", ("--version",), r"v?(\d+(?:\.\d+)+)"),
+    ("rubberband", None, ("--version",), r"(\d+(?:\.\d+)+)"),
+    ("uv", None, ("--version",), r"(\d+(?:\.\d+)+)"),
+    ("whisper", None, None, None),
+)
+STALE_FLOORS = {"ffmpeg": 9, "node": 24}  # used when registry.json doesn't say
 
 
 def _floor(env: Env, tool: str, default: int) -> int:
@@ -416,6 +433,75 @@ def check_optional_tools(env: Env, ctx: Ctx) -> list[dict]:
         out.append(R.green(rid, f"{tool} {version or ''} at {path} (optional)".replace("  ", " "), group=G,
                            details={"path": path, "version": version}))
     return out
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Stale copies in /usr/local/bin
+
+
+def _stale_copy(env: Env, tool: str, floor_from: str | None, version_args, pattern) -> dict | None:
+    """What's wrong with /usr/local/bin/<tool>, or None when it's fine, missing, or the very copy Slate runs (then the
+    tool's own row speaks for it)."""
+    path = f"{STALE_DIR}/{tool}"
+    if not env.is_executable(path):
+        return None
+    used = env.which(tool)
+    if used and env.realpath(used) == env.realpath(path):
+        return None
+    resolved = env.realpath(path)
+    cellar = re.search(r"/Cellar/([^/]+)/([^/]+)/", resolved)
+    version = cellar.group(2) if cellar else None
+    if version is None and version_args:
+        # Not a Homebrew keg, so ask the binary itself (an Intel build runs under Rosetta; a failure leaves it unknown).
+        ran = env.run([path, *version_args], timeout=15)
+        version = version_in(ran.text, pattern) if ran.ok else None
+    archs = env.archs(path)
+    host = env.arch()
+    reasons = []
+    if archs and host not in archs:
+        reasons.append("an Intel build" if archs == ["x86_64"] else f"built for {', '.join(archs)}")
+    floor = _floor(env, floor_from, STALE_FLOORS[floor_from]) if floor_from else None
+    if floor and (major(version) or 0) < floor and version:
+        reasons.append(f"older than {floor}")
+    if not reasons:
+        return None
+    return {"tool": tool, "path": path, "resolved": resolved, "version": version, "archs": archs, "reasons": reasons,
+            "homebrew_formula": cellar.group(1) if cellar else None}
+
+
+def check_stale_copies(env: Env, ctx: Ctx) -> list[dict]:
+    """Old or Intel-only copies of Slate's tools in /usr/local/bin: named, with where they came from and how to go."""
+    rid = "tool.stale-copies"
+    found = [s for s in (_stale_copy(env, *spec) for spec in STALE_TOOLS) if s]
+    dirs = [d for d in (env.getenv("PATH") or "").split(os.pathsep) if d]
+    first_here = STALE_DIR in dirs and ("/opt/homebrew/bin" not in dirs
+                                        or dirs.index(STALE_DIR) < dirs.index("/opt/homebrew/bin"))
+    details = {"dir": STALE_DIR, "stale": found, "path_puts_usr_local_first": first_here}
+    names = ", ".join(t for t, *_ in STALE_TOOLS)
+    if not found:
+        return [R.green(rid, f"Nothing stale in {STALE_DIR}: no old or Intel-only copy of {names} there to be found "
+                             "first on a plain PATH.", group=G, details=details)]
+    listed = "; ".join(f"{s['tool']} {s['version'] or 'of unknown version'} ({', '.join(s['reasons'])})"
+                       for s in found)
+    summary = (f"Stale copies in {STALE_DIR}: {listed}. Slate never runs them (it looks in /opt/homebrew/bin first), "
+               "but anything started with macOS's default PATH, or a command typed where /usr/local/bin comes first, "
+               "finds them instead of the current ones.")
+    if first_here:
+        summary += f" This PATH does put {STALE_DIR} first, so a plain `{found[0]['tool']}` here is the stale one."
+    formulas = sorted({s["homebrew_formula"] for s in found if s["homebrew_formula"]})
+    others = [s["path"] for s in found if not s["homebrew_formula"]]
+    steps = []
+    if formulas:
+        old_brew = "/usr/local/bin/brew"
+        brew_cmd = f"arch -x86_64 {old_brew}" if env.is_executable(old_brew) else "the Homebrew in /usr/local"
+        steps.append(f"`{brew_cmd} uninstall {' '.join(formulas)}` removes the Intel Homebrew's copies")
+    if others:
+        pronoun = "it" if len(others) == 1 else "them"
+        steps.append(f"{', '.join(others)} came from an installer, not Homebrew: delete {pronoun} "
+                     "(for Node, also npm, npx and /usr/local/lib/node_modules)")
+    fix = ("; ".join(steps) + ". Or keep them and put /opt/homebrew/bin first on PATH (`eval \"$(/opt/homebrew/bin/brew "
+           "shellenv)\"` in ~/.zprofile). It's your call: Slate never removes them.")
+    return [R.yellow(rid, summary, fix, group=G, details=details)]
 
 
 # ---------------------------------------------------------------------------------------------------------------

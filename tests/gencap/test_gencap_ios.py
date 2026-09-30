@@ -14,6 +14,7 @@ from gencap_helpers import vfr_clip
 from slate import gates, procs
 from slate.capture import ios, media, spec as spec_mod
 from slate.errors import MissingPrerequisite, Refused, UsageError
+from slate.gen import deps
 
 
 def make_app(folder, name="Demo", bundle_id="com.example.demo"):
@@ -261,3 +262,14 @@ def test_a_failed_step_still_cleans_up(film):
         ios.capture(film, ios_spec(app, ios.bundle_sha256(app)), sim=sim, sleep=lambda s: None)
     verbs = [c[1] for c in sim.calls if c[0] == "run"]
     assert verbs[-1] == "shutdown" and sim.recorder.stopped
+
+
+def test_an_app_with_an_unreadable_info_plist_is_a_usage_error(film):
+    """A bundle whose Info.plist isn't a property list is refused plainly (it used to crash with a traceback)."""
+    app = film / "refs" / "Broken.app"
+    app.mkdir(parents=True)
+    (app / "Info.plist").write_text("not a plist")
+    spec = ios_spec(app, ios.bundle_sha256(app))
+    with pytest.raises(UsageError) as exc:
+        ios.check_build(film, spec_mod.normalize(spec, deps.load_film(film)))
+    assert "property list" in exc.value.message

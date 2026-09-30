@@ -38,8 +38,12 @@ generation runs on the Cloud API. Details and edge cases: [routing](references/r
 1. **`slate status` first.** In a film folder (or with `--film <id>`) it lists every stage as fresh, stale, missing,
    locked or skipped, the sittings, open questions, locks and the one next command. Outside a film it lists the films
    on this machine. Trust it over your memory and over any summary.
-2. **Snapshot the balances:** `slate ledger snapshot --all --session <label>`. At the end of the session take another
-   and run `slate ledger reconcile --session <label>`, so spend made through the chat connectors is caught.
+2. **Snapshot the balances**, with one label for the whole session: `slate ledger snapshot --all --session <label>`.
+   At the end, run the same `slate ledger snapshot --all --session <label>` again, then
+   `slate ledger reconcile --session <label>`, so spend made through the chat connectors is caught. Slate can't read
+   Higgsfield's balance itself: if a Higgsfield connector or its skills ran in the session, record that balance at
+   both ends too, `slate ledger snapshot --provider higgsfield --balance <n> --session <label>`, with the number from
+   the connector or the dashboard.
 3. **Read `brief/GOAL.md` and `brief/PRODUCTION.md`.** After any summary or compaction, re-derive the checklist from the
    verbatim request in GOAL.md, never from memory, and assume something was lost until you've checked.
 4. **Do the next thing** `slate status` names, with the skill for that stage (section 4).

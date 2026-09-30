@@ -1,0 +1,17 @@
+{
+ "generated": "hand-made fixture for the engines' end-to-end tests; not a real film",
+ "fps_num": 25,
+ "fps_den": 1,
+ "width": 320,
+ "height": 180,
+ "total_frames": 20,
+ "acts": [
+  {"index": 1, "name": "Kit", "shots": ["E01", "E02"]},
+  {"index": 2, "name": "Web", "shots": ["W01"]}
+ ],
+ "shots": [
+  {"id": "E01", "act": 1, "frame_in": 0, "frame_out": 5, "frames": 5, "sec_in": 0.0, "sec_out": 0.2, "vo": "One clock.", "on_screen": "One clock"},
+  {"id": "E02", "act": 1, "frame_in": 5, "frame_out": 10, "frames": 5, "sec_in": 0.2, "sec_out": 0.4, "vo": "64 moves.", "on_screen": "64 moves"},
+  {"id": "W01", "act": 2, "frame_in": 10, "frame_out": 20, "frames": 10, "sec_in": 0.4, "sec_out": 0.8, "vo": "", "on_screen": ""}
+ ]
+}

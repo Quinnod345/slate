@@ -1,7 +1,12 @@
-"""Process helpers for the queue: is this pid still the process we started, and stopping a job's process group.
+"""Process helpers for the queue: is this pid still the process we started, and stopping everything a job started.
 
 A pid alone isn't proof: after a crash or a reboot the number can belong to something else. So the queue records each
 supervisor's start time (from `ps`) and treats a pid as ours only when both match. Zombies count as dead.
+
+Stopping a job means stopping its whole process tree, not one process group: `slate.procs.run` starts every child in
+its own session (so a timeout can stop Chrome's helpers), which puts a job's command, and each tool the command runs,
+in groups of their own. `stop_tree` walks the tree from the supervisor (or from an orphaned command), signals every
+process in it and every group those processes lead, and checks identities by start time before the final SIGKILL.
 """
 
 from __future__ import annotations
@@ -214,6 +219,174 @@ def reap() -> None:
             continue
         if done:
             _children.discard(pid)
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Process trees: a job's command and everything it started, whatever groups they're in
+
+
+LSTART_WORDS = 5  # `ps -o lstart` prints "Wed Sep 30 17:09:43 2026"
+
+
+def table() -> dict[int, dict]:
+    """Every live process on this Mac: {pid: {ppid, pgid, start, comm}} from one `ps` call ({} if ps can't run).
+    Zombies (exited, waiting to be reaped) are left out: they can't be signalled and hold nothing."""
+    try:
+        out = procs.run(["/bin/ps", "-ax", "-o", "pid=,ppid=,pgid=,stat=,lstart=,comm="], timeout=15).stdout
+    except SlateError:
+        return {}
+    me = os.getpid()
+    rows: dict[int, dict] = {}
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) < 4 + LSTART_WORDS:
+            continue
+        try:
+            pid, ppid, pgid = int(parts[0]), int(parts[1]), int(parts[2])
+        except ValueError:
+            continue
+        if parts[3].startswith("Z"):
+            continue
+        comm = " ".join(parts[4 + LSTART_WORDS:])
+        if ppid == me and comm.rsplit("/", 1)[-1] == "ps":
+            continue  # the ps listing this table: our own helper, never part of a job's tree
+        rows[pid] = {"ppid": ppid, "pgid": pgid, "start": " ".join(parts[4:4 + LSTART_WORDS]), "comm": comm}
+    return rows
+
+
+def descendants(root: int, tab: dict[int, dict] | None = None) -> list[int]:
+    """Every process under `root` (children, grandchildren, ...), nearest first. `root` itself isn't included."""
+    tab = table() if tab is None else tab
+    kids: dict[int, list[int]] = {}
+    for pid, row in tab.items():
+        kids.setdefault(row["ppid"], []).append(pid)
+    out: list[int] = []
+    todo = list(kids.get(root, []))
+    while todo:
+        pid = todo.pop(0)
+        if pid in out or pid == root:
+            continue
+        out.append(pid)
+        todo.extend(kids.get(pid, []))
+    return out
+
+
+def children(root: int, tab: dict[int, dict] | None = None) -> list[dict]:
+    """`root`'s direct children as [{pid, pgid, start, comm}] (the queue uses it to find a job's command)."""
+    tab = table() if tab is None else tab
+    return [{"pid": pid, **row} for pid, row in sorted(tab.items()) if row["ppid"] == root]
+
+
+def _signal_each(pids, groups, sig: int) -> None:
+    """Signal processes and groups, never this process or its own group (whoever is stopping a job must survive it)."""
+    me, my_group = os.getpid(), os.getpgid(0)
+    for pid in pids:
+        if pid == me:
+            continue
+        try:
+            os.kill(pid, sig)
+        except (ProcessLookupError, PermissionError):
+            pass
+    for pgid in groups:
+        if pgid == my_group:
+            continue
+        try:
+            os.killpg(pgid, sig)
+        except (ProcessLookupError, PermissionError):
+            pass
+
+
+def _started(lstart: str) -> float | None:
+    """`ps -o lstart` ("Wed Sep 30 17:09:43 2026", local time) as epoch seconds."""
+    try:
+        return time.mktime(time.strptime(" ".join(lstart.split()), "%a %b %d %H:%M:%S %Y"))
+    except (ValueError, OverflowError):
+        return None
+
+
+def orphans_of(job: dict) -> list[dict]:
+    """A dead supervisor's command that was never recorded (it died in the moment between starting the command and
+    writing its pid down): processes launchd adopted (parent pid 1), started after the job launched, whose command
+    line is the job's (after caffeinate and nice exec it, the arguments still are). Returns [{pid, start}]."""
+    from slate.jobs import model  # noqa: PLC0415
+
+    needles = _job_needles(job)[1:]  # not the supervisor's own line: it's the one that died
+    launched = model.parse_iso(job.get("launched_at") or job.get("started_at"))
+    if not needles or launched is None:
+        return []
+    booted = boot_time()
+    if booted and launched.timestamp() < booted:
+        return []  # it ran before the last reboot: none of its processes can be alive
+    try:
+        out = procs.run(["/bin/ps", "-ax", "-ww", "-o", "pid=,ppid=,lstart=,command="], timeout=15).stdout
+    except SlateError:
+        return []
+    found = []
+    for line in out.splitlines():
+        parts = line.split(None, 2 + LSTART_WORDS)
+        if len(parts) < 3 + LSTART_WORDS or parts[1] != "1":
+            continue
+        lstart = " ".join(parts[2:2 + LSTART_WORDS])
+        began = _started(lstart)
+        if began is None or began < launched.timestamp() - 2:
+            continue
+        cmd = _norm(parts[-1])
+        if any(n in cmd for n in needles):
+            found.append({"pid": int(parts[0]), "start": lstart})
+    return found
+
+
+def signal_tree(root: int, sig: int, *, spare: int | None = None) -> int:
+    """Send one signal to everything under `root` (and the groups those processes lead) without waiting. Returns how
+    many processes it reached."""
+    tab = table()
+    members = [pid for pid in descendants(root, tab) if pid != spare]
+    _signal_each(members, {tab[pid]["pgid"] for pid in members if tab[pid]["pgid"] == pid}, sig)
+    return len(members)
+
+
+def stop_tree(root: int, *, grace: float = 10.0, spare: int | None = None, include_root: bool = False,
+              stamp: str | None = None) -> str:
+    """SIGTERM a job's whole process tree, wait up to `grace` seconds, then SIGKILL what's left.
+
+    The tree is `root`'s descendants (plus `root` when `include_root`, e.g. an orphaned command whose supervisor died),
+    except `spare` (the supervisor, which stays to record the exit). Each process in it that leads its own group gets
+    the group signal too, so a tool's helpers go with it even after they're reparented. With `stamp`, `root` is only
+    ours if it started then. Returns "gone" (nothing was running), "terminated" or "killed".
+    """
+    tab = table()
+    if include_root and root in tab and stamp and tab[root]["start"] != stamp:
+        return "gone"  # the number belongs to someone else now
+    members = ([root] if include_root and root in tab else []) + descendants(root, tab)
+    known = {pid: tab[pid]["start"] for pid in members if pid not in (spare, os.getpid()) and pid in tab}
+    if not known:
+        return "gone"
+    groups = {tab[pid]["pgid"] for pid in known if tab[pid]["pgid"] == pid}  # the groups our processes lead
+    _signal_each(known, groups, signal.SIGTERM)
+    deadline = time.monotonic() + max(0.0, grace)
+
+    def still_here() -> list[int]:
+        now = table()
+        for pid in descendants(root, now) + ([root] if include_root else []):  # anything started since the snapshot
+            if pid not in (spare, os.getpid()) and pid in now and pid not in known:
+                known[pid] = now[pid]["start"]
+                _signal_each([pid], [], signal.SIGTERM)
+        return [pid for pid, start in known.items() if pid in now and now[pid]["start"] == start]
+
+    left = still_here()
+    while left and time.monotonic() < deadline:
+        reap()
+        time.sleep(0.2)
+        left = still_here()
+    if not left:
+        return "terminated"
+    _signal_each(left, groups, signal.SIGKILL)
+    for _ in range(25):
+        reap()
+        if not still_here():
+            break
+        time.sleep(0.2)
+    return "killed"
 
 
 def signal_name(returncode: int | None) -> str | None:

@@ -220,6 +220,26 @@ describe('a web act in a film', () => {
     expect(alive(e.browser.pid)).toBe(false);
   });
 
+  it("fits the template's moves inside a short act, so its beat lands inside the act and emit-events takes it", () => {
+    const f = film(root, {name: 'short-film'});
+    const shotsFile = path.join(f, 'timing', 'shots.json');
+    const shots = readJson(shotsFile);
+    // one act of 10 frames (0.4 s at 25 fps), shorter than the brand's base entrance plus its tick
+    shots.total_frames = 10;
+    shots.acts = [{index: 1, name: 'Short', shots: ['W01']}];
+    shots.shots = [{id: 'W01', act: 1, frame_in: 0, frame_out: 10, frames: 10, vo: '', on_screen: ''}];
+    fs.writeFileSync(shotsFile, JSON.stringify(shots, null, 1));
+    ok({film: f, act: 1, scaffold: true}, {root});
+    const e = ok({film: f, act: 1, emit: true, brand_path: BRAND, gl: 'swangle'}, {root});
+    expect(e.acts[0]).toMatchObject({act: 1, silent: false, events: 1});
+    const [beat] = readJson(path.join(f, 'timing', 'visual_events', 'act1.json'));
+    expect(beat.id).toBe('template.line-lands');
+    expect(beat.t).toBeGreaterThan(0);
+    expect(beat.t).toBeLessThan(0.4);
+    for (const row of readJson(path.join(f, 'timing', 'motion', 'act1.json'))) expect(row.frame_out).toBeLessThanOrEqual(10);
+    expect(alive(e.browser.pid)).toBe(false);
+  });
+
   it('moves on the frames the trace says, frame for frame', () => {
     const f = film(root, {name: 'tween-film', scene: 'tween'});
     const out = path.join(f, 'renders', 'tween.mkv');

@@ -156,6 +156,16 @@ def test_export_writes_the_motion_trace_and_events(film):
                        "size": "m", "note": "the card lands"}]
 
 
+def test_export_notes_what_made_its_files_in_the_lock(film):
+    """Derived files are recorded with their producer and inputs, so `slate status` can call them stale."""
+    pytest.importorskip("slate.state.lock")
+    acts.export(film["dir"], 2)
+    files = jsonio.read(film["dir"] / "film.lock.json")["files"]
+    for rel in ("timing/motion/act2.json", "timing/visual_events/act2.json"):
+        assert files[rel]["producer"] == "slate ae acts export", rel
+        assert "scenes/ae/act2.json" in files[rel]["inputs"] and "timing/shots.json" in files[rel]["inputs"]
+
+
 def test_a_scene_with_no_beats_must_say_why(film):
     quiet = dict(SCENE, anims=[{k: v for k, v in SCENE["anims"][0].items() if k != "event"}])
     (film["dir"] / "scenes" / "ae" / "act2.json").write_text(json.dumps(quiet))
@@ -177,6 +187,17 @@ def test_trace_from_measured_samples():
     assert out == [{"id": "card.y", "shot": "S3", "prop": "y", "ease": "measured", "frame_in": 124, "frame_out": 126,
                     "from": 460.0, "to": 360.0, "samples": [[124, 460.0], [125, 420.0], [126, 360.0]],
                     "entrance": False, "loop_period": None, "rig": None, "engine": "ae", "layer": "card"}]
+
+
+def test_a_measured_trace_says_where_every_key_frame_is():
+    """Two moves chained without a stop split at their shared key (qa motion reads `keys`, in film frames)."""
+    act = {"index": 2, "frame_in": 120, "frame_out": 192, "shots": ["S3"]}
+    shots = {"S3": {"frame_in": 120, "frame_out": 192}}
+    raw = [{"layer": "card", "match_name": "ADBE Position_0", "keys": [0, 6, 12, 6],
+            "samples": [[f, 100.0 + 10 * f] for f in range(13)]}]
+    [entry] = acts.trace_from_samples(raw, act, shots)
+    assert entry["keys"] == [120, 126, 132]
+    assert (entry["frame_in"], entry["frame_out"]) == (120, 132)
 
 
 # ---- the project build, end to end through the mock AE --------------------------------------------------------

@@ -283,3 +283,24 @@ def test_two_caption_files_with_one_name_both_arrive(make_film):
     assert code == 0, out
     files = {f["file"] for f in jsonio.read(d / "deliver/v1/manifest.json")["files"]}
     assert {"captions/captions.json", "captions/captions-captions.json"} <= files
+
+
+def test_the_films_mode_rules_are_asked_before_a_final_delivery(make_film, monkeypatch):
+    """slate.state.modes.check(film, 'deliver_final') is asked every time, and its refusal alone stops a final
+    delivery, even when every other check passes."""
+    from slate.state import modes
+
+    d = mastered(make_film, "moderule")
+    asked = []
+    real = modes.check
+
+    def check(film_dir, action, **ctx):
+        asked.append(action)
+        if action == "deliver_final":
+            raise Refused("the film's mode rules say no (fixture)")
+        return real(film_dir, action, **ctx)
+
+    monkeypatch.setattr(modes, "check", check)
+    code, out, err = filmkit.cli(d, "deliver")
+    assert code == 1 and "the film's mode rules say no (fixture)" in err and "deliver_final" in asked
+    assert not (d / "deliver/v1").exists()

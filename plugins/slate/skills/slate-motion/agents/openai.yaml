@@ -1,0 +1,6 @@
+# do not edit by hand: slate skills build (from skills/slate-motion/SKILL.md). Edit the skill, not this file.
+interface:
+  display_name: "Slate Motion"
+  short_description: "The motion law and motion craft for Slate films."
+policy:
+  allow_implicit_invocation: true

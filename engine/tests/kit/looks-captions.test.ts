@@ -1,6 +1,6 @@
 // The looks library and captions.
 import {beforeEach, describe, expect, it} from 'vitest';
-import {AE_LOOKS, DEFAULT_LOOK, LOOKS, breakLines, captions, cueAt, cueCps, listLooks, look, lookOf, normalizeCaptions, setBrand, setFilmData} from '@slate/kit/core';
+import {AE_LOOKS, DEFAULT_LOOK, LOOKS, breakLines, captions, cueAt, cueCps, listLooks, look, lookOf, normalizeCaptions, sceneEngine, setBrand, setFilmData} from '@slate/kit/core';
 import FILM from './fixtures/film-data';
 
 beforeEach(() => {
@@ -45,6 +45,20 @@ describe('looks', () => {
     const ae = lookOf({look: 'ae-depth-space'});
     expect(ae.ae?.id).toBe('ae-depth-space');
     expect(ae.look.id).toBe('flat');
+  });
+
+  it('lets a brand build its scenes in the open web renderer (look.engine), remotion by default', () => {
+    expect(lookOf({look: {id: 'flat'}}).engine).toBe('remotion');
+    const web = lookOf({look: {id: 'editorial', engine: 'web'}});
+    expect(web.engine).toBe('web');
+    expect(web.look.id).toBe('editorial');
+    expect(web.problems).toEqual([]);
+    expect(lookOf({look: 'ae-depth-space'}).engine).toBe('ae');
+    const odd = lookOf({look: {id: 'flat', engine: 'blender'}});
+    expect(odd.engine).toBe('remotion');
+    expect(odd.problems.join(' ')).toMatch(/look.engine "blender" isn't an engine/);
+    expect(lookOf({look: {id: 'flat', engine: 'ae'}}).problems.join(' ')).toMatch(/kit look/);
+    expect(sceneEngine({look: {id: 'blueprint', engine: 'web'}})).toBe('web');
   });
 });
 

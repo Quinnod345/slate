@@ -179,7 +179,21 @@ def _engine_gates(t: Target, ws: chunks_mod.Workspace) -> list[dict]:
     return [worst[k] for k in sorted(worst)]
 
 
-def _refresh_trace(film_dir: Path, t: Target, eng: engines.Engine) -> dict | None:
+def _trace_written_while_rendering(film_dir: Path, t: Target, ws: chunks_mod.Workspace) -> dict | None:
+    """The trace an engine wrote while it rendered (the web renderer does), from the last chunk that reports one, with
+    the act's scene files as what it was made from."""
+    for c in reversed(ws.chunks):
+        record = jsonio.read(c.sidecar, default=None) or {}
+        trace = (record.get("engine_result") or {}).get("trace")
+        if isinstance(trace, dict) and trace.get("written") and trace.get("file"):
+            scenes = Path(film_dir) / "scenes" / f"act{t.act.index}"
+            sources = sorted(p.relative_to(film_dir).as_posix() for p in scenes.rglob("*")
+                             if p.is_file() and p.name != ".DS_Store") if scenes.is_dir() else []
+            return {**trace, "sources": sources}
+    return None
+
+
+def _refresh_trace(film_dir: Path, t: Target, eng: engines.Engine, ws: chunks_mod.Workspace) -> dict | None:
     """Bring the act's motion trace up to date with the scenes just rendered (`slate qa motion` reads it), and record
     what made it. A trace that can't be written is reported, never a reason to undo a proven render."""
     try:
@@ -187,6 +201,8 @@ def _refresh_trace(film_dir: Path, t: Target, eng: engines.Engine) -> dict | Non
     except SlateError as exc:
         log.warn(f"act {t.act.index} is rendered, but its motion trace couldn't be refreshed: {exc.message}")
         return {"written": False, "reason": exc.message}
+    if not res:
+        res = _trace_written_while_rendering(film_dir, t, ws)
     if not res:
         return None
     trace = {k: res[k] for k in ("written", "file", "entries", "reason") if k in res}
@@ -310,7 +326,7 @@ def _render_target(film_dir: Path, p: Plan, t: Target, eng: engines.Engine, ws: 
     # A render that becomes the act's picture (a whole act, or a patch spliced into it) refreshes the act's motion
     # trace; a range written to a file of your choosing is a look, and leaves the film's files alone.
     if t.kind in ("act", "patch"):
-        trace = _refresh_trace(film_dir, t, eng)
+        trace = _refresh_trace(film_dir, t, eng, ws)
         if trace is not None:
             result["trace"] = trace
     ws.write_plan("done")

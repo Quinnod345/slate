@@ -1,6 +1,7 @@
 // The JSON contract every engine command keeps: exactly one JSON object on stdout, ok true or false, and Slate's exit
 // codes (1 refused, 2 usage, 3 missing prerequisite). Plus the dependency pins the plan fixes (Appendix A).
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import {spawn, spawnSync} from 'node:child_process';
 import {afterAll, beforeAll, describe, expect, it} from 'vitest';
@@ -21,7 +22,7 @@ describe('the JSON contract', () => {
     expect(v.engine_version).toBe(readJson(path.join(ENGINE, 'package.json')).version);
     expect(v.protocol).toBe(1);
     expect(Object.keys(v.commands).sort()).toEqual(
-      ['browser-ensure', 'bundle', 'check', 'emit-events', 'entry', 'render', 'stills', 'version', 'web-render'].sort(),
+      ['browser-ensure', 'bundle', 'check', 'emit-events', 'entry', 'render', 'stills', 'trace', 'version', 'web-render'].sort(),
     );
     expect(v.installed.remotion).toBe('4.0.521');
     expect(v.pins_ok).toBe(true);
@@ -114,6 +115,17 @@ describe('web-render dispatch', () => {
     const r = ok('web-render', {frames: 12}, {data, env: {SLATE_WEB_RENDER_MODULE: mod, BROWSER: 'open'}});
     expect(r.frames).toBe(12);
     expect(r.browser).toBe('none');
+  });
+
+  it("tells webRender where the caller stands, so a scene rendered on its own resolves from there, not from engine/", () => {
+    const mod = path.join(root, 'fake-web-cwd.mjs');
+    fs.writeFileSync(mod, 'export async function webRender(args, opts = {}) { return {cwd: opts.cwd ?? null, scene: args.scene, exe: args.browser}; }\n');
+    // helpers.cli runs node from os.tmpdir(): that's the caller's folder here
+    const r = ok('web-render', {scene: 'my-scene', browser: 'bin/chrome'}, {data, env: {SLATE_WEB_RENDER_MODULE: mod}});
+    const caller = fs.realpathSync(os.tmpdir());
+    expect(fs.realpathSync(r.cwd)).toBe(caller);
+    expect(r.scene).toBe('my-scene'); // the web renderer resolves a scene itself (against the film, or cwd)
+    expect(r.exe).toBe(path.join(r.cwd, 'bin', 'chrome'));
   });
 });
 

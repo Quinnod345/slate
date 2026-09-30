@@ -101,6 +101,8 @@ def test_unplaced_captures_are_unchecked_not_passed(film):
                source=clip, command="test")
     result = beatmap.run(film, "plain", word_time=lambda *a, **k: (0.0, True))
     assert result["gate"]["status"] == "UNCHECKED" and result["events"] == 0
+    code, out, err = run_json(["capture", "beatmap", "--film", str(film), "--name", "plain"])
+    assert code == 1 and out["gate"]["status"] == "UNCHECKED"  # unchecked is never passed, so never exit 0
 
 
 def test_without_word_timings_the_beat_map_waits(film, monkeypatch):

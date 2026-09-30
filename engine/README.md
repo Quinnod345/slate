@@ -57,9 +57,10 @@ kill is a SIGKILL: it skips every cleanup, and Chrome, which runs in its own pro
 | `entry` | `film` | the generated files, compositions and acts |
 | `bundle` | `film`; `release: true` deletes it; `{cleanup: true}` alone deletes every unused bundle | `serve_url`, `bundle_hash`, `reused`, `compositions`, `broken` (acts left out because they don't build) |
 | `render` | `film`, `act` (or `"film"`), `from`/`to` (master frames, inclusive), `sub` (default 16; `draft: true` is 4), `out` (`.mov` ProRes, `.mkv` lossless chunk), `concurrency`, `gl`, `serve_url`, `trace` | `file`, `frames`, `film_frames`, `frame_count`, `samples`, `sha256`, `bundle_hash`, the stream's facts, `trace` |
-| `stills` | `film` (optional with `entry`), `specs: ["Act2:120"]`, `scale`, `out_dir`, `contact_sheet: {comp, every_s \| count \| frames, columns, scale}`, `entry`, `serve_url`, `gl`, `pixels` | the stills (with sha256 and, asked, a pixel hash), the sheet and its index |
+| `stills` | `film` (optional with `entry`), `specs: ["Act2:120"]`, `scale`, `out_dir`, `contact_sheet: {comp, every_s \| count \| frames, columns, scale}`, `entry`, `serve_url`, `gl`, `pixels` | the stills (with sha256 and, asked, a pixel hash), the sheet and its index (per cell: frame, shot, timecode; for the sheet: `cell` [w, h], `padding`, `margin`, `labels`) |
 | `emit-events` | `film`, `act` (default: every built act), `dry_run` (check everything, write nothing) | per act: the file, beats or silence, kinds, capture beats, the motion trace; in a dry run its problems and word misses |
-| `check` | `film`, `act` (or `acts: [N, …]`: one run, one bundle between them), `banned_words` (the brand's list; absent means UNCHECKED), `contracts`, `hold` | gate results and the worst status (per act, with `acts`) |
+| `trace` | `film`, `act` | one act's motion trace from the kit's motion registry, as the act is now (`slate render` refreshes it after each act render); a web act says its renderer writes its own |
+| `check` | `film`, `act` (or `acts: [N, …]`: one run, one bundle between them), `banned_words` (the brand's list; absent means UNCHECKED), `contracts`, `hold` | gate results (each filed under the `scenes` stage) and the worst status (per act, with `acts`) |
 | `web-render` | whatever the open web renderer takes | `engine/web/render.mjs`'s `webRender(args)` result |
 
 A caller that renders several acts or stills makes one bundle (`bundle`), passes its `serve_url` to each call, then
@@ -98,8 +99,11 @@ an act's modules (`events.*` first, then `beats.*`, then `index.*`):
 - `contracts`: `{in?: 'Name', out?: 'Name'}`, the rest states its first and last frames match.
 
 `@film/data`'s default export is the kit's `FilmData`: `film` (id, size and frame rate from film.json, the only source
-of either), `shots`, and, as the film gains them, `vo_words`, `vo_cues`, `timeline`, `events`, `captions`, `spoken` and
-`brand` (brand.json with its logo SVGs inlined). It also exports `fps`, `acts` and the types `SceneProps`, `Shot`,
+of either), `shots`, and, as the film gains them, `vo_words` (with each read's `tokens`: the script's words lined up
+with what was heard), `vo_cues`, `timeline`, `events`, `captions`, `spoken` (how each number and symbol in the reads is
+said), `lang` (the language's word-matching rules, `.slate/lang.json`) and `brand` (brand.json with its logo SVGs
+inlined). The Python bridge writes `.slate/spoken.json` and `.slate/lang.json` from slate.timing before every call, so
+the kit's `word()` answers exactly as `slate.timing.words.word_time` does (a test holds the two to the same answers). It also exports `fps`, `acts` and the types `SceneProps`, `Shot`,
 `FilmInfo`. An act without scenes yet renders as a placeholder, so the whole film renders from day one: the kit's
 `PlaceholderAct` (in the brand's look, inside its `ActRoot`) when the kit is there, the engine's own neutral one (shot
 ids, on-screen text and VO) otherwise.
@@ -204,6 +208,14 @@ BROWSER=none npx --no-install remotion studio <film>/.slate/entry.tsx --no-open 
 
 - **remotion, @remotion/bundler, renderer, cli: 4.0.521, pinned exactly.** Upgrade within 4.0.x only after the
   render-parity check; never 5.0 unplanned (it brings licence and colour changes). `version` reports any drift.
+  - **Where upstream is (checked 2026-09-30 on GitHub releases):** the latest is 4.0.531 (released that day). **4.0.530
+    changes pixels:** its compositor fix, "full-range video with non-J pixel formats (10/12-bit) being range-expanded
+    twice", means any full-range 10- or 12-bit video a scene plays (an `OffthreadVideo` of a camera or screen
+    recording) decodes differently from 4.0.521, which expands its range twice (too much contrast). Slate's captures
+    and plates are conformed JPEG sequences, which never take that path; until the pin moves, conform any such clip the
+    same way (or to limited range) rather than playing it directly. The parity check for any move past 4.0.529 must
+    include one full-range 10-bit clip and expect its pixels to change (the new ones are right), while every other
+    frame still matches. The same upgrade brings `HtmlInCanvasMotionBlur` (4.0.529, below).
 - **@remotion/google-fonts 4.0.521: kept**, for open fonts. When the engine loads an act in Node, font loaders are
   stubbed (fonts load in the browser).
 - **@remotion/motion-blur: learn from.** It isn't a dependency, and a test keeps it out of package.json. render_mb

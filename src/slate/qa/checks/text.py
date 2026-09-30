@@ -4,9 +4,12 @@
 - banned_words  the brand's one banned-word list (brand pack `truth.banned_words`) against the script, the captions
                 and the OCR of the picture. The films kept three copies of their list and two drifted apart;
 - readtime      every on-screen statement in the storyboard stays readable long enough once it is fully built:
-                max(1.5 s, 0.4 s + 0.3 s per word), timed from the OCR, within its own shot (±0.5 s);
-- captions      at most 2 lines of 42 characters, at most 17 characters a second, at least 1 s each, in order and
-                never overlapping, and word for word the booth script;
+                max(1.5 s, 0.4 s + 0.3 s per word), timed from the OCR, within its own shot (±0.5 s). A shot may
+                declare exemptions in script.json (`reading`, with a reason): a voice-matched definition needs only
+                the 1.5 s floor, and a surface not meant to be read isn't timed (reading_declarations);
+- captions      at most 2 lines of 42 characters, at most 17 characters a second (the format and film.json may
+                tighten these, never loosen them), at least 1 s each, in order and never overlapping, and word for
+                word the booth script (timing/captions.json, the voice module's cues, first);
 - claims        every claim approved or sourced (the story module's check when it's installed).
 """
 
@@ -226,11 +229,19 @@ def reading_declarations(ctx: FilmContext) -> tuple[dict[str, dict], list[str]]:
     An exemption says why (`reason`), and names statements the shot really shows: otherwise it's a problem, never a
     quiet pass. Returns ({shot: {flag: True | set of squashed statements, "reason": str}}, problems).
     """
-    script_shots_by_id = {str(shot.get("id")): shot for _w, shot in script_shots(ctx.script or {})}
-    board = {str(s.get("id")): s for s in iter_storyboard_shots(ctx.storyboard or {})}
     out: dict[str, dict] = {}
     problems: list[str] = []
-    for sid in dict.fromkeys([*board, *script_shots_by_id, *(str(s.get("id")) for s in ctx.shots)]):
+    try:
+        script = ctx.script or {}
+    except SlateError as exc:
+        script = {}
+        problems.append(f"script/script.json can't be read, so its read-time exemptions can't be either: {exc}")
+    script_shots_by_id = {str(shot.get("id")): shot for _w, shot in script_shots(script)}
+    board = {str(s.get("id")): s for s in iter_storyboard_shots(ctx.storyboard or {})}
+    # a renumbered storyboard names its script shot in source_id: that script shot is read through it, not again
+    through_board = {str(s.get("source_id") or sid) for sid, s in board.items()}
+    others = [sid for sid in script_shots_by_id if sid not in through_board and sid not in board]
+    for sid in dict.fromkeys([*board, *others, *(str(s.get("id")) for s in ctx.shots)]):
         shot = board.get(sid) or {}
         raw = shot.get(READING_KEY)
         if raw is None:
@@ -360,19 +371,71 @@ def readtime(film_dir: Path) -> GateResult:
 
 
 # ---------------------------------------------------------------------------------------------- captions
-def _caption_rules(ctx: FilmContext) -> dict:
-    rules = dict(CAPTION_RULES)
-    try:
-        formats = importlib.import_module("slate.formats")
-        fmt = formats.load(ctx.film.get("format")) if ctx.film.get("format") else {}
-        cfg = (fmt or {}).get("captions") or {}
-        for ours, theirs in (("max_lines", "max_lines"), ("max_chars", "max_chars_per_line"), ("max_chars", "max_chars"),
-                             ("max_cps", "max_cps"), ("min_seconds", "min_seconds")):
-            if cfg.get(theirs) is not None:
-                rules[ours] = cfg[theirs]
-    except Exception:  # noqa: BLE001 - formats not installed, or no captions section: the defaults stand
-        pass
-    return rules
+#: What each caption limit may be called in a format's or film.json's "captions" (first name found wins).
+CAPTION_NAMES = {"max_cps": ("max_cps", "cps", "max_chars_per_second"), "max_lines": ("max_lines", "lines"),
+                 "max_chars": ("max_chars", "max_chars_per_line", "max_line_chars", "line_length", "chars_per_line")}
+
+
+def _number(v: Any) -> float | None:
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        return None
+    return float(v)
+
+
+def caption_rules(ctx: FilmContext) -> tuple[dict, str]:
+    """The caption rules both caption gates hold a film to (this module's `captions` and the access gate's captions
+    check), so the two never disagree about one cue: ({max_cps, max_lines, max_chars, min_seconds}, where from).
+
+    The plan's law (at most 17 characters a second, 2 lines of 42) is tightened, never loosened, by the film's format
+    at the film's aspect (a 9:16 cut gets shorter lines) and then by film.json's own "captions". The shortest a cue may
+    stay up isn't the plan's law: 1 s, unless the format or film.json says otherwise (min_seconds or min_s).
+    """
+    rules: dict[str, Any] = {**CAPTION_RULES}
+    parts = []
+    fmt = _film_format(ctx)
+    for label, cap in ((f"the {ctx.film.get('format')} format", (fmt or {}).get("captions")),
+                       ("film.json", ctx.film.get("captions"))):
+        if not isinstance(cap, dict):
+            continue
+        tightened = []
+        for key, names in CAPTION_NAMES.items():
+            given = [v for v in (_number(cap.get(n)) for n in names) if v is not None and v > 0]
+            if given and min(given) < rules[key]:
+                v = min(given)
+                rules[key] = v if key == "max_cps" else int(v)
+                tightened.append(f"{key} {v:g}")
+        low = next((_number(cap.get(n)) for n in ("min_seconds", "min_s") if _number(cap.get(n)) is not None), None)
+        if low is not None and low >= 0:
+            rules["min_seconds"] = low
+        if tightened:
+            parts.append(f"{label} ({', '.join(tightened)})")
+    rules["max_cps"] = float(rules["max_cps"])
+    source = ("the law (17 characters a second, 2 lines of 42)" if not parts else
+              "the law, tightened by " + " and ".join(parts))
+    return rules, source
+
+
+def _caption_rules(ctx) -> dict:
+    """caption_rules without where they came from (kept for callers that read the rules alone)."""
+    return caption_rules(ctx)[0]
+
+
+def _film_format(ctx) -> dict | None:
+    """The film's format: the run's FilmContext reads it once; anything else that carries film.json is read here."""
+    fmt_of = getattr(ctx, "format", None)
+    if callable(fmt_of):
+        return fmt_of()
+    from slate.qa.film import read_format  # noqa: PLC0415
+
+    return read_format(getattr(ctx, "film", None) or {})
+
+
+def _format_file(ctx: FilmContext) -> str | None:
+    """The file the film's format was read from, for the caption gates' inputs (a changed format makes them STALE)."""
+    fmt = _film_format(ctx) or {}
+    src = ctx.film.get("format_source")
+    path = fmt.get("path") or (src if isinstance(src, str) else None)
+    return str(path) if path and Path(str(path)).is_file() else None
 
 
 def captions(film_dir: Path) -> GateResult:
@@ -384,7 +447,8 @@ def captions(film_dir: Path) -> GateResult:
     spoken = ctx.spoken_lines()
     from slate.qa import film as filmmod  # noqa: PLC0415
 
-    read = ["timing/vo_words.json", "script/storyboard.json", *([cap] if cap else filmmod.CAPTION_CANDIDATES)]
+    read = ["film.json", "timing/vo_words.json", "script/storyboard.json",
+            *([cap] if cap else filmmod.CAPTION_CANDIDATES), _format_file(ctx)]
     if cap is None:
         if spoken:
             return GateResult.unchecked("captions", "the film has spoken lines but no captions yet",
@@ -394,7 +458,7 @@ def captions(film_dir: Path) -> GateResult:
                                         evidence=["next: slate script build"], engine=engine, inputs=ctx.inputs(read))
         return combine("captions", [Sub("none", "PASS", "the film has no spoken lines, so it needs no captions")],
                        engine=engine, inputs=ctx.inputs(read))
-    rules = _caption_rules(ctx)
+    rules, rules_from = caption_rules(ctx)
     try:
         cues = textmatch.load_cues(cap)
     except (OSError, ValueError, KeyError) as exc:
@@ -443,7 +507,7 @@ def captions(film_dir: Path) -> GateResult:
         subs.append(Sub("script", "UNCHECKED", "there's no booth script (vo_words.json or storyboard lines) to compare "
                         "the captions with", ["next: slate timing"]))
     return combine("captions", subs, engine=engine, inputs=ctx.inputs(read), details={"file": ctx.rel(cap),
-                   "cues": len(cues), "rules": rules})
+                   "cues": len(cues), "rules": rules, "rules_from": rules_from, "stage": "voice"})
 
 
 # ---------------------------------------------------------------------------------------------- claims
@@ -461,11 +525,7 @@ def _story_claims(ctx: FilmContext, script: dict, pack: dict | None) -> list[Gat
     fn = getattr(story_gates, "check_script", None)
     if not callable(fn):
         return None
-    fmt = {}
-    try:
-        fmt = importlib.import_module("slate.formats").load(ctx.film.get("format")) or {}
-    except Exception:  # noqa: BLE001 - no formats module or no such format: the story gates use their defaults
-        fmt = {}
+    fmt = ctx.format() or {}  # the film's own format, at its aspect (no format: the story gates use their defaults)
     import inspect  # noqa: PLC0415
 
     params = inspect.signature(fn).parameters

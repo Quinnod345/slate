@@ -39,12 +39,20 @@ catches them by comparing balance snapshots:
 
 ```
 slate ledger snapshot --all --session <label>        # at the start of a working session
-slate ledger snapshot --all --session <label>        # at the end
+slate ledger snapshot --all --session <label>        # at the end, with the same label
 slate ledger reconcile --session <label>
 ```
 
-Where Slate can't read a balance itself, pass the number from the dashboard with `--balance`. A reconcile that finds
-unexplained spend is REVIEW, for the owner to look at.
+`--all` records every balance Slate can read by itself (ElevenLabs'); it skips Higgsfield, which has no balance
+endpoint. When a Higgsfield connector or Higgsfield's own skills ran in the session, record its balance at both ends
+from the connector's balance tool or the dashboard:
+
+```
+slate ledger snapshot --provider higgsfield --balance <n> --session <label>
+```
+
+A reconcile that finds unexplained spend is REVIEW, for the owner to look at. A provider with only one snapshot in the
+session is UNCHECKED, never a pass.
 
 ## Two wallets at Higgsfield
 

@@ -10,7 +10,8 @@ outlives whoever submitted it: a dying agent, a closed Terminal, a rate-limited 
 3. runs the command as `caffeinate -i nice -n 5 <argv>` in its own process group, so the Mac doesn't idle-sleep under
    it and your own work stays responsive; the command learns it's a queued job from SLATE_JOB_ID, SLATE_JOB_ATTEMPT,
    SLATE_JOB_RESUME and SLATE_JOB_HOLDS;
-4. watches free disk space while it runs and stops the job safely below the stop line;
+4. watches free disk space while it runs, and stops the command and everything it started (its whole process tree:
+   slate.procs gives every child its own group) when the disk nears the stop line or the job is cancelled;
 5. records the exit: done, failed with the reason, or back in the queue for later (exit 5 busy or 75 try-later);
 6. releases everything and makes sure a runner is serving whatever is still queued.
 """
@@ -114,6 +115,17 @@ def _child_env(job: dict) -> None:
     if job.get("film_dir") and not os.environ.get("SLATE_FILM"):
         os.environ["SLATE_FILM"] = job["film_dir"]
     os.environ["SLATE_DATA"] = data_dir
+
+
+def _record_command(job_id: str, token: str) -> bool:
+    """Note the command's pid, group and start time once it's running, so a supervisor that dies can't orphan it: the
+    runner and `slate job cancel` find it from the job file. True once it's recorded (or there's nothing to record)."""
+    for kid in proc.children(os.getpid()):  # (proc.table leaves out the ps that lists them)
+        with store.update(job_id) as job:
+            if job.get("launch") == token:
+                job["cmd_pid"], job["cmd_pgid"], job["cmd_start"] = kid["pid"], kid["pgid"], kid["start"]
+        return True
+    return False
 
 
 def _outcome(job: dict, rc: int) -> None:
@@ -234,26 +246,36 @@ def main(argv: list[str] | None = None) -> int:
         started = time.monotonic()
         worker.start()
         poll = runner.poll_seconds()
-        stop_deadline: float | None = None
-        pgid = os.getpgid(0)
+        stopping = False
+        recorded = False
+        for _ in range(20):  # write the command down at once: a supervisor that dies after this can't orphan it
+            worker.join(0.05)
+            if not worker.is_alive() or (recorded := _record_command(job_id, token)):
+                break
         while worker.is_alive():
             worker.join(poll)
             if not worker.is_alive():
                 break
-            if stop_deadline is None and target:
+            if not recorded:
+                recorded = _record_command(job_id, token)
+            if stopping:
+                continue
+            why = None
+            if target:
                 ok, reason, _free = disk.watch(target)
                 if not ok:
-                    runner.stop_safely(job_id, reason, spare=os.getpid(), token=token)
-                    stop_deadline = time.monotonic() + runner.kill_grace()
-                    continue
-            if stop_deadline is None:
+                    runner.stop_safely(job_id, reason, spare=os.getpid(), token=token)  # marks it; the stop is ours
+                    why = reason
+            if why is None:
                 state = store.load(job_id)
                 if state.get("stopped") and state.get("launch") == token:
-                    stop_deadline = time.monotonic() + runner.kill_grace()  # someone else began the stop
-            if stop_deadline is not None and time.monotonic() > stop_deadline:
-                _say("the command didn't stop on SIGTERM; sending SIGKILL")
-                proc.signal_group(pgid, signal.SIGKILL, spare=os.getpid())
-                stop_deadline = time.monotonic() + 3600  # once
+                    why = f"{state.get('reason') or state.get('stopped')}"  # cancelled, or stopped by the runner
+            if why is not None:
+                stopping = True
+                _say(f"stopping the command and everything it started: {why}")
+                how = proc.stop_tree(os.getpid(), grace=runner.kill_grace(), spare=os.getpid())
+                if how == "killed":
+                    _say("the command didn't stop on SIGTERM within the grace period; it was killed")
         worker.join()
         rc = int(result.get("rc", 127))
         elapsed = time.monotonic() - started

@@ -51,8 +51,11 @@ draws the same pictures.
 
 Start from the template (`template/`): `node engine/cli.mjs web-render --json '{"film": "…", "act": N, "scaffold":
 true}'` copies it into `scenes/act<N>/web/` (and refuses to overwrite a scene that's there). `slate new` is meant to do
-the same when a brand's look picks the web engine; until the state module calls it, run the scaffold yourself. A scene
-is `index.html` plus a script:
+the same when a brand's look picks the web engine (`look.engine: "web"` in the brand pack, read by the kit's
+`sceneEngine()`); until the state module calls it, run the scaffold yourself. The template's moves shrink to fit an act
+shorter than the brand's durations, so its beat always lands inside the act. The film's generated tsconfig maps
+`@slate/web` to this runtime, so `tsc` from the film folder type-checks a web scene too. A scene is `index.html` plus a
+script:
 
 ```ts
 import * as THREE from 'three';

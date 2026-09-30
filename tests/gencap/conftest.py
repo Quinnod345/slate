@@ -7,6 +7,7 @@ approved (so autonomous films can exist). Without the state module, a minimal fi
 
 from __future__ import annotations
 
+import importlib
 import json
 from pathlib import Path
 
@@ -24,6 +25,16 @@ def _own_fakers(monkeypatch):
     their place (the shared registry is process-wide)."""
     for op, faker in higgsfield.FAKERS.items():
         monkeypatch.setitem(replay._FAKERS, (higgsfield.PROVIDER, op), faker)  # noqa: SLF001
+
+
+@pytest.fixture(autouse=True)
+def _own_resume_hook(monkeypatch):
+    """The poll hook the client registers with the job queue, whatever an earlier test removed."""
+    try:
+        resume = importlib.import_module("slate.jobs.resume")
+    except ModuleNotFoundError:
+        return
+    monkeypatch.setitem(resume._POLLERS, higgsfield.PROVIDER, higgsfield.resume_poll)  # noqa: SLF001
 
 
 @pytest.fixture

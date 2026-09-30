@@ -1,0 +1,86 @@
+{
+ "generated": "fixture for the engines' end-to-end tests: words hand-timed, tokens by slate.timing.words.resolve_tokens",
+ "shots": {
+  "E01": {
+   "take": "voice/takes/E01.wav",
+   "line": "One clock.",
+   "words": [
+    {
+     "w": "One",
+     "start": 0.0,
+     "end": 0.08
+    },
+    {
+     "w": "clock.",
+     "start": 0.08,
+     "end": 0.18
+    }
+   ],
+   "tokens": [
+    {
+     "t": "One",
+     "key": "one",
+     "occ": 1,
+     "start": 0.0,
+     "end": 0.08,
+     "exact": true,
+     "i": 0,
+     "j": 1
+    },
+    {
+     "t": "clock",
+     "key": "clock",
+     "occ": 1,
+     "start": 0.08,
+     "end": 0.18,
+     "exact": true,
+     "i": 1,
+     "j": 2
+    }
+   ]
+  },
+  "E02": {
+   "take": "voice/takes/E02.wav",
+   "line": "64 moves.",
+   "words": [
+    {
+     "w": "Sixty",
+     "start": 0.0,
+     "end": 0.04
+    },
+    {
+     "w": "four",
+     "start": 0.04,
+     "end": 0.09
+    },
+    {
+     "w": "moves.",
+     "start": 0.09,
+     "end": 0.18
+    }
+   ],
+   "tokens": [
+    {
+     "t": "64",
+     "key": "64",
+     "occ": 1,
+     "start": 0.0,
+     "end": 0.09,
+     "exact": true,
+     "i": 0,
+     "j": 2
+    },
+    {
+     "t": "moves",
+     "key": "moves",
+     "occ": 1,
+     "start": 0.09,
+     "end": 0.18,
+     "exact": true,
+     "i": 2,
+     "j": 3
+    }
+   ]
+  }
+ }
+}

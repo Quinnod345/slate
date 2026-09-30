@@ -23,7 +23,7 @@ from typing import Any
 
 from slate import gates, jsonio, ledger, log, replay
 from slate.errors import MissingPrerequisite, Refused, UsageError
-from slate.sound.film import SCORE_DIR, Film, is_locked, load
+from slate.sound.film import SCORE_DIR, Film, is_locked, load, record_lock
 from slate.sound.score import qa
 from slate.sound.score.plan import load_plan
 
@@ -83,7 +83,8 @@ def _call(cl: Any, *, plan: dict, model_id: str, seed: int, output_format: str |
     offer(("seed",), seed, api=True)
     if output_format:
         offer(("output_format", "fmt", "format"), output_format, api=True)
-    offer(("respect_sections_durations",), True, api=True)
+    if "sections" in plan:  # a music_v1 option: the v2 models always keep chunk durations
+        offer(("respect_sections_durations",), True, api=True)
     offer(("out", "dest", "path", "output"), out)
     offer(("film", "film_dir"), film.dir)
     offer(("mode",), film.mode)
@@ -152,6 +153,7 @@ def compose(film_dir: Path, parts: list[str] | None = None, seeds: list[int] | N
     if force and locked:
         raise Refused(f"{len(locked)} take(s) are locked (approved), so --force won't redo them: {', '.join(locked[:3])}.",
                       hint="Approved takes are never regenerated; compose a new seed instead (--seeds).")
+    _check_shapes(plan, [p for p, _ in todo])
     est = estimate(film, plan, todo)
     summary: dict[str, Any] = {"film": film.id, "model_id": plan["model_id"], "output_format": fmt, "seeds": seeds,
                                "to_compose": [f"{p['id']} s{s}" for p, s in todo], "kept": kept,
@@ -187,11 +189,25 @@ def compose(film_dir: Path, parts: list[str] | None = None, seeds: list[int] | N
                       "qa": {k: take_qa[k] for k in ("duration", "problems", "score", "rms_median")},
                       "licence": plan.get("licence")}
             jsonio.write_atomic(out.with_name(f"{out.stem}.json"), record)
+            record_lock(film, film.rel(out), producer="slate score compose", inputs=[film.rel(plan_copy)])
             composed.append(record)
             log.info(f"  {out.name}: qa score {take_qa['score']} ({len(take_qa['problems'])} problem(s))")
     _pin_model(film, plan["model_id"])
     summary["composed"] = composed
     return summary
+
+
+def _check_shapes(plan: dict, parts: list[dict]) -> None:
+    """Every part's plan is the shape its model takes, or nothing is sent (a v1 section plan is rejected by the v2
+    models: a plan.json made before the model moved has to be made again)."""
+    from slate.sound.score.plan import plan_schema  # noqa: PLC0415
+
+    want = plan_schema(plan["model_id"])
+    stale = [p["id"] for p in parts if want not in (p.get("composition_plan") or {})]
+    if stale:
+        raise MissingPrerequisite(f"The score plan for {', '.join(stale)} isn't the shape {plan['model_id']} takes "
+                                  f"({want}); Eleven Music would reject it, so nothing was sent.",
+                                  hint="Run `slate score plan` again: it builds the plan for the model it's sent to.")
 
 
 class _NullLock:

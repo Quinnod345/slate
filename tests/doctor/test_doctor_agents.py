@@ -208,6 +208,39 @@ def test_cli_missing_from_homebrew_is_red_only_with_openclaw(denv):
     assert cli_row(denv)["status"] == "green"
 
 
+def test_a_sandboxed_install_is_checked_where_its_manifest_put_the_gateway_link(denv):
+    """A sandbox mirrors /opt/homebrew/bin inside its own home; doctor run there reads the install manifest and checks
+    the link that install really made, instead of calling the real /opt/homebrew/bin/slate missing."""
+    denv.present.discard("/opt/homebrew/bin/slate")
+    denv.texts.pop("/opt/homebrew/bin/slate")
+    sandboxed = denv.home / "opt" / "homebrew" / "bin" / "slate"
+    sandboxed.parent.mkdir(parents=True)
+    sandboxed.write_text((denv.home / ".local" / "bin" / "slate").read_text())
+    data = denv.tmp / "sandbox-data"
+    (data / "install").mkdir(parents=True)
+    (data / "install" / "manifest.json").write_text(json.dumps({"version": 1, "links": [
+        {"target": str(denv.home / ".local" / "bin" / "slate"), "kind": "shim"},
+        {"target": str(sandboxed), "kind": "shim"}]}))
+    denv.data_dir = lambda: data
+    row = cli_row(denv)
+    assert row["status"] == "green" and row["details"]["gateway_link"] == str(sandboxed), row
+    assert "~/opt/homebrew/bin" in row["summary"]
+    sandboxed.unlink()
+    row = cli_row(denv)
+    assert row["status"] == "red" and "isn't in ~/opt/homebrew/bin" in row["summary"]
+
+
+def test_without_a_manifest_the_gateway_link_is_homebrews(denv):
+    assert agents.gateway_link(denv) == agents.GATEWAY_LINK
+
+
+def test_openclaw_registration_fix_names_the_current_command(denv):
+    """OpenClaw 2026.9.4 registers with `mcp add … --command … --arg …`; the older `mcp set` form is never suggested."""
+    denv.set_response("openclaw", "mcp", "list", "--json", out=json.dumps({}))
+    row = mcp(denv)["agents.mcp.openclaw"]
+    assert "openclaw mcp add slate --command" in row["fix"] and "mcp set" not in row["fix"]
+
+
 def test_cli_from_another_checkout_is_yellow(denv):
     shim = denv.home / ".local" / "bin" / "slate"
     shim.write_text("#!/bin/sh\n# slate-shim v1\nSLATE_CHECKOUT=/somewhere/else/slate\n")

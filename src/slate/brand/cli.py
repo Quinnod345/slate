@@ -190,6 +190,9 @@ def cmd_onboard(args: argparse.Namespace) -> int:
         for s, info in ov["steps"].items():
             lines.append(f"  {onboard.TITLES[s]:<16} {info['state'].replace('_', ' '):<13} {info['done']} of "
                          f"{info['of']} done" + (f"; next: {info['next']}" if info["state"] != "approved" else ""))
+        spent = onboard.spend_line(ov.get("spend") or {})
+        if spent:
+            lines.append(f"  {spent} (billed as {ov['billing']['id']})")
         log.result(ov, "\n".join(lines))
         return 0
     if step == "truth":

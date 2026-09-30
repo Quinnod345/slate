@@ -171,3 +171,8 @@ def test_gates_are_offered_to_qa():
     assert set(gates.GATES) == {"voice_policy", "voice_direction", "voice_takes", "voice_words", "voice_tails",
                                 "voice_fit"}
     assert all(callable(fn) for fn in gates.GATES.values())
+
+
+def test_voice_gates_name_their_stage(voice_film):
+    results = gates.run(voice_film, ["voice_policy", "voice_direction"], write=False)
+    assert {r.details["stage"] for r in results} == {"voice"}

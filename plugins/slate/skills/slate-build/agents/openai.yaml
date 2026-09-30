@@ -1,0 +1,6 @@
+# do not edit by hand: slate skills build (from skills/slate-build/SKILL.md). Edit the skill, not this file.
+interface:
+  display_name: "Slate Build"
+  short_description: "Build a Slate film's scenes with the kit, act by act."
+policy:
+  allow_implicit_invocation: true

@@ -204,7 +204,7 @@ def test_smoke_a_local_page_through_aside_frame_exact(film):
     folder = film / "site"
     folder.mkdir()
     (folder / "index.html").write_text(
-        "<!doctype html><html><head><style>html,body{margin:0;background:#f4f4f2}"
+        "<!doctype html><html><head><style>html,body{margin:0;background:#ffffff}"
         "#bar{position:absolute;left:0;top:40px;width:40px;height:40px;background:#333;"
         "animation:slide 1s linear forwards}@keyframes slide{to{transform:translateX(200px)}}</style></head>"
         "<body><div id='bar'></div></body></html>")

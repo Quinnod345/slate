@@ -173,7 +173,10 @@ def run(film_dir: Path, *, check_only: bool = False, from_takes: bool = False) -
         lineage = derived.gate(parent, [s.id for s in p.shots])
         if lineage is not None:
             out.results.append(lineage)
-    input_paths = [SCRIPT, "film.json", TRUTH]
+    # The gates record the files they read. film.json isn't one of them: the keys they use (mode, targets, format,
+    # brand) are the storyboard's own lock inputs, so a change there makes the storyboard stale and these gates run
+    # again, while a pin or a new version written into film.json doesn't turn every script gate STALE.
+    input_paths = [SCRIPT, TRUTH]
     if parent.parent_script:
         input_paths.append(parent.parent_script)
     brand_dir = brand.get("_dir")

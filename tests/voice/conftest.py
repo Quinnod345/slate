@@ -8,6 +8,7 @@ it meets a guard that fails loudly instead of quietly loading the model.
 
 from __future__ import annotations
 
+import importlib
 import json
 import os
 import stat
@@ -57,6 +58,17 @@ def _own_fakers(monkeypatch):
     (the shared registry is process-wide, and a test elsewhere once left a stub for ElevenLabs TTS behind)."""
     for op, faker in elevenlabs.FAKERS.items():
         monkeypatch.setitem(replay._FAKERS, (elevenlabs.PROVIDER, op), faker)  # noqa: SLF001
+
+
+@pytest.fixture(autouse=True)
+def _own_resume_hooks(monkeypatch):
+    """The balance readers the client registers with the job queue, whatever an earlier test removed."""
+    try:
+        resume = importlib.import_module("slate.jobs.resume")
+    except ModuleNotFoundError:
+        return
+    for name, reader in elevenlabs.BALANCE_READERS.items():
+        monkeypatch.setitem(resume._BALANCES, name, reader)  # noqa: SLF001
 
 
 @pytest.fixture(autouse=True)

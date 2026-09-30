@@ -1,0 +1,6 @@
+# do not edit by hand: slate skills build (from skills/slate-generate/SKILL.md). Edit the skill, not this file.
+interface:
+  display_name: "Slate Generate"
+  short_description: "Decide whether a Slate film should use generated footage or images, and make it well when it should."
+policy:
+  allow_implicit_invocation: true

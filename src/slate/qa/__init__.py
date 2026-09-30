@@ -57,6 +57,9 @@ CORE: dict[str, GateFn] = {
 }
 SLOW = ("ocr", "readtime", "glitch", "psnr")  # skipped by --quick (they decode or read the whole picture)
 EXTERNAL = ("slate.qa.motion", "slate.qa.access")
+# The production stage a gate checks, for `slate status`, where its name doesn't say (details.stage): the others are
+# placed by their names (loudness and stems under sound, glitch and frames under render, psnr under master, …).
+STAGES = {"bit_depth": "sound", "captions": "voice"}
 
 GATES: dict[str, GateFn] = dict(CORE)
 SOURCES: dict[str, str] = {name: fn.__module__ for name, fn in CORE.items()}
@@ -135,6 +138,8 @@ def _coerce(r: GateResult, name: str, fn: GateFn) -> GateResult:
     r.engine = eng
     r.inputs = {str(k): (str(v) if v is not None else None) for k, v in (r.inputs or {}).items()}
     r.details = dict(r.details or {})
+    if r.gate in STAGES:
+        r.details.setdefault("stage", STAGES[r.gate])
     r.checked_at = str(r.checked_at or gates.now_iso())
     return r
 

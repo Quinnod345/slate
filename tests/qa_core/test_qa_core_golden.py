@@ -3,12 +3,20 @@
 The film project is read-only: each test builds a small film folder in a temp dir (JSON only) whose records point at
 the delivered media by absolute path. Nothing is written into the film project. The tests skip on a machine without
 it, and skip a check whose delivered file has since moved.
+
+The ones that meter or decode whole delivered films (a six-minute mix through ebur128, two act renders around their
+joins) take tens of seconds each, so they run only when asked: SLATE_GOLDEN_HEAVY=1 (the sound module's switch for
+its whole-film golden test too). The JSON-only ones run every time.
 """
 
 import json
+import os
 from pathlib import Path
 
 import pytest
+
+heavy = pytest.mark.skipif(not os.environ.get("SLATE_GOLDEN_HEAVY"),
+                           reason="meters or decodes a whole delivered film: set SLATE_GOLDEN_HEAVY=1")
 
 from slate.qa.checks import audio as audio_gates
 from slate.qa.checks import picture, structure, sync, text
@@ -73,6 +81,7 @@ def test_golden_film_c_without_acts_1_and_2_fails_events_and_sync(filmroot, tmp_
     assert cov["missing"] == [1, 2]
 
 
+@heavy
 def test_golden_boundary_reproduces_film_a_delivered_joins(filmroot, tmp_path):
     """boundary_check.py measured film A's joins (build/qa/boundaries.json). The two joins whose renders are older
     than that report must come out the same, number for number."""
@@ -123,6 +132,7 @@ def _audio_film(filmroot, tmp_path, name, stems):
     return f, a
 
 
+@heavy
 def test_golden_film_b_silent_ambience_stem_now_fails(filmroot, tmp_path):
     """Film B's ambience stem is digital silence. The films' validator passed it (−70.0 is not < −70)."""
     f, _a = _audio_film(filmroot, tmp_path, "B", ["ambience"])
@@ -133,6 +143,7 @@ def test_golden_film_b_silent_ambience_stem_now_fails(filmroot, tmp_path):
     assert "-70.0 LUFS" in r.evidence[0] and "digital silence" in r.evidence[0]
 
 
+@heavy
 def test_golden_film_a_loudness_and_stems_match_its_mix_records(filmroot, tmp_path):
     f, a = _audio_film(filmroot, tmp_path, "A", ["dialogue", "effects", "ambience", "music"])
     record = json.loads((a / "final_mix.json").read_text())

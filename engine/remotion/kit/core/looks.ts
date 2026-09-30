@@ -41,6 +41,14 @@ export type Look = {
 
 export type AeLook = {id: string; engine: 'ae'; name: string; skill: string; builtBy: 'ae'};
 
+/**
+ * The engine a brand's scenes are built in. A kit look draws the same way in a Remotion act and in a web scene (the
+ * open web renderer's runtime reads the same tokens, eases and look), so a brand picks the engine with `look.engine`:
+ * "remotion" (the default), "web" (no Remotion licence needed) or "ae" (an After Effects look implies it).
+ */
+export type SceneEngine = 'remotion' | 'web' | 'ae';
+export const SCENE_ENGINES: readonly SceneEngine[] = ['remotion', 'web', 'ae'];
+
 const base = {
   camera: {perspective: 0.78, tilt: true},
   motion: {entrance: 'entrance', carry: 'move', state: 'state', exit: 'exit'},
@@ -132,28 +140,49 @@ function merge<T>(a: T, b: unknown): T {
   return out as T;
 }
 
-/** The look a brand chose (its overrides applied), or the default with a problem noted. */
-export const lookOf = memoOnBrand((pack: BrandPack): {look: Look; ae: AeLook | null; problems: string[]} => {
+/** The engine the brand asked for with `look.engine` (null when it didn't say), noting a name that isn't an engine. */
+function engineAsked(raw: BrandPack['look'], problems: string[]): SceneEngine | null {
+  const asked = raw && typeof raw === 'object' ? raw.engine : undefined;
+  if (asked === undefined || asked === null || asked === '') return null;
+  if (typeof asked === 'string' && (SCENE_ENGINES as readonly string[]).includes(asked)) return asked as SceneEngine;
+  problems.push(`look.engine ${JSON.stringify(asked)} isn't an engine (${SCENE_ENGINES.join(', ')}); building in "remotion"`);
+  return null;
+}
+
+/**
+ * The look a brand chose (its overrides applied) and the engine its scenes are built in, or the defaults with a
+ * problem noted.
+ */
+export const lookOf = memoOnBrand((pack: BrandPack): {look: Look; ae: AeLook | null; engine: SceneEngine; problems: string[]} => {
   const problems: string[] = [];
   const raw = pack.look;
   const id = typeof raw === 'string' ? raw : raw?.id;
+  const asked = engineAsked(raw, problems);
   if (!id) {
     problems.push(`the brand hasn't chosen a look; drawing "${DEFAULT_LOOK}" (onboarding sets brand.look.id)`);
-    return {look: LOOKS[DEFAULT_LOOK], ae: null, problems};
+    return {look: LOOKS[DEFAULT_LOOK], ae: null, engine: asked ?? 'remotion', problems};
   }
   const ae = AE_LOOKS.find((l) => l.id === id) ?? null;
   if (ae) {
+    if (asked && asked !== 'ae') problems.push(`look "${id}" is an After Effects look, so its scenes are built in "ae", not "${asked}"`);
     problems.push(`look "${id}" is an After Effects look; Remotion scenes draw "${DEFAULT_LOOK}" and the AE module builds the look`);
-    return {look: LOOKS[DEFAULT_LOOK], ae, problems};
+    return {look: LOOKS[DEFAULT_LOOK], ae, engine: 'ae', problems};
   }
+  if (asked === 'ae') problems.push(`look.engine is "ae" but "${id}" is a kit look; choose one of the AE bridge's looks for an After Effects build`);
+  const engine: SceneEngine = asked === 'web' ? 'web' : 'remotion';
   const found = LOOKS[id];
   if (!found) {
     problems.push(`look "${id}" isn't in the library (${Object.keys(LOOKS).join(', ')}); drawing "${DEFAULT_LOOK}"`);
-    return {look: LOOKS[DEFAULT_LOOK], ae: null, problems};
+    return {look: LOOKS[DEFAULT_LOOK], ae: null, engine, problems};
   }
   const overrides = typeof raw === 'object' && raw ? raw.overrides : undefined;
-  return {look: overrides ? merge(found, overrides) : found, ae: null, problems};
+  return {look: overrides ? merge(found, overrides) : found, ae: null, engine, problems};
 });
+
+/** The engine the brand in force builds its scenes in (`look.engine`, "remotion" unless it says otherwise). */
+export function sceneEngine(pack?: BrandPack): SceneEngine {
+  return lookOf(pack ?? brandPack()).engine;
+}
 
 /** The look of the brand in force. */
 export function look(pack?: BrandPack): Look {

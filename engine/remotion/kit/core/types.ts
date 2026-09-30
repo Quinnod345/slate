@@ -162,7 +162,7 @@ export type BrandPack = {
   type?: BrandType;
   logos?: Record<string, LogoInput> | LogoInput[];
   motif?: Record<string, unknown> | null;
-  look?: {id?: string; overrides?: Record<string, unknown>; references?: unknown; [key: string]: unknown} | string | null;
+  look?: {id?: string; engine?: string; overrides?: Record<string, unknown>; references?: unknown; [key: string]: unknown} | string | null;
   motion?: BrandMotion;
   [key: string]: unknown;
 };

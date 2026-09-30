@@ -263,6 +263,10 @@ def check(*, home: str | os.PathLike | None = None, agents: list[str] | str | No
         elif e["state"] == mcp_register.NO_CLIENT:
             res["notes"].append(f"{e['client']} has settings here but its CLI isn't on PATH, so its MCP entry wasn't "
                                 "checked.")
+        elif e["state"] == mcp_register.UNKNOWN:
+            why = (e.get("current") or {}).get("unknown") or "its settings couldn't be read"
+            res["notes"].append(f"{e['client']}: its MCP entry wasn't checked ({why}). Unchecked isn't the same as "
+                                "registered: `slate doctor` asks each agent from the real home.")
     res["quinn_skills"] = quinn_skills.status(lay)
     res["ok"] = not res["problems"]
     return res

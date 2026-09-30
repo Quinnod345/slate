@@ -43,6 +43,10 @@ def test_audit_reads_a_saved_report(tmp_path):
         {"check": c, "status": "PASS", "evidence": "ok"} for c in audit.CHECKS]}}))
     results = audit.run(tmp_path / "f.aep", report=rep, write=False)
     assert gates.overall(results) == "PASS" and gates.exit_code(results) == 0
+    # `slate status` files every audit gate under the master stage (ae.shots.comps isn't a timing gate)
+    assert {r.details["stage"] for r in results} == {"master"}
+    missing = audit.gates_from_report([], aep=tmp_path / "f.aep")
+    assert {r.status for r in missing} == {"UNCHECKED"} and {r.details["stage"] for r in missing} == {"master"}
 
 
 # ---- the audit: end to end through the mock AE ----------------------------------------------------------------

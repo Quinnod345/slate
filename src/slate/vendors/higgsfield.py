@@ -50,7 +50,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from slate import config, jsonio, ledger, log, replay, secrets
-from slate.errors import MissingPrerequisite, SlateError, UsageError
+from slate.errors import Busy, MissingPrerequisite, SlateError, UsageError
 
 PROVIDER = "higgsfield"
 LANE = "cloud-api"
@@ -60,7 +60,9 @@ UNBILLED = frozenset({"failed", "nsfw", "canceled", "cancelled"})  # only succes
 PROBE_REQUEST_ID = "00000000-0000-4000-8000-000000000000"  # a well-formed id that can never exist
 IDEMPOTENCY_HEADER = "Idempotency-Key"
 SUBMIT_TRIES = 3  # with the same Idempotency-Key: a repeat returns the original request and charges once
-RETRY_STATUSES = frozenset({408, 425, 429, 500, 502, 503, 504})  # a submit may have landed; resend with its key
+AMBIGUOUS_STATUSES = frozenset({408, 500, 502, 503, 504})  # the submit may have landed: resend with its key
+REFUSED_FOR_NOW = frozenset({425, 429})  # not taken this time (nothing created): resend with its key, then wait
+RETRY_STATUSES = AMBIGUOUS_STATUSES | REFUSED_FOR_NOW
 UPLOAD_TYPES = {
     "image/jpeg", "image/png", "image/webp", "image/gif", "audio/wav", "audio/x-wav", "audio/vnd.wave", "video/mp4",
 }
@@ -86,6 +88,20 @@ class HiggsfieldError(SlateError):
                  details: dict | None = None):
         super().__init__(message, hint=hint, details={**(details or {}), "status": status})
         self.status = status
+
+
+class HiggsfieldBusy(HiggsfieldError, Busy):
+    """A rate limit or the account's concurrency limit: nothing was created or billed, so trying again later is safe.
+    Exit 5 (busy), which the job queue retries later instead of failing."""
+
+    kind = "busy"
+
+
+def _busy(op: str, status: int, detail: str) -> HiggsfieldBusy:
+    what = "the account's limit on requests running at once" if status == 400 else f"a rate limit (HTTP {status})"
+    return HiggsfieldBusy(f"Higgsfield turned the {op} away: {what}. Nothing was created or billed.", status=status,
+                          hint="Wait for a running request to finish, then run it again (a queued job retries by "
+                               "itself).", details={"detail": detail[:300]})
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -235,9 +251,8 @@ class Client:
             raise HiggsfieldError(f"Higgsfield rejected the key on {op} (HTTP 401).", status=status,
                                   hint="Check the key with `slate gen probe`; `slate connect higgsfield --api-key` "
                                        "replaces it (run it in your own Terminal).")
-        if status == 400 and "concurren" in detail.lower():
-            raise HiggsfieldError(f"Higgsfield's concurrency limit was reached on {op}: {detail}", status=status,
-                                  hint="Wait for a running request to finish; nothing was submitted.")
+        if (status == 400 and "concurren" in detail.lower()) or status in REFUSED_FOR_NOW:
+            raise _busy(op, status, detail)
         raise HiggsfieldError(f"Higgsfield answered HTTP {status} on {op}: {detail}", status=status, hint=hint)
 
     # -- the interface (docs/ARCHITECTURE.md §12) ---------------------------------------------------------------
@@ -333,8 +348,10 @@ class Client:
         headers = {IDEMPOTENCY_HEADER: idem} if idem else {}
         tries = SUBMIT_TRIES if idem else 1
         delay = 2.0
-        status, answer, lost = 0, {}, None
+        status, answer, lost, attempts = 0, {}, None, 0
+        maybe_created = None  # the first answer that left it open whether a job exists (and bills)
         for attempt in range(tries):
+            attempts += 1
             lost = None
             try:
                 status, answer = self._send("submit", "POST", path, body=body, headers=headers,
@@ -343,6 +360,8 @@ class Client:
                 lost = exc
                 status, answer = 0, {}
             ok = 200 <= status < 300 and answer.get("request_id")
+            if not ok and (lost is not None or status in AMBIGUOUS_STATUSES) and maybe_created is None:
+                maybe_created = lost.message if lost is not None else f"HTTP {status}"
             if ok or (lost is None and status not in RETRY_STATUSES):
                 break
             if attempt + 1 < tries:
@@ -353,10 +372,12 @@ class Client:
                 delay = min(delay * 2, 10.0)
         if 200 <= status < 300 and answer.get("request_id"):
             return status, answer
-        if lost is not None or status in RETRY_STATUSES:
-            # Ambiguous: the job may exist, and bill. Count the price so budgets err the safe way, and say how to
-            # finish it without paying twice.
-            why = lost.message if lost is not None else f"HTTP {status}"
+        if maybe_created is not None:
+            # Ambiguous: some try may have created the job, and it would bill. Count the price so budgets err the safe
+            # way, and say how to finish it without paying twice.
+            why = maybe_created if lost is None and status not in AMBIGUOUS_STATUSES else (
+                lost.message if lost is not None else f"HTTP {status}")
+            tries = attempts
             ledger.finish(row, status="failed", actual=est.amount,
                           result={"error": why, "ambiguous": True, "lane": LANE, "idempotency_key": idem,
                                   "tries": tries, "counted": "the quoted price, in case the job was created"})
@@ -371,6 +392,10 @@ class Client:
                                   status=status or None, hint=hint)
         ledger.finish(row, status="failed", actual=0.0, result={"http": status, "lane": LANE,
                                                                 "idempotency_key": idem})
+        detail = secrets.redact(json.dumps(answer, ensure_ascii=False)[:600])
+        if status == 402 or (status == 403 and any(w in detail.lower() for w in ("credit", "balance", "insufficient",
+                                                                                  "funds"))):
+            raise ledger.out_of_balance(PROVIDER, f"HTTP {status}: {detail[:200]}")
         if status == 422 and idem and "idempot" in json.dumps(answer).lower():
             raise HiggsfieldError(
                 f"Higgsfield already has a request under this Idempotency-Key with a different body ({path}).",

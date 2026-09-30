@@ -29,6 +29,15 @@ def person(monkeypatch):
     monkeypatch.setattr(sys, "stdin", types.SimpleNamespace(isatty=lambda: True))
 
 
+def _without_formats(monkeypatch):
+    """As if the formats module weren't built: hide it from the import system *and* from the slate package, because
+    `from slate import formats` finds the package attribute once any earlier test imported the real module."""
+    import slate
+
+    monkeypatch.setitem(sys.modules, "slate.formats", None)
+    monkeypatch.delattr(slate, "formats", raising=False)
+
+
 def _film(films, film_id, **fields):
     folder = films / film_id
     folder.mkdir()
@@ -183,7 +192,7 @@ def test_default_autonomous_caps_are_20000_credits_and_no_higgsfield(slate_home)
 # ---- per-format defaults ----------------------------------------------------------------------------------
 
 def test_plan_format_budgets(slate_home, monkeypatch):
-    monkeypatch.setitem(sys.modules, "slate.formats", None)  # as if the formats module weren't built yet
+    _without_formats(monkeypatch)
     reel = ledger.format_budget("social-reel")
     assert (reel["elevenlabs"], reel["higgsfield"]) == (5000, 0) and "plan default" in reel["source"]
     assert (ledger.format_budget("ad-15")["elevenlabs"], ledger.format_budget("ad-15")["higgsfield"]) == (5000, 0)
@@ -208,8 +217,38 @@ def test_format_templates_win_over_the_plan_table(slate_home, monkeypatch):
     assert got["elevenlabs"] == 500 and got["higgsfield"] == 5 and got["source"] == "formats/reel.json"
 
 
+def test_the_real_format_templates_carry_the_plans_budgets():
+    """P163-P166 against the formats module's own templates (formats/*.json), not a stub: each row of the plan's cost
+    table comes through slate.formats.load as the format's hard stop."""
+    formats = pytest.importorskip("slate.formats")
+    names = set(formats.names())
+    for name, (credits, usd) in {"social-reel": (5000, 0), "ad": (5000, 0), "explainer": (10000, 60),
+                                 "brand-film": (40000, 85)}.items():
+        if name not in names:
+            continue
+        got = ledger.format_budget(name)
+        assert (got["elevenlabs"], got["higgsfield"], got["source"]) == (credits, usd, f"formats/{name}.json"), got
+
+
+def test_onboarding_reads_the_formats_shared_table(slate_home, monkeypatch):
+    """formats' ask: onboarding isn't a film format, so its budget comes from formats/_shared.json through
+    slate.formats.onboarding_budget(), and the plan's own row only when that isn't there."""
+    import slate
+
+    stub = types.ModuleType("slate.formats")
+    stub.onboarding_budget = lambda: {"elevenlabs": {"voice_design": [4000, 4000]}, "higgsfield": [10, 15],
+                                      "rework_factor": 1.5, "source": "plan"}
+    stub.load = lambda name: (_ for _ in ()).throw(KeyError(name))
+    monkeypatch.setitem(sys.modules, "slate.formats", stub)
+    monkeypatch.setattr(slate, "formats", stub, raising=False)
+    got = ledger.format_budget("brand-onboarding")
+    assert (got["elevenlabs"], got["higgsfield"], got["source"]) == (4000, 15, "formats/_shared.json (onboarding)")
+    _without_formats(monkeypatch)
+    assert ledger.format_budget("brand-onboarding")["source"].startswith("plan default")
+
+
 def test_a_film_without_a_budget_gets_its_formats(live, monkeypatch):
-    monkeypatch.setitem(sys.modules, "slate.formats", None)
+    _without_formats(monkeypatch)
     film = _film(live["films"], "short", mode="supervised", format="reel", budget={"higgsfield": 12})
     limits = ledger.film_limits(film)["providers"]
     assert limits["elevenlabs"]["base"] == 5000 and "plan default" in limits["elevenlabs"]["source"]
@@ -247,7 +286,7 @@ def test_estimates_flag_stale_prices(slate_home, monkeypatch):
 # ---- budget show, ledger list/snapshot/reconcile ------------------------------------------------------------
 
 def test_budget_show(slate_home, monkeypatch):
-    monkeypatch.setitem(sys.modules, "slate.formats", None)
+    _without_formats(monkeypatch)
     _film(slate_home["films"], "promo", mode="supervised", format="explainer")
     _film(slate_home["films"], "reel", mode="autonomous", budget={"elevenlabs": 3000})
     code, out, _ = run_cli(["--json", "budget", "show"])

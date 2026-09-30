@@ -28,13 +28,13 @@ def test_plan_follows_the_playbook(sound_film):
     assert (a1["join"], a1["landing_s"], a1["hand_over_s"]) == ("start", 0.0, 8.0)
     assert (a2["join"], a2["landing_s"], a2["hand_over_s"]) == ("act", 8.0, 14.0)
     for part in p["parts"]:
-        secs = part["composition_plan"]["sections"]
-        assert secs[0]["section_name"] == "pre-roll" and secs[0]["duration_ms"] == 3000  # cut away at assembly
-        assert secs[-1]["section_name"] == "tail" and secs[-1]["duration_ms"] >= 3000   # runs past the hand-over
-        assert all(s["duration_ms"] >= 3000 for s in secs)
-        assert sum(s["duration_ms"] for s in secs) == round(part["seconds"] * 1000)
+        blocks = plan.plan_blocks(part["composition_plan"])
+        assert blocks[0] == ("pre-roll", 3000)  # cut away at assembly
+        assert blocks[-1][0] == "tail" and blocks[-1][1] >= 3000   # runs past the hand-over
+        assert all(ms >= 3000 for _, ms in blocks)
+        assert sum(ms for _, ms in blocks) == round(part["seconds"] * 1000)
         assert part["seconds"] < 90
-    assert [s["section_name"] for s in a1["composition_plan"]["sections"]] == ["pre-roll", "S01", "S02", "tail"]
+    assert [name for name, _ in plan.plan_blocks(a1["composition_plan"])] == ["pre-roll", "S01", "S02", "tail"]
     assert p["model_id"] == "music_v2_5"  # the registry's best, always passed
     neg = p["styles"]["negative"]
     for word in ("woodblock", "marimba", "bells", "chimes", "kazoo", "paper"):  # effects' materials, banned timbres
@@ -73,9 +73,52 @@ def test_a_long_act_splits_at_shots_into_parts_under_90_seconds(slate_home):
 def test_short_shots_merge_into_sections_of_at_least_three_seconds(slate_home):
     fd = _long_film(slate_home, "short", shot_s=1.0, shots=11)
     p = plan.build(fd)
-    secs = p["parts"][0]["composition_plan"]["sections"]
-    assert all(s["duration_ms"] >= 3000 for s in secs)
-    assert "L01+L02+L03" in [s["section_name"] for s in secs]
+    blocks = plan.plan_blocks(p["parts"][0]["composition_plan"])
+    assert all(ms >= 3000 for _, ms in blocks)
+    assert "L01+L02+L03" in [name for name, _ in blocks]
+
+
+def test_v2_models_get_chunk_plans_never_v1_sections(sound_film):
+    """music_v2 and music_v2_5 reject v1 section plans: the plan is chunks, with the brand's global styles on every
+    chunk (the first chunk sets the tone) and nothing but the [name] in each chunk's text."""
+    from slate.vendors import elevenlabs
+
+    p = plan.build(sound_film)
+    assert p["plan_schema"] == "chunks" and elevenlabs.music_plan_schema(p["model_id"]) == "chunks"
+    for part in p["parts"]:
+        comp = part["composition_plan"]
+        assert set(comp) == {"chunks"}  # no sections, no global styles: v2 has neither
+        assert elevenlabs.plan_problems(comp, p["model_id"]) == []
+        for chunk in comp["chunks"]:
+            assert chunk["text"].startswith("[") and chunk["text"].endswith("]") and "\n" not in chunk["text"]
+            assert 3000 <= chunk["duration_ms"] <= 120000
+            for style in ("in A minor", "70-80 BPM", "soft piano", "instrumental"):
+                assert style in chunk["positive_styles"]
+            for style in ("woodblock", "marimba", "vocals"):
+                assert style in chunk["negative_styles"]
+        assert [b["name"] for b in part["blocks"]] == [n for n, _ in plan.plan_blocks(comp)]
+    assert jsonio.read(sound_film / "sound/score/plans/act1.json") == p["parts"][0]["composition_plan"]
+    assert jsonio.validate(jsonio.read(sound_film / "sound/score/plan.json"), "score") == []
+
+
+def test_a_v1_model_still_gets_its_section_plan(sound_film):
+    data = json.loads((sound_film / "film.json").read_text())
+    data["models"] = {"music": "music_v1"}
+    (sound_film / "film.json").write_text(json.dumps(data))
+    p = plan.build(sound_film)
+    assert p["model_id"] == "music_v1" and p["plan_schema"] == "sections"
+    comp = p["parts"][0]["composition_plan"]
+    assert set(comp) == {"positive_global_styles", "negative_global_styles", "sections"}
+    assert "in A minor" in comp["positive_global_styles"] and all(s["lines"] == [] for s in comp["sections"])
+    assert jsonio.validate(jsonio.read(sound_film / "sound/score/plan.json"), "score") == []
+
+
+def test_a_long_run_of_short_shots_keeps_names_within_the_limit(slate_home):
+    fd = _long_film(slate_home, "many", shot_s=0.1, shots=90)  # 2-frame shots: 36 of them to make 3 s
+    p = plan.build(fd)
+    names = [name for part in p["parts"] for name, _ in plan.plan_blocks(part["composition_plan"])]
+    assert all(1 <= len(name) <= 100 for name in names)
+    assert any("…" in name and "shots)" in name for name in names)  # shortened, still saying what it spans
 
 
 def test_broadcast_formats_flag_the_enterprise_licence(slate_home):
@@ -125,9 +168,10 @@ class FakeMusic:
         self.maker = maker
 
     def compose_music(self, *, composition_plan=None, prompt=None, model_id=None, seed=None, output_format=None,
-                      respect_sections_durations=True, out=None, note=None):
-        self.calls.append({"model_id": model_id, "seed": seed, "respect": respect_sections_durations, "note": note})
-        secs = sum(s["duration_ms"] for s in composition_plan["sections"]) / 1000
+                      respect_sections_durations=None, out=None, note=None):
+        self.calls.append({"model_id": model_id, "seed": seed, "respect": respect_sections_durations, "note": note,
+                           "shape": "chunks" if "chunks" in composition_plan else "sections"})
+        secs = sum(ms for _, ms in plan.plan_blocks(composition_plan)) / 1000
         y = self.maker(secs, seed, note) if self.maker else H.pad(secs, seed=seed or 1, fade_in=1.5, fade_out=2.5)
         audio.write_wav(out, y, SR)
         return {"file": str(out), "request_id": f"req_{seed}", "replay": True, "format": "pcm_48000",
@@ -146,7 +190,9 @@ def test_compose_always_passes_the_model_and_keeps_what_it_has(sound_film, fake_
     res = compose.compose(sound_film)
     assert len(res["composed"]) == 4 and res["replay"]
     assert {c["model_id"] for c in fake_music.calls} == {"music_v2_5"}
-    assert {c["seed"] for c in fake_music.calls} == {7, 21} and all(c["respect"] for c in fake_music.calls)
+    assert {c["seed"] for c in fake_music.calls} == {7, 21}
+    # chunk plans for music_v2_5, and respect_sections_durations (a music_v1 option) never sent with them
+    assert all(c["shape"] == "chunks" and c["respect"] is None for c in fake_music.calls)
     rec = jsonio.read(sound_film / "sound/score/takes/act1_s7.json")
     assert jsonio.validate(rec, "score") == [] and rec["request_id"] == "req_7"
     assert (sound_film / "sound/score/takes/act1_s7.plan.json").exists()
@@ -174,6 +220,33 @@ def test_compose_refuses_a_batch_over_budget_before_calling(sound_film, fake_mus
     assert code == 4 and json.loads(out)["error"] == "spend_refused"
 
 
+def test_compose_refuses_a_plan_built_for_another_models_shape(sound_film, fake_music):
+    """A plan.json made with v1 sections, then sent on a v2 model, is refused before anything is sent (exit 3)."""
+    plan.build(sound_film)
+    path = sound_film / "sound/score/plan.json"
+    old = jsonio.read(path)
+    for part in old["parts"]:
+        part["composition_plan"] = {"positive_global_styles": ["warm"], "negative_global_styles": ["kazoo"],
+                                    "sections": [{"section_name": "one", "positive_local_styles": [],
+                                                  "negative_local_styles": [], "duration_ms": 8000, "lines": []}]}
+    jsonio.write_atomic(path, old)
+    with pytest.raises(MissingPrerequisite) as exc:
+        compose.compose(sound_film)
+    assert "slate score plan" in exc.value.hint and fake_music.calls == []
+    code, out, _ = run_cli(["score", "compose", "--film", str(sound_film), "--json"])
+    assert code == 3 and json.loads(out)["error"] == "missing_prerequisite"
+
+
+def test_compose_sends_a_v1_section_plan_with_respect_for_its_durations(sound_film, fake_music):
+    data = json.loads((sound_film / "film.json").read_text())
+    data["models"] = {"music": "music_v1"}
+    (sound_film / "film.json").write_text(json.dumps(data))
+    plan.build(sound_film)
+    compose.compose(sound_film, ["act1"], [7])
+    (call,) = fake_music.calls
+    assert call["model_id"] == "music_v1" and call["shape"] == "sections" and call["respect"] is True
+
+
 def test_compose_says_what_is_missing_without_the_vendor_client(sound_film, monkeypatch):
     plan.build(sound_film)
     monkeypatch.setitem(sys.modules, "slate.vendors.elevenlabs", None)
@@ -189,6 +262,8 @@ def test_compose_through_the_real_client_in_replay(sound_film):
     rec = res["composed"][0]
     take = sound_film / rec["file"]
     assert rec["replay"] and rec["model_id"] == "music_v2_5" and audio.is_wav(take)
+    sent = jsonio.read(sound_film / rec["plan_file"])
+    assert set(sent) == {"chunks"}  # what went to the model: a chunk plan
     assert abs(audio.wav_info(take).seconds - rec["seconds_planned"]) < 0.05
     if pytest.importorskip("slate.state.pins"):
         pinned = json.loads((sound_film / "film.json").read_text())["pins"].get("music")

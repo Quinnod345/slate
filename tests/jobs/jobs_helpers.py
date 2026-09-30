@@ -29,8 +29,14 @@ def cleanup(data: Path) -> None:
         except ProcessLookupError:
             pass
     for job in store.all_jobs():
+        # the command first (it runs in a group of its own, and so do the tools it starts), then its supervisor; some
+        # tests fake a running job with this very process, which must never be stopped
+        if job.get("cmd_pid") and job["cmd_pid"] != os.getpid():
+            proc.stop_tree(int(job["cmd_pid"]), grace=0, include_root=True, stamp=job.get("cmd_start"))
         pgid = job.get("pgid") or job.get("pid")
         if job.get("state") == "running" and pgid and pgid != os.getpgid(0):
+            if job.get("pid") and job["pid"] != os.getpid():
+                proc.stop_tree(int(job["pid"]), grace=0, include_root=True, stamp=job.get("proc_start"))
             try:
                 os.killpg(pgid, signal.SIGKILL)
             except (ProcessLookupError, PermissionError):

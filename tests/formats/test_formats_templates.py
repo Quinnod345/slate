@@ -26,7 +26,8 @@ def test_every_format_validates_and_loads():
     for name in formats.names():
         fmt = formats.load(name)
         for key in ("runtime_s", "aspects", "fps_num", "fps_den", "pace", "structure", "loudness", "captions",
-                    "zones", "budget", "delivery", "broadcast", "width", "height"):
+                    "zones", "budget", "delivery", "broadcast", "width", "height", "type_scale", "read_time",
+                    "on_screen_max_words"):
             assert key in fmt, (name, key)
         assert fmt["name"] == name
         assert fmt["structure"]["beats"], name
@@ -159,12 +160,75 @@ def test_safe_zones_resolve_by_channel_alias_and_aspect():
     assert formats.safe_zones({"safe_zones": {"tiktok": {"top": 0.1}}}, "tiktok") == {"top": 0.1}
 
 
-def test_vertical_only_formats_expose_platforms_for_the_access_gate():
+def test_platforms_and_zones_are_top_level_only_when_the_aspect_is_unambiguous():
     reel = formats.load("social-reel")
     assert reel["platforms"] == ["instagram_reels", "tiktok", "youtube_shorts"]
     assert set(reel["safe_zones"]) == set(reel["platforms"])
-    for name in ("brand-film", "ad", "product-demo"):  # several aspects: no top-level platform list to misread
+    # one aspect: its channels and zones (state records them on a derived film)
+    film = formats.load("brand-film")
+    assert film["platforms"] == ["youtube", "website"] and film["safe_zones"]["youtube"]["aspect"] == "16:9"
+    # several aspects and none asked for: no top-level list to misread as another aspect's
+    for name in ("ad", "product-demo"):
         assert "platforms" not in formats.load(name) and "safe_zones" not in formats.load(name)
+    # an aspect asked for: that aspect's channels and zones, never another's
+    vertical = formats.load("ad", aspect="9:16")
+    assert set(vertical["platforms"]) == set(vertical["aspects"]["9:16"]["channels"])
+    assert all(z["aspect"] == "9:16" for z in vertical["safe_zones"].values())
+
+
+def test_state_records_the_zones_of_a_single_aspect_format():
+    from slate.state import deps
+
+    film = formats.load("brand-film")
+    assert deps.format_platforms(film) == ["youtube", "website"]
+    assert deps.safe_zones(film, "youtube")["basis"] == "standard"
+
+
+def test_every_format_carries_storys_planning_rate_and_read_time():
+    shared = formats.shared()
+    for name in formats.names():
+        fmt = formats.load(name)
+        assert fmt["pace"]["speech_rate"] == shared["pace"]["speech_rate"] == 2.7, name
+        assert fmt["read_time"] == {k: v for k, v in shared["read_time"].items() if k != "source"}, name
+    assert shared["read_time"]["floor"] == 1.5 and shared["read_time"]["per_word"] == 0.3
+
+
+def test_a_formats_own_read_time_and_speech_rate_win(tmp_path, monkeypatch):
+    _scratch_formats(tmp_path, monkeypatch, slow={"pace.speech_rate": 2.2, "read_time": {"floor": 2.0}})
+    fmt = formats.load("slow")
+    assert fmt["pace"]["speech_rate"] == 2.2
+    assert fmt["read_time"]["floor"] == 2.0 and fmt["read_time"]["per_word"] == 0.3  # the rest from the shared rule
+    from slate.story import inputs
+
+    assert inputs.timing_settings({}, fmt)["speech_rate"] == 2.2
+    assert inputs.read_time_settings({}, fmt)["floor"] == 2.0
+
+
+def test_platform_encodes_are_data_and_checked():
+    preview = formats.load("app-store-preview")
+    (store,) = preview["encode"]["files"]
+    assert store["container"] == "mp4" and store["video"]["codec"] == "h264" and store["video"]["level"] == "4.0"
+    assert store["video"]["maxrate"] == "12M" and store["audio"] == {"codec": "aac", "bitrate": "256k", "channels": 2,
+                                                                     "rate": 48000}
+    loop = formats.load("website-hero-loop")
+    assert [(f["container"], f["video"]["codec"], f["audio"]) for f in loop["encode"]["files"]] == [
+        ("mp4", "h264", None), ("webm", "vp9", None)]
+
+
+def test_encode_files_that_cant_be_made_are_named(tmp_path, monkeypatch):
+    good = {"id": "x", "label": "x", "container": "mp4", "video": {"codec": "h264"}, "audio": None}
+    _scratch_formats(
+        tmp_path, monkeypatch,
+        badcodec={"encode": {"files": [{**good, "container": "webm"}]}},
+        twice={"encode": {"files": [good, good]}},
+        loud={"encode": {"files": [{**good, "container": "webm", "video": {"codec": "vp9"},
+                                    "audio": {"codec": "aac"}}]}},
+        tooquick={"encode": {"files": [good], "max_fps": 24}})
+    problems = formats.check_all()
+    assert any("carries av1 or vp9, not h264" in p for p in problems["badcodec.json"])
+    assert any("used twice" in p for p in problems["twice.json"])
+    assert any("its audio must be null" in p for p in problems["loud.json"])
+    assert any("faster than its platform takes" in p for p in problems["tooquick.json"])
 
 
 def test_captions_get_shorter_lines_on_narrower_frames():

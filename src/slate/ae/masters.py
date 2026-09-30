@@ -321,6 +321,10 @@ def render(film_dir: str | os.PathLike, *, go: bool = False, runner: Runner | No
         "checks": {"frames": "every chunk, conform and master matched the plan exactly"},
     }
     jsonio.write_atomic(final_dir / "masters.json", jsonio.mark_generated(result, "slate ae masters"))
+    from slate.ae import provenance  # noqa: PLC0415
+
+    provenance.note(film_dir, [out_h264, out_hq], producer="slate ae masters",
+                    inputs=[aep] + ([mix] if mix else []))
     return result
 
 

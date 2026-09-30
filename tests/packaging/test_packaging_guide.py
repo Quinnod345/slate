@@ -33,12 +33,23 @@ def test_topics_cover_every_skill_and_reference(guides):
 
 
 def test_a_reference_name_two_skills_share_needs_its_skill(guides):
+    """The file exists twice, so the answer names both (with their titles) instead of saying there's no such guide."""
     (guides / "demo-craft" / "references" / "intake.md").write_text("# Craft intake\n")
     names = _names(guide.topics())
     assert "intake" not in names
-    with pytest.raises(UsageError, match="No guide called 'intake'"):
+    with pytest.raises(UsageError, match="'intake' is a guide in 2 skills") as err:
         guide.resolve("intake")
+    assert "demo-craft/intake (Craft intake)" in err.value.message
+    assert err.value.hint == "slate guide demo-craft/intake or slate guide demo-front/intake"
+    assert guide.resolve("demo-craft/intake")["path"].endswith("demo-craft/references/intake.md")
     assert guide.read("demo-craft/intake")["text"] == "# Craft intake\n"
+
+
+def test_the_real_shared_reference_name_points_at_both_skills():
+    """signature-moments.md is in slate-story and slate-motion (the skills builder's note to packaging)."""
+    code, out, err = run_cli(["guide", "signature-moments"])
+    assert code == 2 and "is a guide in 2 skills" in err
+    assert "story/signature-moments" in err and "motion/signature-moments" in err
 
 
 def test_the_slate_prefix_may_be_left_off(tmp_path, monkeypatch):

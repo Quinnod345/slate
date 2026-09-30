@@ -420,3 +420,46 @@ def test_app_screens_are_the_brands_own_components_kept_in_place(fresh, tmp_path
     assert refs == [{"file": str(shot.resolve()), "what": "app screen", "sha256": jsonio.sha256(shot)}]
     assert _items(res)["components"]["done"] and "1 app screen" in _items(res)["components"]["evidence"]
     assert not list(fresh.rglob("home.png"))  # recorded where it is, not copied
+
+
+# ----------------------------------------------------------------------------------------------------------- spend
+def test_onboarding_spend_bills_against_the_onboarding_budget(studio, monkeypatch):
+    """The paid parts of onboarding (Voice Design, look tests) bill against ledger.format_budget('onboarding'), once
+    per brand; the ledger refuses a call past it, and an autonomous run can't onboard a brand at all."""
+    from slate import formats, ledger
+    from slate.errors import SpendRefused
+
+    ctx = onboard.billing("studio")
+    assert ctx["brand"] == "studio" and ctx["format"] == "onboarding" and ctx["id"] == "onboarding-studio"
+    assert onboard.billing(pack.load("studio")) == ctx  # a loaded pack says the same
+    want = ledger.format_budget("onboarding")
+    limits = ledger.film_limits(ctx)["providers"]
+    assert limits["elevenlabs"]["budget"] == want["elevenlabs"] == formats.onboarding_budget()["elevenlabs"][
+        "voice_design"][1]
+    assert limits["higgsfield"]["budget"] == want["higgsfield"] == formats.onboarding_budget()["higgsfield"][1]
+
+    monkeypatch.setenv("SLATE_FAKE_VENDORS", "0")  # the ledger only judges spend outside replay; nothing is called
+    design = ledger.Estimate("elevenlabs", "voice_design", 3000.0, "credits", "test estimate")
+    row = ledger.begin(design, film=ctx, mode="supervised")
+    ledger.finish(row, actual=3000.0)
+    assert onboard.spend("studio")["elevenlabs"]["spent"] == 3000.0
+    with pytest.raises(SpendRefused, match="budget is 5000"):
+        ledger.check_budget(ledger.Estimate("elevenlabs", "voice_design", 2500.0, "credits", "again"), film=ctx,
+                            mode="supervised")
+    other = onboard.billing(create.init("second", from_pack="demo")["dir"])
+    ledger.check_budget(ledger.Estimate("elevenlabs", "voice_design", 2500.0, "credits", "another brand"),
+                        film=other, mode="supervised")  # each brand has its own onboarding budget
+    with pytest.raises(SpendRefused, match="four references approved"):
+        ledger.check_budget(ledger.Estimate("higgsfield", "look_test", 5.0, "usd", "a look test"), film=ctx,
+                            mode="autonomous")
+    assert "onboarding spend: elevenlabs 3,000 of 5,000 credits" in onboard.spend_line(onboard.spend("studio"))
+
+
+def test_the_overview_says_where_the_onboarding_budget_stands(studio):
+    from slate.cli import run_cli
+
+    code, out, err = run_cli(["brand", "onboard", "studio"])
+    assert code == 0 and "onboarding spend: elevenlabs 0 of 5,000 credits; higgsfield $0 of $20" in out
+    code, out, err = run_cli(["brand", "onboard", "studio", "--json"])
+    data = json.loads(out)
+    assert data["billing"]["id"] == "onboarding-studio" and data["spend"]["higgsfield"]["budget"] == 20

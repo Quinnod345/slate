@@ -1,0 +1,21 @@
+{
+ "name": "finish-loop",
+ "note": "Test fixture: finish-reel's frame with a platform encode spec shaped like a hero loop's (a silent MP4 and a silent WebM). Sizes and rates are unlike any real film's.",
+ "width": 90,
+ "height": 160,
+ "fps_num": 25,
+ "fps_den": 1,
+ "runtime_s": [1, 45],
+ "lufs": -14,
+ "true_peak": -1,
+ "budget": {"elevenlabs": 100, "higgsfield": 0},
+ "safe_zones": {"tiktok": {"top": 0.12, "bottom": 0.2}},
+ "encode": {
+  "files": [
+   {"id": "web-mp4", "label": "loop, MP4", "container": "mp4",
+    "video": {"codec": "h264", "profile": "high", "crf": 30, "preset": "veryfast", "pix_fmt": "yuv420p"},
+    "audio": null, "faststart": true},
+   {"id": "web-webm", "label": "loop, WebM", "container": "webm", "video": {"codec": "vp9", "crf": 40}, "audio": null}
+  ]
+ }
+}

@@ -44,7 +44,9 @@ def _plural(n: int, one: str, many: str | None = None) -> str:
 
 def check_structure(plan: Plan) -> GateResult:
     if plan.problems:
-        return _g("FAIL", "script.structure", f"the script can't be planned: {plan.problems[0]}", plan.problems)
+        first = plan.problems[0]
+        summary = first if first.startswith("the script has no acts") else f"the script can't be planned: {first}"
+        return _g("FAIL", "script.structure", summary, plan.problems)
     return _g("PASS", "script.structure", f"{_plural(len(plan.acts), 'act')}, {_plural(len(plan.shots), 'shot')}, "
               f"ids {plan.ids_mode}")
 

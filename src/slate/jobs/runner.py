@@ -115,7 +115,15 @@ def load_ok() -> tuple[bool, str]:
 
 
 def _handle_dead(job: dict, why: str) -> str:
-    """Stop anything the dead supervisor left running, settle its paid requests, then requeue or fail the job."""
+    """Stop anything the dead supervisor left running, settle its paid requests, then requeue or fail the job.
+
+    The command runs in a group of its own (slate.procs starts every child that way), so it outlives its supervisor as
+    an orphan: it's found by the pid and start time the supervisor recorded, never by a bare number."""
+    if job.get("cmd_pid"):
+        proc.stop_tree(int(job["cmd_pid"]), grace=kill_grace(), include_root=True, stamp=job.get("cmd_start"))
+    else:  # it died before it could write the command down: find the orphan by its exact command line
+        for orphan in proc.orphans_of(job):
+            proc.stop_tree(orphan["pid"], grace=kill_grace(), include_root=True, stamp=orphan["start"])
     pgid = job.get("pgid") or job.get("pid")
     if pgid and proc.group_is_job(pgid, job):  # never a stranger's group that reused the number
         proc.stop_group(pgid, grace=kill_grace())
@@ -148,9 +156,12 @@ def _handle_dead(job: dict, why: str) -> str:
 
 
 def stop_safely(job_id: str, reason: str, *, spare: int | None = None, token: str | None = None) -> bool:
-    """Stop a running job because the disk is nearly full: mark it failed (resumable later), then SIGTERM its group.
+    """Stop a running job because the disk is nearly full: mark it failed (resumable later) and stop its command.
 
-    Returns True when this call did the stopping (False when it was already stopped or finished).
+    The job's supervisor sees the mark within one poll and stops the command's whole process tree itself, waiting out
+    the grace period before SIGKILL. From the runner's watchdog (`spare` None) the tree also gets a SIGTERM now, so a
+    busy supervisor doesn't delay it. Returns True when this call did the stopping (False when it was already stopped
+    or finished).
     """
     with store.update(job_id) as job:
         if job.get("state") != "running" or job.get("stopped") or (token and job.get("launch") != token):
@@ -161,13 +172,11 @@ def stop_safely(job_id: str, reason: str, *, spare: int | None = None, token: st
         job["reason"] = f"{reason}. Free some space, then `slate job retry {job_id}` resumes it."
         job["finished_at"] = model.iso()
         model.note_event(job, "stopped", reason)
-        pgid = job.get("pgid") or job.get("pid")
-    if pgid:
-        log.warn(f"{job_id}: {reason}; stopping it safely")
-        if spare is None:
-            proc.stop_group(pgid, grace=kill_grace(), spare=pgid)
-        else:
-            proc.signal_group(pgid, signal.SIGTERM, spare=spare)  # the supervisor escalates after its grace
+        supervisor = job.get("pid")
+        stamp = job.get("proc_start")
+    log.warn(f"{job_id}: {reason}; stopping it safely")
+    if spare is None and supervisor and proc.alive(supervisor, stamp):
+        proc.signal_tree(supervisor, signal.SIGTERM, spare=supervisor)
     return True
 
 
@@ -235,6 +244,9 @@ def launch(job_id: str) -> bool:
         job["pid"] = None
         job["pgid"] = None
         job["proc_start"] = None
+        job["cmd_pid"] = None  # the new attempt's command is recorded by its own supervisor
+        job["cmd_pgid"] = None
+        job["cmd_start"] = None
         job["waiting"] = None
         job["exit_code"] = None
         job["signal"] = None

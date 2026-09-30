@@ -143,8 +143,15 @@ class FakeBridge:
             if key in self.short:
                 frames = frames[:-1]
             self.media.save(Path(args["out"]), np.stack(frames))
-            return {"file": args["out"], "frame_count": len(frames), "frames": [a, b], "samples": args.get("sub"),
-                    "bundle_hash": self.source_hash(Path(args["film"])), "gates": self.gates.get(key, [])}
+            result = {"file": args["out"], "frame_count": len(frames), "frames": [a, b], "samples": args.get("sub"),
+                      "bundle_hash": self.source_hash(Path(args["film"])), "gates": self.gates.get(key, [])}
+            if command == "web-render":
+                # the web renderer writes the act's motion trace while it renders (engine/web/render.mjs)
+                rel = f"timing/motion/act{act}.json"
+                (Path(args["film"]) / rel).parent.mkdir(parents=True, exist_ok=True)
+                (Path(args["film"]) / rel).write_text("[]\n")
+                result["trace"] = {"written": True, "file": rel, "entries": 0}
+            return result
         if command == "trace":
             # the engine samples the kit's motion registry into timing/motion/actN.json (engine/cli.mjs trace)
             if self.fail_trace:

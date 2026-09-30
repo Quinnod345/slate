@@ -1,0 +1,6 @@
+# do not edit by hand: slate skills build (from skills/slate-sound/SKILL.md). Edit the skill, not this file.
+interface:
+  display_name: "Slate Sound"
+  short_description: "Design, score, mix and verify the sound of a Slate film."
+policy:
+  allow_implicit_invocation: true

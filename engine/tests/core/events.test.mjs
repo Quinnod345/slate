@@ -247,5 +247,25 @@ describe('emit-events', () => {
     expect(trace[0].samples[12]).toEqual([12, 116]);
     const beats = readJson(path.join(dir, 'timing/visual_events/act1.json'));
     expect(beats.map((b) => b.id)).toEqual(['square_enters', 'square_parks', 'square_crosses_centre']);
+
+    // `trace` writes the motion trace alone (slate render refreshes it after each act render), with what it read
+    fs.rmSync(path.join(dir, 'timing/motion/act1.json'));
+    const t = ok('trace', {film: dir, act: 1}, {data});
+    expect(t).toMatchObject({act: 1, written: true, file: 'timing/motion/act1.json', entries: 1});
+    expect(t.sources).toEqual(['scenes/act1/beats.ts', 'scenes/act1/index.tsx']);
+    expect(readJson(path.join(dir, 'timing/motion/act1.json'))[0].id).toBe('square_slide');
+  });
+
+  it('trace: says why there is nothing to trace, and refuses a call without an act', () => {
+    const dir = film(root, 'trace-plain');
+    expect(ok('trace', {film: dir, act: 1}, {data})).toMatchObject({written: false, reason: "the act doesn't use the kit, so the kit's motion registry has nothing for it"});
+    const web = film(root, 'trace-web', (d) => {
+      fs.rmSync(path.join(d, 'scenes/act1/index.tsx'));
+      fs.mkdirSync(path.join(d, 'scenes/act1/web'), {recursive: true});
+      fs.writeFileSync(path.join(d, 'scenes/act1/web/index.html'), '<!doctype html><title>web act</title>\n');
+    });
+    expect(ok('trace', {film: web, act: 1}, {data})).toMatchObject({written: false, reason: expect.stringMatching(/web scene/)});
+    expect(cli('trace', {film: dir}, {data}).code).toBe(2);
+    expect(cli('trace', {film: dir, act: 9}, {data}).code).toBe(2);
   });
 });

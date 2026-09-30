@@ -16,3 +16,8 @@ def fakes(slate_home, monkeypatch, tmp_path):
 @pytest.fixture
 def film(slate_home):
     return make_film(slate_home["films"])
+
+
+def pytest_configure(config):
+    # Real renders (headless Chrome, webpack, ffmpeg) are opt-in: SLATE_TEST_RENDER=1 runs them.
+    config.addinivalue_line("markers", "render: a real render with headless Chrome and ffmpeg (opt in: SLATE_TEST_RENDER=1)")

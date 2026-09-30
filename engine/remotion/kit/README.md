@@ -29,9 +29,10 @@ export const Act2 = ({sub}: {sub: number}) => (
 | `film` | film.json | `fps_num`, `fps_den`, `width`, `height` (the only source of rate and size) |
 | `shots` | timing/shots.json | shot spans; `frame_out` is exclusive (the next shot's `frame_in`) |
 | `vo_cues` | timing/vo_cues.json | where each read starts in its shot (`at`), and the sheet's `lead` |
-| `vo_words` | timing/vo_words.json | word timings, for `word()`, `voSpan()`, kinetic type |
+| `vo_words` | timing/vo_words.json | word timings, for `word()`, `voSpan()`, kinetic type; each read's `tokens` (the script's words lined up with what was heard, by slate.timing) answer `word()` first |
 | `captions` | timing/captions.json | burned-in captions: a list of `{shot, text, lines, start, end}` or `{cues: […]}` |
-| `spoken` | `slate.timing.spoken.forms` | how each number or symbol in the script is said: `{"64": [["sixty-four"]], "&": [["and"]]}` |
+| `spoken` | `slate.timing.spoken.forms` | how each number or symbol in the script (and in what was heard) is said: `{"64": [["sixty-four"]], "&": [["and"]]}` |
+| `lang` | the language's table (`.slate/lang.json`) | how a word becomes a match key: the kept symbols, the edge symbols, negative marks, the longest spoken run |
 | `brand` | the brand pack | tokens, type, motion law, logos (SVG **inlined as text**), motif, look |
 
 **The brand pack** (docs/ARCHITECTURE.md §7). Every reader is forgiving and lists what it had to assume:
@@ -47,11 +48,15 @@ export const Act2 = ({sub}: {sub: number}) => (
   `roles` (`entrance`, `move`, `state`, `exit`, `relayout` → ease names), `overshoot` (`{allowed, max, where}`).
 - `logos`: `{name: {svg, build}}`; `build` is a `LogoBuildSpec` (guides, vertices, order, keystone, timing).
 - `motif`: parts, shape, sizes, groups, curves, mark ratio, and `gestures` (meaning → gesture kinds).
-- `look`: `{id, overrides}` from the looks library.
+- `look`: `{id, overrides, engine}` from the looks library; `engine` is where the brand's scenes are built:
+  `remotion` (the default), `web` (the open web renderer, no Remotion licence) or `ae` (implied by an AE look).
+  `sceneEngine()` reads it.
 
 ## The pieces
 
-- **Clock** (`core/film.ts`, `clock.tsx`): `useFilmTime()`, `shot()`, `voSpan()`, `word()` / `wordTime()`, `misses()`,
+- **Clock** (`core/film.ts`, `clock.tsx`): `useFilmTime()`, `shot()`, `voSpan()`, `word()` / `wordTime()` (the script's
+  own tokens first, then the heard words, by the rules in `tests/vectors/spoken.json`; the answers match
+  `slate.timing.words.word_time`, which `engine/tests/kit/spoken.test.ts` holds it to), `misses()`,
   `frameOf()` (Python's rounding), `contactAt()`, `ActRoot` (sub-frame shutter), `actComposition()` for the generated
   Root. Word lookups never throw: a miss is estimated from the line and recorded, and the hand-in check refuses an act
   while `misses()` isn't empty.

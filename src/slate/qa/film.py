@@ -491,8 +491,15 @@ class FilmContext:
         doc = self.read_json("timing/vo_words.json") or {}
         return {str(k): v for k, v in (doc.get("shots") or {}).items() if isinstance(v, dict)}
 
+    def format(self) -> dict | None:
+        """The film's format (read_format), read once per run."""
+        if "format" not in self._memo:
+            self._memo["format"] = read_format(self.film)
+        return self._memo["format"]
+
     def captions_path(self) -> Path | None:
-        """Captions: a captions.json (structured cues) first, then an .srt, then a .vtt, in CAPTION_DIRS."""
+        """Captions: timing/captions.json (the voice module's structured cues) first, then an .srt, then a .vtt, in
+        CAPTION_DIRS."""
         for cand in CAPTION_CANDIDATES:
             if self.exists(cand):
                 return self.path(cand)
@@ -526,6 +533,64 @@ class FilmContext:
             if isinstance(vo, str) and vo.strip():
                 out.append((str(shot.get("id")), vo))
         return out
+
+
+# ---------------------------------------------------------------------- the film's format
+def film_aspect(film: dict) -> str | None:
+    """The film's aspect as film.json says it ("9:16"), else its frame size ("1080x1920")."""
+    if film.get("aspect"):
+        return str(film["aspect"])
+    w, h = film.get("width"), film.get("height")
+    return f"{w}x{h}" if w and h else None
+
+
+def _load_with(mod, ref: str, aspect: str | None) -> dict | None:
+    """slate.formats.load(ref) at the film's aspect (or its default when it doesn't come in that one)."""
+    for kw in (({"aspect": aspect},) if aspect else ()) + ({},):
+        try:
+            fmt = mod.load(ref, **kw)
+        except TypeError:
+            continue  # a load() that takes no aspect
+        except Exception:  # noqa: BLE001 - not this aspect, or not this format
+            continue
+        if isinstance(fmt, dict):
+            return fmt
+    return None
+
+
+def _raw_format(path: Path) -> dict | None:
+    try:
+        fmt = jsonio.read(path) if path.is_file() else None
+    except SlateError:
+        return None
+    return fmt if isinstance(fmt, dict) else None
+
+
+def read_format(film: dict) -> dict | None:
+    """The film's format data: slate.formats.load at the film's aspect when it's installed, else the raw file. When
+    film.json records the file it was made from (`format_source`), that file is the film's format, never another one
+    with the same name; else the format by name (formats/<name>.json). None when there's none."""
+    import importlib  # noqa: PLC0415
+
+    from slate import paths  # noqa: PLC0415
+
+    name = film.get("format")
+    try:
+        mod = importlib.import_module("slate.formats")
+    except ImportError:
+        mod = None
+    loader = mod if mod is not None and hasattr(mod, "load") else None
+    aspect = film_aspect(film)
+    source = film.get("format_source")
+    source = Path(source).expanduser() if isinstance(source, str) and source.endswith(".json") else None
+    if source is not None and source.is_file():
+        fmt = _load_with(loader, str(source), aspect) if loader else None
+        return fmt if fmt is not None else _raw_format(source)
+    if name and loader is not None:
+        fmt = _load_with(loader, str(name), aspect)
+        if fmt is not None:
+            return fmt
+    return _raw_format(paths.FORMATS_DIR / f"{name}.json") if name else None
 
 
 def iter_storyboard_shots(doc: dict) -> Iterator[dict]:

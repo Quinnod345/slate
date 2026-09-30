@@ -32,6 +32,8 @@ describe('check: a clean act', () => {
     for (const gate of r.gates) {
       expect(Object.keys(gate).sort()).toEqual(['checked_at', 'details', 'engine', 'evidence', 'gate', 'inputs', 'status', 'summary']);
       expect(gate.gate).toMatch(/^handin\.act1\./);
+      // filed under the scenes stage by `slate status` ("banned" alone would read as a script gate)
+      expect(gate.details.stage).toBe('scenes');
     }
     expect(g.typecheck.engine).toEqual({name: 'typescript', version: '5.9.3'});
     expect(g.typecheck.inputs['scenes/act1/index.tsx']).toMatch(/^[0-9a-f]{64}$/);

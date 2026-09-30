@@ -84,6 +84,29 @@ def test_front_door_covers_the_brief():
     ])
 
 
+def test_front_door_snapshots_the_ledger_at_both_ends_of_a_session_and_reconciles():
+    """The jobs builder's request: connector spend bypasses the ledger, so every session starts and ends with a
+    balance snapshot under one label, then a reconcile. Checked in SKILL.md itself, where every agent reads it first,
+    and against the real CLI (a stage renamed later fails here, not in an agent's session)."""
+    text = skill_text("slate", refs=False)
+    assert not missing(text, [
+        "`slate ledger snapshot --all --session <label>`",
+        "At the end, run the same `slate ledger snapshot --all --session <label>` again",
+        "`slate ledger reconcile --session <label>`",
+        "`slate ledger snapshot --provider higgsfield --balance <n> --session <label>`",
+    ])
+    budgets = _norm(L.read(L.skill_dir("slate") / "references" / "budgets.md"))
+    assert not missing(budgets, ["slate ledger snapshot --all --session <label>        # at the end, with the same label",
+                                 "slate ledger reconcile --session <label>", "--provider higgsfield --balance"])
+    from slate import cli
+
+    for argv in (["ledger", "snapshot", "--all", "--session", "s1", "--help"],
+                 ["ledger", "snapshot", "--provider", "higgsfield", "--balance", "1", "--session", "s1", "--help"],
+                 ["ledger", "reconcile", "--session", "s1", "--help"]):
+        code, _out, err = cli.run_cli(argv)
+        assert code == 0, (argv, err[-300:])
+
+
 def test_the_why_of_onboarding_is_stated():
     """P355: the first film looked right only after its look came from the brand's own design system."""
     for name in ("slate", "slate-brand"):

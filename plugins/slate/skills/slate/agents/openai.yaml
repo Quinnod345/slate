@@ -1,0 +1,7 @@
+# do not edit by hand: slate skills build (from skills/slate/SKILL.md). Edit the skill, not this file.
+interface:
+  display_name: "Slate"
+  short_description: "Slate's front door for any video work."
+  default_prompt: "Use $slate to make a 30-second launch video for our product."
+policy:
+  allow_implicit_invocation: true

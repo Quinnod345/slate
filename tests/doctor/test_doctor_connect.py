@@ -320,3 +320,14 @@ def test_a_failed_bridge_registration_is_reported_with_the_command(denv):
     res = json.loads(out)
     step = [s for s in res["steps"] if s["step"] == "register the AE bridge"][0]
     assert code == 1 and step["status"] == "failed" and "claude mcp add --scope user" in step["fix"]
+
+
+def test_connect_claude_steps_register_openclaw_with_its_current_command(denv):
+    """The steps `slate connect claude` prints when the installer isn't there use OpenClaw 2026.9.4's `mcp add`."""
+    from slate.doctor import connect
+
+    steps = connect.plan_steps(denv, ["claude", "codex", "openclaw"])
+    [oc] = [s for s in steps if s["what"] == "register it with OpenClaw"]
+    shim = str(denv.home / ".local" / "bin" / "slate")
+    assert oc["command"] == f"openclaw mcp add slate --command {shim} --arg mcp --connect-timeout 30"
+    assert not any("mcp set" in (s.get("command") or "") for s in steps)

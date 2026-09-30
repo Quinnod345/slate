@@ -446,6 +446,15 @@ def format_budget(fmt: str | None) -> dict:
     """
     if not fmt:
         return {}
+    if _plan_family(fmt) == "onboarding":  # not a film format: the formats module keeps it in its shared table
+        try:
+            from slate import formats  # noqa: PLC0415
+
+            amounts = _normalize_budget({k: v for k, v in formats.onboarding_budget().items() if k in PROVIDERS})
+        except Exception:  # noqa: BLE001 - no formats module (or no shared table): the plan's own row below
+            amounts = {}
+        if amounts:
+            return {**amounts, "source": "formats/_shared.json (onboarding)"}
     try:
         from slate import formats  # noqa: PLC0415 (built by another module; optional)
 

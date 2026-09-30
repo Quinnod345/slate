@@ -823,7 +823,7 @@ SL.traceable = function (q) {
 // evaluates it: [{layer, prop, match_name, frame_in, frame_out, samples: [[frame, value]]}]. Shapes report their
 // first vertex. Works for any AE-built act, whoever built it (Slate's scenes or the AE bridge).
 SL.sampleComp = function (comp, film, opts) {
-    var out = [], i, L, stack, pr, j, q, f, f0, f1, samples, v, maxN;
+    var out = [], i, L, stack, pr, j, q, f, f0, f1, samples, v, maxN, keys, k;
     opts = opts || {};
     maxN = opts.max_samples || 2000;
     for (i = 1; i <= comp.numLayers; i++) {
@@ -843,8 +843,11 @@ SL.sampleComp = function (comp, film, opts) {
                             if (v && v.vertices) { v = v.vertices.length ? v.vertices[0] : null; }
                             samples.push([f, v]);
                         }
+                        // every key's frame: two moves chained without a stop split at their shared key
+                        keys = [];
+                        for (k = 1; k <= q.numKeys; k++) { keys.push(Math.round(q.keyTime(k) * film.clock.fps)); }
                         out.push({ layer: L.name, prop: q.name, match_name: q.matchName, frame_in: f0, frame_out: f1,
-                                   samples: samples });
+                                   keys: keys, samples: samples });
                     }
                 } else {
                     stack.push(q);

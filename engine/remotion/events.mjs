@@ -19,7 +19,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {ENGINE_DIR, EngineError, log, missing, readJson, refused, usage, writeJsonAtomic} from './lib/common.mjs';
-import {actOf} from './lib/film.mjs';
+import {actOf, realFile} from './lib/film.mjs';
 import {ensureEntry, missingIndexNote, sceneIndex} from './entry.mjs';
 import {declarations, loadAct} from './load_act.mjs';
 
@@ -159,7 +159,7 @@ function actForBeat(ctx, e) {
  * yet (film_in null) is a note, not a beat: its taps have no film time. A tap no act holds is a stray, never dropped.
  */
 export function captureBeats(ctx) {
-  const root = path.join(ctx.dir, 'captures');
+  const root = realFile(ctx.dir, 'captures');
   const byAct = new Map();
   const strays = [];
   const notes = [];
@@ -356,11 +356,15 @@ export async function emitEvents(ctx, args) {
   return {acts: results, skipped, ...(dryRun ? {dry_run: true} : {})};
 }
 
-/** The motion trace alone (render's trace option). */
-export async function traceAct(ctx, act) {
-  await ensureEntry(ctx);
+/**
+ * The motion trace alone (the `trace` command, and render's trace option): the act's modules loaded as they are now,
+ * against the same '@film/data' (brand included) the picture renders with. Returns writeMotion()'s answer plus the
+ * scene files it read (`sources`), so a caller can record what made the trace.
+ */
+export async function traceAct(ctx, act, {brandPath = null} = {}) {
+  await ensureEntry(ctx, {brandPath});
   const loaded = await loadAct(ctx, act);
-  return writeMotion(ctx, act, loaded);
+  return {...writeMotion(ctx, act, loaded), sources: loaded.inputs ?? []};
 }
 
 export function readEventsFile(ctx, act) {

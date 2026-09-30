@@ -215,6 +215,40 @@ def test_cutting_a_shot_a_scene_still_uses_is_refused(make_film):
     assert code == 1 and gate["status"] == "FAIL" and "S04 would be cut" in gate["summary"]
 
 
+def test_story_and_film_state_apply_the_same_renumber_rule(make_film):
+    """One rule in both places (docs/PLAN.md §3): the build gate script.shot_ids and slate.state.lock.check_renumber
+    agree on the same renumber, before and after a scene uses the ids."""
+    import pytest
+
+    from slate.errors import Refused
+    from slate.state import lock
+
+    film = make_film(script=renumber_script(), film=NO_TARGET)
+    assert cli("script", "build", "--film", str(film))[0] == 0
+    frozen = {x["source_id"]: x["id"] for x in jsonio.read(film / "script" / "storyboard.json")["shot_ids"]["ids"]}
+    s = script_of(film)
+    s["acts"][0]["shots"].insert(0, {"id": "S00", "vo": "", "picture": "Black.", "dur": 1.0})
+    save_script(film, s)
+
+    def verdicts():
+        code, out, _ = cli("script", "build", "--film", str(film), "--check", "--json")
+        gate = next(g for g in out["gates"] if g["gate"] == "script.shot_ids")
+        mapping = {frozen.get(src, src): new for src, new in out["ids"].items()}  # old id -> new id, per shot
+        try:
+            state = lock.check_renumber(film, mapping)["allowed"]
+        except Refused:
+            state = False
+        return gate["status"] == "PASS", state
+
+    assert verdicts() == (True, True)  # frozen, but no scene uses them: both allow it
+    scene = film / "scenes" / "act1" / "beats.ts"
+    scene.parent.mkdir(parents=True)
+    scene.write_text("export const door = word('S02', 'ovens');\n")
+    assert verdicts() == (False, False)  # a scene uses them: both refuse
+    with pytest.raises(Refused, match="scenes/act1/beats.ts"):
+        lock.check_renumber(film, {"S02": "S03"})
+
+
 def test_scene_scan_ignores_binaries_and_dependencies(make_film):
     film = make_film(script=renumber_script(), film=NO_TARGET)
     cli("script", "build", "--film", str(film))
@@ -298,6 +332,29 @@ def test_a_locked_storyboard_is_refused(make_film, monkeypatch):
     monkeypatch.setattr(builder, "_locked", lambda film_dir: "script/storyboard.json is locked in film.lock.json")
     code, out, _ = cli("script", "build", "--film", str(film), "--json")
     assert code == 1 and out["error"] == "refused" and "locked" in out["message"]
+
+
+def test_a_pin_written_into_film_json_leaves_the_storyboard_and_its_gates_fresh(make_film):
+    """The storyboard is made from a few film.json keys (brand, format, mode, targets, language, title), recorded as
+    film:<key> inputs, so a pin or a new version written into film.json doesn't make it (or its gates) stale; a change
+    to one of those keys does."""
+    from slate import gates
+    from slate.state import lock
+
+    film = make_film(film=NO_TARGET)
+    assert cli("script", "build", "--film", str(film))[0] == 0
+    inputs = lock.entry(film, "script/storyboard.json")["inputs"]
+    assert {"film:brand", "film:format", "film:mode", "film:targets", "brand:crumb"} <= set(inputs)
+    assert "film.json" not in inputs
+    fj = json.loads((film / "film.json").read_text())
+    fj["pins"] = {"remotion": "4.0.521"}
+    write_json(film / "film.json", fj)
+    assert not lock.is_stale(film, "script/storyboard.json")
+    assert all(r.status != "STALE" for name, r in gates.load_report(film).items() if name.startswith("script."))
+    fj["targets"]["runtime_s"] = 20
+    write_json(film / "film.json", fj)
+    assert lock.is_stale(film, "script/storyboard.json")
+    assert "input film:targets changed" in lock.explain(film, "script/storyboard.json")["reasons"]
 
 
 def test_python_interface_returns_gate_results(make_film):

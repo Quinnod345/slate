@@ -176,6 +176,15 @@ def lock_record(film_dir: Path, rel_path: str, *, producer: str, inputs: dict) -
         lock.record(film_dir, rel_path, producer=producer, inputs=inputs)
 
 
+def record_made(film_dir: Path, rel_path: str, *, producer: str, inputs: dict) -> None:
+    """lock_record for bookkeeping after the work is done (a take downloaded, a capture written): a record that can't
+    be written is reported, never a reason to lose finished work."""
+    try:
+        lock_record(film_dir, rel_path, producer=producer, inputs=inputs)
+    except Exception as exc:  # noqa: BLE001 - the file is on disk either way; say what couldn't be recorded
+        log.warn(f"couldn't record {rel_path} in film.lock.json: {getattr(exc, 'message', exc)}")
+
+
 def lock_asset(film_dir: Path, rel_path: str, *, reason: str) -> bool:
     """Lock an approved asset by content hash, when the state module is there. True when it was locked."""
     lock = _module("slate.state.lock")

@@ -161,3 +161,14 @@ def test_dry_run_on_run_mode_changes_nothing(home, repo, fakebin):
     res = _install(home, repo, fakebin, run_clients=True, dry_run=True)
     assert all(e["did"] == "shown" for e in res["mcp"])
     assert [c for c in client_calls(home) if c["argv"][:2] in (["mcp", "add"], ["mcp", "set"])] == []
+
+
+def test_check_says_when_an_agents_mcp_entry_went_unchecked(home, repo, fakebin):
+    """A sandbox never runs OpenClaw's CLI, so `slate install --check` can't see its entry: it says so, never 'ok'."""
+    core.install(home=home, repo=repo, agents=["openclaw"], client_path=str(fakebin), jobs_agent=False, quinn=False,
+                 doctor=False)
+    res = core.check(home=home, repo=repo, agents=["openclaw"], client_path=str(fakebin))
+    [oc] = res["mcp"]
+    assert oc["state"] == mcp_register.UNKNOWN
+    assert any(n.startswith("openclaw: its MCP entry wasn't checked") for n in res["notes"]), res["notes"]
+    assert client_calls(home) == [], "the check ran an agent CLI from a sandbox home"

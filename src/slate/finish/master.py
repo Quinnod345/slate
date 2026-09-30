@@ -344,7 +344,8 @@ def _record_and_gate(film: Film, *, method: str, why: str, masters: list[dict], 
     for m in masters:
         deps.lock_record(film.dir, m["file"], producer=producer, inputs=inputs, tool_version=media.version())
     deps.lock_record(film.dir, MASTER_RECORD, producer=producer, inputs=[m["file"] for m in masters])
-    nxt = ("slate qa, then slate deliver" if record["passed"] else checks.next_for(
+    after = "slate deliver --draft (a draft is never final)" if mode == "draft" else "slate deliver"
+    nxt = (f"slate qa, then {after}" if record["passed"] else checks.next_for(
         [{"gate": r.gate} for r in everything if not r.passed]))
     return {"film": film.id, "version": record["version"], "mode": mode, "method": method, "why": why,
             "status": "mastered", "masters": masters, "held": held, "held_for": record["held_for"],

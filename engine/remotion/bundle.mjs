@@ -13,7 +13,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {bundle as remotionBundle} from '@remotion/bundler';
 import {ENGINE_DIR, EngineError, KIT_DIR, NODE_MODULES, engineInfo, listFiles, log, sha256Buffer, sha256FileSync, slateData, usage} from './lib/common.mjs';
-import {TIMING_FILES} from './lib/film.mjs';
+import {TIMING_FILES, realFile} from './lib/film.mjs';
 import {ensureEntry, filmDataFile, kitPresent, slateDir} from './entry.mjs';
 
 /** Bump when the bundle's makeup changes (aliases, public dir handling), so old bundles are never reused. */
@@ -85,7 +85,10 @@ export async function sourceHash(ctx, {entry}) {
     const sd = slateDir(ctx.dir);
     for (const name of fs.readdirSync(sd).sort()) if (ENGINE_GLUE.test(name)) add(path.join(sd, name));
     for (const rel of listFiles(path.join(ctx.dir, 'scenes'))) add(path.join(ctx.dir, 'scenes', rel));
-    for (const rel of Object.values(TIMING_FILES)) if (fs.existsSync(path.join(ctx.dir, rel))) add(path.join(ctx.dir, rel));
+    for (const rel of Object.values(TIMING_FILES)) {
+      const file = realFile(ctx.dir, rel);
+      if (fs.existsSync(file)) add(file);
+    }
     for (const rel of listFiles(KIT_DIR)) add(path.join(KIT_DIR, rel));
   }
   add(entry);
@@ -243,9 +246,11 @@ export function publicDir(ctx) {
     for (const name of fs.readdirSync(own)) if (name !== '.DS_Store') want.set(name, path.join('..', '..', 'public', name));
   }
   for (const name of MEDIA_DIRS) {
-    if (!fs.existsSync(path.join(ctx.dir, name))) continue;
+    // a derived film's captures and plates can live in its parent (.slate/refs.json): link to them there
+    const real = realFile(ctx.dir, name);
+    if (!fs.existsSync(real)) continue;
     if (want.has(name)) warnings.push(`public/${name} shadows the film's ${name}/ folder in staticFile() paths`);
-    else want.set(name, path.join('..', '..', name));
+    else want.set(name, real === path.join(ctx.dir, name) ? path.join('..', '..', name) : real);
   }
   for (const name of fs.readdirSync(dir)) {
     const full = path.join(dir, name);

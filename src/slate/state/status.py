@@ -272,6 +272,11 @@ def _stage(ctx: _Ctx, stage: Stage, sit: dict) -> dict:
         reasons.append(f"{len(stale)} file(s) out of date: " + "; ".join(
             f"{r} ({explained[r]['reasons'][0] if explained[r]['reasons'] else explained[r]['state']})"
             for r in stale[:3]))
+    # A derived film that reuses part of a stage by reference is owed the rest (a new aspect reuses its parent's cues
+    # and words, and makes its own shots.json at its own size).
+    not_made = [r for r in stage.files if r not in explained and not ctx.exists(r)]
+    if not_made and any((ctx.files.get(r) or {}).get("ref") for r in rels):
+        reasons.append(f"not made yet: {', '.join(not_made[:4])}")
     if gate_stale:
         reasons.append("gates to re-run: " + ", ".join(g.gate for g in gate_stale[:5]))
     if appr and appr["stale"] and not appr["approved"]:

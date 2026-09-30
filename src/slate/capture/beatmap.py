@@ -263,6 +263,10 @@ def run(film_dir: Path, name: str, *, word_time: WordTime | None = None) -> dict
                      "into their acts." if result.film_in is not None else
              "Unplaced: add `place` or word anchors to the spec so the capture has film times."}
     jsonio.write_atomic(cap / "beats.json", jsonio.mark_generated(beats, "slate capture beatmap"))
+    deps.record_made(film_dir, deps.rel(film_dir, cap / "beats.json"), producer="slate capture beatmap",
+                     inputs={deps.rel(film_dir, p): None for p in (store.spec_path(film_dir, name),
+                                                                    Path(film_dir) / "timing" / "vo_words.json")
+                             if p.is_file()})
     rec["frames"] = {**_frames_block(film_dir, frames_dir, film, spec), "film_in": result.film_in}
     rec["taps"] = taps
     rec["retime"] = result.edits
@@ -271,6 +275,7 @@ def run(film_dir: Path, name: str, *, word_time: WordTime | None = None) -> dict
     rec["made_at"] = deps.now_iso()
     store.save(film_dir, name, rec, "slate capture beatmap")
     gate = _gate(film_dir, name, rec, misses, worst, tolerance, anchored=bool(ordered) or bool(spec.get("place")))
+    gate.details.setdefault("stage", "captures")
     gates.write_report(film_dir, [gate])
     return {"capture": name, "frames": rec["frames"], "film_in": result.film_in, "edits": result.edits,
             "events": len(events), "misses": misses, "gate": gate.to_dict()}

@@ -8,8 +8,9 @@ it (replay-aware, like every vendor call):
 - Higgsfield: a status request for a request id that can't exist. 404 means the key is accepted, 401 that it isn't.
   It costs nothing. Higgsfield has no balance endpoint, so the Cloud API balance itself isn't checked.
 
-A live call needs a CA bundle Python can find, and the python.org build Slate's environment was made from points at
-one that doesn't exist, so every live vendor call would fail TLS verification. That gets its own row.
+A live call needs CA certificates to verify against. The python.org build Slate's environment was made from ships with
+none, so slate.http fills an empty store from SSL_CERT_FILE or macOS's own bundle (/etc/ssl/cert.pem); the TLS row
+names the file that really supplied them, and turns red only when no store can verify anything.
 """
 
 from __future__ import annotations
@@ -20,8 +21,10 @@ from slate.doctor.env import Env
 
 G = "keys"
 WHERE = {"env": "the environment", "keychain": "your login Keychain"}
-TLS_FIX = ("Point Python at macOS's own certificates where Slate runs: `export SSL_CERT_FILE=/etc/ssl/cert.pem` (in "
-           "~/.zshenv for Terminals and agents). The lasting fix is for Slate's HTTP layer to load that bundle itself.")
+TLS_FIX = ("Slate's HTTP layer already falls back to macOS's own certificates (/etc/ssl/cert.pem), so this means that "
+           "file is missing too. Point SSL_CERT_FILE at a CA bundle where Slate runs (for example `export "
+           "SSL_CERT_FILE=/etc/ssl/cert.pem`, or certifi's bundle, in ~/.zshenv for Terminals and agents), or run "
+           "Python's own Install Certificates script.")
 
 
 def _where(where: str | None) -> str:
@@ -159,7 +162,10 @@ def _tls(env: Env, ctx: Ctx) -> dict:
     rid = "net.tls"
     info = env.tls_info()
     if info.get("ca_certs", 0) > 0 or info.get("capath_has_certs"):
-        where = info.get("env_cert_file") or info.get("cafile") or info.get("capath")
+        # The file that really supplied them: slate.http's pick, then SSL_CERT_FILE, then Python's own when it exists.
+        where = (info.get("loaded_from") or info.get("env_cert_file")
+                 or (info.get("cafile") if info.get("cafile_exists") else None) or info.get("capath")
+                 or "Python's own store")
         return R.green(rid, f"Python can verify TLS certificates ({info.get('ca_certs', 0)} CA certificates, from "
                             f"{where}; {info.get('source')})", group=G, details=info)
     missing = f" (it looks for {info.get('cafile')}, which doesn't exist)" if info.get("cafile") else ""

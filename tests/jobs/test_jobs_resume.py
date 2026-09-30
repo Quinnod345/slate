@@ -155,10 +155,14 @@ def test_a_job_killed_mid_wait_resumes_and_polls_instead_of_paying_twice(queue_h
     job_id = client.submit("gen", [PY, str(script)], start_runner=False)
     assert runner.schedule() == [job_id]
     wait_for(waiting.exists, what="the first attempt to be waiting on its paid request")
+    wait_for(lambda: store.load(job_id).get("cmd_pid"), what="the supervisor to note its command")
     supervisor = store.load(job_id)["pid"]
     os.kill(supervisor, signal.SIGKILL)  # the supervisor dies (a crash, a reboot); the command is orphaned
     wait_for(lambda: not proc.alive(supervisor), what="the supervisor to be gone")
+    first = store.load(job_id)
     assert runner.reconcile()["requeued"] == [job_id]  # resumable: back in the queue, leftovers stopped
+    # the orphaned first attempt is gone, so it can't finish the paid call behind the resumed attempt's back
+    assert first.get("cmd_pid") and not proc.alive(first["cmd_pid"], first.get("cmd_start"))
     job = store.load(job_id)
     assert job["state"] == "queued" and job["attempts"] == 1
     assert runner.schedule() == [job_id]

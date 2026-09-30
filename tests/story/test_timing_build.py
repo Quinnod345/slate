@@ -286,3 +286,44 @@ def test_lock_records_go_through_the_state_module_when_installed(voiced):
     for name in ("shots.json", "vo_cues.json", "vo_words.json", "timeline.json", "events.json"):
         entry = lock["files"][f"timing/{name}"]
         assert entry["producer"] == "slate timing" and "script/storyboard.json" in entry["inputs"]
+
+
+def test_a_shots_generate_block_rides_through_to_shots_json(make_film):
+    """gen-capture's ask: `slate gen` reads each shot's generation request from timing/shots.json, carried from
+    script.json through storyboard.json."""
+    import copy
+
+    from storyfix import SCRIPT
+
+    script = copy.deepcopy(SCRIPT)
+    request = {"model": "plate_video", "prompt": "Steam rolls over a dark oven door.", "takes": 2}
+    script["acts"][0]["shots"][0]["generate"] = request
+    film = make_film(script=script, takes={"S02": 3.1, "S03": 3.4, "S04": 1.0})
+    assert run_cli(["script", "build", "--from-takes", "--film", str(film)])[0] == 0
+    sb = jsonio.read(film / "script" / "storyboard.json")
+    assert sb["acts"][0]["shots"][0]["generate"] == request
+    assert timing("--film", str(film))[0] == 0
+    shots = {s["id"]: s for s in jsonio.read(film / "timing" / "shots.json")["shots"]}
+    assert shots["S01"]["generate"] == request and "generate" not in shots["S02"]
+    assert jsonio.validate(jsonio.read(film / "timing" / "shots.json"), "shots") == []
+
+
+def test_vo_words_says_how_each_number_and_symbol_in_the_vo_is_said(make_film):
+    """engine-kit's ask: the engine's word() matches "1987" against what was heard without number tables of its own,
+    so vo_words.json carries every number and symbol in the VO lines with its spoken forms (the engine puts this in
+    @film/data as `spoken`)."""
+    import copy
+
+    from storyfix import SCRIPT
+
+    from slate.timing import spoken
+
+    script = copy.deepcopy(SCRIPT)
+    script["acts"][1]["shots"][1]["vo"] = "Come early & say hello."
+    film = make_film(script=script, takes={"S02": 3.1, "S03": 3.4, "S04": 2.0})
+    assert run_cli(["script", "build", "--from-takes", "--film", str(film)])[0] == 0
+    assert timing("--film", str(film))[0] in (0, 1)
+    table = jsonio.read(film / "timing" / "vo_words.json")["spoken"]
+    assert set(table) == {"1987", "&"}  # the token without its full stop; plain words aren't listed
+    assert table["1987"] == spoken.forms("1987") and ["nineteen", "eighty-seven"] in table["1987"]
+    assert table["&"] == [["and"]]

@@ -343,6 +343,8 @@ def run(film_dir: str | Path, names: list[str] | None = None, *, write: bool = T
         from slate.errors import UsageError  # noqa: PLC0415
         raise UsageError(f"Unknown voice gate(s): {', '.join(unknown)} (known: {', '.join(GATES)}).")
     results = [GATES[n](vf) for n in chosen]
+    for r in results:
+        r.details.setdefault("stage", "voice")
     if write:
         gates_mod.write_report(vf.dir, results)
     return results

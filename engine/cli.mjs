@@ -38,6 +38,7 @@ const COMMANDS = {
   render: 'render an act or the film with motion blur (render_mb) to ProRes 422 HQ, or a lossless .mkv chunk',
   stills: 'review stills, labelled contact sheets and review sheets from one bundle',
   'emit-events': "write each act's visual events (or its silence) and the kit's motion trace",
+  trace: "write one act's motion trace (timing/motion/actN.json) from the kit's motion registry, as the act is now",
   check: "an act's hand-in check, as gate results ({acts: [N, …]} checks several with one bundle)",
   'web-render': 'render with the open web renderer (engine/web/render.mjs)',
 };
@@ -133,7 +134,9 @@ function parseArgv(argv) {
 /** Make relative paths in args relative to the caller, not to the engine folder we moved into. */
 function resolvePaths(args) {
   const out = {...args};
-  for (const key of ['film', 'out', 'out_dir', 'entry', 'serve_url', 'brand_path', 'bundle_root']) {
+  // A web scene's `scene` and `frames_dir` are the film's own paths: the web renderer resolves them against the film
+  // folder (or, for a scene rendered on its own, against the caller's folder, which it's handed as `cwd`).
+  for (const key of ['film', 'out', 'out_dir', 'entry', 'serve_url', 'brand_path', 'bundle_root', 'browser']) {
     if (typeof out[key] === 'string' && out[key]) out[key] = path.resolve(CALLER_CWD, out[key].replace(/^~(?=$|\/)/, os.homedir()));
   }
   return out;
@@ -210,6 +213,17 @@ const handlers = {
     const ctx = await film(args);
     return {film: ctx.id, ...(await emitEvents(ctx, args))};
   },
+  async trace(args) {
+    const {traceAct, webScene} = await import('./remotion/events.mjs');
+    const {actOf} = await import('./remotion/lib/film.mjs');
+    if (args.act === undefined || args.act === null) throw usage('Say which act to trace ("act": N).');
+    const ctx = await film(args);
+    const act = actOf(ctx, args.act).act;
+    if (webScene(ctx.dir, act)) {
+      return {film: ctx.id, act, written: false, reason: 'a web scene: the open web renderer writes its motion trace while it renders'};
+    }
+    return {film: ctx.id, act, ...(await traceAct(ctx, act, {brandPath: args.brand_path ?? null}))};
+  },
   async check(args) {
     const {checkAct, checkActs} = await import('./remotion/check.mjs');
     const several = Array.isArray(args.acts);
@@ -224,7 +238,7 @@ const handlers = {
     }
     const mod = await import(pathToFileURL(file).href);
     if (typeof mod.webRender !== 'function') throw missing(`${file} doesn't export webRender(args).`);
-    const result = await mod.webRender(args);
+    const result = await mod.webRender(args, {cwd: CALLER_CWD});
     return result && typeof result === 'object' ? result : {result};
   },
 };

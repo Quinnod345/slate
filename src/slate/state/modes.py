@@ -120,11 +120,12 @@ def default_format(mode: str) -> str:
         exact = rng[0] >= lo and rng[1] <= hi
         overlap = rng[0] <= hi and rng[1] >= lo
         if exact or overlap:
-            matches.append((0 if exact else 1, name))
+            # the format marked autonomous_default wins among the ones that fit; then exact fits, then by name
+            matches.append((0 if fmt.get("autonomous_default") else 1, 0 if exact else 1, name))
     if not matches:
         raise UsageError("No installed format is a 15–45 second 9:16 reel, so an autonomous film needs --format.",
                          hint=f"Known formats: {', '.join(deps.format_names()) or 'none yet'}.")
-    return sorted(matches)[0][1]
+    return sorted(matches)[0][-1]
 
 
 # ---------------------------------------------------------------------------------------------------------------

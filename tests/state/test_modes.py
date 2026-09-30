@@ -159,3 +159,39 @@ def test_park_and_answer_cli(new_film):
     assert code == 0 and not json.loads(out)["still_parked"]
     prod = (fd / "brief" / "PRODUCTION.md").read_text()
     assert "B, the quiet one." in prod  # the answer is logged verbatim as a direction change
+
+
+def test_the_autonomous_default_format_is_the_one_marked_so(state_env, monkeypatch):
+    """formats' ask: prefer the format marked autonomous_default among the 15-45 s 9:16 reels, not the first by name."""
+    from slate.state import deps
+
+    reels = {
+        "a-reel": {"name": "a-reel", "width": 1080, "height": 1920, "fps_num": 25, "fps_den": 1,
+                   "runtime_s": {"min": 15, "max": 45, "target": 30}},
+        "z-reel": {"name": "z-reel", "width": 1080, "height": 1920, "fps_num": 25, "fps_den": 1,
+                   "runtime_s": {"min": 20, "max": 40, "target": 30}, "autonomous_default": True},
+    }
+    monkeypatch.setattr(deps, "format_names", lambda: sorted(reels))
+    monkeypatch.setattr(deps, "format_load", lambda name: (reels[name], "fake"))
+    assert modes.default_format("autonomous") == "z-reel"
+    reels["z-reel"]["autonomous_default"] = False
+    assert modes.default_format("autonomous") == "a-reel"  # without the mark: exact fits, then by name
+
+
+def test_a_final_cut_approval_answers_the_hold_it_was_waiting_for(new_film):
+    """finish's ask: a held film parks on its review packet's question; approving the final cut answers it, so an
+    approved film doesn't stay parked."""
+    from slate.state import approvals, park
+
+    fd = new_film()
+    master = fd / "masters" / "final.mov"
+    master.parent.mkdir(exist_ok=True)
+    master.write_bytes(b"a master")
+    park.park(fd, reason="Held for Test Person: approve the final cut", source="slate review v1")
+    park.park(fd, reason="Which logo lock-up?", source="reviewer")
+    assert len(modes.parked(fd)) == 2
+    approvals.record(fd, what="final_cut", path="masters/final.mov", approved_by="Test Person")
+    left = modes.parked(fd)
+    assert [q["source"] for q in left] == ["reviewer"]  # only the hold is answered; other questions still wait
+    held = next(q for q in approvals.load(fd)["questions"] if q["source"] == "slate review v1")
+    assert held["answered_by"] == "Test Person" and "masters/final.mov" in held["answer"]

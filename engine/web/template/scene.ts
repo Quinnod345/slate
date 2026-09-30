@@ -12,7 +12,7 @@
 // so the template works for any pack (and in plain greys for a brand that hasn't been onboarded yet).
 import * as THREE from 'three';
 import {cssVars, defineEvent, durRank, frameSize, roleEase, t90Of, tokens, typeStyle} from '@slate/kit/core';
-import {actStart, defineScene, sceneAct, tween} from '@slate/web';
+import {actDuration, actStart, defineScene, sceneAct, tween} from '@slate/web';
 import {createRenderer, renderOnSeek} from '@slate/web/three';
 
 const size = frameSize();
@@ -20,6 +20,7 @@ const t = tokens();
 const act = sceneAct();
 const shot = act.shots[0];
 const start = actStart(); // film seconds of the act's first frame
+const span = actDuration(); // the act's length in seconds: every move below fits inside it, however short the act
 
 // ---------------------------------------------------------------------------------------------------- the page
 for (const [name, value] of Object.entries(cssVars(t, size.short))) document.documentElement.style.setProperty(name, value);
@@ -58,11 +59,12 @@ scene.add(key);
 
 // ------------------------------------------------------------------------------------------------- the moves
 // The object turns from rest to rest over the brand's longest duration (its "move" role ease); the line enters a tick
-// after the act starts (its "entrance" role ease), from a short drop and nothing scaled.
-const turn = durRank(5);
+// after the act starts (its "entrance" role ease), from a short drop and nothing scaled. In an act shorter than the
+// brand's durations the moves shrink to fit, so the line always lands (and its beat always falls) inside the act.
+const turn = Math.min(durRank(5), span);
 tween(mesh.rotation, {y: [-0.7, 0.7]}, {id: 'template.object-turn', shot, at: start, dur: turn, prop: 'rotation.y', unit: 'rad'});
-const enter = durRank(2);
-const lineIn = start + durRank(0);
+const enter = Math.min(durRank(2), span / 2);
+const lineIn = start + Math.min(durRank(0), span / 4);
 tween(line, {opacity: [0, 1], y: [Math.round(size.short * 0.03), 0]}, {id: 'template.line-in', shot, at: lineIn, dur: enter, entrance: true, unit: 'px'});
 
 // The line's landing is a beat: "land" means 90% of travel, everywhere in Slate.

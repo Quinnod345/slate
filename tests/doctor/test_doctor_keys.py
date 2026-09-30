@@ -135,3 +135,24 @@ def test_secret_where_never_reads_the_value(monkeypatch):
     monkeypatch.setattr(secrets, "_keychain_read", lambda service: calls.append(service))
     assert Env().secret_where("elevenlabs") == "env"
     assert calls == []
+
+
+def test_tls_names_the_file_that_really_supplied_the_certificates(denv):
+    """python.org's Python has no store of its own; slate.http loads macOS's bundle, and the row names that file, not
+    Python's missing default."""
+    denv.tls = {"ca_certs": 128, "source": "slate.http", "loaded_from": "/etc/ssl/cert.pem",
+                "python_default_ca_certs": 0, "cafile": "/Library/Frameworks/Python.framework/Versions/3.13/etc/openssl/"
+                "cert.pem", "cafile_exists": False, "capath": None, "capath_has_certs": False, "env_cert_file": None}
+    row = rows(denv)["net.tls"]
+    assert row["status"] == "green" and "from /etc/ssl/cert.pem; slate.http" in row["summary"]
+    assert "Python.framework" not in row["summary"]
+
+
+def test_the_real_env_names_slate_https_bundle_when_pythons_store_is_empty(monkeypatch):
+    """On this Mac's python.org Python the default store is empty; with SSL_CERT_FILE unset, slate.http uses the system
+    bundle and doctor says so. (On a Python that has its own store, loaded_from stays None and that's right too.)"""
+    monkeypatch.delenv("SSL_CERT_FILE", raising=False)
+    info = Env().tls_info()
+    assert info["ca_certs"] > 0
+    if info["source"] == "slate.http" and not info["python_default_ca_certs"]:
+        assert info["loaded_from"] in ("/etc/ssl/cert.pem", "/private/etc/ssl/cert.pem")

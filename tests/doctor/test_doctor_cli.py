@@ -211,3 +211,52 @@ def test_the_engine_install_also_fetches_its_chrome(denv, monkeypatch):
     monkeypatch.setattr(ebridge, "call", lambda cmd, args, **kw: done.append((cmd, args)) or {"browser": {"major": 149}})
     res = prereqs.carry_out({"id": "engine", "what": "engine", "call": "engine"}, denv)
     assert res["ok"] is True and done == [("ensure", {"npm_ci": True}), ("browser-ensure", {})]
+
+
+def test_json_stays_one_object_when_native_code_writes_to_stdout(tmp_path, slate_home):
+    """With the ocr extra installed, Apple's Vision framework writes log lines straight to file descriptor 1, some of
+    them at exit, after the report. `slate doctor --json` must still print exactly one JSON object on stdout, with the
+    stray lines on stderr. It runs as a real process, because only a real fd 1 shows the problem."""
+    import subprocess
+    import sys
+    import textwrap
+    from pathlib import Path
+
+    here = Path(__file__).resolve().parent
+    script = tmp_path / "noisy_doctor.py"
+    script.write_text(textwrap.dedent(f"""
+        import atexit, os, sys
+        sys.path.insert(0, {str(here)!r})
+        from doctor_helpers import FakeEnv
+        from slate.doctor import core
+        env = FakeEnv({str(tmp_path / "mac")!r})
+
+        def noisy_ocr():
+            os.write(1, b"Unable to find a valid E5 (during the checks)\\n")
+            atexit.register(lambda: os.write(1, b"Unable to find a valid E5 (at exit)\\n"))
+            return env.ocr
+
+        env.ocr_available = noisy_ocr
+        core.make_env = lambda: env
+        from slate import cli
+        sys.exit(cli.main(["doctor", "--json", "--only", "system"]))
+    """))
+    proc = subprocess.run([sys.executable, str(script)], capture_output=True, text=True, timeout=120)
+    assert proc.returncode == 0, proc.stderr[-2000:]
+    rep = json.loads(proc.stdout)  # exactly one JSON object: nothing before or after it
+    assert rep["status"] == "green" and any(r["id"] == "system.ocr" for r in rep["checks"])
+    assert proc.stderr.count("Unable to find a valid E5") == 2
+
+
+def test_a_refusal_under_json_still_reaches_stdout(denv):
+    """The stdout guard only starts after a report is printed; a usage error is still one JSON object on stdout."""
+    code, out, err = run_cli(["doctor", "--json", "--context", "not a name!"])
+    assert code == 2 and json.loads(out)["error"] == "usage"
+
+
+def test_an_unknown_brand_is_a_usage_error_with_one_json_object(denv):
+    """A typo'd --brand is the caller's mistake: exit 2 and a JSON error, never a red row that looks like the Mac's."""
+    code, out, err = run_cli(["doctor", "--json", "--brand", "no-such-brand"])
+    assert code == 2
+    payload = json.loads(out)
+    assert payload["error"] == "usage" and "no-such-brand" in payload["message"]

@@ -369,9 +369,22 @@ class Env:
         stats = ctx.cert_store_stats() if hasattr(ctx, "cert_store_stats") else {}
         dv = ssl.get_default_verify_paths()
         capath = dv.openssl_capath
+        python_default = int(ssl.create_default_context().cert_store_stats().get("x509_ca", 0))
+        loaded_from = None
+        if source == "slate.http" and not python_default:
+            # slate.http fills an empty default store from SSL_CERT_FILE or the system bundle, in that order; name the
+            # file it used, not Python's own (missing) one.
+            from slate import http  # noqa: PLC0415
+
+            for path in (os.environ.get("SSL_CERT_FILE"), *getattr(http, "SYSTEM_CA_FILES", ())):
+                if path and os.path.exists(path):
+                    loaded_from = path
+                    break
         return {
             "ca_certs": int(stats.get("x509_ca", 0)),
             "source": source,
+            "loaded_from": loaded_from,
+            "python_default_ca_certs": python_default,
             "cafile": dv.openssl_cafile,
             "cafile_exists": bool(dv.openssl_cafile and os.path.isfile(dv.openssl_cafile)),
             "capath": capath,
@@ -448,6 +461,12 @@ class Env:
         from slate.jobs import agent  # noqa: PLC0415
 
         return agent.status()
+
+    def jobs_summary(self) -> dict:
+        """The queue as `slate jobs status --json` reports it: whether a runner is serving, counts per state, next up."""
+        from slate.jobs import client  # noqa: PLC0415
+
+        return client.summary()
 
     def ocr_available(self) -> tuple[bool, dict]:
         from slate.qa import ocr  # noqa: PLC0415

@@ -105,6 +105,26 @@ def test_on_screen_density_caps_at_twelve_words():
     assert "13 on-screen words" in got["script.on_screen"].evidence[0]
 
 
+def test_a_format_whose_picture_carries_no_words_fails_any_on_screen_word():
+    """formats/website-hero-loop.json says on_screen_max_words 0 ("the picture carries no words"): 0 is a real limit,
+    not a missing one (it used to fall back to twelve)."""
+    got = gates(fmt={"on_screen_max_words": 0})
+    assert got["script.on_screen"].status == "FAIL" and "this format's picture carries none" in got["script.on_screen"].summary
+    s = copy.deepcopy(SCRIPT)
+    for a in s["acts"]:
+        for sh in a["shots"]:
+            sh["on_screen"] = ""
+    assert gates(s, fmt={"on_screen_max_words": 0})["script.on_screen"].status == "PASS"
+
+
+def test_the_scripts_own_density_rule_wins_over_the_formats():
+    s = copy.deepcopy(SCRIPT)
+    shot(s, "S02").update(on_screen="Open from six every single day")  # six words
+    assert gates(s, fmt={"on_screen_max_words": 4})["script.on_screen"].status == "FAIL"
+    s["rules"] = {"on_screen_max_words": 8}
+    assert gates(s, fmt={"on_screen_max_words": 4})["script.on_screen"].status == "PASS"
+
+
 # --- banned words ---------------------------------------------------------------------------------------------------------
 
 @pytest.mark.parametrize("field,text", [("vo", "The cheapest loaf in town."), ("on_screen", "GUARANTEED fresh"),

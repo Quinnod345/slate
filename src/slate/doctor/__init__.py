@@ -1,10 +1,12 @@
 """`slate doctor` and `slate connect`: is this Mac ready for Slate, and the steps that make it so.
 
-Doctor checks the binaries and their versions (the way Slate will run them), the Node engine and its headless Chrome,
-keys by presence plus the vendors' free probes, After Effects (installed, its scripting pref, the AE bridge at its pin,
-the Automation permission, the smoke test), Apple's sampled instruments, every agent's skills and MCP registration,
-the CLI on PATH, disk space, the default browser and anything that would open it, the job agent, OCR, and Slate's own
-modules. Each check is a row: green, yellow or red, with the fix. It only reads.
+Doctor checks the binaries and their versions (the way Slate will run them), stale Intel copies left in
+/usr/local/bin, the Node engine and its headless Chrome, keys by presence (Oneiro's capped key too) plus the vendors'
+free probes, After Effects (installed, its scripting pref, the AE bridge at its pin, the Automation permission, the
+smoke test), Apple's sampled instruments, every agent's skills and MCP registration, the CLI on PATH, `~/.codex/
+AGENTS.md`'s Dia line, disk space, the default browser and anything that would open it, the job queue's launchd agent,
+runner and queue, OCR, and Slate's own modules. Each check is a row: green, yellow or red, with the fix. It only
+reads, and nothing it didn't check is ever green.
 
 Connect does the promise's connect steps: `claude`, `higgsfield`, `elevenlabs` and `aftereffects`.
 
