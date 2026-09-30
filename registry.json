@@ -1,0 +1,59 @@
+{
+ "schema": 1,
+ "note": "The best current model for each role, with the date each fact was verified and where it came from. Films pin what they use (film.json pins); refreshing this file never changes a pinned film. Refresh before production: knowledge cutoffs predate these models.",
+ "roles": {
+  "tts": {"default": "eleven_v4", "provider": "elevenlabs", "verified_on": "2026-09-30", "source": "ElevenLabs models page via the 2026-09-30 inventory (media-research.md §2)"},
+  "voice_design": {"default": "eleven_ttv_v3", "provider": "elevenlabs", "verified_on": "2026-09-30", "source": "API default is eleven_multilingual_ttv_v2, so always pass model_id (media-research.md §2.3)"},
+  "voice_remix": {"default": "eleven_ttv_v3", "provider": "elevenlabs", "verified_on": "2026-09-30", "source": "media-research.md §2.3"},
+  "voice_isolator": {"default": "elevenlabs_voice_isolator", "provider": "elevenlabs", "verified_on": "2026-09-30", "source": "media-research.md §2.8"},
+  "alignment": {"default": "whisper_turbo", "provider": "local", "verified_on": "2026-09-30", "source": "Plan Appendix A: openai-whisper turbo is the default aligner; ElevenLabs Forced Alignment is evaluated against it"},
+  "alignment_eval": {"default": "elevenlabs_forced_alignment", "provider": "elevenlabs", "verified_on": "2026-09-30", "source": "media-research.md §2.5"},
+  "music": {"default": "music_v2_5", "provider": "elevenlabs", "verified_on": "2026-09-30", "source": "API default is music_v1, so always pass model_id (media-research.md §2.6)"},
+  "sfx": {"default": "eleven_text_to_sound_v2", "provider": "elevenlabs", "verified_on": "2026-09-30", "source": "Learn from only: fills a gap, never the designed sound (media-research.md §2.7)"},
+  "plate_video": {"default": "bytedance/seedance-2.5/image-to-video", "provider": "higgsfield", "verified_on": "2026-09-30", "source": "FILMROOT pipeline/tools/hf_plates.py; best quality wins (decision 6)"},
+  "plate_video_reference": {"default": "bytedance/seedance-2.5/reference-to-video", "provider": "higgsfield", "verified_on": "2026-09-30", "source": "hf_plates.py"},
+  "plate_video_extend": {"default": "bytedance/seedance-2.5/video-extend", "provider": "higgsfield", "verified_on": "2026-09-30", "source": "hf_plates.py"},
+  "plate_still": {"default": "higgsfield-ai/soul/cinema", "provider": "higgsfield", "verified_on": "2026-09-30", "source": "hf_plates.py; HIGGSFIELD.md price table"}
+ },
+ "models": {
+  "eleven_v4": {"provider": "elevenlabs", "kind": "tts", "price": {"unit": "credits", "per_char": 1.0}, "limits": {"chars_per_request": 10000}, "verified_on": "2026-09-30", "source": "media-research.md §2.2; price per character to confirm against the subscription endpoint before production"},
+  "eleven_ttv_v3": {"provider": "elevenlabs", "kind": "voice_design", "price": {"unit": "credits", "per_char": 1.0}, "limits": {"text_chars": [100, 1000]}, "verified_on": "2026-09-30", "source": "media-research.md §2.3"},
+  "elevenlabs_voice_isolator": {"provider": "elevenlabs", "kind": "isolator", "price": {"unit": "credits", "per_minute": 1000}, "verified_on": "2026-09-30", "source": "media-research.md §2.8"},
+  "elevenlabs_forced_alignment": {"provider": "elevenlabs", "kind": "alignment", "price": {"unit": "credits", "per_minute": 1000}, "verified_on": "2026-09-30", "source": "priced like speech-to-text (media-research.md §2.5); confirm before use"},
+  "music_v2_5": {"provider": "elevenlabs", "kind": "music", "price": {"unit": "credits", "per_minute": 2000}, "limits": {"length_ms": [3000, 600000], "part_seconds_max": 90}, "verified_on": "2026-09-30", "source": "media-research.md §2.6; per-minute credits to confirm from FILMROOT sound/music spend logs"},
+  "eleven_text_to_sound_v2": {"provider": "elevenlabs", "kind": "sfx", "price": {"unit": "credits", "per_second": 40}, "limits": {"seconds": [0.5, 30]}, "verified_on": "2026-09-30", "source": "media-research.md §2.7"},
+  "whisper_turbo": {"provider": "local", "kind": "alignment", "price": {"unit": "credits", "per_second": 0}, "verified_on": "2026-09-30", "source": "openai-whisper large-v3-turbo via Homebrew"},
+  "bytedance/seedance-2.5/image-to-video": {"provider": "higgsfield", "kind": "video", "price": {"unit": "usd", "per_second": 0.462}, "verified_on": "2026-09-29", "source": "HIGGSFIELD.md: about $2.31 for 5 s at 720p from /estimate; live estimates come from /estimate (free)"},
+  "bytedance/seedance-2.5/reference-to-video": {"provider": "higgsfield", "kind": "video", "price": {"unit": "usd", "per_second": 0.462}, "verified_on": "2026-09-29", "source": "as image-to-video; confirm with /estimate"},
+  "bytedance/seedance-2.5/video-extend": {"provider": "higgsfield", "kind": "video", "price": {"unit": "usd", "per_second": 0.462}, "verified_on": "2026-09-29", "source": "as image-to-video; confirm with /estimate"},
+  "kling-video/v3.0/pro/image-to-video": {"provider": "higgsfield", "kind": "video", "price": {"unit": "usd", "per_second": 0.062}, "verified_on": "2026-09-29", "source": "HIGGSFIELD.md: $0.31 list for 5 s"},
+  "higgsfield-ai/soul/cinema": {"provider": "higgsfield", "kind": "image", "price": {"unit": "usd", "per_generation": 0.006}, "verified_on": "2026-09-29", "source": "HIGGSFIELD.md: $0.006 at 1080p"}
+ },
+ "tools": {
+  "remotion": {"version": "4.0.521", "pinned": "exact", "verified_on": "2026-09-30", "note": "Upgrade within 4.0.x only after the render-parity check; never 5.0 unplanned (licence and colour changes)"},
+  "react": {"version": "19.2.8", "verified_on": "2026-09-30"},
+  "typescript": {"version": "5.9.3", "verified_on": "2026-09-30"},
+  "three": {"version": "0.180.0", "verified_on": "2026-09-29", "source": "Quinn's library list"},
+  "@react-three/fiber": {"version": "9.7.0", "verified_on": "2026-09-29", "source": "Quinn's library list"},
+  "@react-three/drei": {"version": "10.7.8", "verified_on": "2026-09-29", "source": "Quinn's library list"},
+  "gsap": {"version": "3.15.0", "verified_on": "2026-09-29", "source": "Quinn's library list; check its licence before a public release"},
+  "puppeteer": {"version": "25.10.0", "verified_on": "2026-09-29", "source": "Quinn's library list; local pages only"},
+  "chrome-headless-shell": {"version": "149", "verified_on": "2026-09-30", "note": "Remotion-managed; doctor runs `remotion browser ensure`"},
+  "fnf-after-effects-mcp": {"version": "0.1.3", "pinned": "exact", "verified_on": "2026-09-30", "note": "Pre-1.0; acceptance tests on every version bump"},
+  "higgsfield-cli": {"version": "1.1.26", "verified_on": "2026-09-30"},
+  "after-effects": {"version": "26.5", "verified_on": "2026-09-30"},
+  "ffmpeg": {"version": ">=9", "verified_on": "2026-09-30"},
+  "node": {"version": ">=24", "verified_on": "2026-09-30"},
+  "whisper-model": {"version": "turbo", "size_gb": 1.6, "verified_on": "2026-09-30"}
+ },
+ "agents": {
+  "recommended": {"agent": "claude-code", "model": "claude-opus-5-5", "effort": "max", "verified_on": "2026-09-30", "note": "Configurable in slate.toml [agent]"},
+  "codex_default": {"model": "gpt-6-astra", "verified_on": "2026-09-30"},
+  "oneiro_research_slice": {"model": "gpt-6-sol", "invocation": "codex exec --ignore-user-config", "verified_on": "2026-09-30"},
+  "openclaw_deployed": {"model": "gpt-5.6-sol", "verified_on": "2026-09-30"}
+ },
+ "price_notes": [
+  {"note": "Higgsfield API cash-back ends 2026-09-30 23:59 UTC", "expires": "2026-09-30T23:59:00Z"},
+  {"note": "ElevenLabs v4 3x credit promotion ends 2026-10-12", "expires": "2026-10-12"}
+ ]
+}
