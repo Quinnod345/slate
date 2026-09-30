@@ -1,0 +1,47 @@
+{
+ "name": "feature-announcement",
+ "title": "Feature announcement",
+ "summary": "A 20-to-90-second film that announces one new feature: what's new, why it matters, how it works in the real product, and who gets it when.",
+ "use_when": "A feature has shipped (or ships on a known date) and existing users and prospects should know.",
+ "runtime_s": {"min": 20, "max": 90, "target": 45},
+ "aspects": {
+  "16:9": {"width": 1920, "height": 1080, "channels": ["youtube", "website"], "type_scale": 1.0},
+  "1:1": {"width": 1080, "height": 1080, "channels": ["linkedin", "instagram_feed"], "type_scale": 1.1},
+  "9:16": {"width": 1080, "height": 1920, "channels": ["instagram_reels", "tiktok", "youtube_shorts"], "type_scale": 1.2}
+ },
+ "default_aspect": "16:9",
+ "fps_num": 30000,
+ "fps_den": 1001,
+ "pace": {"max_words_per_second": 2.6, "lead": 0.2, "tail": 0.25, "act_tail": 0.5},
+ "on_screen_max_words": 10,
+ "structure": {
+  "acts": {"min": 2, "max": 4},
+  "beats": [
+   {"name": "what's new", "job": "Name the feature in the first three seconds.", "share": 0.15},
+   {"name": "why it matters", "job": "The problem it solves, in the user's words.", "share": 0.25},
+   {"name": "how it works", "job": "One or two steps in the real product.", "share": 0.4},
+   {"name": "availability", "job": "Who gets it, when and where, and the one next step.", "share": 0.2}
+  ],
+  "rules": [
+   "One feature per film.",
+   "Show it working in the real product (slate capture); never a mock-up of something that doesn't ship."
+  ]
+ },
+ "capture": {
+  "source": "slate capture ios or slate capture web",
+  "principle": "Capture for truth and speed; rebuild in code when a shot needs camera moves, restaging, motion blur or exact type.",
+  "rebuild_in_code_when": ["camera moves", "restaging", "motion blur", "exact type"]
+ },
+ "audio": "required",
+ "loudness": {"lufs": -14, "true_peak": -1, "tolerance_lu": 0.5, "standard": "web, social and streaming delivery"},
+ "captions": {"needed": true, "burn_in": true, "renderer": "remotion", "font": "brand", "sidecar": ["srt", "vtt"],
+              "max_lines": 2, "max_chars": 42, "max_cps": 17, "min_s": 1.0,
+              "position": "inside the channel's safe zone for the aspect",
+              "note": "Square and vertical cuts use shorter lines (36 and 32 characters)."},
+ "budget": {"family": "reel_or_ad", "elevenlabs": {"vo": [500, 3000], "score": [1000, 2000]}, "higgsfield": [0, 0],
+            "rework_factor": 1.5,
+            "note": "The reel-or-ad row. A 90-second announcement still fits: at the pace ceiling that's about 234 words of voice-over, and about 1,250 credits of score at the roughly 825 credits a minute the films measured."},
+ "broadcast": false,
+ "generation": "rarely",
+ "engines": ["remotion", "web", "ae"]
+}

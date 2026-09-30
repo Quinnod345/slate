@@ -159,6 +159,21 @@ describe('check: boundary contracts', () => {
     expect(fs.readdirSync(path.join(dir, 'qa/contracts/act1'))).toContain('Contract-Rest_f00000.png');
   });
 
+  it('checks several acts in one run with one bundle between them, and leaves none behind', () => {
+    const dir = contractFilm('both');
+    ok('emit-events', {film: dir}, {data});
+    const r = cli('check', {film: dir, acts: [1, 2], banned_words: ['gratis']}, {data});
+    expect(r.code, r.stderr).toBe(0);
+    expect(r.json.acts.map((a) => [a.act, a.status])).toEqual([[1, 'PASS'], [2, 'PASS']]);
+    expect(r.json.passed).toBe(true);
+    expect(r.json.gates.filter((g) => g.gate.endsWith('.contracts')).map((g) => g.summary)).toEqual([
+      'act 1 → act 2: "Rest" matches Act2:0 and Contract-Rest:0 bit for bit, held 6 frames',
+      'act 1 → act 2: "Rest" matches Act1:14 and Contract-Rest:0 bit for bit, held 6 frames',
+    ]);
+    expect(r.stderr.match(/bundling /g)).toHaveLength(1);
+    expect(fs.readdirSync(path.join(data, 'cache', 'bundles'))).toEqual([]);
+  });
+
   it("fails when the neighbour's boundary frame isn't the rest state (a mismatch in pixels)", () => {
     const dir = contractFilm('miss', {act2Rest: false});
     const g = byGate(check(dir, 2)).contracts;
@@ -185,17 +200,69 @@ describe('check: boundary contracts', () => {
 });
 
 describe('check: word misses', () => {
-  it.skipIf(!kitCore)("fails while a kit word lookup fell back to an estimate", () => {
-    const dir = film(root, 'misses', (d) => {
-      fs.writeFileSync(path.join(d, 'scenes/act1/beats.ts'), "import {word} from '@slate/kit/core';\nexport const said = word('S02', 'square');\n");
-    });
+  it.skipIf(!kitCore)("fails while a kit word lookup fell back to an estimate, and the events can't be current", () => {
+    const dir = film(root, 'misses');
     ok('emit-events', {film: dir}, {data});
+    // a lookup the voice never says, added after the events were written
+    fs.writeFileSync(path.join(dir, 'scenes/act1/beats.ts'), "import {word} from '@slate/kit/core';\nexport const said = word('S02', 'square');\n");
     const gates = byGate(check(dir, 1));
     expect(gates.word_misses.status).toBe('FAIL');
     expect(gates.word_misses.evidence).toContain('S02:square');
+    expect(gates.events.status).toBe('FAIL');
+    expect(gates.events.summary).toMatch(/can't be current: .*fell back to an estimate \(.*S02:square\)/);
     // the brand has no motion law yet: the kit's neutral law stands in, which is noted, not held against the act
     expect(gates.kit_problems.status).toBe('PASS');
     expect(gates.kit_problems.summary).toMatch(/^nothing refused; noted: .*neutral law/);
+  });
+});
+
+describe('check: what can reach the screen', () => {
+  it('fails on a banned word in JSON copy the act imports, and never reads its notes', () => {
+    const dir = film(root, 'copy', (d) => {
+      writeJson(path.join(d, 'scenes/act1/copy.json'), {id: 'gratis_offer', title: 'Totally gratis'});
+      fs.writeFileSync(path.join(d, 'scenes/act1/NOTES.md'), 'Never say gratis on screen.\n');
+      const f = path.join(d, 'scenes/act1/index.tsx');
+      fs.writeFileSync(
+        f,
+        fs.readFileSync(f, 'utf8')
+          .replace("import {film, type SceneProps} from '@film/data';", "import {film, type SceneProps} from '@film/data';\nimport copy from './copy.json';")
+          .replace('>Steady<', '>{copy.title}<'),
+      );
+    });
+    ok('emit-events', {film: dir}, {data});
+    const r = check(dir, 1);
+    const g = byGate(r).banned_words;
+    expect(g.status).toBe('FAIL');
+    expect(g.evidence).toEqual(['scenes/act1/copy.json:3: "Totally gratis" (gratis)']);
+    expect(Object.keys(g.inputs)).toEqual(expect.arrayContaining(['scenes/act1/copy.json', 'scenes/act1/index.tsx']));
+    expect(byGate(r).typecheck.status).toBe('PASS');
+  });
+
+  it('refuses to hand in a web scene, and says what gates it instead', () => {
+    const dir = film(root, 'web', (d) => {
+      twoActs(d);
+      fs.mkdirSync(path.join(d, 'scenes/act2/web'), {recursive: true});
+      fs.writeFileSync(path.join(d, 'scenes/act2/web/index.html'), '<!doctype html>\n');
+    });
+    const r = cli('check', {film: dir, act: 2, banned_words: []}, {data});
+    expect(r.code).toBe(1);
+    expect(r.json).toMatchObject({ok: false, kind: 'refused'});
+    expect(r.json.error).toMatch(/^Act 2 is a web scene \(scenes\/act2\/web\/index\.html\)/);
+    expect(r.json.hint).toMatch(/slate render --act 2 --engine web/);
+  });
+
+  it('turns a syntax error into failed gates with the file and line, never a crash', () => {
+    const dir = film(root, 'syntax', (d) => {
+      const f = path.join(d, 'scenes/act1/index.tsx');
+      fs.writeFileSync(f, fs.readFileSync(f, 'utf8') + '\nexport const broken = ;\n');
+    });
+    const r = check(dir, 1);
+    const g = byGate(r);
+    expect(g.typecheck.status).toBe('FAIL');
+    expect(g.typecheck.evidence[0]).toMatch(/^scenes\/act1\/index\.tsx:\d+:\d+ TS1109 /);
+    expect(g.module.status).toBe('FAIL');
+    expect(g.module.summary).toMatch(/don't build/);
+    expect(r.passed).toBe(false);
   });
 });
 

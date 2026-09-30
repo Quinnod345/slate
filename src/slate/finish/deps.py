@@ -91,25 +91,6 @@ def new_version(film_dir: Path, note: str | None = None) -> int:
     return int(fn(Path(film_dir), note))
 
 
-def mark_delivered(film_dir: Path, version: int, at: str, where: str) -> None:
-    """Note in film.json that a version was delivered (best effort: the delivery itself already stands)."""
-    fn = _fn("slate.state.film", "update")
-    if fn is None:
-        return
-
-    def change(data: dict) -> None:
-        for v in data.get("versions") or []:
-            if int(v.get("n", 0)) == int(version) and not v.get("delivered_at"):
-                v["delivered_at"] = at
-                note = v.get("note")
-                v["note"] = (f"{note}; " if note else "") + f"delivered to {where}"
-
-    try:
-        fn(Path(film_dir), change)
-    except SlateError as exc:
-        log.warn(f"couldn't note the delivery in film.json ({exc.message}); deliver/ holds it all the same")
-
-
 def mode_settings(mode: str) -> dict:
     """What a mode means (slate.state.modes.settings when installed; the same rules here otherwise)."""
     fn = _fn("slate.state.modes", "settings")
@@ -247,19 +228,12 @@ def lock_record(film_dir: Path, rel: str, *, producer: str, inputs: Any, tool_ve
         log.warn(f"couldn't note {rel} in film.lock.json ({exc.message})")
 
 
-def is_locked(film_dir: Path, rel: str) -> bool:
-    fn = _fn("slate.state.lock", "is_locked")
-    if fn is None:
-        return bool((lock_entries(film_dir).get(rel) or {}).get("locked"))
-    return bool(fn(Path(film_dir), rel))
-
-
 def guard_regenerate(film_dir: Path, rel: str, *, force: bool, approval_id: str | None) -> dict:
     """Refuse to remake an approved, locked file without force and a person's spend approval (state's rule)."""
     fn = _fn("slate.state.lock", "guard_regenerate")
     if fn is not None:
         return fn(Path(film_dir), rel, force=force, approval_id=approval_id)
-    if is_locked(film_dir, rel) and not (force and approval_id):
+    if (lock_entries(film_dir).get(rel) or {}).get("locked") and not (force and approval_id):
         raise Refused(f"{rel} is locked (approved work); Slate never remakes it on its own.",
                       hint=f"slate approve spend {rel} --by NAME, then run this with --force --approval <id>.")
     return {"path": rel, "allowed": True}
@@ -278,7 +252,7 @@ def format_platforms(film_dir: Path, fmt_name: str | None) -> list[str]:
 
 
 # ---------------------------------------------------------------------------------------------------------------
-# qa, timing, render
+# qa
 
 
 def qa_gate_names() -> list[str] | None:
@@ -294,36 +268,6 @@ def qa_gate_names() -> list[str] | None:
             _warn_once("qa_external", f"slate.qa couldn't load its motion and access gates ({exc})")
     names = getattr(qa, "GATES", None)
     return list(names) if isinstance(names, dict) else None
-
-
-def load_shots(film_dir: Path) -> dict:
-    fn = _fn("slate.timing", "load_shots")
-    if fn is not None:
-        return fn(Path(film_dir))
-    path = Path(film_dir) / "timing" / "shots.json"
-    if not path.is_file():
-        raise MissingPrerequisite("This film has no timing/shots.json yet.", hint="Run `slate timing`.")
-    return jsonio.read(path)
-
-
-def render_entries(film_dir: Path) -> list[dict]:
-    """renders/registry.json entries (slate.render.registry when installed; the file otherwise)."""
-    fn = _fn("slate.render.registry", "entries")
-    if fn is not None:
-        try:
-            return list(fn(Path(film_dir)))
-        except SlateError as exc:
-            _warn_once("registry", f"slate.render couldn't read the renders registry ({exc.message}); reading it "
-                                   "directly")
-    data = jsonio.read(Path(film_dir) / "renders" / "registry.json", default=None)
-    if data is None:
-        return []
-    entries = data.get("entries") if isinstance(data, dict) else data
-    return [e for e in entries or [] if isinstance(e, dict)]
-
-
-# ---------------------------------------------------------------------------------------------------------------
-# After Effects (never from a test: tests replace these with fakes)
 
 
 def _no_ae_in_tests(what: str) -> None:

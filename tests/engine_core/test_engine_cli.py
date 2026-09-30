@@ -103,3 +103,48 @@ def test_emit_events_refuses_an_act_with_no_beats_and_no_silence(film):
     code, out, _ = run("emit-events", "--film", str(film), "--json")
     assert code == 1 and out["error"] == "refused"
     assert "doesn't say it's silent" in out["message"]
+
+
+def test_emit_events_dry_run_writes_nothing_and_exits_1_when_it_would_be_refused(film):
+    code, out, err = run("emit-events", "--film", str(film), "--dry-run", "--json")
+    assert code == 0, err
+    assert out["dry_run"] is True
+    assert out["acts"][0]["written"] is False and out["acts"][0]["problems"] == []
+    assert not (film / "timing" / "visual_events").exists()
+    scene = film / "scenes" / "act1" / "index.tsx"
+    text = scene.read_text()
+    start = text.index("export const events = [")
+    scene.write_text(text[:start] + "export const events = [];" + text[text.index("];", start) + 2:])
+    code, text, _ = run("emit-events", "--film", str(film), "--dry-run")
+    assert code == 1
+    assert "act 1: 0 beats → timing/visual_events/act1.json" in text and "(1 problem; dry run, nothing written)" in text
+    assert "no beats and doesn't say it's silent" in text
+    assert not (film / "timing" / "visual_events").exists()
+
+
+def test_emit_events_records_what_made_the_file(film):
+    code, _, err = run("emit-events", "--film", str(film))
+    assert code == 0, err
+    lock = json.loads((film / "film.lock.json").read_text())
+    entry = lock["files"]["timing/visual_events/act1.json"]
+    assert entry["producer"] == "slate emit-events"
+    assert set(entry["inputs"]) == {"scenes/act1/index.tsx", "timing/shots.json"}
+
+
+def test_check_all_lists_a_web_scene_as_not_checked(film):
+    shots = json.loads((film / "timing" / "shots.json").read_text())
+    shots["shots"][1]["act"] = 2
+    shots["acts"] = [{"index": 1, "name": "One", "shots": ["S01"]}, {"index": 2, "name": "Two", "shots": ["S02"]}]
+    (film / "timing" / "shots.json").write_text(json.dumps(shots))
+    scene = film / "scenes" / "act1" / "index.tsx"
+    text = scene.read_text()
+    start = text.index("export const events = [")
+    scene.write_text(text[:start] + "export const silent = 'the first of two acts';" + text[text.index("];", start) + 2:])
+    (film / "scenes" / "act2" / "web").mkdir(parents=True)
+    (film / "scenes" / "act2" / "web" / "index.html").write_text("<!doctype html>\n")
+    assert run("emit-events", "--film", str(film), "--act", "1")[0] == 0
+    code, out, _ = run("check", "all", "--film", str(film), "--no-contracts", "--json")
+    assert out["acts"] == [1]
+    assert out["skipped"] == [{"act": 2, "reason": "a web scene: the hand-in check reads Remotion acts only"}]
+    code, text, _ = run("check", "all", "--film", str(film), "--no-contracts")
+    assert "act 2: not checked (a web scene: the hand-in check reads Remotion acts only)" in text

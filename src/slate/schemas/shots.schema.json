@@ -44,7 +44,8 @@
      "vo_lead_sec": {"type": "number"},
      "vo_frame": {"type": "integer"},
      "vo_words": {"type": "object"},
-     "events": {"type": "array"}
+     "events": {"type": "array"},
+     "generate": {"type": "object", "description": "the script's generation request for this shot (slate gen reads it)"}
     }
    }
   }

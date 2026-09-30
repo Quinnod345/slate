@@ -22,7 +22,12 @@
     sheet_cols = 12
     sheet_rows = 10
     font = ""                     # a TrueType file for burn-ins and labels; default: a system font
-    taste_notes = []              # extra files the reviewer reads (paths)
+    burnin = "auto"               # auto: ffmpeg drawtext when this build has it, else labels drawn with Pillow
+    taste_notes = []              # the owner's taste notes the reviewer reads (paths)
+    to = ""                       # default destination: "" = downloads for the owner's films, imessage for Oneiro's
+
+    [finish.deliver]
+    thumbnails = 4                # stills from the master (film.json "deliver": {"thumbnails": [...]} wins)
 
     [finish.labels]
     law = ""                      # a law that requires an AI label, once one applies (none known by default)
@@ -61,9 +66,12 @@ DEFAULTS: dict[str, Any] = {
         "sheet_cols": 12,
         "sheet_rows": 10,
         "font": "",
+        "burnin": "auto",
         "taste_notes": [],
+        "to": "",
         "beat_window_s": 1.0,
     },
+    "deliver": {"thumbnails": 4},
     "labels": {"law": "", "platforms": {}, "default_platforms": ["tiktok", "youtube", "instagram", "facebook"]},
 }
 

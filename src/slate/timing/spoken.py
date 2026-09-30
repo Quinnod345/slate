@@ -381,6 +381,24 @@ def forms(token: str, lang: str = "en") -> list[list[str]]:
     return number_forms(parsed, lang)
 
 
+def forms_in(texts, lang: str = "en") -> dict[str, list[list[str]]]:
+    """{token: forms} for every number or symbol in some lines ("664" -> [[six, sixty-four], ...], "&" -> [[and]]).
+
+    timing/vo_words.json carries this for every VO line as "spoken", so an engine's word() can match "664" against
+    what was heard without its own number tables. Plain words are said as themselves and aren't listed.
+    """
+    out: dict[str, list[list[str]]] = {}
+    for text in texts:
+        for token in str(text or "").split():
+            core = strip_edges(token, lang)
+            if not core or core in out:
+                continue
+            said = forms(token, lang)
+            if said and said != [[core]]:
+                out[core] = said
+    return out
+
+
 # --- reading spelled-out numbers (for the script's number gate) ---------------------------------------------------------
 
 @lru_cache(maxsize=None)

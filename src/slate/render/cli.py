@@ -138,6 +138,11 @@ def _describe_result(result: dict) -> str:
                 else:
                     locked = ", ".join(lock.get("files") or []) or "no timing files yet"
                     lines.append(f"  registered in renders/registry.json; timeline locked ({locked}).")
+        trace = r.get("trace") or {}
+        if trace.get("written"):
+            lines.append(f"  motion trace refreshed: {trace['file']} ({trace.get('entries', 0)} moves).")
+        elif trace.get("reason"):
+            lines.append(f"  no motion trace: {trace['reason']}")
     cleaned = result.get("cleaned") or {}
     if cleaned.get("bundles"):
         lines.append(f"Swept {cleaned['bundles']} leaked bundle(s), {_mb(cleaned['freed_bytes'])}.")

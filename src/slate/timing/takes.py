@@ -10,6 +10,10 @@ also accepts a flat list ({"takes": [{"shot", "file", "seconds", "dur"}]}) and, 
 `voice/takes/<shot>.<wav|flac|aif|aiff|mp3|m4a>`. `dur` (or `trim`) is a play length shorter than the file, for a
 take whose leaked tail was trimmed (film A trimmed S10 and S20 this way). A take's read length is that trim when it
 has one, else the file's length.
+
+A derived film (a cut-down or a new aspect) reuses its parent's takes by reference: its film.lock.json points into the
+parent and nothing is copied. Every path here goes through `film_file`, which follows those references, while a take's
+`rel` stays film-relative, the way cue sheets write it.
 """
 
 from __future__ import annotations
@@ -64,8 +68,34 @@ def _num(value) -> float | None:
     return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0 else None
 
 
+def film_file(film_dir: Path, rel: str | Path) -> Path:
+    """The real file behind a film-relative path: the film's own, else its parent's when a derived film reuses it by
+    reference (film state's `lock.resolve`). Absolute paths are taken as they are."""
+    rel = Path(rel)
+    if rel.is_absolute():
+        return rel
+    own = Path(film_dir) / rel
+    if own.exists():
+        return own
+    try:
+        from slate.state import lock as state_lock  # noqa: PLC0415
+    except ImportError:
+        return own
+    try:
+        return Path(state_lock.resolve(Path(film_dir), rel.as_posix()))
+    except Exception:  # noqa: BLE001 - an unreadable lock is the same as no reference
+        return own
+
+
 def _path(film_dir: Path, file: str) -> Path:
-    return Path(file) if Path(file).is_absolute() else film_dir / file
+    return film_file(film_dir, file)
+
+
+def _rel_of(film_dir: Path, file: str, path: Path) -> str:
+    """How a cue sheet names the take: as the manifest wrote it when that's film-relative, else relative to the film."""
+    if not Path(file).is_absolute():
+        return Path(file).as_posix()
+    return _rel(film_dir, path)
 
 
 def _flat(film_dir: Path, shot: str, entry: dict) -> Take | None:
@@ -73,7 +103,8 @@ def _flat(film_dir: Path, shot: str, entry: dict) -> Take | None:
     if not file:
         return None
     path = _path(film_dir, str(file))
-    return Take(shot=shot, path=path, rel=_rel(film_dir, path), seconds=_num(entry.get("seconds", entry.get("duration"))),
+    return Take(shot=shot, path=path, rel=_rel_of(film_dir, str(file), path),
+                seconds=_num(entry.get("seconds", entry.get("duration"))),
                 trim=_num(entry.get("dur", entry.get("trim"))), note=entry.get("note"),
                 meta={k: v for k, v in entry.items() if k not in ("shot", "file", "path", "dur", "trim", "seconds",
                                                                    "duration", "note")})
@@ -90,7 +121,7 @@ def _selected(film_dir: Path, shot: str, entry: dict) -> Take | None:
         if file and _path(film_dir, str(file)).is_file():
             path = _path(film_dir, str(file))
             seconds = _num(info.get(f"{stage}_seconds")) or (_num(info.get("seconds")) if stage == "raw" else None)
-            return Take(shot=shot, path=path, rel=_rel(film_dir, path), seconds=seconds,
+            return Take(shot=shot, path=path, rel=_rel_of(film_dir, str(file), path), seconds=seconds,
                         trim=_num(info.get("dur", info.get("trim"))), note=info.get("note"), take_id=str(take_id),
                         stage=stage, approved=bool(entry.get("approved")))
     return None
@@ -100,7 +131,7 @@ def find_takes(film_dir: Path, shot_ids: list[str] | None = None) -> dict[str, T
     """{shot id: Take} for the film's takes that exist on disk."""
     film_dir = Path(film_dir)
     out: dict[str, Take] = {}
-    manifest = jsonio.read(film_dir / MANIFEST, default=None)
+    manifest = jsonio.read(film_file(film_dir, MANIFEST), default=None)
     if isinstance(manifest, dict) and (manifest.get("takes") or manifest.get("shots")):
         if isinstance(manifest.get("takes"), list):
             for e in manifest["takes"]:
@@ -122,7 +153,24 @@ def find_takes(film_dir: Path, shot_ids: list[str] | None = None) -> dict[str, T
             for path in sorted(folder.iterdir()):
                 if path.suffix.lower() in EXTENSIONS and path.is_file() and not path.name.startswith("."):
                     out.setdefault(path.stem, Take(shot=path.stem, path=path, rel=_rel(film_dir, path)))
+        for rel in _referenced(film_dir, TAKES_DIR):  # a derived film's takes live in its parent
+            name = Path(rel)
+            if name.parent == TAKES_DIR and name.suffix.lower() in EXTENSIONS and not name.name.startswith("."):
+                real = film_file(film_dir, rel)
+                if real.is_file():
+                    out.setdefault(name.stem, Take(shot=name.stem, path=real, rel=name.as_posix()))
     if shot_ids is not None:
         wanted = set(shot_ids)
         out = {k: v for k, v in out.items() if k in wanted}
     return out
+
+
+def _referenced(film_dir: Path, folder: Path) -> list[str]:
+    """Film-relative paths under `folder` that film.lock.json reuses from a parent film (none for an ordinary film)."""
+    try:
+        from slate.state import lock as state_lock  # noqa: PLC0415
+
+        entries = state_lock.entries(Path(film_dir), prefix=folder.as_posix() + "/")
+    except Exception:  # noqa: BLE001 - no film state, no references
+        return []
+    return sorted(rel for rel, e in entries.items() if isinstance(e, dict) and e.get("ref"))

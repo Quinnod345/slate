@@ -59,7 +59,12 @@ def test_events_schema_accepts_collected_events():
 
 def test_visual_events_schema_accepts_beats_and_a_reasoned_silence():
     beats = [{"shot": "S02", "id": "door", "t": 3.2, "kind": "land", "size": "m", "note": "the door lands"},
-             {"shot": "S03", "id": "count", "t": 5.0, "frame": 125, "kind": "count", "size": "s", "from": 0, "to": 120}]
+             {"shot": "S03", "id": "count", "t": 5.0, "start": 4.0, "dur": 1.0, "frame": 125, "kind": "count",
+              "size": "s", "from": 0, "to": 120},
+             {"shot": "S03", "id": "line", "t": 5.5, "start": 4.5, "dur": 1.0, "kind": "draw", "size": "s",
+              "note": "the line draws and ends on the beat"},
+             {"shot": "S04", "id": "air", "t": 6.0, "start": 5.7, "dur": 0.6, "kind": "whoosh", "pan": -0.4,
+              "source": "capture:signup"}]
     assert jsonio.validate(beats, "visual_events") == []
     assert jsonio.validate({"silent": True, "reason": "a held title card"}, "visual_events") == []
 
@@ -69,14 +74,31 @@ def test_visual_events_schema_accepts_beats_and_a_reasoned_silence():
     [{"shot": "S02", "id": "x", "kind": "land"}],
     {"silent": True},
     {"silent": False, "reason": "no"},
+    [{"shot": "S02", "id": "x", "t": 1.0, "kind": "draw"}],  # a draw names its span
+    [{"shot": "S02", "id": "x", "t": 1.0, "kind": "count", "from": 0, "to": 9}],  # so does a count
+    [{"shot": "S02", "id": "x", "t": 1.0, "kind": "whoosh", "dur": 0.5}],  # a length with no start is ambiguous
+    [{"shot": "S02", "id": "x", "t": 1.0, "kind": "swell", "start": 0.5}],
+    [{"shot": "S02", "id": "x", "t": 1.0, "kind": "draw", "start": 0.5, "dur": 0}],
+    [{"shot": "S02", "id": "x", "t": 1.0, "kind": "tap", "pan": 2}],
 ])
-def test_visual_events_schema_rejects_unknown_kinds_and_silent_acts_without_a_reason(bad):
+def test_visual_events_schema_rejects_bad_beats_and_silent_acts_without_a_reason(bad):
     assert jsonio.validate(bad, "visual_events")
 
 
-def test_the_films_v2_beats_fit_once_the_character_kind_is_named(filmroot):
-    """Films B and C exported their beats in this vocabulary; their character kind is 'character' in Slate."""
-    checked = 0
+def test_visual_events_schema_says_which_beat_is_wrong():
+    """The problems name the beat and the missing field, so an engine's hand-in check can say what to fix."""
+    beats = [{"shot": "S02", "id": "ok", "t": 1.0, "kind": "land"},
+             {"shot": "S02", "id": "line", "t": 2.0, "kind": "draw"}]
+    problems = jsonio.validate(beats, "visual_events")
+    assert problems and all(p.startswith("1: ") for p in problems)
+    assert any("'start' is a required property" in p for p in problems)
+
+
+def test_the_films_v2_beats_fit_except_the_draw_and_count_spans_they_left_implicit(filmroot):
+    """Films B and C exported their beats in this vocabulary (their character kind is 'character' in Slate). The one
+    thing they left out is the span of a sustained draw or count, the ambiguity this schema removes: one act timed a
+    draw's t at its start, the sound handover says a draw ends on t. Every other field fits as delivered."""
+    checked, spanless = 0, 0
     for film in ("B", "C"):
         for path in sorted((filmroot / "build" / film / "visual_events").glob("act*.json")):
             beats = json.loads(path.read_text(encoding="utf-8"))
@@ -84,6 +106,13 @@ def test_the_films_v2_beats_fit_once_the_character_kind_is_named(filmroot):
                 if beat.get("kind") not in {"tap", "type", "land", "snap", "count", "draw", "data", "page", "stamp",
                                             "whoosh", "swell", "impact"}:
                     beat["kind"] = "character"
-            assert jsonio.validate(beats, "visual_events") == [], path.name
+                problems = jsonio.validate([beat], "visual_events")
+                if beat["kind"] in ("draw", "count") and "start" not in beat:
+                    spanless += 1
+                    assert problems and all("'start' is a required property" in p or "'dur' is a required property" in p
+                                            for p in problems), (path.name, beat, problems)
+                else:
+                    assert problems == [], (path.name, beat, problems)
             checked += 1
     assert checked == 15
+    assert spanless == 102  # B: 72 draws and 8 counts; C: 19 draws and 3 counts

@@ -14,11 +14,15 @@
 //   events       VisualEvent[] or () => VisualEvent[]
 //   silent       a string: why the act has no beats (an act with no beats must say so)
 //   contracts    {in?: string, out?: string}: the rest states its first and last frames match
-// And from '@slate/kit', when the act uses the kit, by name (engine/remotion/kit/core):
-//   word misses   missLabels() | misses()                    → the lookups that fell back to an estimate
-//   motion trace  traceMotions({act})                        → rows of the §12 motion trace (timing/motion/actN.json)
-//   kit beats     actEvents(act)                             → beats the act registered with defineEvent()
-//   problems      motionProblems(), eventProblems(), unknownShotsInRegistry() → what the kit had to assume or refuse
+// And from '@slate/kit', when the act uses the kit, by name (engine/remotion/kit/core): the same calls the kit's own
+// node/collect.mjs collectAct() makes, on the same module instances the act's modules registered into. The engine
+// loads the act itself rather than through collectAct() because it also loads the act's picture (index.*), with media
+// and Google Fonts imports stubbed for Node, and acts that don't use the kit at all.
+//   word misses     missLabels() | misses()                  → the lookups that fell back to an estimate
+//   motion trace    traceMotions({act})                      → rows of the §12 motion trace (timing/motion/actN.json)
+//   kit beats       actEvents(act)                           → beats the act registered with defineEvent()
+//   event problems  eventProblems()                          → what defineEvent() had to record (emit refuses on them)
+//   problems        motionProblems(), unknownShotsInRegistry() → what the motion registry had to assume or refuse
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -46,9 +50,10 @@ export const KIT_HOOKS = {
     ['actEvents', (fn, act) => fn(act)],
     ['registeredEvents', (fn) => fn()],
   ],
+  // what defineEvent() had to record: emit-events refuses on these (they're the events gate's, not kit_problems')
+  eventProblems: [['eventProblems', (fn) => fn()]],
   problems: [
     ['motionProblems', (fn) => fn()],
-    ['eventProblems', (fn) => fn()],
     ['unknownShotsInRegistry', (fn) => fn().map((s) => `a move is registered on shot ${s}, which the film doesn't have`)],
   ],
 };
@@ -222,6 +227,7 @@ export async function loadAct(ctx, act) {
         wordMisses: firstHook(kit, KIT_HOOKS.wordMisses, act),
         motionTrace: firstHook(kit, KIT_HOOKS.motionTrace, act),
         kitEvents: firstHook(kit, KIT_HOOKS.kitEvents, act),
+        eventProblems: firstHook(kit, KIT_HOOKS.eventProblems, act),
         problems: allProblems(kit, act),
       },
     };

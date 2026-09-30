@@ -9,7 +9,8 @@ import pytest
 from gencap_helpers import SHOTS, run_json, write_timing
 from slate import clock, config, gates, jsonio, ledger
 from slate.capture import media
-from slate.gen import bodies, deps, store
+from slate.gen import bodies, deps, run, store
+from slate.vendors import higgsfield
 
 
 def _generate(film, shot="S02", extra=()):
@@ -238,7 +239,8 @@ def test_a_request_id_that_only_reached_the_ledger_is_adopted_not_paid_again(fil
     lost = rec["takes"][1]
     real_id = lost["request_id"]
     lost.update(status="submitted", request_id=None, ledger_row=None, files=[], probe=None)
-    rec["takes"].append({**rec["takes"][0], "id": "t3", "status": "submitted", "request_id": None,
+    first = {k: v for k, v in rec["takes"][0].items() if k not in ("request_key", "idempotency_key")}
+    rec["takes"].append({**first, "id": "t3", "status": "submitted", "request_id": None,
                          "ledger_row": None, "files": [], "probe": None})  # never got an id anywhere
     store.save_record(film, "S02", rec)
     before = len(ledger.rows(provider="higgsfield"))
@@ -262,3 +264,55 @@ def test_generate_blocks_are_read_from_the_script_when_timing_doesnt_carry_them(
     assert "generate" not in shots["S01"]
     code, out, _ = run_json(["plates", "plan", "--film", str(film)])
     assert code == 0 and [r["shot"] for r in out["shots"]] == ["S02"] and out["shots"][0]["allowed"]
+
+
+def test_a_take_whose_submit_died_unanswered_is_sent_again_under_its_own_key(film, monkeypatch):
+    """The process died mid-POST: the ledger row has no request id and neither does generation.json. The rerun sends
+    the exact body written ahead of the POST, with the same Idempotency-Key, on the same ledger row."""
+    _generate(film)
+    rec = store.load_record(film, "S02")
+    fj = deps.load_film(film)
+    sent = jsonio.read(film / "plates" / "S02" / "takes" / "t1" / "submit.json")
+    assert sent["idempotency_key"] == rec["takes"][0]["idempotency_key"] == higgsfield.idempotency_key(
+        rec["takes"][0]["request_key"])
+    assert "example.com" not in json.dumps(rec) and "replay://" in json.dumps(sent["body"])  # URLs only ahead
+    # take t3's submit went out and the process died before any answer
+    key = run.request_key_for(fj, "S02", "t3", rec["model"], sent["body"])
+    take = {k: v for k, v in rec["takes"][0].items() if k not in ("request_key", "idempotency_key")}
+    take.update(id="t3", status="submitted", request_id=None, ledger_row=None, files=[], probe=None,
+                request_key=key, idempotency_key=higgsfield.idempotency_key(key))
+    rec["takes"].append(take)
+    rec["takes_wanted"] = 3
+    store.save_record(film, "S02", rec)
+    jsonio.write_atomic(film / "plates" / "S02" / "takes" / "t3" / "submit.json",
+                        {**sent, "take": "t3", "request_key": key, "idempotency_key": take["idempotency_key"]})
+    est = higgsfield.ledger_estimate(rec["model"], sent["body"], {"usd": 0.924})
+    with monkeypatch.context() as m:
+        m.setattr(ledger, "_identity", lambda: {"pid": 99999, "proc_start": "gone", "job": None})
+        crashed = ledger.begin(est, film=film, key=key, note="crashed mid-POST")
+    before = len(ledger.rows(provider="higgsfield"))
+    out = _generate(film, extra=["--takes", "3"])
+    rec = store.load_record(film, "S02")
+    t3 = store.find_take(rec, "t3")
+    assert out["resuming"] == ["t3"] and out["new_takes"] == 0
+    assert t3["status"] == "completed" and t3["request_id"] and t3["ledger_row"] == crashed
+    assert len(ledger.rows(provider="higgsfield")) == before  # the same row, taken over: nothing counted twice
+    (row,) = ledger.rows(id=crashed)
+    assert row["status"] == "done" and row["request_id"] == t3["request_id"]
+    # the same key and body always name the same request (what Higgsfield does with a resend)
+    again = higgsfield.Client().submit(rec["model"], sent["body"], key=key)
+    assert again["request_id"] == t3["request_id"]
+
+
+def test_the_estimate_shows_the_price_and_the_saving_apart(film, monkeypatch):
+    real = higgsfield.Client.estimate
+
+    def quoted(self, path, body):
+        real(self, path, body)
+        return {"usd": 0.308, "discount": {"usd": 0.252}, "pricing_description": "a real Kling Pro answer"}
+
+    monkeypatch.setattr(higgsfield.Client, "estimate", quoted)
+    code, out, _ = run_json(["gen", "estimate", "--film", str(film), "--shot", "S02"])
+    assert code == 0
+    assert out["estimate_usd_per_take"] == 0.308 and out["saving_usd_per_take"] == 0.252
+    assert out["list_usd_per_take"] == pytest.approx(0.56) and out["estimate_usd_total"] == pytest.approx(0.616)

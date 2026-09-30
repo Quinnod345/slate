@@ -15,6 +15,9 @@ import {DEFAULT_GL, glFlags} from './browser.mjs';
 import {DELIVERY_SAMPLES, DRAFT_SAMPLES, MAX_SAMPLES, outputKind} from './encode.mjs';
 import {DEFAULT_EPOCH_MS, DEFAULT_SEED} from './page-clock.mjs';
 
+/** The engine's version of the open web renderer (the runtime's WEB_RUNTIME_VERSION says the same; a test holds them). */
+export const WEB_ENGINE_VERSION = '0.1.0';
+
 export const WEB_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const RUNTIME_DIR = path.join(WEB_DIR, 'runtime');
 export const TEMPLATE_DIR = path.join(WEB_DIR, 'template');
@@ -23,6 +26,16 @@ export {ENGINE_DIR, KIT_DIR, NODE_MODULES};
 
 export const DEFAULT_SHUTTER = 180;
 export const MAX_CONCURRENCY = 8;
+/** The neutral brand pack a scene rendered on its own is drawn in, when the repo has one (brands/demo). */
+export const DEMO_BRAND_DIR = path.join(ENGINE_DIR, '..', 'brands', 'demo');
+
+/**
+ * Pages drawing at once when a call doesn't say: a quarter of the cores, from 1 to 4. Each page is a full browser tab
+ * at the film's size, so this leaves the Mac usable while other work runs.
+ */
+export function defaultConcurrency() {
+  return Math.max(1, Math.min(4, Math.floor(os.cpus().length / 4)));
+}
 export const LOAD_TIMEOUT_MS = 60000;
 export const SEEK_TIMEOUT_MS = 30000;
 
@@ -74,7 +87,7 @@ function resolveScene(target, whatFor) {
   if (!fs.existsSync(entry)) {
     throw missing(
       `${whatFor} has no web scene: there's no ${entry}.`,
-      `Start from the template: copy ${TEMPLATE_DIR} into that folder (slate new does it when a brand's look picks the web engine).`,
+      `Start one from the template: node engine/cli.mjs web-render --json '{"film": "<film>", "act": <N>, "scaffold": true}' (or copy ${TEMPLATE_DIR} into that folder).`,
     );
   }
   const rel = path.relative(dir, entry).split(path.sep).map(encodeURIComponent).join('/');
@@ -127,12 +140,33 @@ function readBrand(brandPath) {
   return {brandJson: readJson(file), brandDir: path.dirname(path.resolve(file))};
 }
 
+/** Every arg web-render reads. Anything else is a typo, refused rather than quietly ignored. */
+export const KNOWN_ARGS = new Set([
+  'film', 'act', 'scene', 'from', 'to', 'sub', 'samples', 'draft', 'shutter', 'out', 'codec', 'gl', 'concurrency',
+  'on_blocked', 'on_fonts', 'trace', 'emit', 'scaffold', 'force', 'hashes', 'frames_dir', 'brand_path', 'frames',
+  'fps_num', 'fps_den', 'width', 'height', 'seed', 'epoch', 'browser', 'load_timeout_ms', 'seek_timeout_ms',
+  // passed by callers that also drive Remotion; the web renderer serves its own scene, so it's ignored
+  'serve_url',
+]);
+
+/** Refuse args web-render doesn't read, naming the nearest one it does. */
+export function checkArgs(args) {
+  const unknown = Object.keys(args).filter((k) => !KNOWN_ARGS.has(k));
+  if (!unknown.length) return;
+  const near = (k) => [...KNOWN_ARGS].find((known) => known.startsWith(k.slice(0, 3)) || k.startsWith(known.slice(0, 3)));
+  const said = unknown.map((k) => (near(k) ? `"${k}" (did you mean "${near(k)}"?)` : `"${k}"`)).join(', ');
+  throw usage(`web-render doesn't read ${said}.`, `It reads: ${[...KNOWN_ARGS].filter((k) => k !== 'serve_url').join(', ')}.`);
+}
+
 /**
  * Resolve a web-render call into a job. Throws usage errors (exit 2) for bad args and missing-prerequisite errors
  * (exit 3) for a scene that isn't there. `cwd` is where relative paths without a film are resolved from.
  */
 export async function resolveJob(args = {}, {cwd = process.cwd()} = {}) {
   const standalone = !args.film;
+  if (standalone && args.emit) {
+    throw usage("Emitting events and the motion trace needs a film (\"film\": its folder): they're written into its timing/.");
+  }
   const filmDir = standalone ? scratchFilm(args) : resolveFrom(cwd, args.film);
   try {
     return resolveWithFilm(args, filmDir, standalone, cwd);
@@ -184,16 +218,24 @@ function resolveWithFilm(args, filmDir, standalone, cwd) {
 
   const gl = args.gl ?? DEFAULT_GL;
   glFlags(gl);
-  const concurrency = args.concurrency === undefined || args.concurrency === null ? 1 : intArg(args.concurrency, 'concurrency', {min: 1, max: MAX_CONCURRENCY});
+  const concurrency = args.concurrency === undefined || args.concurrency === null ? defaultConcurrency() : intArg(args.concurrency, 'concurrency', {min: 1, max: MAX_CONCURRENCY});
   const onBlocked = args.on_blocked ?? 'fail';
   if (!['fail', 'report'].includes(onBlocked)) throw usage(`on_blocked must be "fail" or "report" (got ${JSON.stringify(args.on_blocked)}).`);
+  // A film's render stops on a substituted face, as a Remotion render does. A scene rendered on its own is a preview,
+  // never delivered: there the failed gate is reported and the render goes on.
+  const onFonts = args.on_fonts ?? (standalone ? 'report' : 'fail');
+  if (!['fail', 'report'].includes(onFonts)) throw usage(`on_fonts must be "fail" or "report" (got ${JSON.stringify(args.on_fonts)}).`);
   const seed = args.seed === undefined || args.seed === null ? DEFAULT_SEED : intArg(args.seed, 'seed', {min: 0, max: 4294967295});
   const epoch = args.epoch === undefined || args.epoch === null ? DEFAULT_EPOCH_MS : Number(args.epoch);
   if (!Number.isFinite(epoch)) throw usage(`epoch is a time in ms since 1970 (got ${JSON.stringify(args.epoch)}).`);
   const loadTimeoutMs = args.load_timeout_ms ? intArg(args.load_timeout_ms, 'load_timeout_ms', {min: 1000}) : LOAD_TIMEOUT_MS;
   const seekTimeoutMs = args.seek_timeout_ms ? intArg(args.seek_timeout_ms, 'seek_timeout_ms', {min: 100}) : SEEK_TIMEOUT_MS;
 
-  const {brandJson, brandDir} = readBrand(args.brand_path ? resolveFrom(cwd, args.brand_path) : null);
+  // A film's brand comes from slate's bridge (brand_path); a scene on its own is drawn in the neutral demo pack when
+  // the repo has one, else in the kit's plain greys.
+  let brandPath = args.brand_path ? resolveFrom(cwd, args.brand_path) : null;
+  if (!brandPath && standalone && fs.existsSync(path.join(DEMO_BRAND_DIR, 'brand.json'))) brandPath = DEMO_BRAND_DIR;
+  const {brandJson, brandDir} = readBrand(brandPath);
 
   return {
     mode: emit ? 'emit' : 'render',
@@ -214,6 +256,7 @@ function resolveWithFilm(args, filmDir, standalone, cwd) {
     hashes: Boolean(args.hashes),
     framesDir: args.frames_dir ? resolveFrom(base, args.frames_dir) : null,
     onBlocked,
+    onFonts,
     trace: args.trace === undefined ? !standalone : Boolean(args.trace) && !standalone,
     seed,
     epoch,

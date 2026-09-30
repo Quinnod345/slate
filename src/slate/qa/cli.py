@@ -10,6 +10,11 @@
                                       a person accepts one REVIEW item (bound to the exact files it was judged on)
     slate qa psnr A B [--min 40]      PSNR between two images, or frame for frame between two videos
     slate qa unpark --by NAME         a person releases an autonomous film that a REVIEW verdict parked
+
+    slate qa motion [--act N] [--render PATH] [--no-pixels] [--only CHECK]
+    slate qa access [--only CHECK] [--captions PATH] [--sheet PATH] [--platform NAME]
+                                      the motion and access gates with their own options (a narrowed run reports
+                                      what it finds but can't pass the gate)
 """
 
 from __future__ import annotations
@@ -19,6 +24,19 @@ from pathlib import Path
 
 from slate import cli, gates, log
 from slate.errors import UsageError
+
+
+def _gate_options():
+    """slate.qa.motion's hook for the motion and access gates' own flags, or None when that module isn't here.
+
+    `slate qa` is the one command that runs every gate, the motion and access gates included, so their flags live on
+    it (added once, whichever of the two gates a run names) instead of on commands of their own."""
+    try:
+        from slate.qa import motion  # noqa: PLC0415
+    except Exception:  # noqa: BLE001 - another module's import error mustn't take `slate qa` down
+        return None
+    needed = ("add_qa_options", "qa_options", "qa_option_argv")
+    return motion if all(callable(getattr(motion, n, None)) for n in needed) else None
 
 IMAGE_EXT = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp"}
 SPECIAL = ("triage", "psnr", "unpark")
@@ -44,26 +62,69 @@ def register(sub) -> None:
     p.add_argument("--by", metavar="NAME", help="the person accepting or releasing")
     p.add_argument("--reason", metavar="TEXT", help="why the item is acceptable")
     p.add_argument("--note", metavar="TEXT", help="unpark: a note for the record")
+    hook = _gate_options()
+    if hook is not None:
+        hook.add_qa_options(p)
+
+
+def _gate_flags(args: argparse.Namespace) -> list[str]:
+    """The motion and access flags given on this command line, as words (empty when there are none)."""
+    hook = _gate_options()
+    return hook.qa_option_argv(args) if hook is not None else []
+
+
+PATH_FLAGS = ("--render", "--captions", "--sheet")
+
+
+def _absolute(words: list[str]) -> list[str]:
+    """Flag words with file paths made absolute: a queued job runs from another folder, so `--render take3.mov` has
+    to mean the file it meant here."""
+    out = list(words)
+    for i, w in enumerate(out[:-1]):
+        if w in PATH_FLAGS:
+            p = Path(out[i + 1]).expanduser()
+            if not p.is_absolute() and p.exists():
+                out[i + 1] = str(p.resolve())
+    return out
 
 
 def handle(args: argparse.Namespace) -> int:
     targets = list(getattr(args, "targets", []) or [])
+    # `psnr` is a gate too: `slate qa psnr` runs the gate, `slate qa psnr A B` compares two files
+    compare = bool(targets) and targets[0] == "psnr" and len(targets) >= 2
+    special = "--list" if getattr(args, "list_gates", False) else (
+        targets[0] if targets and (targets[0] in ("triage", "unpark") or compare) else None)
+    if special and _gate_flags(args):
+        flags = " ".join(w for w in _gate_flags(args) if w.startswith("--"))
+        raise UsageError(f"{flags} {'goes' if len(flags.split()) == 1 else 'go'} with `slate qa motion` or "
+                         f"`slate qa access`, not with `slate qa {special.lstrip('-')}`.",
+                         hint="slate qa motion --act 2  ·  slate qa access --only captions")
     if getattr(args, "list_gates", False):
         return _list()
-    if targets and targets[0] == "psnr" and len(targets) >= 2:
+    if compare:
         return _psnr(targets[1:], args.min_db)
     if targets and targets[0] == "triage":
         if len(targets) > 1:
             raise UsageError("`slate qa triage` takes no gate names.", hint="slate qa triage [--accept GATE:ITEM]")
         return _triage(args)
     if targets and targets[0] == "unpark":
+        if len(targets) > 1:
+            raise UsageError("`slate qa unpark` takes no gate names.", hint="slate qa unpark --by NAME [--note TEXT]")
         return _unpark(args)
+    quick = bool(getattr(args, "quick", False))
+    hook = _gate_options()
     if getattr(args, "detach", False):
-        return _detach(targets, quick=bool(getattr(args, "quick", False)))
-    return _run(targets, quick=bool(getattr(args, "quick", False)))
+        if hook is not None:
+            with hook.qa_options(args, targets):  # refuse flags that don't fit before anything is queued
+                pass
+        return _detach(targets, quick=quick, extra=_absolute(_gate_flags(args)))
+    if hook is None:
+        return _run(targets, quick=quick)
+    with hook.qa_options(args, targets):
+        return _run(targets, quick=quick)
 
 
-def _detach(names: list[str], *, quick: bool) -> int:
+def _detach(names: list[str], *, quick: bool, extra: list[str] | None = None) -> int:
     """Queue `slate qa` as a job: the OCR sweep, glitch scan and PSNR of a long film outlast an agent's session."""
     import sys  # noqa: PLC0415
 
@@ -78,8 +139,10 @@ def _detach(names: list[str], *, quick: bool) -> int:
         raise MissingPrerequisite("The job queue isn't installed, so `slate qa` can't run detached.",
                                   hint="Run `slate qa` without --detach.") from exc
     argv = [sys.executable, "-m", "slate", "qa", "--film", str(film_dir), *names] + (["--quick"] if quick else [])
+    argv += list(extra or [])
     job_id = client.submit("qa", argv, film=str(film_dir), resources=("render",), resumable=True,
-                           note="slate qa " + (" ".join(names) or "(every gate)"))
+                           note="slate qa " + " ".join([*names, *(extra or [])]) if names or extra else
+                           "slate qa (every gate)")
     log.result({"job": job_id, "film_dir": str(film_dir), "argv": argv, "next": f"slate job status {job_id}"},
                f"queued as job {job_id}\nnext: slate job status {job_id}   (then slate qa triage)")
     return 0

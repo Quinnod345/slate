@@ -1,0 +1,42 @@
+{
+ "name": "explainer",
+ "title": "Explainer",
+ "summary": "A 60-to-120-second film that makes one idea, product or process clear: the problem, the idea, how it works, the proof and the next step.",
+ "use_when": "Someone needs to understand how a thing works, fast, from a website, a landing page, YouTube or LinkedIn.",
+ "runtime_s": {"min": 60, "max": 120, "target": 90},
+ "aspects": {
+  "16:9": {"width": 1920, "height": 1080, "channels": ["youtube", "website", "linkedin"], "type_scale": 1.0}
+ },
+ "default_aspect": "16:9",
+ "fps_num": 30000,
+ "fps_den": 1001,
+ "pace": {"max_words_per_second": 2.6, "lead": 0.3, "tail": 0.3, "act_tail": 0.9,
+          "note": "The films' placement; an explainer is spoken almost wall to wall, so the ceiling matters more than the lead."},
+ "on_screen_max_words": 12,
+ "structure": {
+  "acts": {"min": 3, "max": 5},
+  "beats": [
+   {"name": "problem", "job": "The problem in the viewer's own words, and what it costs them.", "share": 0.15},
+   {"name": "idea", "job": "The idea that solves it, in one sentence.", "share": 0.15},
+   {"name": "how it works", "job": "At most three steps, each one shown working.", "share": 0.4},
+   {"name": "proof", "job": "One sourced number or a real result.", "share": 0.15},
+   {"name": "next step", "job": "What to do now, and where.", "share": 0.15}
+  ],
+  "rules": [
+   "One idea per shot; if a shot needs two labels and a paragraph, it's two shots.",
+   "Show each step working instead of listing it.",
+   "Every number is sourced or on the brand's approved-claims list."
+  ]
+ },
+ "audio": "required",
+ "loudness": {"lufs": -14, "true_peak": -1, "tolerance_lu": 0.5, "standard": "web, social and streaming delivery"},
+ "captions": {"needed": true, "burn_in": false, "sidecar": ["srt", "vtt"], "max_lines": 2, "max_chars": 42, "max_cps": 17,
+              "min_s": 1.0, "position": "drawn by the player from the sidecar files",
+              "note": "Social cut-downs of an explainer burn their captions in (their own format says so)."},
+ "budget": {"family": "explainer", "elevenlabs": {"vo": [1000, 5000], "score": [2500, 5000]}, "higgsfield": [0, 60],
+            "rework_factor": 1.5, "note": "0-2 generated shots at about $15-30 each, including one reject."},
+ "broadcast": false,
+ "generation": "rarely",
+ "engines": ["remotion", "web", "ae"],
+ "notes": ["LinkedIn plays 16:9 in the feed; a square or 4:5 LinkedIn cut is a derived film in the linkedin format."]
+}

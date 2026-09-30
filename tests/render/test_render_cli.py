@@ -263,8 +263,13 @@ def test_stills_stage(fakes, film):
     assert code == 0 and [(s["act"], s["frame"]) for s in out["stills"]] == [(1, 0), (2, 5)]
     code, out, _err = cli("render", "stills", "--film", str(film), "--frames", "0,x", "--json")
     assert code == 2
-    code, out, _err = cli("render", "stills", "--film", str(film), "--frames", "3", "--engine", "web", "--json")
-    assert code == 1 and "web" in out["hint"]
+    # the open web renderer draws a still as one frame of its range
+    code, out, _err = cli("render", "stills", "--film", str(film), "--frames", "3", "--engine", "web", "--scale", "1",
+                          "--json")
+    assert code == 0 and [(s["act"], s["frame"]) for s in out["stills"]] == [(1, 3)]
+    # After Effects renders whole acts: refused, with the way to get the frames
+    code, out, _err = cli("render", "stills", "--film", str(film), "--frames", "3", "--engine", "ae", "--json")
+    assert code == 1 and "--engine ae" in out["hint"]
 
 
 def test_a_film_without_timing_is_exit_three(fakes, slate_home):

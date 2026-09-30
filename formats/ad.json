@@ -1,0 +1,49 @@
+{
+ "name": "ad",
+ "title": "Ad",
+ "summary": "A 6, 15 or 30-second ad in 16:9, 1:1 or 9:16: one message, the brand, and at most one call to action.",
+ "use_when": "Paid placement: pre-roll, in-feed or a vertical ad slot. Pick the length first; the structure follows from it.",
+ "runtime_s": {"min": 6, "max": 30, "target": 15, "options": [6, 15, 30]},
+ "aspects": {
+  "16:9": {"width": 1920, "height": 1080, "channels": ["youtube"], "type_scale": 1.0},
+  "1:1": {"width": 1080, "height": 1080, "channels": ["instagram_feed", "linkedin"], "type_scale": 1.1},
+  "9:16": {"width": 1080, "height": 1920, "channels": ["instagram_reels", "tiktok", "youtube_shorts"], "type_scale": 1.2}
+ },
+ "default_aspect": "16:9",
+ "fps_num": 30000,
+ "fps_den": 1001,
+ "pace": {"max_words_per_second": 2.6, "lead": 0.2, "tail": 0.25, "act_tail": 0.5,
+          "note": "Short-film placement; a 6-second ad often has no voice at all."},
+ "on_screen_max_words": 8,
+ "structure": {
+  "acts": {"min": 1, "max": 3},
+  "beats": [
+   {"name": "message", "job": "One message and the brand. Nothing else fits in six seconds.", "for": [6]},
+   {"name": "hook", "job": "The reason to keep watching, in the first two seconds.", "for": [15, 30]},
+   {"name": "problem", "job": "The problem the viewer recognises.", "for": [30]},
+   {"name": "benefit", "job": "What changes for them, shown.", "for": [15, 30]},
+   {"name": "proof", "job": "One sourced fact or the product working.", "for": [30]},
+   {"name": "call to action", "job": "One action and where to take it; the brand on screen as it lands.", "for": [15, 30]}
+  ],
+  "rules": [
+   "The brand shows early and again at the end.",
+   "It reads with the sound off: captions and supers carry the words.",
+   "One call to action, never two."
+  ]
+ },
+ "audio": "required",
+ "loudness": {"lufs": -14, "true_peak": -1, "tolerance_lu": 0.5, "standard": "web, social and streaming delivery"},
+ "captions": {"needed": true, "burn_in": true, "renderer": "remotion", "font": "brand", "sidecar": ["srt", "vtt"],
+              "max_lines": 2, "max_chars": 42, "max_cps": 17, "min_s": 1.0,
+              "position": "inside the channel's safe zone for the aspect",
+              "note": "Square and vertical cuts use shorter lines (36 and 32 characters)."},
+ "budget": {"family": "reel_or_ad", "elevenlabs": {"vo": [500, 3000], "score": [1000, 2000]}, "higgsfield": [0, 0],
+            "rework_factor": 1.5, "note": "Generation only when it's allowed and adds something."},
+ "broadcast": false,
+ "generation": "rarely",
+ "engines": ["remotion", "web", "ae"],
+ "notes": [
+  "For a TV or cinema spot, set broadcast: true in film.json: loudness moves to EBU R 128 or ATSC A/85, and the score needs an Eleven Music Enterprise licence.",
+  "Each aspect is its own derived film with its own layout: a 9:16 ad is re-staged, never a crop of the 16:9 one."
+ ]
+}

@@ -1,0 +1,8 @@
+{
+ "name": "open-brand",
+ "note": "Test fixture: a neutral brand with no approved references (fine for supervised and draft films).",
+ "palette": {"ink": "#222222", "paper": "#fafafa"},
+ "voice": {"provider": "elevenlabs", "source": "library", "voice_id": "fixture-voice-0001", "model": "eleven_v4"},
+ "truth": {"approved_claims": [], "banned_words": []},
+ "references": {"truth": null, "look_motion": null, "voice": null, "sound": null}
+}

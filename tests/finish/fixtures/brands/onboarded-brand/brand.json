@@ -1,0 +1,14 @@
+{
+ "name": "onboarded-brand",
+ "note": "Test fixture: a neutral brand with all four references approved (autonomous films need that).",
+ "palette": {"ink": "#1b1b1b", "paper": "#ffffff"},
+ "voice": {"provider": "elevenlabs", "source": "designed", "voice_id": "fixture-voice-0002", "model": "eleven_v4", "settings": {"stability": 0.4}},
+ "truth": {"approved_claims": [{"text": "Plans take minutes."}], "banned_words": []},
+ "taste": ["refs/taste.md"],
+ "references": {
+  "truth": {"file": "refs/truth.md", "sha256": "0000000000000000000000000000000000000000000000000000000000000001", "approved_by": "Test Person", "approved_at": "2026-09-30"},
+  "look_motion": {"file": "refs/look.txt", "sha256": "0000000000000000000000000000000000000000000000000000000000000002", "approved_by": "Test Person", "approved_at": "2026-09-30"},
+  "voice": {"file": "refs/voice.txt", "sha256": "0000000000000000000000000000000000000000000000000000000000000003", "approved_by": "Test Person", "approved_at": "2026-09-30"},
+  "sound": {"file": "refs/sound.txt", "sha256": "0000000000000000000000000000000000000000000000000000000000000004", "approved_by": "Test Person", "approved_at": "2026-09-30"}
+ }
+}

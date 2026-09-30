@@ -1,0 +1,41 @@
+{
+ "name": "kinetic-type",
+ "title": "Kinetic type",
+ "summary": "A 10-to-60-second film where the voice's words are the picture: phrases set in the brand's type, each landing on the word that says it.",
+ "use_when": "The message is the words: a manifesto, a quote, a sharp claim, or a film with nothing else to show.",
+ "runtime_s": {"min": 10, "max": 60, "target": 30},
+ "aspects": {
+  "16:9": {"width": 1920, "height": 1080, "channels": ["youtube", "website"], "type_scale": 1.0},
+  "9:16": {"width": 1080, "height": 1920, "channels": ["instagram_reels", "tiktok", "youtube_shorts"], "type_scale": 1.2},
+  "1:1": {"width": 1080, "height": 1080, "channels": ["instagram_feed", "linkedin"], "type_scale": 1.1}
+ },
+ "default_aspect": "16:9",
+ "fps_num": 30000,
+ "fps_den": 1001,
+ "pace": {"max_words_per_second": 2.6, "lead": 0.2, "tail": 0.25, "act_tail": 0.5},
+ "on_screen_max_words": 12,
+ "structure": {
+  "acts": {"min": 1, "max": 3},
+  "beats": [
+   {"name": "statement", "job": "The first line, set big, landing on its own word.", "share": 0.25},
+   {"name": "build", "job": "Phrases that build the argument, the rhythm carried by type and cuts.", "share": 0.55},
+   {"name": "landing", "job": "The line to remember, held, then the lockup.", "share": 0.2}
+  ],
+  "rules": [
+   "Each phrase lands on its spoken word (the Whisper word timings); nothing arrives early.",
+   "Phrases, not paragraphs: three to six words on screen at a time.",
+   "Per-character motion only for hero words (the kit caps it).",
+   "A phrase that stays up still meets the read-time rule.",
+   "The words on screen match the voice exactly, so they double as captions."
+  ]
+ },
+ "audio": "required",
+ "loudness": {"lufs": -14, "true_peak": -1, "tolerance_lu": 0.5, "standard": "web, social and streaming delivery"},
+ "captions": {"needed": true, "burn_in": false, "sidecar": ["srt", "vtt"], "max_lines": 2, "max_chars": 42, "max_cps": 17,
+              "min_s": 1.0, "note": "The type on screen carries every spoken word, so nothing else is burned in; sidecar files serve players."},
+ "budget": {"family": "reel_or_ad", "elevenlabs": {"vo": [500, 3000], "score": [1000, 2000]}, "higgsfield": [0, 0],
+            "rework_factor": 1.5, "note": "Generation is rarely useful here: the type is the picture."},
+ "broadcast": false,
+ "generation": "rarely",
+ "engines": ["remotion", "web", "ae"]
+}

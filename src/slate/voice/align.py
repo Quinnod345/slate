@@ -7,6 +7,8 @@
   It's usually tighter on timing, but it always places every word it's given, so it can't tell whether a word was
   said. Slate keeps it for evaluation against Whisper (`--compare`), never as the gates' ear.
 - whisper.cpp isn't used (it was only ever a test model in the films).
+- `SLATE_WHISPER` (or slate.toml's `[voice] whisper`) names one particular Whisper CLI; otherwise it's the `whisper`
+  on Slate's PATH, Homebrew's first. The tests point it at a stand-in that answers from recorded transcripts.
 
 Outputs, per shot: `voice/align/<shot>.whisper.json` or `<shot>.elevenlabs.json` (Whisper-shaped: segments ->
 words with start and end, relative to the take), plus `voice/align/<shot>.json`, the canonical copy the timing stage
@@ -17,6 +19,7 @@ they keep the pipeline running offline, and the gates treat them as unchecked, n
 from __future__ import annotations
 
 import json
+import os
 import re
 import tempfile
 from pathlib import Path
@@ -31,6 +34,9 @@ from slate.voice.pace import map_time
 ENGINES = ("whisper", "elevenlabs")
 # Registry model ids -> the Whisper CLI's model names.
 WHISPER_MODELS = {"whisper_turbo": "turbo", "whisper_large_v3_turbo": "large-v3-turbo"}
+# Names one particular Whisper CLI (a build outside Homebrew, or a stand-in that answers from recorded transcripts in
+# tests). Slate's PATH puts Homebrew first whatever the caller's PATH says, so a PATH entry can't do this job.
+WHISPER_ENV = "SLATE_WHISPER"
 
 
 def whisper_model(model: str | None = None) -> str:
@@ -38,14 +44,27 @@ def whisper_model(model: str | None = None) -> str:
     return WHISPER_MODELS.get(chosen, chosen)
 
 
+def _whisper_override() -> str | None:
+    """The Whisper CLI a person (or a test) chose: SLATE_WHISPER, then slate.toml's [voice] whisper."""
+    chosen = os.environ.get(WHISPER_ENV) or (config.load().get("voice") or {}).get("whisper")
+    return str(Path(str(chosen)).expanduser()) if chosen else None
+
+
 def whisper_info() -> dict:
     """Where the Whisper CLI is and which build (from its Homebrew Cellar path when it has one)."""
-    exe = procs.which("whisper")
+    override = _whisper_override()
+    if override:
+        if not (os.path.isfile(override) and os.access(override, os.X_OK)):
+            return {"path": None, "version": None, "override": override}
+        exe = override
+    else:
+        exe = procs.which("whisper")
     if not exe:
         return {"path": None, "version": None}
     real = str(Path(exe).resolve())
     m = re.search(r"openai-whisper/([^/]+)/", real)
-    return {"path": exe, "resolved": real, "version": m.group(1) if m else None}
+    return {"path": exe, "resolved": real, "version": m.group(1) if m else None,
+            **({"override": override} if override else {})}
 
 
 def run_whisper(files: list[Path], out_dir: Path, *, model: str | None = None, language: str = "en",
@@ -53,6 +72,10 @@ def run_whisper(files: list[Path], out_dir: Path, *, model: str | None = None, l
     """Transcribe files in one Whisper run (the model loads once). Returns {file: whisper JSON}."""
     info = whisper_info()
     if not info["path"]:
+        if info.get("override"):
+            raise MissingPrerequisite(f"{WHISPER_ENV} (or slate.toml's [voice] whisper) points at "
+                                      f"{info['override']}, which isn't a program Slate can run.",
+                                      hint="Point it at a working Whisper CLI, or unset it to use Homebrew's.")
         raise MissingPrerequisite("Whisper isn't installed; the voice gates need it to hear the takes.",
                                   hint="Run `slate doctor --install` (openai-whisper and its 1.6 GB turbo model; it "
                                        "asks first).")

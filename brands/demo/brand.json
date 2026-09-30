@@ -1,0 +1,196 @@
+{
+ "schema": 1,
+ "name": "demo",
+ "display_name": "Demo Studio",
+ "about": "An invented studio that makes short, calm films from data. It exists so Slate's demo film, its tests and anyone trying Slate have a complete, neutral brand to work with. It is not a real company.",
+ "ownership": {"kind": "neutral", "organisation": null, "company_material": false, "notes": "Slate's own neutral pack. It lives in Slate's repo, so commands never change it: to onboard something from it, copy it into your store with `slate brand init <name> --from-pack demo`."},
+ "palette": {
+  "neutral": {
+   "50": "#F3F0EA",
+   "100": "#E7E2D9",
+   "200": "#D5CFC4",
+   "300": "#B9B2A6",
+   "400": "#948D81",
+   "500": "#716B61",
+   "600": "#57524A",
+   "700": "#403C36",
+   "800": "#2C2925",
+   "900": "#1C1A17"
+  },
+  "chalk": "#FFFFFF",
+  "clay": {"100": "#F1E1D8", "500": "#A4532F", "700": "#7E3C20"},
+  "harbor": {"800": "#1F2D33", "900": "#141E22"},
+  "roles": {
+   "page": "neutral.50",
+   "surface": "chalk",
+   "ink": "neutral.900",
+   "ink2": "neutral.700",
+   "ink3": "neutral.600",
+   "hairline": "neutral.200",
+   "accent": "clay.500",
+   "accentInk": "clay.700",
+   "softAccent": "clay.100",
+   "inverse": "harbor.800",
+   "inverseDeep": "harbor.900",
+   "line": "clay.500"
+  },
+  "tones": {
+   "ok": {"dot": "#4C7A5A"},
+   "warn": {"dot": "#B07A22"},
+   "risk": {"dot": "#A33B2F"}
+  },
+  "notes": "Warm stone neutrals, one clay accent, a deep harbour slate for inverse surfaces. Clay is the only colour that carries meaning: the line, the accent, the mark's keystone."
+ },
+ "contrast_pairs": [
+  {"fg": "ink", "bg": "page", "role": "body", "where": "body copy on the page"},
+  {"fg": "ink", "bg": "surface", "role": "body", "where": "text on cards"},
+  {"fg": "ink2", "bg": "page", "role": "body", "where": "secondary text"},
+  {"fg": "ink3", "bg": "page", "role": "body", "where": "labels and captions"},
+  {"fg": "accentInk", "bg": "page", "role": "body", "where": "links and highlighted words"},
+  {"fg": "accent", "bg": "page", "role": "large", "where": "large numerals and headlines in clay"},
+  {"fg": "accentInk", "bg": "softAccent", "role": "body", "where": "text on a clay chip"},
+  {"fg": "surface", "bg": "accent", "role": "large", "where": "labels on a clay button"},
+  {"fg": "page", "bg": "inverse", "role": "body", "where": "text on the harbour inverse"}
+ ],
+ "type": {
+  "families": [
+   {"role": "sans", "family": "Public Sans", "weights": [400, 700], "source": "google", "licence": "SIL Open Font License 1.1 (an open font, served by Google Fonts)", "postscript": "PublicSans-Regular", "fallback": "sans-serif"},
+   {"role": "display", "family": "Public Sans", "weights": [700], "source": "google", "licence": "SIL Open Font License 1.1 (an open font, served by Google Fonts)", "postscript": "PublicSans-Bold", "fallback": "sans-serif"}
+  ],
+  "scale": {},
+  "reference": null,
+  "notes": "One open family in two weights, tabular figures on every number. The display role is the same family at 700, so After Effects gets its own PostScript name for headings."
+ },
+ "logos": {
+  "mark": {
+   "file": "logos/mark.svg",
+   "on": "page",
+   "clear_space": 0.25,
+   "marks": [],
+   "build": {"guides": "edges", "vertices": "corners", "order": "left-to-right", "keystone": "keystone", "keystone_from": "above", "outline": true, "impact": true},
+   "notes": "Three tiles and a round keystone, drawn for the demo. The tiles build left to right; the clay keystone drops in last and lands."
+  },
+  "mark-inverse": {
+   "file": "logos/mark-inverse.svg",
+   "on": "inverse",
+   "clear_space": 0.25,
+   "marks": [],
+   "build": {"guides": "edges", "vertices": "corners", "order": "left-to-right", "keystone": "keystone", "keystone_from": "above", "outline": true, "impact": true}
+  }
+ },
+ "motif": {
+  "parts": 4,
+  "shape": "rounded-square",
+  "corner": 0.18,
+  "part_size": 0.3,
+  "ring": 0.26,
+  "groups": 2,
+  "mark_ratio": 0.5,
+  "orient": "upright",
+  "curves": {"move": "carry", "land": "settle"},
+  "gestures": {"agree": "pulse", "attend": "lean", "complete": "ripple", "arrive": "enter", "leave": "exit"},
+  "notes": "The mark's four parts as a rig, for the rare film where the mark acts. It moves as one piece at small sizes and never loops except to breathe."
+ },
+ "look": {
+  "id": "flat",
+  "engine": "remotion",
+  "references": [],
+  "moodboards": [],
+  "overrides": {},
+  "notes": "The kit's flat look in the studio's stone and clay. A real brand's look comes from its own design language during onboarding, never from this pack."
+ },
+ "motion": {
+  "eases": {
+   "arrive": {"bezier": [0.2, 0.9, 0.3, 1], "job": "everything that enters: type, cards, UI, count-ups, draw-ons", "lineage": "drawn for the demo pack: a firm, soft landing that settles early (not measured from any product)"},
+   "carry": {"bezier": [0.6, 0, 0.4, 1], "job": "rest-to-rest moves of things already on screen, and the camera", "lineage": "drawn for the demo pack: a symmetric in-out that starts and ends at rest"},
+   "switch": {"bezier": [0.7, 0, 0.2, 1], "job": "state changes: a chip flips, a check lands, a toggle commits", "lineage": "drawn for the demo pack: a held breath, then a quick commit"},
+   "depart": {"bezier": [0.5, 0, 0.9, 0.6], "job": "anything leaving: accelerates away", "lineage": "drawn for the demo pack: gathers speed and leaves without slamming"},
+   "make-room": {"bezier": [0.4, 0.1, 0.25, 0.95], "job": "short re-layouts: a line pushes a block, a list re-sorts", "lineage": "drawn for the demo pack: a small, even lift"},
+   "settle": {"kind": "spring0", "stiffness": 8, "job": "one persistent container changing size", "lineage": "the kit's zero-bounce spring, a little softer: a settle, never a bounce"},
+   "linear": {"kind": "linear", "job": "only things that show time: progress, a playhead, a constant spin", "lineage": "time is linear"}
+  },
+  "durations": {
+   "tick": {"seconds": 0.18, "use": "chip flips, checks, a dot lighting"},
+   "quick": {"seconds": 0.3, "use": "small UI elements, re-layouts"},
+   "base": {"seconds": 0.5, "use": "standard entrances: a line of type, a card"},
+   "broad": {"seconds": 0.75, "use": "panels, wipes, short count-ups"},
+   "camera": {"seconds": 1.1, "use": "camera moves and carried pieces"},
+   "signature": {"seconds": 1.6, "use": "the logo build and the act's one signature moment", "max_per_act": 1}
+  },
+  "staggers": {"char": 0.04, "word": 0.08, "line": 0.12, "block": 0.18},
+  "stagger_cap": {"seconds": 0.5, "fraction": 0.5, "max_items": 8},
+  "exit_factor": 0.75,
+  "roles": {"entrance": "arrive", "move": "carry", "state": "switch", "exit": "depart", "relayout": "make-room"},
+  "overshoot": {"allowed": false, "max": 1.0, "where": [], "notes": "Nothing bounces. A container that grows uses settle, which lands without passing its target."},
+  "signature": {
+   "name": "keystone build",
+   "what": "the mark builds tile by tile, left to right, and its clay keystone drops in last and lands",
+   "logo": "mark",
+   "ease": "arrive",
+   "duration": "signature",
+   "sound": "one hollow wood knock as the keystone lands, with a small felt note under it"
+  },
+  "linear_props": ["progress", "playhead", "spin"],
+  "loops": {"min_period_s": 0.8},
+  "banned": [
+   {"what": "scale anything from zero", "why": "entrances start from at least 85% of their size"},
+   {"what": "bounce or overshoot", "why": "the studio's motion is calm; settle lands without passing its target"},
+   {"what": "cut hard between shots", "why": "pieces are carried from beat to beat", "exception": "a cut hidden inside a fast move's blur"},
+   {"what": "crossfade between shots", "why": "it double-exposes type into mud"},
+   {"what": "use an editor's default ease", "why": "every visible move uses one of the named eases"}
+  ],
+  "notes": "Drawn for the demo pack as a sound, neutral law to start from. A real brand's law is measured from its own product and two or three reference films during onboarding."
+ },
+ "voice": {
+  "provider": "elevenlabs",
+  "source": "library",
+  "voice_id": "JBFqnCBsd6RMkjVDRZzb",
+  "voice_name": "George (ElevenLabs library)",
+  "model": null,
+  "settings": {"stability": 0.5, "similarity_boost": 0.75},
+  "seed": 2026,
+  "lexicon": ["Demo Studio"],
+  "notes": "A public ElevenLabs library voice (the one its own API examples use), so the demo can be voiced for real with --live. Check it's still in the library before a live run: slate voice cast --brand demo --voices JBFqnCBsd6RMkjVDRZzb. model null means the registry's current best, pinned per film."
+ },
+ "sound": {
+  "key": "D major",
+  "tempo": [84, 96],
+  "materials": ["hollow wood block", "wood knock", "clave", "felt marimba"],
+  "banned_timbres": ["chimes", "bells", "glockenspiel", "celesta", "music box", "pitched risers"],
+  "instrumentation": ["sampled string pads", "small felt piano notes", "soft felt marimba"],
+  "motif": {"instrument": "felt marimba", "figure": "three rising notes (the first, third and fifth of the key) as the keystone lands"},
+  "palette": {
+   "source": "seeded from proof 2's taste as a starting point: pads, small felt notes, hollow wood clicks, no chimes",
+   "levels": {"lu_vs_voice": {"ui": -17.0, "fx": -11.2}, "tolerance_lu": 2.0}
+  },
+  "reference_levels": null,
+  "reference_measured_from": null,
+  "notes": "Proof 2's taste as the starting point: soft pads, small felt notes and hollow wood clicks and knocks, one deliberate sound per kind of interaction, every sound on its beat, and never a chime. A real brand gets its own palette during onboarding."
+ },
+ "truth": {
+  "sources": [
+   {"id": "demo-pack", "kind": "document", "where": "brands/demo/README.md", "pin": "slate 0.1.0", "read": "in_place", "note": "The studio is invented for Slate's demo, so its only source is this pack."}
+  ],
+  "claim_authority": {"name": "Demo Owner", "role": "placeholder", "organisation": "Demo Studio", "note": "A placeholder. A real brand names a real person, and for a brand the owner doesn't own, a person at that organisation."},
+  "approved_claims": [
+   {"id": "demo-1", "text": "Demo Studio makes short films from data.", "source": "demo-pack"},
+   {"id": "demo-2", "text": "Every film is checked before it ships.", "source": "demo-pack"}
+  ],
+  "banned_words": ["guaranteed", "revolutionary", "best-in-class", "world-class"],
+  "never_claim": [
+   {"text": "Demo Studio is a real company", "why": "it's invented for Slate's demo"},
+   {"text": "Demo Studio has customers or testimonials", "why": "an invented studio has no customers, and invented quotes are never shown as real"}
+  ],
+  "sample_data": {"label": "sample data", "films_made": 12, "checks_per_film": 24, "on_time_share": 0.96},
+  "rulings": [],
+  "notes": "Everything here is invented and labelled as such. It gives the story gates a complete truth pack to check a demo script against."
+ },
+ "grounding": {"elevenlabs": null, "higgsfield": null, "notes": "The demo has no brand kits. A real brand's ElevenLabs and Higgsfield brand-kit ids go here, so every generation is grounded in the brand."},
+ "allow_generator_uploads": false,
+ "references": {
+  "truth": {"file": "onboarding/truth/TRUTH.md", "sha256": null, "approved_by": null, "approved_at": null, "placeholder": true, "note": "Unapproved by design: the demo is a neutral stand-in, and supervised demo films don't need it."},
+  "look_motion": {"file": "references/look_motion.mp4", "sha256": null, "approved_by": null, "approved_at": null, "placeholder": true, "note": "Unapproved by design: a real brand approves a moving 10–15 second look-and-motion test with sound."},
+  "voice": {"file": "references/voice.wav", "sha256": null, "approved_by": null, "approved_at": null, "placeholder": true, "note": "Unapproved by design: a real brand approves a take with its model, settings and seed."},
+  "sound": {"file": "references/sound.wav", "sha256": null, "approved_by": null, "approved_at": null, "placeholder": true, "note": "Unapproved by design: a real brand approves a 10–20 second sound proof with its levels measured against the voice."}
+ }
+}

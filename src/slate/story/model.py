@@ -103,7 +103,8 @@ def structure_problems(script: dict) -> list[str]:
     problems = []
     acts = script.get("acts")
     if not isinstance(acts, list) or not acts:
-        return ["the script has no acts"]
+        return ["the script has no acts yet: write the first act in script/script.json (acts of shots with id, vo, "
+                "on_screen, picture and sources)"]
     seen: dict[str, str] = {}
     for a_i, act in enumerate(acts, 1):
         if not isinstance(act, dict) or not act.get("name"):

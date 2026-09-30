@@ -6,19 +6,20 @@
 //                                composition in a bundle: the films' lesson 2)
 //   handin.act<N>.word_misses    the kit's word lookups all found their word (none fell back to an estimate)
 //   handin.act<N>.kit_problems   (acts that use the kit) what the kit had to assume or refuse, for a person to read
-//   handin.act<N>.banned_words   no banned word (the brand pack's list) in the act's on-screen strings or its
-//                                shots' on-screen text
-//   handin.act<N>.events         timing/visual_events/act<N>.json exists, is valid, and matches what the act says now
+//   handin.act<N>.banned_words   no banned word (the brand pack's list) in the act's on-screen strings (its sources and
+//                                every scene file it imports, JSON and text copy included) or its shots' on-screen text
+//   handin.act<N>.events         timing/visual_events/act<N>.json exists, is valid, and matches what the act (with the
+//                                kit's registrations and the captures' taps) says now, with no word lookup missing
 //   handin.act<N>.contracts      the act's boundary frames are bit-identical to its neighbours' and to the named rest
 //                                state, and held still for `hold` frames, so parallel builders meet exactly
 import fs from 'node:fs';
 import path from 'node:path';
 import ts from 'typescript';
-import {EngineError, listFiles, log, sha256FileSync, usage} from './lib/common.mjs';
+import {EngineError, listFiles, log, refused, sha256FileSync, usage} from './lib/common.mjs';
 import {actOf} from './lib/film.mjs';
-import {ensureEntry, contractsModule, sceneIndex, slateDir} from './entry.mjs';
+import {ensureEntry, contractsModule, missingIndexNote, sceneIndex, slateDir} from './entry.mjs';
 import {declarations, loadAct} from './load_act.mjs';
-import {computeEvents, eventsFile, validateEventsFile} from './events.mjs';
+import {computeEvents, eventsFile, validateEventsFile, webScene} from './events.mjs';
 import {useBundle} from './bundle.mjs';
 import {pixelHash, psnr, renderStills} from './stills.mjs';
 import {browserLogCollector, fontGate} from './kit_bridge.mjs';
@@ -125,6 +126,40 @@ export function onScreenStrings(file, text) {
   return found;
 }
 
+/**
+ * On-screen string candidates in a JSON copy file an act imports: every string value except under the never-on-screen
+ * keys, each with the line it first appears on. Null when the file doesn't parse.
+ */
+export function jsonStrings(text) {
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  const lines = text.split('\n');
+  const lineOf = (s) => {
+    const needle = JSON.stringify(s);
+    const i = lines.findIndex((l) => l.includes(needle));
+    return i >= 0 ? i + 1 : 1;
+  };
+  const found = [];
+  const walk = (v, key) => {
+    if (typeof v === 'string') {
+      if (!SKIP_KEYS.has(key) && v.trim()) found.push({line: lineOf(v), text: v});
+    } else if (Array.isArray(v)) {
+      for (const x of v) walk(x, key);
+    } else if (v && typeof v === 'object') {
+      for (const [k, x] of Object.entries(v)) walk(x, k);
+    }
+  };
+  walk(data, null);
+  return found;
+}
+
+/** Plain-text copy an act imports (the engine loads .txt as text): each non-empty line is a candidate. */
+const textLines = (text) => text.split('\n').map((t, i) => ({line: i + 1, text: t})).filter((s) => s.text.trim());
+
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 export function bannedMatcher(words) {
@@ -133,18 +168,34 @@ export function bannedMatcher(words) {
     .map((w) => ({word: w.trim(), re: new RegExp(`(?<![\\p{L}\\p{N}_])${escapeRe(w.trim()).replace(/\s+/g, '\\s+')}(?![\\p{L}\\p{N}_])`, 'iu')}));
 }
 
-export function bannedWords(ctx, act, words, name) {
+/**
+ * The files whose strings can reach the screen: the act folder's sources, plus every scene file the act's bundle
+ * imports (shared scene modules, scenes/contracts, JSON and text copy). Notes and docs never reach the bundle.
+ */
+function screenFiles(ctx, act, loaded) {
+  const own = actSources(ctx, act);
+  const imported = (loaded?.inputs ?? []).filter((f) => SOURCE_EXT.test(f) || /\.(json|txt)$/.test(f));
+  return [...new Set([...own, ...imported])].sort();
+}
+
+export function bannedWords(ctx, act, words, name, loaded = null) {
   const engine = {name: 'slate banned-words (typescript AST)', version: ts.version};
-  const files = actSources(ctx, act);
+  const files = screenFiles(ctx, act, loaded);
   const inputs = inputsFor(ctx, [...files, 'timing/shots.json']);
   if (words === undefined || words === null) {
     return gate(name, 'UNCHECKED', "no banned-word list was given (the brand pack couldn't be read)", {engine, inputs});
   }
   const matchers = bannedMatcher(words);
   const hits = [];
+  const unreadable = [];
   let strings = 0;
   for (const rel of files) {
-    const list = onScreenStrings(rel, fs.readFileSync(path.join(ctx.dir, rel), 'utf8'));
+    const text = fs.readFileSync(path.join(ctx.dir, rel), 'utf8');
+    const list = rel.endsWith('.json') ? jsonStrings(text) : rel.endsWith('.txt') ? textLines(text) : onScreenStrings(rel, text);
+    if (list === null) {
+      unreadable.push(`${rel} isn't valid JSON, so its strings couldn't be read`);
+      continue;
+    }
     strings += list.length;
     for (const s of list) for (const m of matchers) if (m.re.test(s.text)) hits.push(`${rel}:${s.line}: "${s.text.trim().slice(0, 120)}" (${m.word})`);
   }
@@ -154,9 +205,10 @@ export function bannedWords(ctx, act, words, name) {
     strings++;
     for (const m of matchers) if (m.re.test(s.on_screen)) hits.push(`timing/shots.json ${s.id} on_screen: "${s.on_screen.slice(0, 120)}" (${m.word})`);
   }
-  if (hits.length) return gate(name, 'FAIL', `${hits.length} banned word${hits.length > 1 ? 's' : ''} on screen; the first: ${hits[0]}`, {engine, evidence: hits.slice(0, 40), inputs});
+  if (hits.length) return gate(name, 'FAIL', `${hits.length} banned word${hits.length > 1 ? 's' : ''} on screen; the first: ${hits[0]}`, {engine, evidence: [...hits.slice(0, 40), ...unreadable], inputs});
+  if (unreadable.length) return gate(name, 'UNCHECKED', unreadable[0], {engine, evidence: unreadable, inputs, details: {strings, banned: matchers.length}});
   const summary = matchers.length ? `none of the brand's ${matchers.length} banned words in ${strings} on-screen strings` : `the brand bans no words (${strings} on-screen strings read)`;
-  return gate(name, 'PASS', summary, {engine, inputs, details: {strings, banned: matchers.length}});
+  return gate(name, 'PASS', summary, {engine, inputs, details: {strings, banned: matchers.length, files: files.length}});
 }
 
 // ---------------------------------------------------------------- word misses
@@ -178,7 +230,7 @@ export function wordMisses(loaded, name, inputs) {
  */
 export function kitProblems(loaded, name, inputs) {
   const engine = {name: 'slate kit registries', version: 'unknown'};
-  if (!loaded.hooks.problems) return gate(name, 'UNCHECKED', "the kit doesn't expose its problem lists (motionProblems(), eventProblems())", {engine, inputs});
+  if (!loaded.hooks.problems) return gate(name, 'UNCHECKED', "the kit doesn't expose its problem lists (motionProblems())", {engine, inputs});
   const all = [...new Set(loaded.hooks.problems.fn())];
   // The kit's own collector doesn't hold this one against an act: a brand without a motion law yet gets the kit's
   // neutral law until onboarding writes one. It's listed, not failed.
@@ -215,6 +267,11 @@ export async function eventsGate(ctx, act, loaded, name) {
     now = await computeEvents(ctx, act, loaded);
   } catch (e) {
     return gate(name, 'FAIL', `${rel} is valid, but the act's beats don't compute now: ${e.message.split('\n')[0]}`, {engine, inputs});
+  }
+  for (const f of now.captures.files) inputs[f] = inputsFor(ctx, [f])[f];
+  if (now.problems.length) {
+    const n = now.problems.length;
+    return gate(name, 'FAIL', `${rel} can't be current: the act's beats have ${n} problem${n > 1 ? 's' : ''} now; the first: ${now.problems[0]}`, {engine, evidence: now.problems.slice(0, 30), inputs});
   }
   const want = now.silent ? {silent: true, reason: now.reason} : now.events;
   const have = Array.isArray(data) ? data : {silent: data.silent, reason: data.reason};
@@ -259,7 +316,28 @@ async function boundaries(ctx, act, loaded) {
   return out;
 }
 
-export async function contractsGate(ctx, act, loaded, name, args) {
+/**
+ * One bundle for a whole check run: made the first time a contract needs pixels (most acts never do), shared by every
+ * act after that, and given back when the run ends (deleted, when this run made it).
+ */
+export function lazyBundle(ctx, args) {
+  let b = null;
+  return {
+    async get() {
+      if (!b) b = await useBundle(ctx, args);
+      return b;
+    },
+    get made() {
+      return Boolean(b);
+    },
+    release() {
+      if (b) b.release();
+      b = null;
+    },
+  };
+}
+
+export async function contractsGate(ctx, act, loaded, name, args, bundles = null) {
   const engine = {name: 'remotion renderStill + ffmpeg pixel hash', version: 'swangle'};
   const hold = Math.max(1, Number(args.hold ?? 6));
   const gl = args.contract_gl ?? 'swangle';
@@ -307,7 +385,8 @@ export async function contractsGate(ctx, act, loaded, name, args) {
   if (renders.length) {
     const outDir = path.join(ctx.dir, 'qa', 'contracts', `act${act}`);
     fs.rmSync(outDir, {recursive: true, force: true});
-    const b = await useBundle(ctx, args);
+    const own = bundles ? null : lazyBundle(ctx, args);
+    const b = await (bundles ?? own).get();
     try {
       for (const r of renders) {
         const me = actOf(ctx, act);
@@ -342,7 +421,7 @@ export async function contractsGate(ctx, act, loaded, name, args) {
       }
       fonts = await fontGate(logs.lines);
     } finally {
-      b.release();
+      if (own) own.release();
     }
   }
   const inputs = inputsFor(ctx, [...actSources(ctx, act), 'timing/shots.json']);
@@ -356,9 +435,34 @@ export async function contractsGate(ctx, act, loaded, name, args) {
 
 // ---------------------------------------------------------------- the check
 
-export async function checkAct(ctx, args) {
+/**
+ * The check for several acts in one run ({acts: [N, …]}): one bundle at most, shared by every act's contracts.
+ * Returns {acts: [{act, gates, status, passed}], gates (all of them), status (the worst), passed}.
+ */
+export async function checkActs(ctx, args) {
+  const list = args.acts.map((a) => actOf(ctx, a).act);
+  if (!list.length) throw usage('No acts to check: "acts" is empty.');
+  const bundles = lazyBundle(ctx, args);
+  const acts = [];
+  try {
+    for (const act of list) acts.push(await checkAct(ctx, {...args, act}, {bundles}));
+  } finally {
+    bundles.release();
+  }
+  const gates = acts.flatMap((a) => a.gates);
+  const status = ['FAIL', 'STALE', 'UNCHECKED', 'REVIEW', 'PASS'].find((s) => gates.some((g) => g.status === s));
+  return {acts, gates, status, passed: acts.every((a) => a.passed)};
+}
+
+export async function checkAct(ctx, args, {bundles = null} = {}) {
   const act = actOf(ctx, args.act).act;
-  if (!sceneIndex(ctx.dir, act)) throw usage(`Act ${act} isn't built yet (no scenes/act${act}/index.tsx): there's nothing to hand in.`);
+  if (webScene(ctx.dir, act)) {
+    throw refused(
+      `Act ${act} is a web scene (scenes/act${act}/web/index.html): the hand-in check reads Remotion acts only, so it can't hand this one in yet.`,
+      `Its render (\`slate render --act ${act} --engine web\`) gates its fonts, its network and its frame count, and \`slate emit-events --act ${act}\` writes and checks its beats.`,
+    );
+  }
+  if (!sceneIndex(ctx.dir, act)) throw usage(`Act ${act} isn't built yet (${missingIndexNote(ctx.dir, act)}): there's nothing to hand in.`);
   await ensureEntry(ctx, {brandPath: args.brand_path ?? null});
   const p = `handin.act${act}`;
   const gates = [];
@@ -386,7 +490,7 @@ export async function checkAct(ctx, args) {
   }
   gates.push(loaded ? wordMisses(loaded, `${p}.word_misses`, srcInputs) : gate(`${p}.word_misses`, 'UNCHECKED', "the act's module didn't load, so its word lookups couldn't run", {inputs: srcInputs}));
   if (loaded?.usesKit) gates.push(kitProblems(loaded, `${p}.kit_problems`, srcInputs));
-  gates.push(bannedWords(ctx, act, args.banned_words, `${p}.banned_words`));
+  gates.push(bannedWords(ctx, act, args.banned_words, `${p}.banned_words`, loaded));
   gates.push(await eventsGate(ctx, act, loaded, `${p}.events`));
   if (args.contracts === false) {
     gates.push(gate(`${p}.contracts`, 'UNCHECKED', 'contracts were skipped for this run (contracts: false)', {inputs: srcInputs}));
@@ -394,7 +498,7 @@ export async function checkAct(ctx, args) {
     gates.push(gate(`${p}.contracts`, 'UNCHECKED', "the act's module didn't load, so its declared rest states are unknown", {inputs: srcInputs}));
   } else {
     log(`act ${act}: boundary contracts`);
-    const c = await contractsGate(ctx, act, loaded, `${p}.contracts`, args);
+    const c = await contractsGate(ctx, act, loaded, `${p}.contracts`, args, bundles);
     gates.push(c.gate);
     // the contract stills ran the kit's font gate: its verdict is part of the hand-in too
     if (c.fonts) gates.push({...c.fonts, gate: `${p}.fonts`});

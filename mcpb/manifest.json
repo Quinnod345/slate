@@ -1,0 +1,109 @@
+{
+ "manifest_version": "0.3",
+ "name": "slate",
+ "display_name": "Slate",
+ "version": "0.1.0",
+ "description": "Plan, write and voice films with Slate, and start renders, QA and delivery as background jobs on this Mac.",
+ "long_description": "Slate is a film studio any agent can run: brief, script, voice, motion, sound, QA and delivery, every stage gated by a machine check.\n\nThis extension lets a regular Claude chat use the Slate installed on this Mac. It can check where a film stands, start a new one from your request, write and build the script, voice it, and start renders, QA sweeps, review packets and delivery as background jobs that keep running after the chat moves on.\n\nIt carries no Slate code of its own: it starts the `slate` command you installed, so chat and command line always agree. Install Slate first (one command, in the README). Stages that spend credits ask you first, and After Effects steps, approvals and budgets stay yours, in your own terminal.",
+ "author": {
+  "name": "Quinn O'Donnell",
+  "url": "https://github.com/Quinnod345"
+ },
+ "repository": {
+  "type": "git",
+  "url": "https://github.com/Quinnod345/slate"
+ },
+ "homepage": "https://github.com/Quinnod345/slate",
+ "license": "Proprietary",
+ "keywords": [
+  "video",
+  "film",
+  "motion design",
+  "voice",
+  "sound design"
+ ],
+ "server": {
+  "type": "binary",
+  "entry_point": "server/slate-mcp",
+  "mcp_config": {
+   "command": "/bin/sh",
+   "args": [
+    "${__dirname}/server/slate-mcp"
+   ],
+   "env": {
+    "SLATE_BIN": "${user_config.slate_command}",
+    "BROWSER": "none"
+   }
+  }
+ },
+ "user_config": {
+  "slate_command": {
+   "type": "file",
+   "title": "Slate command",
+   "description": "Where the slate command is. Slate's installer links it into ~/.local/bin.",
+   "required": false,
+   "default": "${HOME}/.local/bin/slate"
+  }
+ },
+ "compatibility": {
+  "claude_desktop": ">=0.10.0",
+  "platforms": [
+   "darwin"
+  ]
+ },
+ "tools": [
+  {
+   "name": "status",
+   "description": "Where a film stands: every stage fresh, stale, missing or locked, and the one next command to run."
+  },
+  {
+   "name": "new_film",
+   "description": "Start a film folder from a request: the brief (the request word for word, with its checklist), a script skeleton and the stage folders, in the films folder."
+  },
+  {
+   "name": "run",
+   "description": "Run one stage and return its result."
+  },
+  {
+   "name": "job_submit",
+   "description": "Queue a long stage as a background job and get its id at once; it keeps running whoever started it."
+  },
+  {
+   "name": "job_status",
+   "description": "One job's state, attempt, reason and log path; without a job id, the queue at a glance and the recent jobs."
+  },
+  {
+   "name": "job_log",
+   "description": "The end of a job's log."
+  },
+  {
+   "name": "job_cancel",
+   "description": "Cancel a queued or running job."
+  },
+  {
+   "name": "script_get",
+   "description": "The film's script/script.json: the one hand-edited script file (acts of shots with vo, on_screen, picture and source)."
+  },
+  {
+   "name": "script_put",
+   "description": "Write the film's whole script/script.json, checked against its schema, then lint it and return the gates."
+  },
+  {
+   "name": "budget",
+   "description": "This month's spend against the caps for each mode, and each film's budget."
+  },
+  {
+   "name": "ledger",
+   "description": "Every paid call Slate made, newest first; the calls still in flight; or how the ledger squares with the vendors' balance snapshots (reconcile)."
+  },
+  {
+   "name": "balance_snapshot",
+   "description": "Record a vendor's balance in Slate's ledger: one Slate reads itself, or one read from a connector or dashboard."
+  },
+  {
+   "name": "guide",
+   "description": "Slate's reference guides, read straight from its skills: without a topic, the list of topics; with one, the file itself."
+  }
+ ],
+ "tools_generated": false
+}

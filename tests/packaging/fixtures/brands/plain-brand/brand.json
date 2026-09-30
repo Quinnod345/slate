@@ -1,0 +1,8 @@
+{
+ "name": "plain-brand",
+ "note": "Test fixture: a neutral brand whose four references aren't approved yet.",
+ "palette": {"ink": "#222222", "paper": "#fafafa"},
+ "voice": {"provider": "elevenlabs", "voice_id": "fixture-voice-0001", "model": "eleven_v4", "settings": {"stability": 0.5}},
+ "truth": {"approved_claims": [], "banned_words": []},
+ "references": {"truth": null, "look_motion": null, "voice": null, "sound": null}
+}

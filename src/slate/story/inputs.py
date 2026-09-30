@@ -253,9 +253,11 @@ def read_time_settings(script: dict, fmt: dict) -> dict:
             for k, v in block.items():
                 if k in out and _num(v) is not None:
                     out[k] = float(v)
-    density = fmt.get("on_screen_max_words") or (script.get("rules") or {}).get("on_screen_max_words")
-    if _num(density):
-        out["max_words"] = float(density)
+    # The film's own rule wins over its format's, as with timing. 0 is a real limit: a format whose picture carries no
+    # words (a website hero loop) says so with 0, and any on-screen word then fails the density gate.
+    for density in (fmt.get("on_screen_max_words"), (script.get("rules") or {}).get("on_screen_max_words")):
+        if _num(density) is not None and float(density) >= 0:
+            out["max_words"] = float(density)
     return out
 
 

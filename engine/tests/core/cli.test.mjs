@@ -2,7 +2,7 @@
 // codes (1 refused, 2 usage, 3 missing prerequisite). Plus the dependency pins the plan fixes (Appendix A).
 import fs from 'node:fs';
 import path from 'node:path';
-import {spawnSync} from 'node:child_process';
+import {spawn, spawnSync} from 'node:child_process';
 import {afterAll, beforeAll, describe, expect, it} from 'vitest';
 import {ENGINE, cli, film, ok, readJson, scratch} from './helpers.mjs';
 
@@ -57,6 +57,47 @@ describe('the JSON contract', () => {
     const r = cli('emit-events', {film: dir}, {data}); // cli() itself asserts one stdout line
     expect(r.code).toBe(0);
     expect(r.stderr).toMatch(/act 1: 2 beats/);
+  });
+});
+
+describe('stopping cleanly', () => {
+  it('stops itself at SLATE_ENGINE_DEADLINE_S with one JSON answer (exit 130), before a caller has to kill it', () => {
+    const dir = film(root, 'deadline');
+    const r = cli('bundle', {film: dir}, {data, env: {SLATE_ENGINE_DEADLINE_S: '0.2'}});
+    expect(r.code).toBe(130);
+    expect(r.json).toMatchObject({ok: false, kind: 'stopped', command: 'bundle'});
+    expect(r.json.error).toBe('took longer than 0.2 s and was stopped');
+    expect(r.json.hint).toMatch(/smaller ranges/);
+    const bundles = path.join(data, 'cache', 'bundles');
+    expect(fs.existsSync(bundles) ? fs.readdirSync(bundles) : []).toEqual([]);
+  });
+
+  it('a bundle stopped halfway (SIGTERM) leaves no half-made bundle behind', async () => {
+    const own = path.join(root, 'data-stop');
+    const dir = film(root, 'stop');
+    const bundles = path.join(own, 'cache', 'bundles');
+    const child = spawn(process.execPath, [path.join(ENGINE, 'cli.mjs'), 'bundle', '--json', JSON.stringify({film: dir})], {
+      env: {...process.env, SLATE_DATA: own},
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let stdout = '';
+    child.stdout.on('data', (d) => (stdout += d));
+    const exited = new Promise((resolve) => child.on('close', resolve));
+    // wait until webpack is writing the half-made bundle, then stop it the way a timed-out caller would
+    const started = Date.now();
+    let sawTmp = false;
+    while (Date.now() - started < 60_000) {
+      if (fs.existsSync(bundles) && fs.readdirSync(bundles).some((n) => n.startsWith('.tmp-'))) {
+        sawTmp = true;
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    expect(sawTmp).toBe(true);
+    child.kill('SIGTERM');
+    expect(await exited).toBe(130);
+    expect(JSON.parse(stdout.trim())).toMatchObject({ok: false, kind: 'stopped', error: 'stopped by SIGTERM'});
+    expect(fs.readdirSync(bundles)).toEqual([]);
   });
 });
 

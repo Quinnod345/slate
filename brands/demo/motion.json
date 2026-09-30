@@ -1,0 +1,159 @@
+{
+ "generated": "do not edit by hand: slate brand onboard demo --step look writes this from brand.json's motion (edit it there)",
+ "brand": "demo",
+ "eases": {
+  "arrive": {
+   "bezier": [
+    0.2,
+    0.9,
+    0.3,
+    1
+   ],
+   "job": "everything that enters: type, cards, UI, count-ups, draw-ons",
+   "lineage": "drawn for the demo pack: a firm, soft landing that settles early (not measured from any product)"
+  },
+  "carry": {
+   "bezier": [
+    0.6,
+    0,
+    0.4,
+    1
+   ],
+   "job": "rest-to-rest moves of things already on screen, and the camera",
+   "lineage": "drawn for the demo pack: a symmetric in-out that starts and ends at rest"
+  },
+  "switch": {
+   "bezier": [
+    0.7,
+    0,
+    0.2,
+    1
+   ],
+   "job": "state changes: a chip flips, a check lands, a toggle commits",
+   "lineage": "drawn for the demo pack: a held breath, then a quick commit"
+  },
+  "depart": {
+   "bezier": [
+    0.5,
+    0,
+    0.9,
+    0.6
+   ],
+   "job": "anything leaving: accelerates away",
+   "lineage": "drawn for the demo pack: gathers speed and leaves without slamming"
+  },
+  "make-room": {
+   "bezier": [
+    0.4,
+    0.1,
+    0.25,
+    0.95
+   ],
+   "job": "short re-layouts: a line pushes a block, a list re-sorts",
+   "lineage": "drawn for the demo pack: a small, even lift"
+  },
+  "settle": {
+   "kind": "spring0",
+   "stiffness": 8,
+   "job": "one persistent container changing size",
+   "lineage": "the kit's zero-bounce spring, a little softer: a settle, never a bounce"
+  },
+  "linear": {
+   "kind": "linear",
+   "job": "only things that show time: progress, a playhead, a constant spin",
+   "lineage": "time is linear"
+  }
+ },
+ "durations": {
+  "tick": {
+   "seconds": 0.18,
+   "use": "chip flips, checks, a dot lighting"
+  },
+  "quick": {
+   "seconds": 0.3,
+   "use": "small UI elements, re-layouts"
+  },
+  "base": {
+   "seconds": 0.5,
+   "use": "standard entrances: a line of type, a card"
+  },
+  "broad": {
+   "seconds": 0.75,
+   "use": "panels, wipes, short count-ups"
+  },
+  "camera": {
+   "seconds": 1.1,
+   "use": "camera moves and carried pieces"
+  },
+  "signature": {
+   "seconds": 1.6,
+   "use": "the logo build and the act's one signature moment",
+   "max_per_act": 1
+  }
+ },
+ "staggers": {
+  "char": 0.04,
+  "word": 0.08,
+  "line": 0.12,
+  "block": 0.18
+ },
+ "stagger_cap": {
+  "seconds": 0.5,
+  "fraction": 0.5,
+  "max_items": 8
+ },
+ "exit_factor": 0.75,
+ "roles": {
+  "entrance": "arrive",
+  "move": "carry",
+  "state": "switch",
+  "exit": "depart",
+  "relayout": "make-room"
+ },
+ "overshoot": {
+  "allowed": false,
+  "max": 1.0,
+  "where": [],
+  "notes": "Nothing bounces. A container that grows uses settle, which lands without passing its target."
+ },
+ "signature": {
+  "name": "keystone build",
+  "what": "the mark builds tile by tile, left to right, and its clay keystone drops in last and lands",
+  "logo": "mark",
+  "ease": "arrive",
+  "duration": "signature",
+  "sound": "one hollow wood knock as the keystone lands, with a small felt note under it"
+ },
+ "linear_props": [
+  "progress",
+  "playhead",
+  "spin"
+ ],
+ "loops": {
+  "min_period_s": 0.8
+ },
+ "banned": [
+  {
+   "what": "scale anything from zero",
+   "why": "entrances start from at least 85% of their size"
+  },
+  {
+   "what": "bounce or overshoot",
+   "why": "the studio's motion is calm; settle lands without passing its target"
+  },
+  {
+   "what": "cut hard between shots",
+   "why": "pieces are carried from beat to beat",
+   "exception": "a cut hidden inside a fast move's blur"
+  },
+  {
+   "what": "crossfade between shots",
+   "why": "it double-exposes type into mud"
+  },
+  {
+   "what": "use an editor's default ease",
+   "why": "every visible move uses one of the named eases"
+  }
+ ],
+ "notes": "Drawn for the demo pack as a sound, neutral law to start from. A real brand's law is measured from its own product and two or three reference films during onboarding."
+}

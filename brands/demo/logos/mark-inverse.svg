@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120">
+  <rect id="tile-1" x="10" y="10" width="46" height="46" rx="8" fill="#F3F0EA"/>
+  <rect id="tile-2" x="64" y="10" width="46" height="46" rx="8" fill="#F3F0EA"/>
+  <rect id="tile-3" x="10" y="64" width="46" height="46" rx="8" fill="#F3F0EA"/>
+  <circle id="keystone" cx="87" cy="87" r="23" fill="#A4532F"/>
+</svg>

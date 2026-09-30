@@ -51,6 +51,8 @@ def make_shots(storyboard: dict, *, clock: Clock, width: int, height: int, cues:
             rec["vo_words"] = word_shots[sh["id"]]
         if sh["id"] in event_shots:
             rec["events"] = event_shots[sh["id"]]
+        if sh.get("generate"):
+            rec["generate"] = sh["generate"]  # the script's generation request for this shot (read by `slate gen`)
         shots.append(rec)
         t += d
     total_f = clock.frame_of(t)

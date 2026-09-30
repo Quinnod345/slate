@@ -1,0 +1,34 @@
+{
+ "name": "web-fixture",
+ "note": "A neutral brand for the web renderer's tests. Not a real brand: warm paper, graphite ink, a slate-blue accent, the Mac's own installed fonts.",
+ "palette": {
+  "roles": {"page": "paper", "surface": "white", "ink": "graphite", "accent": "slate", "inverse": "night"},
+  "paper": "#F3F1EC",
+  "white": "#FFFFFF",
+  "graphite": "#20201E",
+  "slate": "#2F6F9F",
+  "night": "#1B2230",
+  "tones": {"ok": {"dot": "#2F7D52"}, "warn": {"dot": "#B7791F"}, "risk": {"dot": "#B83A2E"}}
+ },
+ "type": {
+  "families": [
+   {"role": "sans", "family": "Helvetica Neue", "weights": [400, 700], "source": "installed", "licence": "macOS system font, used in place, never redistributed"}
+  ]
+ },
+ "motion": {
+  "eases": {
+   "enter": {"bezier": [0.2, 0.7, 0.2, 1], "lineage": "fixture: a firm deceleration"},
+   "move": {"kind": "sine", "lineage": "fixture: rest to rest"},
+   "state": {"bezier": [0.8, 0, 0.2, 1], "lineage": "fixture: a quick commit"},
+   "leave": {"bezier": [0.5, 0, 1, 1], "lineage": "fixture: accelerate away"},
+   "linear": "linear"
+  },
+  "durations": {"tick": 0.2, "quick": 0.32, "base": 0.52, "broad": 0.8, "camera": 1.2, "signature": 1.8},
+  "staggers": {"char": {"frames": 2}, "word": {"frames": 3}, "line": {"frames": 4}, "block": {"frames": 6}},
+  "stagger_cap": {"seconds": 0.6, "fraction": 0.5},
+  "exit_factor": 0.75,
+  "roles": {"entrance": "enter", "move": "move", "state": "state", "exit": "leave"},
+  "overshoot": {"allowed": false}
+ },
+ "look": {"id": "flat"}
+}

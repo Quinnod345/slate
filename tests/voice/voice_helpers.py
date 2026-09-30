@@ -94,15 +94,10 @@ def whisper_doc(words: list[dict], text: str | None = None) -> dict:
             "language": "en"}
 
 
-def real_take(vf, shot: str, text: str, *, seed: str = "real", extra: np.ndarray | None = None,
-              sent: str | None = None, take: str = "t01") -> tuple[Path, list[dict]]:
-    """A non-replayed take made by hand (as a real read would land), registered and selected in the manifest.
-    `text` is what the audio says; `sent` what was sent (default: the script line)."""
+def register_take(vf, shot: str, wav: Path, *, sent: str | None = None, take: str = "t01") -> None:
+    """Register an existing WAV as a non-replayed take (as a real read would land) and select it."""
     from slate.voice.film import now
 
-    wav = vf.take_dir(shot) / f"{take}.wav"
-    wav.parent.mkdir(parents=True, exist_ok=True)
-    words = write_speech(wav, text, seed=seed, extra=extra)
     vf.save_take_json(shot, take, {"shot": shot, "take": take, "text": vf.line(shot).text,
                                    "sent": sent or vf.line(shot).text, "model": "eleven_v4", "voice_id": "v",
                                    "voice_settings": {}, "seed": 1, "format": "pcm_48000", "request_id": "req_real",
@@ -110,8 +105,26 @@ def real_take(vf, shot: str, text: str, *, seed: str = "real", extra: np.ndarray
                                    "replay": False, "created_at": now(), "stages": {}})
     vf.update_take(shot, take, raw=vf.rel(wav), clean=None, paced=None, align=None, replay=False)
     vf.select_take(shot, take)
+
+
+def real_take(vf, shot: str, text: str, *, seed: str = "real", extra: np.ndarray | None = None,
+              sent: str | None = None, take: str = "t01") -> tuple[Path, list[dict]]:
+    """A non-replayed take made by hand (as a real read would land), registered and selected in the manifest.
+    `text` is what the audio says; `sent` what was sent (default: the script line)."""
+    wav = vf.take_dir(shot) / f"{take}.wav"
+    wav.parent.mkdir(parents=True, exist_ok=True)
+    words = write_speech(wav, text, seed=seed, extra=extra)
+    register_take(vf, shot, wav, sent=sent, take=take)
     return wav, words
 
+
+GUARD_WHISPER = r'''#!{python}
+"""Stands where Whisper would be in every voice test that didn't ask for the stand-in: fail loudly, load nothing."""
+import sys
+sys.stderr.write("a voice test tried to run the real Whisper model; give it the fake_whisper fixture, or mark it "
+                 "@pytest.mark.whisper and opt in with -m whisper\n")
+sys.exit(97)
+'''
 
 FAKE_WHISPER = r'''#!{python}
 """A stand-in for the Whisper CLI in tests: answers from a map of real paths to transcripts."""

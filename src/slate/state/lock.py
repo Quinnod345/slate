@@ -11,8 +11,9 @@ and make can place it), the tool version, the SHA-256 of every input and of the 
   a locked entry with different content.
 - The timeline locks once any act render is registered in renders/registry.json (`timeline_locked`,
   `guard_timeline`), because moving a frame after that would desync every render.
-- Shot ids freeze when the storyboard passes its gates (`freeze_shot_ids`); the story stage checks renumbering against
-  `frozen_shot_ids` and `check_renumber`.
+- Shot ids freeze when the storyboard passes its gates (`freeze_shot_ids`), and a renumber is refused once any scene
+  uses them (docs/PLAN.md §3): `check_renumber`, with `scene_references` finding the scene files that name an id. The
+  story stage's build gate (`script.shot_ids`) applies the same rule with the same scanner.
 - A derived film reuses its parent's files by reference: its entries carry `ref` (film, folder, path, hash) and nothing
   is copied. `resolve` finds the real file.
 
@@ -586,15 +587,67 @@ def frozen_shot_ids(film_dir: Path) -> list[str]:
     return [str(i.get("id")) if isinstance(i, dict) else str(i) for i in ids if i]
 
 
-def check_renumber(film_dir: Path, mapping: dict[str, str]) -> None:
-    """Refuse a renumber that moves a frozen id ({old id: new id}). Cutting a shot or adding new ids is fine."""
-    frozen = set(frozen_shot_ids(film_dir))
-    moved = {old: new for old, new in mapping.items() if old in frozen and new != old}
-    taken = {old: new for old, new in mapping.items() if old not in frozen and new in frozen and new != old}
-    if moved or taken:
-        pairs = ", ".join(f"{a}→{b}" for a, b in {**moved, **taken}.items())
-        raise Refused(f"Shot ids are frozen (the storyboard passed its gates), and this would renumber them: {pairs}.",
-                      hint="Keep every existing id; give new shots new ids, and let cut shots' ids go unused.")
+SCENES = "scenes"
+SCAN_SKIP_DIRS = frozenset({"node_modules", ".git", "dist", "build", "out", "renders", "__pycache__"})
+SCAN_MAX_BYTES = 2_000_000  # a scene file bigger than this is generated data, not code that names shots
+
+
+def scene_references(film_dir: Path, ids: Iterable[str]) -> dict[str, list[str]]:
+    """{shot id: [scene files that name it]}: whole-id matches in the text files under scenes/ (images, audio and
+    bundles are skipped). This is what "a scene uses the ids" means for the renumber rule."""
+    ids = sorted({str(i) for i in ids if i}, key=len, reverse=True)
+    root = Path(film_dir) / SCENES
+    if not ids or not root.is_dir():
+        return {}
+    rx = re.compile(r"(?<![\w-])(" + "|".join(re.escape(i) for i in ids) + r")(?![\w-])")
+    out: dict[str, list[str]] = {}
+    for path in sorted(root.rglob("*")):
+        rel_parts = path.relative_to(root).parts
+        if not path.is_file() or any(part in SCAN_SKIP_DIRS or part.startswith(".") for part in rel_parts):
+            continue
+        try:
+            if path.stat().st_size > SCAN_MAX_BYTES:
+                continue
+            data = path.read_bytes()
+        except OSError:
+            continue
+        if b"\0" in data[:4096]:
+            continue  # binary: images, audio
+        for m in sorted(set(rx.findall(data.decode("utf-8", "replace")))):
+            out.setdefault(m, []).append(path.relative_to(film_dir).as_posix())
+    return out
+
+
+def check_renumber(film_dir: Path, mapping: dict[str, str | None]) -> dict:
+    """The plan's rule (docs/PLAN.md §3): shot ids freeze at the build gate, and a renumber is refused once any scene
+    uses them.
+
+    `mapping` is {old id: new id}; None (or "") as the new id means the shot is cut. A renumber moves a frozen id to
+    another number or gives a new shot a frozen id. Before any scene names a frozen id it's allowed (and reported);
+    once one does, it's refused, naming the scene files. Cutting a shot is fine unless a scene still uses its id, since
+    that scene would point at nothing. Adding new ids is always fine. Returns what it found when it allows.
+    """
+    frozen = frozen_shot_ids(film_dir)
+    frozen_set = set(frozen)
+    moved = {old: new for old, new in mapping.items() if old in frozen_set and new and new != old}
+    taken = {old: new for old, new in mapping.items() if old not in frozen_set and new in frozen_set and new != old}
+    cut = [old for old, new in mapping.items() if old in frozen_set and not new]
+    renumber = [f"{a}→{b}" for a, b in {**moved, **taken}.items()]
+    refs = scene_references(film_dir, frozen) if (renumber or cut) else {}
+    if renumber and refs:
+        users = "; ".join(f"{i} in {', '.join(refs[i][:3])}" for i in sorted(refs)[:8])
+        raise Refused(f"Shot ids are frozen and scenes use them, so this renumber is refused: {', '.join(renumber)} "
+                      f"(scenes name {users}).",
+                      hint="Keep every existing id (give new shots new ids and let cut shots' ids go unused), or change "
+                           "the scenes first.")
+    dangling = [c for c in cut if c in refs]
+    if dangling:
+        raise Refused(f"{', '.join(dangling)} would be cut, but scenes still use "
+                      f"{'it' if len(dangling) == 1 else 'them'}: "
+                      + "; ".join(f"{i} in {', '.join(refs[i][:3])}" for i in dangling) + ".",
+                      hint="Remove the scene code for the cut shot first.")
+    return {"allowed": True, "renumber": renumber, "cut": cut, "scene_refs": refs,
+            "frozen": bool(frozen), "note": ("renumbered before any scene used the ids" if renumber else None)}
 
 
 def clock_frozen_reason(film_dir: Path) -> str | None:

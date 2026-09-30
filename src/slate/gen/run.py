@@ -8,9 +8,12 @@ The order is always the same, and every refusal happens before anything is spent
 4. the free /estimate for the exact body, and the budget check for every take at once;
 5. autonomous films: a recorded yes for exactly this request (`slate gen request-approval`, then the person's yes
    through `slate gen approve`); the ledger refuses the spend without the approval id too;
-6. at least two takes, each submitted once (never retried), each request id written to generation.json and to
-   the ledger's in-flight row before anything waits on it;
-7. wait, download at once, probe. A rerun polls takes still running instead of paying for them again.
+6. at least two takes, each with its own request key; the exact body and its Idempotency-Key are written beside the
+   take before the POST, and each request id reaches the ledger's in-flight row and generation.json before anything
+   waits on it;
+7. wait, download at once, probe. A rerun polls takes still running instead of paying for them again, and a take whose
+   submit died before any answer is sent again with its own Idempotency-Key, which Higgsfield answers with the
+   original request (charged once) when it exists.
 """
 
 from __future__ import annotations
@@ -97,10 +100,13 @@ def prepare(film_dir: Path, shot_id: str, *, takes: int | None = None, client: h
 
 def estimate(film_dir: Path, shot_id: str, *, takes: int | None = None,
              client: higgsfield.Client | None = None) -> dict:
+    """The free /estimate for a shot's takes. `estimate_usd_*` is the price (after any discount); the saving and the
+    list price are shown beside it, never in its place."""
     prep = prepare(film_dir, shot_id, takes=takes, client=client)
     return {"shot": shot_id, "model": prep.model, "role": prep.role, "model_source": prep.model_source,
             "takes": prep.takes, "estimate_usd_per_take": prep.per_take_usd,
-            "discounted_usd_per_take": higgsfield.quote_discounted_usd(prep.quote or {}),
+            "saving_usd_per_take": higgsfield.quote_saving_usd(prep.quote or {}),
+            "list_usd_per_take": higgsfield.quote_list_usd(prep.quote or {}),
             "estimate_usd_total": prep.total_usd, "pricing": (prep.quote or {}).get("pricing_description"),
             "body": bodies.shown(film_dir, prep.inputs, prep.template), "uploads": prep.uploads,
             "needs_approval": prep.needs_approval, "replay": bool((prep.quote or {}).get("replay")),
@@ -243,7 +249,7 @@ def run(film_dir: Path, shot_id: str, *, takes: int | None = None, approval: str
     client = client or higgsfield.Client()
     prep = prepare(film_dir, shot_id, takes=takes, client=client)
     rec = store.load_record(film_dir, shot_id)
-    if rec and adopt_orphans(rec):
+    if rec and adopt_orphans(film_dir, rec):
         store.save_record(film_dir, shot_id, rec)
     if rec and store.approved_take(rec) and not force:
         picked = store.approved_take(rec)["id"]
@@ -254,7 +260,8 @@ def run(film_dir: Path, shot_id: str, *, takes: int | None = None, approval: str
     deps.mode_check(film_dir, "generate", approval_id=yes_id or (approval if approval and approval.startswith("ap_")
                                                                   else None))
     live = store.live_takes(rec) if rec else []
-    have = len(store.usable_takes(rec)) if (rec and not force) else len(live)
+    unanswered = _unanswered(rec) if rec else []
+    have = len(store.usable_takes(rec)) if (rec and not force) else len(live) + len(unanswered)
     new_count = max(0, prep.takes - have)
     per_take = prep.per_take_usd or 0.0
     if new_count:
@@ -262,7 +269,8 @@ def run(film_dir: Path, shot_id: str, *, takes: int | None = None, approval: str
                                     basis="Higgsfield /estimate × takes", model=prep.model)
         ledger.check_budget(preflight, film=film_dir, mode=prep.mode, approval_id=approval_id)
     summary = {"shot": shot_id, "model": prep.model, "role": prep.role, "takes_wanted": prep.takes,
-               "resuming": [t["id"] for t in live], "new_takes": new_count, "estimate_usd_per_take": prep.per_take_usd,
+               "resuming": [t["id"] for t in live + unanswered], "new_takes": new_count,
+               "estimate_usd_per_take": prep.per_take_usd,
                "estimate_usd_new": round(per_take * new_count, 4), "lane": higgsfield.LANE,
                "replay": replay.fake_vendors(), "dry_run": dry_run}
     if dry_run:
@@ -278,24 +286,34 @@ def run(film_dir: Path, shot_id: str, *, takes: int | None = None, approval: str
     errors: list[SlateError] = []
     submitted: list[dict] = []
     with deps.hold("higgsfield"):
-        body = _upload_body(prep, client) if new_count else None
-        for _ in range(new_count):
+        for take in unanswered:
+            try:
+                _resubmit(film_dir, rec, take, client, prep, approval_id)
+            except SlateError as exc:
+                take.update(status="error", error=exc.message, finished_at=deps.now_iso())
+                errors.append(exc)
+            store.save_record(film_dir, shot_id, rec)
+        live = [t for t in live + unanswered if t.get("request_id") and t.get("status") in store.LIVE_STATES]
+        body = _upload_body(prep, client) if new_count and not errors else None
+        for _ in range(new_count if not errors else 0):
             take = {"id": store.next_take_id(rec), "status": "submitted", "verdict": "unjudged", "request_id": None,
                     "ledger_row": None, "quote": {}, "actual_usd": None, "submitted_at": deps.now_iso(),
                     "finished_at": None, "files": [], "probe": None, "replay": replay.fake_vendors(), "error": None,
                     "verdict_by": None, "verdict_at": None, "verdict_why": None, "sha256": None}
+            key = request_key_for(prep.film, shot_id, take["id"], prep.model, body)
+            take.update(request_key=key, idempotency_key=higgsfield.idempotency_key(key))
             rec["takes"].append(take)
+            store.save_record(film_dir, shot_id, rec)
+            _write_ahead(film_dir, shot_id, take, prep.model, body)  # the exact body, before the POST
             try:
                 sub = client.submit(prep.model, body, film=film_dir, mode=prep.mode, approval_id=approval_id,
-                                    note=_take_note(rec, take["id"]))
+                                    note=_take_note(rec, take["id"]), key=key)
             except SlateError as exc:
                 take.update(status="error", error=exc.message, finished_at=deps.now_iso())
                 store.save_record(film_dir, shot_id, rec)
                 errors.append(exc)
                 break
-            take.update(request_id=sub["request_id"], ledger_row=sub["ledger_row"], replay=bool(sub.get("replay")),
-                        quote={"usd": higgsfield.quote_usd(sub["quote"]),
-                               "discounted_usd": higgsfield.quote_discounted_usd(sub["quote"])})
+            _took(take, sub)
             store.save_record(film_dir, shot_id, rec)  # the request id is on disk before anything waits
             submitted.append(take)
             log.info(f"{shot_id} {take['id']}: submitted {sub['request_id']}")
@@ -316,22 +334,84 @@ def _take_note(rec: dict, take_id: str) -> str:
     return f"{rec.get('film')} {rec['shot']} {take_id}"
 
 
-def adopt_orphans(rec: dict) -> bool:
-    """A take whose submit went out but whose request id never reached generation.json (the process died in
-    between) is found again through its ledger row, which got the id first. Returns True when anything changed."""
+def request_key_for(film: dict, shot_id: str, take_id: str, model: str, body: dict | None) -> str:
+    """A take's stable request key: this film (its id and when it was made), shot, take, model and exact body. The
+    ledger row carries it and the Idempotency-Key is derived from it, so every resend of this take is the same
+    request to Higgsfield, and every other take is a new one."""
+    return replay.request_key(higgsfield.PROVIDER, "generate",
+                              {"film": film.get("id"), "film_created": film.get("created_at"), "shot": shot_id,
+                               "take": take_id, "model": model, "body": body})
+
+
+def _submit_record(film_dir: Path, shot_id: str, take_id: str) -> Path:
+    return store.take_dir(film_dir, shot_id, take_id) / "submit.json"
+
+
+def _write_ahead(film_dir: Path, shot_id: str, take: dict, model: str, body: dict | None) -> None:
+    """The exact request, written before the POST (uploaded URLs included, which generation.json never keeps), so a
+    take whose submit dies unanswered can be sent again byte for byte under the same Idempotency-Key."""
+    jsonio.write_atomic(_submit_record(film_dir, shot_id, take["id"]),
+                        jsonio.mark_generated({"take": take["id"], "model": model, "body": body,
+                                               "request_key": take["request_key"],
+                                               "idempotency_key": take["idempotency_key"],
+                                               "written_at": deps.now_iso()}, "slate gen run"))
+
+
+def _took(take: dict, sub: dict) -> None:
+    quote = sub.get("quote") or {}
+    take.update(request_id=sub["request_id"], ledger_row=sub["ledger_row"], replay=bool(sub.get("replay")),
+                idempotency_key=sub.get("idempotency_key") or take.get("idempotency_key"),
+                quote={"usd": higgsfield.quote_usd(quote), "saving_usd": higgsfield.quote_saving_usd(quote),
+                       "list_usd": higgsfield.quote_list_usd(quote)})
+
+
+def _unanswered(rec: dict) -> list[dict]:
+    """Takes whose submit died before any answer, that can be sent again under their own Idempotency-Key."""
+    return [t for t in rec.get("takes", []) if t.get("status") == "submitted" and not t.get("request_id")
+            and t.get("resend")]
+
+
+def adopt_orphans(film_dir: Path, rec: dict) -> bool:
+    """Takes whose submit went out but whose request id never reached generation.json (the process died in between).
+
+    - The ledger row got the id first: the take takes it over and is polled, never paid for again.
+    - No id anywhere, but the exact request was written ahead of the POST: the take is marked to be sent again under
+      its own Idempotency-Key (`slate gen run` does it; Higgsfield answers with the original request if it exists).
+    - Neither: nothing can be running under Slate's name, and the take is an error.
+    Returns True when anything changed."""
     changed = False
     for take in rec.get("takes", []):
-        if take.get("status") != "submitted" or take.get("request_id"):
+        if take.get("status") != "submitted" or take.get("request_id") or take.get("resend"):
             continue
-        rows = [r for r in ledger.rows(provider=higgsfield.PROVIDER) if r.get("note") == _take_note(rec, take["id"])]
-        row = rows[-1] if rows else None
-        if row and row.get("request_id"):
+        key = take.get("request_key")
+        rows = [r for r in ledger.rows(provider=higgsfield.PROVIDER)
+                if (key and r.get("key") == key) or r.get("note") == _take_note(rec, take["id"])]
+        row = next((r for r in reversed(rows) if r.get("request_id")), None)
+        if row is not None:
             take.update(request_id=row["request_id"], ledger_row=row["id"])
+        elif key and _submit_record(film_dir, rec["shot"], take["id"]).is_file():
+            take.update(resend=True, error="the submit died before Higgsfield answered; `slate gen run` sends it "
+                                           "again with the same Idempotency-Key, so it can't be billed twice")
         else:
             take.update(status="error", finished_at=deps.now_iso(),
                         error="the submit never got a request id, so nothing is running (see slate ledger)")
         changed = True
     return changed
+
+
+def _resubmit(film_dir: Path, rec: dict, take: dict, client: higgsfield.Client, prep: Prepared,
+              approval_id: str | None) -> None:
+    """Send an unanswered take again, exactly as written ahead of its first POST, under the same key."""
+    sent = jsonio.read(_submit_record(film_dir, rec["shot"], take["id"]))
+    if sent.get("request_key") != take.get("request_key"):
+        raise Refused(f"{rec['shot']} {take['id']}: its write-ahead record doesn't match the take, so it isn't sent "
+                      "again.", hint="Check the Higgsfield console for the request, then run a new take.")
+    sub = client.submit(sent["model"], sent["body"], film=film_dir, mode=prep.mode, approval_id=approval_id,
+                        note=_take_note(rec, take["id"]), key=take["request_key"])
+    take.pop("resend", None)
+    take["error"] = None
+    _took(take, sub)
+    log.info(f"{rec['shot']} {take['id']}: sent again with its Idempotency-Key; request {sub['request_id']}")
 
 
 def _upload_body(prep: Prepared, client: higgsfield.Client) -> dict:
@@ -401,7 +481,7 @@ def takes(film_dir: Path, shot_id: str, *, refresh: bool = False, client: higgsf
     """The shot's takes; with refresh, poll the ones still running once and fetch any missing downloads."""
     rec = store.require_record(film_dir, shot_id)
     if refresh:
-        adopt_orphans(rec)
+        adopt_orphans(film_dir, rec)
         client = client or higgsfield.Client()
         for take in rec["takes"]:
             if take.get("status") in store.LIVE_STATES and take.get("request_id"):

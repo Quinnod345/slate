@@ -5,7 +5,8 @@
 //
 // It prints exactly one JSON object on stdout: {ok: true, engine_version, protocol, command, …} on success, or
 // {ok: false, error, hint, kind, …} with a non-zero exit (1 refused, 2 usage, 3 missing prerequisite, 5 busy,
-// 130 stopped). Progress goes to stderr. Paths in args may be absolute or relative to the caller's folder.
+// 130 stopped by a signal or by SLATE_ENGINE_DEADLINE_S). Progress goes to stderr. Paths in args may be absolute or
+// relative to the caller's folder.
 //
 // Every child process runs with BROWSER=none, and nothing here starts Remotion Studio; if you ever start it by hand,
 // pass --no-open (engine/remotion/remotion.config.ts turns the browser off too).
@@ -37,7 +38,7 @@ const COMMANDS = {
   render: 'render an act or the film with motion blur (render_mb) to ProRes 422 HQ, or a lossless .mkv chunk',
   stills: 'review stills, labelled contact sheets and review sheets from one bundle',
   'emit-events': "write each act's visual events (or its silence) and the kit's motion trace",
-  check: "an act's hand-in check, as gate results",
+  check: "an act's hand-in check, as gate results ({acts: [N, …]} checks several with one bundle)",
   'web-render': 'render with the open web renderer (engine/web/render.mjs)',
 };
 
@@ -83,6 +84,19 @@ for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
   process.on(sig, () => fail(new EngineError(`stopped by ${sig}`, {kind: 'stopped'})));
 }
 process.on('unhandledRejection', (e) => fail(e));
+
+// A caller with a deadline says so in SLATE_ENGINE_DEADLINE_S (the Python bridge sets it a little inside its own
+// timeout). Python stops a late child with SIGKILL, which skips every cleanup; stopping ourselves first runs the 'exit'
+// handlers, so no 290 MB bundle or half-written .part file outlives a timed-out call.
+const deadline = Number(process.env.SLATE_ENGINE_DEADLINE_S);
+if (Number.isFinite(deadline) && deadline > 0) {
+  setTimeout(() => {
+    fail(new EngineError(`took longer than ${deadline} s and was stopped`, {
+      kind: 'stopped',
+      hint: 'Give it a longer timeout, or render in smaller ranges (from/to) so each call finishes in time.',
+    }));
+  }, deadline * 1000).unref();
+}
 
 function parseArgv(argv) {
   const [cmd, ...rest] = argv;
@@ -197,10 +211,11 @@ const handlers = {
     return {film: ctx.id, ...(await emitEvents(ctx, args))};
   },
   async check(args) {
-    const {checkAct} = await import('./remotion/check.mjs');
-    if (args.act === undefined || args.act === null) throw usage('Say which act to check ("act": N).');
+    const {checkAct, checkActs} = await import('./remotion/check.mjs');
+    const several = Array.isArray(args.acts);
+    if (!several && (args.act === undefined || args.act === null)) throw usage('Say which act to check ("act": N, or "acts": [N, …] for one run with one bundle).');
     const ctx = await film(args);
-    return {film: ctx.id, ...(await checkAct(ctx, args))};
+    return {film: ctx.id, ...(several ? await checkActs(ctx, args) : await checkAct(ctx, args))};
   },
   async 'web-render'(args) {
     const file = webModulePath();

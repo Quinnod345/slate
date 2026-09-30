@@ -1,0 +1,13 @@
+{
+ "name": "finish-reel",
+ "note": "Test fixture: a tiny neutral 9:16 reel-shaped format for autonomous films.",
+ "width": 90,
+ "height": 160,
+ "fps_num": 25,
+ "fps_den": 1,
+ "runtime_s": [1, 45],
+ "lufs": -14,
+ "true_peak": -1,
+ "budget": {"elevenlabs": 100, "higgsfield": 0},
+ "safe_zones": {"tiktok": {"top": 0.12, "bottom": 0.2}, "reels": {"top": 0.1, "bottom": 0.18}}
+}

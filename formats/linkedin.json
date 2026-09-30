@@ -1,0 +1,40 @@
+{
+ "name": "linkedin",
+ "title": "LinkedIn cut",
+ "summary": "A square or 4:5 film for the LinkedIn feed, 15 to 90 seconds, built to be read with the sound off.",
+ "use_when": "A professional audience in a feed: a cut-down of a brand film or explainer, or a short standalone point.",
+ "runtime_s": {"min": 15, "max": 90, "target": 45},
+ "aspects": {
+  "1:1": {"width": 1080, "height": 1080, "channels": ["linkedin"], "type_scale": 1.1},
+  "4:5": {"width": 1080, "height": 1350, "channels": ["linkedin"], "type_scale": 1.1,
+          "note": "Takes more of the feed than square; LinkedIn's largest 4:5 size."}
+ },
+ "default_aspect": "1:1",
+ "fps_num": 30,
+ "fps_den": 1,
+ "pace": {"max_words_per_second": 2.6, "lead": 0.2, "tail": 0.25, "act_tail": 0.5},
+ "on_screen_max_words": 10,
+ "structure": {
+  "acts": {"min": 1, "max": 3},
+  "beats": [
+   {"name": "point", "job": "The claim or question, in words on screen within three seconds.", "share": 0.15},
+   {"name": "insight", "job": "The one idea, with its proof.", "share": 0.65},
+   {"name": "call to action", "job": "What to do next and where.", "share": 0.2}
+  ],
+  "rules": [
+   "Designed for sound off: burned-in captions and supers carry every word.",
+   "Lead with the point; a sourced number reads faster than an adjective."
+  ]
+ },
+ "audio": "required",
+ "loudness": {"lufs": -14, "true_peak": -1, "tolerance_lu": 0.5, "standard": "web, social and streaming delivery"},
+ "captions": {"needed": true, "burn_in": true, "renderer": "remotion", "font": "brand", "sidecar": ["srt"],
+              "max_lines": 2, "max_chars": 36, "max_cps": 17, "min_s": 1.0,
+              "position": "lower third, inside LinkedIn's buffer"},
+ "budget": {"family": "reel_or_ad", "elevenlabs": {"vo": [500, 3000], "score": [1000, 2000]}, "higgsfield": [0, 0],
+            "rework_factor": 1.5, "note": "Generation only when it's allowed and adds something."},
+ "broadcast": false,
+ "generation": "rarely",
+ "engines": ["remotion", "web"],
+ "notes": ["LinkedIn recommends 30 fps. A cut derived from a 29.97 film keeps its parent's clock, which LinkedIn accepts."]
+}

@@ -1,0 +1,12 @@
+{
+ "name": "finish-tiny",
+ "note": "Test fixture: a tiny neutral 16:9 format, so the finish tests encode in a blink. Sizes and rates are chosen to be unlike any real film's.",
+ "width": 160,
+ "height": 90,
+ "fps_num": 25,
+ "fps_den": 1,
+ "runtime_s": {"min": 1, "max": 10, "default": 2},
+ "loudness": {"lufs": -14, "true_peak": -1},
+ "budget": {"elevenlabs": {"vo": [0, 100], "score": [0, 100]}, "higgsfield": [0, 0]},
+ "safe_zones": {"youtube": {"title_safe": 0.9, "action_safe": 0.93}}
+}

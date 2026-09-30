@@ -25,11 +25,12 @@ from slate.clock import Clock
 from slate.errors import MissingPrerequisite, Refused, UsageError
 from slate.gates import GateResult
 from slate.timing import align as aligner
+from slate.timing import spoken
 from slate.timing import ease as easing
 from slate.timing import words as wordlib
 from slate.timing.cues import make_cues
 from slate.timing.shots import check_frames, iter_shots, make_shots
-from slate.timing.takes import Take, find_takes
+from slate.timing.takes import Take, film_file, find_takes
 from slate.timing.timeline import collect_events, resolve
 from slate.timing.vowords import TWO_WORD_SHARE, record_for_take, unheard
 
@@ -43,6 +44,9 @@ FILES = {
 }
 STORYBOARD = Path("script") / "storyboard.json"
 COMMAND = "slate timing"
+# The film.json values the timing files are made from: the clock, the frame size, the language and the voice. The lock
+# records these keys rather than the whole file, so a pin written at first use doesn't make the timing stale.
+FILM_KEYS = ("fps_num", "fps_den", "width", "height", "language", "voice")
 
 
 # --- film inputs --------------------------------------------------------------------------------------------------------
@@ -82,7 +86,7 @@ def film_voice(film: dict) -> str | None:
 
 
 def load_storyboard(film_dir: Path) -> dict:
-    path = Path(film_dir) / STORYBOARD
+    path = film_file(Path(film_dir), STORYBOARD)  # a derived film may read its parent's storyboard by reference
     if not path.is_file():
         raise MissingPrerequisite("There's no storyboard yet: timing starts from script/storyboard.json.",
                                   hint="Run `slate script build` first.")
@@ -154,6 +158,24 @@ def guard_timing(film_dir: Path, *, force: bool, approved_by: str | None, reason
     if locked and not ((approved_by or "").strip() and (reason or "").strip()):
         raise Refused("Changing a locked timeline needs the person's name (--approved-by) and a reason (--reason).")
     return {"allowed": True, "locked": bool(locked), "approved_by": approved_by}
+
+
+def lock_inputs(film_dir: Path, film: dict, takes: dict[str, Take]) -> dict:
+    """{input: sha256} for the timing files' lock entries: the storyboard, each take, the film.json keys the clock
+    reads and the brand pack (its eases place the landings). State's named inputs keep each one checkable."""
+    keys = [str(STORYBOARD), *[t.rel for _sid, t in sorted(takes.items())]]
+    keys += [f"film:{k}" for k in FILM_KEYS if k in film]
+    if film.get("brand"):
+        keys.append(f"brand:{film['brand']}")
+    try:
+        from slate.state import lock as state_lock  # noqa: PLC0415
+
+        return dict(state_lock.hash_inputs(Path(film_dir), keys))
+    except Exception:  # noqa: BLE001 - without film state, hash the files we read ourselves
+        out = {str(STORYBOARD): jsonio.sha256(film_file(film_dir, STORYBOARD))}
+        for _sid, take in sorted(takes.items()):
+            out[take.rel] = take.sha256()
+        return out
 
 
 def _record_lock(film_dir: Path, rel: Path, inputs: dict) -> None:
@@ -259,7 +281,7 @@ class TimingBuild:
 
 def _warn_if_stale(film_dir: Path, storyboard: dict) -> None:
     made_from = (storyboard.get("made_from") or {}).get("script/script.json")
-    script = Path(film_dir) / "script" / "script.json"
+    script = film_file(Path(film_dir), Path("script") / "script.json")
     if made_from and script.is_file() and jsonio.sha256(script) != made_from:
         log.warn("script/script.json changed since the storyboard was built; run `slate script build` to catch up.")
 
@@ -304,6 +326,9 @@ def run(film_dir: Path, *, force: bool = False, engine: str = "whisper", realign
         words_doc["shots"][sid] = rec
     if runs:
         words_doc["aligner"] = runs[0]
+    # How each number or symbol in the VO is said, so an engine's word() matches "664" against "six sixty-four"
+    # without number tables of its own (the engine puts this in @film/data as `spoken`).
+    words_doc["spoken"] = spoken.forms_in([lines[sid] for sid in voiced], lang)
     events = collect_events(storyboard)
     shots_doc = make_shots(storyboard, clock=clock, width=width, height=height, cues=cues, words=words_doc,
                            events=events)
@@ -319,9 +344,7 @@ def run(film_dir: Path, *, force: bool = False, engine: str = "whisper", realign
     out.misses = misses
     if not frames_gate.passed or dry_run:
         return out
-    inputs = {str(STORYBOARD): jsonio.sha256(film_dir / STORYBOARD), "film.json": jsonio.sha256(film_dir / "film.json")}
-    for sid, take in sorted(takes.items()):
-        inputs[take.rel] = take.sha256()
+    inputs = lock_inputs(film_dir, film, takes)
     for key, rel in FILES.items():
         doc = jsonio.mark_generated(out.docs[key], COMMAND)
         out.paths.append(jsonio.write_atomic(film_dir / rel, doc))

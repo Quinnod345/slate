@@ -38,13 +38,15 @@ const replies = {
   busy: {ok: false, kind: 'busy', error: 'a render holds the slot'},
   crash: {ok: false, kind: 'error', error: 'TypeError: x is undefined', details: {stack: ['at y']}},
   old: {ok: true, protocol: 0},
+  stopped: {ok: false, kind: 'stopped', error: `took longer than ${process.env.SLATE_ENGINE_DEADLINE_S} s and was stopped`, hint: 'smaller ranges'},
+  signalled: {ok: false, kind: 'stopped', error: 'stopped by SIGTERM'},
 };
 if (cmd === 'silent') { process.stderr.write('boom\\n'); process.exit(7); }
 if (cmd === 'slow') { await new Promise((r) => setTimeout(r, 5000)); }
-const reply = replies[cmd] ?? {ok: true, protocol: 1, echo: args, argv: process.argv.slice(3, 4), browser: process.env.BROWSER, data: process.env.SLATE_DATA};
+const reply = replies[cmd] ?? {ok: true, protocol: 1, echo: args, argv: process.argv.slice(3, 4), browser: process.env.BROWSER, data: process.env.SLATE_DATA, deadline: process.env.SLATE_ENGINE_DEADLINE_S ?? null};
 process.stderr.write('progress line\\n');
 process.stdout.write(JSON.stringify(reply) + '\\n');
-process.exitCode = reply.ok ? 0 : ({usage: 2, missing_prerequisite: 3, busy: 5}[reply.kind] ?? 1);
+process.exitCode = reply.ok ? 0 : ({usage: 2, missing_prerequisite: 3, busy: 5, stopped: 130}[reply.kind] ?? 1);
 """
 
 
@@ -146,6 +148,26 @@ def test_a_slow_engine_is_stopped_at_the_timeout(fake):
         bridge.call("slow", {}, timeout=1)
 
 
+def test_the_engine_gets_a_deadline_inside_the_timeout(fake):
+    assert bridge.call("anything", {}, timeout=100)["deadline"] == "90"
+    assert bridge.call("anything", {})["deadline"] is None  # no timeout, no deadline
+    assert bridge.deadline_for(900) == 890.0  # at most 10 s of grace
+    assert bridge.deadline_for(20) == 18.0  # a tenth of the timeout
+    assert bridge.deadline_for(1) == 0.75  # at least a quarter second
+    assert bridge.deadline_for(0) is None and bridge.deadline_for(None) is None
+
+
+def test_an_engine_that_stopped_itself_says_so_in_the_callers_terms(fake):
+    with pytest.raises(bridge.Stopped) as info:
+        bridge.call("stopped", {}, timeout=100)
+    assert info.value.exit_code == 1 and info.value.kind == "stopped"
+    assert info.value.message == ("The engine's stopped took longer than its 100 s timeout and stopped itself; "
+                                  "nothing half-made was left behind.")
+    assert info.value.hint == "smaller ranges"
+    with pytest.raises(bridge.Stopped, match="was stopped by SIGTERM; nothing half-made was left behind"):
+        bridge.call("signalled", {})
+
+
 def test_large_args_travel_in_a_file(fake):
     big = {"notes": "x" * (bridge.ARGS_FILE_OVER + 10)}
     res = bridge.call("anything", big)
@@ -188,3 +210,40 @@ def test_prepare_writes_the_spoken_forms_of_numbers_and_symbols(slate_home):
     before = (film / ".slate" / "spoken.json").stat().st_mtime_ns
     bridge.prepare(film)  # unchanged: not rewritten (keeps the bundle hash stable)
     assert (film / ".slate" / "spoken.json").stat().st_mtime_ns == before
+
+
+def test_prepare_adds_the_heard_numbers_so_a_script_word_can_find_them(slate_home):
+    """A script says "twelve", Whisper wrote "12": the kit's clock needs the heard word's spoken forms to match it."""
+    pytest.importorskip("slate.timing.spoken")
+    film = _film(slate_home, vo="twelve people")
+    (film / "timing" / "vo_words.json").write_text(json.dumps({"shots": {"S01": {
+        "line": "twelve people", "words": [{"w": "12", "start": 0.0, "end": 0.3}, {"w": "people.", "start": 0.3, "end": 0.7}]}}}))
+    bridge.prepare(film)
+    spoken = json.loads((film / ".slate" / "spoken.json").read_text())
+    assert ["twelve"] in spoken["12"]
+    assert "people" not in spoken  # plain words say themselves: nothing to add
+
+
+def test_prepare_writes_the_languages_match_rules_for_the_kit(slate_home):
+    pytest.importorskip("slate.timing.spoken")
+    from slate.timing import spoken, words
+
+    film = _film(slate_home)
+    bridge.prepare(film)
+    rules = json.loads((film / ".slate" / "lang.json").read_text())
+    assert rules["lang"] == "en"
+    assert rules["keep"] == spoken.table("en")["normalize"]["keep"]
+    assert set(rules["keep"]) <= set(rules["strip_keep"])
+    assert "-" in rules["negative_marks"]
+    assert rules["max_run"] == words.MAX_RUN
+    before = (film / ".slate" / "lang.json").stat().st_mtime_ns
+    bridge.prepare(film)  # unchanged: not rewritten
+    assert (film / ".slate" / "lang.json").stat().st_mtime_ns == before
+
+
+def test_call_resolves_a_browser_path_from_where_the_caller_stands(fake, slate_home, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    res = bridge.call("anything", {"browser": "bin/chrome", "scene": "scenes/act1/web"})
+    assert res["echo"]["browser"] == str((tmp_path / "bin" / "chrome").resolve())
+    # a web scene's own path belongs to the film: the web renderer resolves it against the film folder
+    assert res["echo"]["scene"] == "scenes/act1/web"

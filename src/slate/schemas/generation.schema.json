@@ -332,13 +332,29 @@
        "type": [
         "number",
         "null"
-       ]
+       ],
+       "description": "The quoted price: /estimate's usd, after any discount (what's booked and billed)."
       },
       "discounted_usd": {
        "type": [
         "number",
         "null"
-       ]
+       ],
+       "description": "Deprecated: older records put discount.usd here, which is the saving. Never written now."
+      },
+      "saving_usd": {
+       "type": [
+        "number",
+        "null"
+       ],
+       "description": "/estimate's discount.usd: the saving, never the price."
+      },
+      "list_usd": {
+       "type": [
+        "number",
+        "null"
+       ],
+       "description": "The price before any discount (price plus saving)."
       }
      }
     },
@@ -408,6 +424,24 @@
        "type": "null"
       }
      ]
+    },
+    "request_key": {
+     "type": [
+      "string",
+      "null"
+     ],
+     "description": "The take's stable request key (the ledger row's key); the Idempotency-Key is derived from it."
+    },
+    "idempotency_key": {
+     "type": [
+      "string",
+      "null"
+     ],
+     "description": "The Idempotency-Key every submit of this take sends: the same key and body return the original request and charge once."
+    },
+    "resend": {
+     "type": "boolean",
+     "description": "The submit died before Higgsfield answered; `slate gen run` sends it again, exactly as written ahead in takes/<take>/submit.json, under the same Idempotency-Key."
     }
    }
   },

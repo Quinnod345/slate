@@ -46,7 +46,8 @@
         "picture": {"type": ["string", "null"]},
         "enter_token": {"type": ["string", "null"]},
         "lead": {"type": "number", "minimum": 0},
-        "hold": {"type": "number", "minimum": 0}
+        "hold": {"type": "number", "minimum": 0},
+        "generate": {"type": "object", "description": "the shot's generation request from script.json, carried through to timing/shots.json"}
        }
       }
      }

@@ -16,6 +16,7 @@ import {EngineError, log, requireTool, run, sha256Buffer, sha256File, timecode, 
 import {FILM_COMP, shotAtFrame} from './lib/film.mjs';
 import {chromiumOptions} from './browser.mjs';
 import {useBundle} from './bundle.mjs';
+import {ensureEntry, refuseBroken} from './entry.mjs';
 import {browserLogCollector, fontGate} from './kit_bridge.mjs';
 
 function parseSpec(spec) {
@@ -146,13 +147,18 @@ export async function stillsCommand(ctx, args) {
   const sub = Number(args.sub ?? 1);
   if (!(scale > 0 && scale <= 4)) throw usage(`scale must be between 0 and 4 (got ${args.scale}).`);
   if (!args.specs?.length && !args.contact_sheet) throw usage('Ask for stills ("specs": ["Act1:0", …]) or a contact sheet ("contact_sheet": {"comp": "Act1"}).');
+  const specs = (args.specs ?? []).map(parseSpec);
+  if (!args.entry) {
+    // the film's own compositions: one whose act doesn't build is refused by name, before any bundling
+    const info = await ensureEntry(ctx, {brandPath: args.brand_path ?? null});
+    for (const comp of new Set([...specs.map((s) => s.comp), ...(args.contact_sheet ? [args.contact_sheet.comp ?? FILM_COMP] : [])])) refuseBroken(info, comp);
+  }
   const b = await useBundle(ctx, args);
   const logs = browserLogCollector();
   try {
     const result = {out_dir: outDir, bundle_hash: b.hash, bundle_reused: b.reused, stills: [], sheet: null, gates: []};
-    if (args.specs?.length) {
-      const list = args.specs.map(parseSpec);
-      result.stills = await renderStills(ctx, b, list, {outDir, gl, scale, sub, props: args.props, pixels: Boolean(args.pixels), logs});
+    if (specs.length) {
+      result.stills = await renderStills(ctx, b, specs, {outDir, gl, scale, sub, props: args.props, pixels: Boolean(args.pixels), logs});
       for (const s of result.stills) log(s.file);
     }
     if (args.contact_sheet) {

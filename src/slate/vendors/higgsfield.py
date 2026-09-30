@@ -10,11 +10,18 @@ Generalized from the films' `pipeline/tools/hf_api.py`, with every lesson it lea
   `higgsfield-cloud-api`). The key only ever travels in that header: never in a URL, a log, a record or an error.
 - **A plain User-Agent** (slate.http sets it): Cloudflare in front of the API bans urllib's default with error 1010.
 - **Estimate first.** `/estimate/<model>` is free, and `submit` always has a quote for the exact body before it
-  posts. The quote is what the ledger books (list price; the discounted price is kept alongside).
-- **Submit is never retried.** A retry after an ambiguous timeout can create, and bill, a duplicate job.
+  posts. In the answer, `usd` is the price (after any discount) and `discount.usd` is the saving, not the price (the
+  films' notes read it the other way round). The price is what the ledger books and what a finished job costs.
+- **Submits are idempotent.** Every generation submit carries an `Idempotency-Key` derived from its ledger row's
+  stable request key: the same key and body return the original request and charge once. So a submit that times out,
+  loses its connection or meets a 5xx is sent again with the same key and body (a few times, with backoff), and a
+  rerun after a crash sends the same key too. Anything sent without a key is never retried: a blind retry can create,
+  and bill, a duplicate job.
 - **Every submit is ledger-wrapped.** The budget check and an in-flight ledger row come before the POST, and the
   request id is written to that row before anything waits on it, so a restart polls the request instead of paying
-  for a second one. `wait` and `cancel` close the row.
+  for a second one. A restarted submit finds its own abandoned row by the request key (`slate.jobs.resume`) and
+  takes it over: it waits on the request the row already has, or sends the same key again. `wait` and `cancel` close
+  the row.
 - **Wait with backoff** (2 s growing to 10 s, with jitter). Stopping the wait doesn't stop the job: a timed-out wait
   leaves it running on purpose, so its result can still be fetched; `cancel` stops it (only while it's queued).
 - **Uploads** go through a presigned URL: POST for the URL, PUT the file with exactly the returned headers and no API
@@ -51,6 +58,9 @@ BASE = "https://api.higgsfield.ai"
 TERMINAL = frozenset({"completed", "failed", "nsfw", "canceled", "cancelled"})  # the SDK spells it "Cancelled"
 UNBILLED = frozenset({"failed", "nsfw", "canceled", "cancelled"})  # only successful generations are billed
 PROBE_REQUEST_ID = "00000000-0000-4000-8000-000000000000"  # a well-formed id that can never exist
+IDEMPOTENCY_HEADER = "Idempotency-Key"
+SUBMIT_TRIES = 3  # with the same Idempotency-Key: a repeat returns the original request and charges once
+RETRY_STATUSES = frozenset({408, 425, 429, 500, 502, 503, 504})  # a submit may have landed; resend with its key
 UPLOAD_TYPES = {
     "image/jpeg", "image/png", "image/webp", "image/gif", "audio/wav", "audio/x-wav", "audio/vnd.wave", "video/mp4",
 }
@@ -110,15 +120,31 @@ def _json_or_detail(body: bytes) -> dict:
 
 
 def quote_usd(quote: dict) -> float | None:
-    """The list price in a /estimate answer (what budgets are held to)."""
+    """The price in a /estimate answer: what the job costs, after any discount. Budgets and the ledger book this."""
     value = quote.get("usd")
-    return float(value) if isinstance(value, (int, float)) else None
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
 
 
-def quote_discounted_usd(quote: dict) -> float | None:
-    """The discounted price in a /estimate answer, when Higgsfield quotes one."""
+def quote_saving_usd(quote: dict) -> float | None:
+    """What a discount saves (`discount.usd`). It's the saving, never the price."""
     value = (quote.get("discount") or {}).get("usd")
-    return float(value) if isinstance(value, (int, float)) else None
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
+def quote_list_usd(quote: dict) -> float | None:
+    """The price before any discount: the price plus the saving."""
+    usd = quote_usd(quote)
+    if usd is None:
+        return None
+    return round(usd + (quote_saving_usd(quote) or 0.0), 6)
+
+
+def idempotency_key(request_key: str) -> str:
+    """The Idempotency-Key for a submit, derived from its ledger row's stable request key: 1-255 visible ASCII
+    characters, no whitespace, the same for every retry of the same request and different for every other one."""
+    if not request_key:
+        raise UsageError("A submit needs a request key to derive its Idempotency-Key from.")
+    return f"slate-{jsonio.sha256_bytes(request_key)[:40]}"
 
 
 def model_kind(path: str, body: dict | None = None) -> str:
@@ -177,18 +203,23 @@ class Client:
         return f"{self.base}/{path.lstrip('/')}"
 
     def _send(self, op: str, method: str, path: str, *, body: Any = None, auth: bool = True,
-              replay_request: dict | None = None) -> tuple[int, dict]:
+              replay_request: dict | None = None, headers: dict | None = None) -> tuple[int, dict]:
         """One request. In replay mode (and no injected transport) the answer comes from slate.replay."""
         if self.fake and self._transport is None:
             request = replay_request if replay_request is not None else {"path": path, "body": body}
             if op == "submit" and replay.load(PROVIDER, replay.request_key(PROVIDER, op, request)) is None:
-                # Two real submits of one body are two jobs with two ids; so are two replayed ones.
-                self._submits += 1
-                request = {**request, "submit": self._submits}
+                idem = (headers or {}).get(IDEMPOTENCY_HEADER)
+                if idem:
+                    # Like the API: the same key and body answer with the same request.
+                    request = {**request, "idempotency_key": idem}
+                else:
+                    # Two real submits of one body are two jobs with two ids; so are two replayed ones.
+                    self._submits += 1
+                    request = {**request, "submit": self._submits}
             return 200, replay.respond(PROVIDER, op, request)
         transport = self._transport or http_transport
-        headers = self._auth() if auth else {}
-        status, _, raw = transport(method, self._url(path), headers=headers, json_body=body)
+        sent_headers = {**(self._auth() if auth else {}), **(headers or {})}
+        status, _, raw = transport(method, self._url(path), headers=sent_headers, json_body=body)
         answer = _json_or_detail(raw)
         if replay.recording() and op in ("estimate", "submit", "status", "cancel") and 200 <= status < 300:
             replay.record(PROVIDER, replay.request_key(PROVIDER, op, replay_request or {"path": path, "body": body}),
@@ -250,36 +281,117 @@ class Client:
         return quote
 
     def submit(self, path: str, body: dict, *, film: Any = None, mode: str = "supervised",
-               approval_id: str | None = None, note: str | None = None, rework: bool = False) -> dict:
-        """Estimate (if this exact body has no quote yet), check the budget, write the in-flight ledger row, POST once.
+               approval_id: str | None = None, note: str | None = None, rework: bool = False,
+               key: str | None = None, idempotent: bool = True) -> dict:
+        """Estimate (if this exact body has no quote yet), check the budget, write the in-flight ledger row, POST.
 
-        Returns {request_id, status, ledger_row, quote}. The request id is on the ledger row before this returns,
-        so whatever waits next can die without the spend being lost or repeated.
+        `key` is the request's stable identity (a take of a shot, say: `request_key_for`); the ledger row carries it
+        and the Idempotency-Key is derived from it, so a rerun of the same request can never be billed twice. Without
+        one, this call gets a fresh key: its own retries are safe, but a rerun is a new request. `idempotent=False`
+        sends no key, and then nothing is ever retried.
+
+        Returns {request_id, status, ledger_row, quote, idempotency_key, resumed}. The request id is on the ledger
+        row before this returns, so whatever waits next can die without the spend being lost or repeated.
         """
         _check_model_path(path)
+        request_key = key or f"generate-{os.urandom(8).hex()}"
+        idem = idempotency_key(request_key) if idempotent else None
+        adopted = self._abandoned_row(request_key)
+        if adopted is not None and adopted.get("request_id"):
+            ledger.adopt(adopted["id"])
+            log.info(f"{path}: request {adopted['request_id']} was already sent and paid for; waiting on it instead "
+                     "of sending it again")
+            return {"request_id": str(adopted["request_id"]), "status": "resumed", "ledger_row": adopted["id"],
+                    "quote": (adopted.get("estimate") or {}).get("details", {}).get("quote") or {},
+                    "replay": bool(adopted.get("replay")), "lane": LANE, "idempotency_key": idem,
+                    "request_key": request_key, "resumed": True}
         quote = self._quotes.get(_body_key(path, body)) or self.estimate(path, body)
-        est = ledger_estimate(path, body, quote)
-        row = ledger.begin(est, film=film, mode=mode, approval_id=approval_id, rework=rework,
-                           note=note or f"higgsfield {path}")
-        try:
-            status, answer = self._send("submit", "POST", path, body=body, replay_request={"path": path, "body": body})
-        except SlateError as exc:
-            # A network failure on a POST is ambiguous: the job may exist, and bill. Never retry; count the quoted
-            # price so budgets err the safe way, and say so plainly.
-            ledger.finish(row, status="failed", actual=est.amount,
-                          result={"error": exc.message, "ambiguous": True, "lane": LANE,
-                                  "counted": "the quoted price, in case the job was created"})
-            raise HiggsfieldError(
-                f"The submit to {path} didn't get an answer ({exc.message}). It may or may not have created a job.",
-                hint="Slate never retries a submit. Check the Higgsfield console for a new request before trying "
-                     "again, so it isn't paid for twice.") from exc
-        if not (200 <= status < 300) or not answer.get("request_id"):
-            ledger.finish(row, status="failed", actual=0.0, result={"http": status, "lane": LANE})
-            self._check("submit", status, answer if not (200 <= status < 300) else {"detail": "no request_id"})
+        if adopted is not None:
+            if not idem:
+                ledger.orphan(adopted["id"], "an earlier submit died before Higgsfield answered, and this one sends "
+                                             "no Idempotency-Key, so Slate can't tell whether it billed")
+                adopted = None
+            else:
+                ledger.adopt(adopted["id"])  # the same key: Higgsfield answers with the original request if it exists
+                log.info(f"{path}: an earlier submit died before Higgsfield answered; sending it again with the same "
+                         "Idempotency-Key, so it can't be billed twice")
+        est = ledger_estimate(path, body, quote, idempotency_key=idem)
+        row = adopted["id"] if adopted is not None else ledger.begin(
+            est, film=film, mode=mode, approval_id=approval_id, rework=rework, note=note or f"higgsfield {path}",
+            key=request_key)
+        status, answer = self._post_submit(path, body, row=row, est=est, idem=idem)
         request_id = str(answer["request_id"])
         ledger.request(row, request_id)
         return {"request_id": request_id, "status": answer.get("status", "queued"), "ledger_row": row,
-                "quote": quote, "replay": bool(answer.get("replay")), "lane": LANE}
+                "quote": quote, "replay": bool(answer.get("replay")), "lane": LANE, "idempotency_key": idem,
+                "request_key": request_key, "resumed": adopted is not None}
+
+    def _post_submit(self, path: str, body: dict, *, row: str, est: ledger.Estimate,
+                     idem: str | None) -> tuple[int, dict]:
+        """POST the submit: with an Idempotency-Key, resend the same key and body when the answer was lost; without
+        one, exactly once. Closes the ledger row itself on anything but a request id."""
+        headers = {IDEMPOTENCY_HEADER: idem} if idem else {}
+        tries = SUBMIT_TRIES if idem else 1
+        delay = 2.0
+        status, answer, lost = 0, {}, None
+        for attempt in range(tries):
+            lost = None
+            try:
+                status, answer = self._send("submit", "POST", path, body=body, headers=headers,
+                                            replay_request={"path": path, "body": body})
+            except SlateError as exc:  # no answer at all: the job may exist, and bill
+                lost = exc
+                status, answer = 0, {}
+            ok = 200 <= status < 300 and answer.get("request_id")
+            if ok or (lost is None and status not in RETRY_STATUSES):
+                break
+            if attempt + 1 < tries:
+                why = lost.message if lost is not None else f"HTTP {status}"
+                log.warn(f"{path}: the submit didn't come back ({why}); sending it again with the same "
+                         "Idempotency-Key, which Higgsfield answers with the original request")
+                self._sleep(delay + random.uniform(0, 0.5))
+                delay = min(delay * 2, 10.0)
+        if 200 <= status < 300 and answer.get("request_id"):
+            return status, answer
+        if lost is not None or status in RETRY_STATUSES:
+            # Ambiguous: the job may exist, and bill. Count the price so budgets err the safe way, and say how to
+            # finish it without paying twice.
+            why = lost.message if lost is not None else f"HTTP {status}"
+            ledger.finish(row, status="failed", actual=est.amount,
+                          result={"error": why, "ambiguous": True, "lane": LANE, "idempotency_key": idem,
+                                  "tries": tries, "counted": "the quoted price, in case the job was created"})
+            if idem:
+                hint = ("It's safe to run it again: the retry sends the same Idempotency-Key, and Higgsfield answers "
+                        "with the original request instead of billing a second one.")
+            else:
+                hint = ("This submit had no Idempotency-Key, so Slate never retries it. Check the Higgsfield console "
+                        "for a new request before trying again, so it isn't paid for twice.")
+            raise HiggsfieldError(f"The submit to {path} didn't get an answer after {tries} tr"
+                                  f"{'y' if tries == 1 else 'ies'} ({why}). It may or may not have created a job.",
+                                  status=status or None, hint=hint)
+        ledger.finish(row, status="failed", actual=0.0, result={"http": status, "lane": LANE,
+                                                                "idempotency_key": idem})
+        if status == 422 and idem and "idempot" in json.dumps(answer).lower():
+            raise HiggsfieldError(
+                f"Higgsfield already has a request under this Idempotency-Key with a different body ({path}).",
+                status=status, hint="The request changed since it was first sent. Nothing new was billed; check the "
+                                    "Higgsfield console for the original, then run it as a new take.")
+        self._check("submit", status, answer if not (200 <= status < 300) else {"detail": "no request_id"})
+        raise HiggsfieldError(f"Higgsfield's answer to the submit had no request id ({path}).", status=status)
+
+    @staticmethod
+    def _abandoned_row(request_key: str) -> dict | None:
+        """This request's in-flight ledger row whose process died (slate.jobs.resume), if there is one."""
+        try:
+            import importlib  # noqa: PLC0415
+
+            resume = importlib.import_module("slate.jobs.resume")
+        except ModuleNotFoundError as exc:
+            if str(exc.name or "").startswith("slate.jobs"):
+                return None
+            raise
+        rows = resume.pending(key=request_key, provider=PROVIDER)
+        return rows[-1] if rows else None
 
     def status(self, request_id: str) -> dict:
         """One status poll (GET, safe to retry)."""
@@ -370,9 +482,10 @@ class Client:
 
     def generate(self, path: str, body: dict, *, out_dir: str | os.PathLike, stem: str, film: Any = None,
                  mode: str = "supervised", approval_id: str | None = None, note: str | None = None,
-                 on_submitted: Callable[[dict], None] | None = None, timeout_s: float = 1800.0) -> dict:
+                 on_submitted: Callable[[dict], None] | None = None, timeout_s: float = 1800.0,
+                 key: str | None = None) -> dict:
         """Estimate → budget check → in-flight row → submit → (record) → wait → download, as one call."""
-        sub = self.submit(path, body, film=film, mode=mode, approval_id=approval_id, note=note)
+        sub = self.submit(path, body, film=film, mode=mode, approval_id=approval_id, note=note, key=key)
         if on_submitted:
             on_submitted(sub)
         final = self.wait(sub["request_id"], timeout_s=timeout_s)
@@ -389,11 +502,9 @@ class Client:
                 continue
             est = row.get("estimate") or {}
             if state == "completed":
-                details = est.get("details") or {}
-                actual = details.get("discounted_usd")
-                actual = float(actual) if isinstance(actual, (int, float)) else float(est.get("amount") or 0.0)
-                ledger.finish(row["id"], status="done", actual=actual,
-                              result={"status": state, "actual_basis": "quoted price (the API has no balance "
+                ledger.finish(row["id"], status="done", actual=float(est.get("amount") or 0.0),
+                              result={"status": state, "actual_basis": "the quoted price (/estimate's usd, after "
+                                                                        "any discount; the API has no balance "
                                                                         "endpoint)", "lane": LANE})
             elif state in ("canceled", "cancelled"):
                 ledger.finish(row["id"], status="cancelled", actual=0.0, result={"status": state, "lane": LANE})
@@ -401,8 +512,9 @@ class Client:
                 ledger.finish(row["id"], status="failed", actual=0.0, result={"status": state, "lane": LANE})
 
 
-def ledger_estimate(path: str, body: dict, quote: dict) -> ledger.Estimate:
-    """The ledger's view of a quote: the list price books against budgets, the discounted price rides along."""
+def ledger_estimate(path: str, body: dict, quote: dict, *, idempotency_key: str | None = None) -> ledger.Estimate:
+    """The ledger's view of a quote: the price (usd, after any discount) books against budgets; the saving and the
+    list price ride along, never in its place."""
     usd = quote_usd(quote)
     if usd is None:
         info = config.model_info(path)
@@ -414,8 +526,11 @@ def ledger_estimate(path: str, body: dict, quote: dict) -> ledger.Estimate:
         return ledger.estimate(PROVIDER, "generate", model=path,
                                seconds=float(seconds) if isinstance(seconds, (int, float)) else None)
     return ledger.estimate(PROVIDER, "generate", amount=usd, basis="Higgsfield /estimate (free)", model=path,
-                           discounted_usd=quote_discounted_usd(quote), lane=LANE,
-                           pricing=quote.get("pricing_description"), replay=bool(quote.get("replay")))
+                           saving_usd=quote_saving_usd(quote), list_usd=quote_list_usd(quote), lane=LANE,
+                           pricing=quote.get("pricing_description"), replay=bool(quote.get("replay")),
+                           idempotency_key=idempotency_key,
+                           quote={k: quote.get(k) for k in ("usd", "discount", "credits", "pricing_description")
+                                  if k in quote})
 
 
 def _body_key(path: str, body: dict) -> str:
@@ -492,8 +607,13 @@ def _fake_probe(key: str, request: dict) -> dict:
     return {"http": 404, "detail": "replay: a request that can't exist"}
 
 
-for _op, _faker in (("estimate", _fake_estimate), ("submit", _fake_submit), ("status", _fake_status),
-                    ("cancel", _fake_cancel), ("upload_url", _fake_upload), ("probe", _fake_probe)):
+# The replay stand-ins, by operation. Tests re-install these before each test, so a stub another test left in the
+# shared registry can't change what a replayed call answers.
+FAKERS: dict[str, Callable[[str, dict], dict]] = {
+    "estimate": _fake_estimate, "submit": _fake_submit, "status": _fake_status, "cancel": _fake_cancel,
+    "upload_url": _fake_upload, "probe": _fake_probe,
+}
+for _op, _faker in FAKERS.items():
     replay.register_faker(PROVIDER, _op, _faker)
 
 
@@ -594,6 +714,42 @@ def describe_lane() -> dict:
 
 
 def log_quote(path: str, quote: dict) -> None:
-    usd, disc = quote_usd(quote), quote_discounted_usd(quote)
-    log.info(f"{path}: ${usd if usd is not None else '?'} list" + (f", ${disc} discounted" if disc is not None else "")
+    usd, saving = quote_usd(quote), quote_saving_usd(quote)
+    log.info(f"{path}: ${usd if usd is not None else '?'}" + (f" (${saving} off a list price of "
+                                                                f"${quote_list_usd(quote)})" if saving else "")
              + (" (replay)" if quote.get("replay") else ""))
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# The job queue's recovery hook (slate.jobs.resume): how an abandoned row's request is settled
+
+
+def resume_poll(request_id: str | None, row: dict) -> dict:
+    """One status poll for an abandoned ledger row. A finished job books the quoted price (`usd`, after any discount:
+    the Cloud API has no balance endpoint); failed, moderated and cancelled ones aren't billed."""
+    if not request_id:
+        return {"status": "unknown", "why": "no request id to poll (the submit died before Higgsfield answered)"}
+    answer = Client().status(str(request_id))
+    state = answer.get("status")
+    if state == "completed":
+        return {"status": "done", "actual": float((row.get("estimate") or {}).get("amount") or 0.0),
+                "result": {"status": state, "recovered": True, "lane": LANE}}
+    if state in UNBILLED:
+        return {"status": "failed", "actual": 0.0, "why": f"Higgsfield finished it as {state} (not billed)"}
+    return {"status": "running"}
+
+
+def _register_resume_hooks() -> None:
+    try:
+        import importlib  # noqa: PLC0415
+
+        resume = importlib.import_module("slate.jobs.resume")
+    except ModuleNotFoundError as exc:
+        if str(exc.name or "").startswith("slate.jobs"):
+            return
+        raise
+    if hasattr(resume, "register"):
+        resume.register(PROVIDER, resume_poll)
+
+
+_register_resume_hooks()

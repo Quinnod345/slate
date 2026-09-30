@@ -4,7 +4,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {afterAll, beforeAll, describe, expect, it} from 'vitest';
-import {cli, decodeFrame, film, ok, probe, scratch} from './helpers.mjs';
+import {cli, decodeFrame, film, kitCore, ok, probe, readJson, scratch, twoActs} from './helpers.mjs';
 import {ffmpegArgs, filterChain} from '../../remotion/render_mb.mjs';
 
 let root;
@@ -110,6 +110,57 @@ describe('render', () => {
     expect(ext.code).toBe(2);
     expect(ext.json.error).toMatch(/\.mov \(ProRes\) or a \.mkv/);
     expect(cli('render', {film: dir, act: 7, out: path.join(root, 'out', 'x.mov')}, {data}).code).toBe(2);
+  });
+
+  it.skipIf(!kitCore)("with trace, writes the act's motion trace from the kit's motion registry (§12 shape)", () => {
+    const traced = film(root, 'traced', (d) => {
+      fs.writeFileSync(
+        path.join(d, 'scenes/act1/beats.ts'),
+        "import {defineMotion} from '@slate/kit/core';\nexport const slide = defineMotion({id: 'square_slide', shot: 'S01', prop: 'x', frame_in: 0, frame_out: 12, from: 20, to: 116, entrance: true});\n",
+      );
+      const f = path.join(d, 'scenes/act1/index.tsx');
+      fs.writeFileSync(f, fs.readFileSync(f, 'utf8').replace("import {film, type SceneProps} from '@film/data';", "import {film, type SceneProps} from '@film/data';\nimport './beats';"));
+    });
+    const r = ok('render', {film: traced, act: 1, from: 0, to: 1, sub: 1, concurrency: 1, trace: true, out: path.join(root, 'out', 'traced.mov')}, {data});
+    expect(r.frame_count).toBe(2);
+    expect(r.trace).toEqual({written: true, file: 'timing/motion/act1.json', entries: 1});
+    const trace = readJson(path.join(traced, 'timing/motion/act1.json'));
+    expect(Object.keys(trace[0]).sort()).toEqual(['ease', 'entrance', 'frame_in', 'frame_out', 'from', 'id', 'loop_period', 'prop', 'rig', 'samples', 'shot', 'to']);
+    expect(trace[0]).toMatchObject({id: 'square_slide', shot: 'S01', prop: 'x', frame_in: 0, frame_out: 12, from: 20, to: 116, entrance: true});
+  });
+
+  // The films' lesson 3: one half-written act broke the shared bundle for every builder.
+  it("renders one act while another act's file is half-written, and refuses the broken act by name", () => {
+    const iso = film(root, 'half-written', (d) => {
+      twoActs(d);
+      fs.mkdirSync(path.join(d, 'scenes/act2'), {recursive: true});
+      fs.writeFileSync(path.join(d, 'scenes/act2/index.tsx'), "import React from 'react';\nexport default function Act2() {\n  return (<div>half-written\n}\n");
+    });
+    const r = ok('render', {film: iso, act: 1, from: 0, to: 1, sub: 1, concurrency: 1, out: path.join(root, 'out', 'iso-act1.mov')}, {data});
+    expect(r.frame_count).toBe(2);
+    const two = cli('render', {film: iso, act: 2, sub: 1, out: path.join(root, 'out', 'iso-act2.mov')}, {data});
+    expect(two.code).toBe(1);
+    expect(two.json.error).toMatch(/^Act2 can't render: act 2 doesn't build \(scenes\/act2\/index\.tsx:\d+:\d+: /);
+    expect(two.json.hint).toMatch(/slate check 2/);
+    const whole = cli('render', {film: iso, act: 'film', sub: 1, out: path.join(root, 'out', 'iso-film.mov')}, {data});
+    expect(whole.code).toBe(1);
+    expect(whole.json.error).toMatch(/^Film can't render: act 2 doesn't build/);
+    expect(fs.existsSync(path.join(root, 'out', 'iso-act2.mov'))).toBe(false);
+  });
+
+  // The films' lesson 2: a throw at module load took down every composition in the shared bundle.
+  it('renders one act while another act throws as its module loads; only that act fails', () => {
+    const iso = film(root, 'throws-at-load', (d) => {
+      twoActs(d);
+      fs.mkdirSync(path.join(d, 'scenes/act2'), {recursive: true});
+      fs.writeFileSync(path.join(d, 'scenes/act2/index.tsx'), "import React from 'react';\nthrow new Error('the narrator never says that word');\nexport default function Act2() {\n  return null;\n}\n");
+    });
+    const r = ok('render', {film: iso, act: 1, from: 0, to: 1, sub: 1, concurrency: 1, out: path.join(root, 'out', 'load-act1.mov')}, {data});
+    expect(r.frame_count).toBe(2);
+    const two = cli('render', {film: iso, act: 2, from: 0, to: 0, sub: 1, concurrency: 1, out: path.join(root, 'out', 'load-act2.mov')}, {data});
+    expect(two.code).not.toBe(0);
+    expect(JSON.stringify(two.json)).toMatch(/the narrator never says that word/);
+    expect(fs.existsSync(path.join(root, 'out', 'load-act2.mov'))).toBe(false);
   });
 
   it('a render that makes its own bundle deletes it when it is done', () => {

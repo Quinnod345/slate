@@ -51,7 +51,8 @@ def test_npm_ci_runs_only_when_asked_and_is_recorded(slate_home, tmp_path, monke
     bin_dir.mkdir()
     log = tmp_path / "npm.log"
     npm = bin_dir / "npm"
-    npm.write_text(f"#!/bin/sh\necho \"$PWD $@\" >> {log}\nmkdir -p node_modules/remotion && echo '{{}}' > node_modules/remotion/package.json\n")
+    npm.write_text(f"#!/bin/sh\necho \"$PWD $@\" >> {log}\necho \"skip=$PUPPETEER_SKIP_DOWNLOAD\" >> {log}.env\n"
+                   "mkdir -p node_modules/remotion && echo '{}' > node_modules/remotion/package.json\n")
     npm.chmod(npm.stat().st_mode | stat.S_IXUSR)
     # Named exactly: slate.procs searches Homebrew first whatever PATH says, so a stand-in can't shadow the real npm.
     monkeypatch.setenv("SLATE_NPM", str(npm))
@@ -61,6 +62,8 @@ def test_npm_ci_runs_only_when_asked_and_is_recorded(slate_home, tmp_path, monke
     where, *argv = log.read_text().split()
     assert Path(where).resolve() == dest.resolve()
     assert argv == ["ci", "--no-audit", "--no-fund"]
+    # puppeteer's own Chrome download is skipped: the web renderer drives the engine's headless shell by path
+    assert (tmp_path / "npm.log.env").read_text().split() == ["skip=1"]
     marker = install.marker(dest)
     assert marker["npm_ci_lock_sha256"] == marker["lock_sha256"]
     assert install.is_complete(dest)

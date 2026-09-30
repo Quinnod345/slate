@@ -494,3 +494,63 @@ def test_an_ae_act_renderer_with_another_signature_is_a_missing_prerequisite(fak
     with pytest.raises(MissingPrerequisite, match="doesn't take"):
         runner.run(film, act=1, engine="ae", go=True)
     assert registry.find(film, 1) is None
+
+
+# ---- review additions: the motion trace, the engine's own gates, web stills ------------------------------------------
+
+def test_a_remotion_render_refreshes_the_acts_motion_trace_and_records_it(fakes, film):
+    result = runner.run(film, act=1)
+    assert [c for c, _a in fakes.bridge.calls if c == "trace"] == ["trace"]
+    [trace_args] = [a for c, a in fakes.bridge.calls if c == "trace"]
+    assert trace_args == {"film": str(film), "act": 1}
+    assert result["renders"][0]["trace"] == {"written": True, "file": "timing/motion/act1.json", "entries": 0}
+    row = next(r for r in fakes.state.records if r["path"] == "timing/motion/act1.json")
+    assert row["producer"] == "slate render --act 1"
+    assert row["inputs"] == ["scenes/act1/index.tsx", "timing/shots.json"]
+
+
+def test_a_trace_that_cant_be_written_is_reported_and_the_render_still_stands(fakes, film):
+    fakes.bridge.fail_trace = True
+    result = runner.run(film, act=1)
+    r = result["renders"][0]
+    assert r["registered"] is True and registry.find(film, 1) is not None
+    assert r["trace"]["written"] is False and "throws while loading" in r["trace"]["reason"]
+
+
+def test_the_web_engine_writes_its_trace_while_it_renders(fakes, film):
+    result = runner.run(film, act=2, engine="web")
+    assert "trace" not in [c for c, _a in fakes.bridge.calls]
+    assert "trace" not in result["renders"][0]
+
+
+def test_the_engines_own_gates_come_back_as_render_gates_worst_across_chunks(fakes, film):
+    def gate(name, status):
+        return {"gate": name, "status": status, "summary": f"{name} {status}", "evidence": [], "engine": {"name": "kit"},
+                "inputs": {}, "checked_at": "2026-09-30T00:00:00+00:00", "details": {}}
+
+    fakes.bridge.gates[(1, 0)] = [gate("fonts", "PASS")]
+    fakes.bridge.gates[(1, 10)] = [gate("fonts", "REVIEW"), gate("web.network", "PASS")]
+    result = runner.run(film, act=1)
+    by_name = {g["gate"]: g for g in result["gates"]}
+    assert list(by_name) == ["render.act1.frames", "render.act1.fonts", "render.act1.web.network"]
+    assert by_name["render.act1.fonts"]["status"] == "REVIEW"  # the worst chunk wins
+    assert by_name["render.act1.fonts"]["details"] == {"stage": "render", "chunk": 1}
+
+
+def test_web_stills_render_one_frame_each_through_web_render(fakes, film):
+    from slate.render import stills
+
+    result = stills.stills(film, frames=[3, 40], engine="web", scale=1, samples=2)
+    assert [(s["act"], s["frame"]) for s in result["stills"]] == [(1, 3), (2, 10)]
+    calls = [a for c, a in fakes.bridge.calls if c == "web-render"]
+    assert [(a["act"], a["from"], a["to"], a["sub"]) for a in calls] == [(1, 3, 3, 2), (2, 10, 10, 2)]
+    assert all(a["out"].endswith(".png") for a in calls)
+    assert "bundle" not in [c for c, _a in fakes.bridge.calls]
+
+
+def test_ae_stills_are_refused_with_the_way_to_get_them(fakes, film):
+    from slate.render import stills
+
+    with pytest.raises(Refused, match="whole acts") as err:
+        stills.stills(film, frames=[3], engine="ae")
+    assert "slate render --engine ae --act N --go" in err.value.hint

@@ -1,0 +1,25 @@
+Slate
+Copyright (c) 2026 Quinn O'Donnell. All rights reserved.
+
+Slate is proprietary software for now. It's meant to be shared more widely later; until a new licence replaces this
+one, these terms apply.
+
+1. Permission. You may use, copy and change Slate only with Quinn O'Donnell's written permission. Access to Slate's
+   private repository, granted by Quinn O'Donnell, is that permission for your own use: making films on your own
+   machines, and changing Slate's code for that purpose.
+
+2. No redistribution. The permission above doesn't cover sharing Slate or any part of it with anyone else, publishing
+   it, sublicensing it, selling it, or offering it to others as a service.
+
+3. Your work is yours. Films, brand packs, scripts and other material you make with Slate belong to you. This licence
+   covers Slate's own code, skills, documentation and data files, not what you make with them.
+
+4. Other people's software. Slate depends on software under its own licences, including Remotion, GSAP and the MCP
+   SDK. This licence changes none of them. In particular, Remotion is free for individuals, companies of up to three
+   people, non-profits and evaluation, and a company of four or more needs its own Remotion licence (or can use
+   Slate's open web renderer or After Effects paths, which need none).
+
+5. No warranty. SLATE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+   TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+   AUTHOR BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
+   ARISING FROM, OUT OF OR IN CONNECTION WITH SLATE OR THE USE OR OTHER DEALINGS IN IT.

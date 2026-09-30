@@ -1,0 +1,63 @@
+{
+ "name": "website-hero-loop",
+ "title": "Website hero loop",
+ "summary": "A silent, seamless loop of 4 to 20 seconds that plays behind a website's hero section: picture only, no words, no audio track.",
+ "use_when": "A homepage or landing page wants motion behind its headline. The headline itself stays in the page's HTML.",
+ "runtime_s": {"min": 4, "max": 20, "target": 8},
+ "aspects": {
+  "16:9": {"width": 1920, "height": 1080, "channels": ["website"], "type_scale": 1.0, "label": "desktop"},
+  "9:16": {"width": 1080, "height": 1920, "channels": ["website"], "type_scale": 1.0, "label": "mobile, full bleed"}
+ },
+ "default_aspect": "16:9",
+ "fps_num": 30,
+ "fps_den": 1,
+ "pace": {"max_words_per_second": 2.6, "note": "A hero loop has no voice; the ceiling is here for completeness."},
+ "on_screen_max_words": 0,
+ "structure": {
+  "acts": {"min": 1, "max": 1},
+  "beats": [
+   {"name": "loop", "job": "One continuous motion that ends exactly where it began, so the seam never shows.", "share": 1.0}
+  ],
+  "rules": [
+   "Calm enough to sit behind a headline: no flashes, nothing that competes with the words beside it.",
+   "The subject stays in the centre that survives every window shape (see the website safe zone)."
+  ]
+ },
+ "loop": {
+  "seamless": true,
+  "attributes": "<video autoplay loop muted playsinline poster=...>",
+  "poster": "The loop's calmest frame, also shown instead of the loop when the viewer prefers reduced motion.",
+  "rules": [
+   "Author the motion as a cycle whose period is the film's length: the last frame flows into the first.",
+   "Ship no audio track at all: browsers autoplay silent video, and a silent track only adds bytes.",
+   "The page gives the loop a pause control (WCAG 2.2.2: moving content longer than five seconds that starts on its own).",
+   "Under prefers-reduced-motion, the page shows the poster instead of playing the loop.",
+   "Words go in the page's HTML, where they stay accessible, translatable and sharp at every size."
+  ]
+ },
+ "encode": {
+  "deliver": ["MP4: H.264, yuv420p, moov atom first (faststart)", "WebM: VP9 or AV1"],
+  "audio": "none",
+  "note": "Keep the files small: a hero loop loads before anything else on the page."
+ },
+ "audio": "none",
+ "loudness": {"lufs": null, "true_peak": null, "note": "No audio track: browsers only autoplay muted or silent video."},
+ "captions": {"needed": false, "burn_in": false, "max_lines": 2, "max_chars": 42, "max_cps": 17, "min_s": 1.0,
+              "note": "Nothing is spoken, so there is nothing to caption."},
+ "budget": {"family": "reel_or_ad", "elevenlabs": {"vo": [0, 0], "score": [0, 0]}, "higgsfield": [0, 0],
+            "rework_factor": 1.5,
+            "note": "A silent loop spends no voice or score credits. If a generated plate would genuinely help, the requester turns generation on and raises the budget."},
+ "broadcast": false,
+ "generation": "rarely",
+ "engines": ["remotion", "web"],
+ "sources": [
+  {"title": "web.dev: Replace animated GIFs with video for faster page loads", "url": "https://web.dev/articles/replace-gifs-with-videos", "checked": "2026-09-30",
+   "says": "<video autoplay loop muted playsinline>, an H.264 MP4 and a VP9 WebM source."},
+  {"title": "MDN: Autoplay guide for media and Web Audio APIs", "url": "https://developer.mozilla.org/en-US/docs/Web/Media/Guides/Autoplay", "checked": "2026-09-30",
+   "says": "Autoplay is allowed for video with no audio track or muted audio; Safari needs playsinline."},
+  {"title": "W3C: Understanding SC 2.2.2 Pause, Stop, Hide", "url": "https://www.w3.org/WAI/WCAG22/Understanding/pause-stop-hide.html", "checked": "2026-09-30",
+   "says": "Moving content that starts automatically, lasts more than five seconds and sits beside other content needs a way to pause, stop or hide it."},
+  {"title": "MDN: prefers-reduced-motion", "url": "https://developer.mozilla.org/en-US/docs/Web/CSS/@media/prefers-reduced-motion", "checked": "2026-09-30",
+   "says": "Detects that the viewer asked to minimize non-essential motion."}
+ ]
+}

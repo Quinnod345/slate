@@ -18,6 +18,7 @@ import {EngineError, childEnv, log, refused, requireTool, run, sha256File, usage
 import {parseTarget} from './lib/film.mjs';
 import {chromiumOptions} from './browser.mjs';
 import {useBundle} from './bundle.mjs';
+import {ensureEntry, refuseBroken} from './entry.mjs';
 import {browserLogCollector, fontGate} from './kit_bridge.mjs';
 
 export const DELIVERY_SAMPLES = 16;
@@ -38,7 +39,7 @@ export const BT709 = ['-color_primaries', 'bt709', '-color_trc', 'bt709', '-colo
  *
  * setparams then stamps all three colour tags on the frames. ffmpeg 9 lets the frames' own metadata (unknown, from
  * PNG) override -color_primaries and -color_trc, so the films' renders came out tagged with the BT.709 matrix but
- * unknown primaries and transfer (build/B/renders/r3f/B1_B01-B04.mov, probed 2026-09-30). The pixels are identical
+ * unknown primaries and transfer (one of the films' act renders, probed 2026-09-30). The pixels are identical
  * either way (same frame md5); only the tags, which After Effects reads, change.
  */
 export function filterChain(sub, fps) {
@@ -124,6 +125,9 @@ export async function renderMb(ctx, args, {onTrace = null} = {}) {
   const gl = args.gl ?? 'angle';
   const concurrency = Number(args.concurrency ?? defaultConcurrency());
   const inputProps = {...(args.props ?? {}), sub};
+  // An act whose module doesn't build is left out of the bundle (so the others still render): refuse it here, by name,
+  // before any bundling.
+  refuseBroken(await ensureEntry(ctx, {brandPath: args.brand_path ?? null}), target.comp);
 
   const b = await useBundle(ctx, args);
   const part = `${out}.part`;

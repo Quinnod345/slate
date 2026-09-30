@@ -1,0 +1,14 @@
+{
+ "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+ "name": "slate",
+ "version": "0.1.0",
+ "description": "A film studio any agent can run: a brief becomes a finished, gated film. Ten skills for intake, story, motion, building, voice, sound, generation, finishing, QA and brand onboarding, plus Slate's MCP server over its command line and job queue. Needs Slate installed on the Mac first.",
+ "author": {
+  "name": "Quinn O'Donnell",
+  "url": "https://github.com/Quinnod345"
+ },
+ "homepage": "https://github.com/Quinnod345/slate",
+ "repository": "https://github.com/Quinnod345/slate",
+ "license": "Proprietary",
+ "keywords": ["video", "film", "motion-design", "voice", "sound-design", "remotion", "after-effects"]
+}

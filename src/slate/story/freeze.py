@@ -8,23 +8,22 @@ another shot or give a shot a new id once any file under scenes/ uses the ids. T
 
 The storyboard's own record (script/storyboard.json "shot_ids") is the reference, because it keeps each id's
 source id and storyboard.json is only ever written by a passing build. The freeze is also recorded in film.lock.json
-through the state module (`slate.state.lock.freeze_shot_ids`), whose `frozen_shot_ids` is the fallback reader. The
-state module's own `check_renumber` is stricter (it refuses any move of a frozen id); the story stage applies the
-plan's rule instead: a renumber is refused once a scene uses the ids (docs/PLAN.md §3).
+through the state module (`slate.state.lock.freeze_shot_ids`), whose `frozen_shot_ids` is the fallback reader. Both
+modules apply the plan's one rule, a renumber is refused once any scene uses the ids (docs/PLAN.md §3), with one
+scanner for "a scene uses it" (`slate.state.lock.scene_references`); `slate.state.lock.check_renumber` is the same
+rule for callers that hold an {old id: new id} map rather than a planned script.
 """
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 from slate import jsonio
 from slate.gates import GateResult
+from slate.state.lock import scene_references
 from slate.story.model import Plan
 
 STORYBOARD = Path("script") / "storyboard.json"
-SCAN_SKIP_DIRS = {"node_modules", ".git", "dist", "build", "out", "renders", "__pycache__"}
-SCAN_MAX_BYTES = 2_000_000
 
 
 def frozen(film_dir: Path) -> list[dict] | None:
@@ -55,31 +54,6 @@ def record_freeze(film_dir: Path, ids: list[str]) -> None:
         from slate import log  # noqa: PLC0415
 
         log.warn(f"couldn't record the frozen shot ids in film.lock.json: {getattr(exc, 'message', exc)}")
-
-
-def scene_references(film_dir: Path, ids: list[str]) -> dict[str, list[str]]:
-    """{id: [scene files that mention it]} for text files under scenes/ (whole-word matches)."""
-    root = Path(film_dir) / "scenes"
-    if not ids or not root.is_dir():
-        return {}
-    rx = re.compile(r"(?<![\w-])(" + "|".join(re.escape(i) for i in sorted(ids, key=len, reverse=True)) + r")(?![\w-])")
-    out: dict[str, list[str]] = {}
-    for path in sorted(root.rglob("*")):
-        if not path.is_file() or any(part in SCAN_SKIP_DIRS or part.startswith(".") for part in
-                                     path.relative_to(root).parts):
-            continue
-        try:
-            if path.stat().st_size > SCAN_MAX_BYTES:
-                continue
-            data = path.read_bytes()
-        except OSError:
-            continue
-        if b"\0" in data[:4096]:
-            continue  # binary (images, audio)
-        text = data.decode("utf-8", "replace")
-        for m in set(rx.findall(text)):
-            out.setdefault(m, []).append(str(path.relative_to(film_dir)))
-    return out
 
 
 def check(film_dir: Path, plan: Plan) -> GateResult:

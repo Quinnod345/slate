@@ -10,6 +10,7 @@ Cross-module interface (docs/ARCHITECTURE.md §12):
 - `load_shots(film_dir) -> dict`          timing/shots.json, or a clear "run slate timing" when it isn't there
 - `words.word_time(film_dir, shot, word, occ=1, which="start") -> (seconds, exact)`   never raises
 - `spoken.forms(token, lang="en") -> list[list[str]]`                                  how a number or symbol is said
+- `beats.problems(beats, fps=None) -> list[str]`   what t, start and dur mean in timing/visual_events (t is the beat)
 """
 
 from __future__ import annotations
@@ -32,7 +33,8 @@ def load_shots(film_dir: str | os.PathLike) -> dict:
     return _load(Path(film_dir))
 
 
-_SUBMODULES = {"align", "audio", "builder", "cues", "ease", "shots", "spoken", "takes", "timeline", "vowords", "words"}
+_SUBMODULES = {"align", "audio", "beats", "builder", "cues", "ease", "shots", "spoken", "takes", "timeline", "vowords",
+               "words"}
 
 
 def __getattr__(name: str):

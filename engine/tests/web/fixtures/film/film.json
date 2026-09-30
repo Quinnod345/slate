@@ -1,0 +1,13 @@
+{
+ "id": "web-fixture",
+ "title": "Web renderer fixture",
+ "format": "review",
+ "language": "en",
+ "fps_num": 25,
+ "fps_den": 1,
+ "width": 320,
+ "height": 180,
+ "brand": "web-fixture",
+ "mode": "draft",
+ "note": "A neutral stand-in film for the web renderer's tests: 25 fps and 320 x 180 on purpose, so nothing leans on a common rate or size."
+}

@@ -140,7 +140,9 @@ def from_voice_stage(film_dir: Path, shot: str, sha: str, engine: str, replaying
     `slate voice align` already heard every final take; timing reuses that rather than transcribing twice. It must be
     the same audio (SHA-256) and the same kind of aligner, and a replayed stand-in is only good enough in replay mode.
     """
-    doc = jsonio.read(Path(film_dir) / VOICE_ALIGN / f"{shot}.json", default=None)
+    from slate.timing.takes import film_file  # noqa: PLC0415
+
+    doc = jsonio.read(film_file(Path(film_dir), VOICE_ALIGN / f"{shot}.json"), default=None)
     if not isinstance(doc, dict) or doc.get("sha256") != sha or doc.get("segments") is None:
         return None
     eng = doc.get("engine") or {}

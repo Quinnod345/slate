@@ -1,0 +1,53 @@
+{
+ "name": "product-demo",
+ "title": "Product demo",
+ "summary": "A 30-to-120-second walkthrough of the real product, built from real app captures: context, the task, the walkthrough, the result.",
+ "use_when": "The product itself is the story and the viewer should see it working, exactly as it ships.",
+ "runtime_s": {"min": 30, "max": 120, "target": 60},
+ "aspects": {
+  "16:9": {"width": 1920, "height": 1080, "channels": ["website", "youtube"], "type_scale": 1.0},
+  "9:16": {"width": 1080, "height": 1920, "channels": ["instagram_reels", "tiktok", "youtube_shorts"], "type_scale": 1.2,
+           "note": "For phone apps, the vertical cut shows the app at its own shape."}
+ },
+ "default_aspect": "16:9",
+ "fps_num": 30000,
+ "fps_den": 1001,
+ "pace": {"max_words_per_second": 2.6, "lead": 0.3, "tail": 0.3, "act_tail": 0.9},
+ "on_screen_max_words": 10,
+ "structure": {
+  "acts": {"min": 2, "max": 4},
+  "beats": [
+   {"name": "context", "job": "Who this is for and the moment they reach for the product.", "share": 0.1},
+   {"name": "task", "job": "The one job the viewer wants done.", "share": 0.2},
+   {"name": "walkthrough", "job": "The job done in the real product, each tap landing on the word that names it.", "share": 0.45},
+   {"name": "result", "job": "What the viewer has at the end.", "share": 0.15},
+   {"name": "call to action", "job": "Where to get it.", "share": 0.1}
+  ],
+  "rules": [
+   "Show only what ships today: nothing unbuilt, stubbed or switched off is ever shown working.",
+   "A seeded demo account and sample data, labelled as sample data; never a real customer's data.",
+   "One set of numbers across every shot: the same sample company everywhere."
+  ]
+ },
+ "capture": {
+  "source": "slate capture ios (the Simulator, with status-bar overrides, a seeded demo account and a pinned build) or slate capture web (through Aside at a fixed viewport)",
+  "principle": "Capture for truth and speed; rebuild in code when a shot needs camera moves, restaging, motion blur or exact type.",
+  "rebuild_in_code_when": ["camera moves", "restaging", "motion blur", "exact type"],
+  "rules": [
+   "Captures are conformed to the film's frame rate as image sequences and beat-mapped, so taps land on voice words and make their sounds.",
+   "A rebuilt shot matches the real screen pixel for pixel before it moves."
+  ]
+ },
+ "audio": "required",
+ "loudness": {"lufs": -14, "true_peak": -1, "tolerance_lu": 0.5, "standard": "web, social and streaming delivery"},
+ "captions": {"needed": true, "burn_in": true, "renderer": "remotion", "font": "brand", "sidecar": ["srt", "vtt"],
+              "max_lines": 2, "max_chars": 42, "max_cps": 17, "min_s": 1.0,
+              "position": "below the product, clear of the app's own controls",
+              "note": "Demos often play muted on sites and in feeds, so captions are burned in; the vertical cut uses shorter lines."},
+ "budget": {"family": "explainer", "elevenlabs": {"vo": [1000, 5000], "score": [2500, 5000]}, "higgsfield": [0, 0],
+            "rework_factor": 1.5,
+            "note": "No Higgsfield budget: generation is off, because the product's truth comes from captures. If the requester turns generation on for a scene the product can't show, raise the budget with them (up to the explainer family's $60)."},
+ "broadcast": false,
+ "generation": "none",
+ "engines": ["remotion", "web", "ae"]
+}

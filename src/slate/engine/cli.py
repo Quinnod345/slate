@@ -125,19 +125,40 @@ def _record_lock(film_dir: Path, rel: str, sources: list[str]) -> None:
 
 def _emit(args: argparse.Namespace) -> int:
     film_dir = slate_cli.film(args)
-    res = bridge.call("emit-events", {"film": str(film_dir), "act": args.act}, timeout=EMIT_TIMEOUT)
+    dry = bool(slate_cli.flag(args, "dry_run", False))
+    res = bridge.call("emit-events", {"film": str(film_dir), "act": args.act, "dry_run": dry or None},
+                      timeout=EMIT_TIMEOUT)
     lines = []
+    problems = 0
     for a in res["acts"]:
-        _record_lock(film_dir, a["file"], a.get("sources", []))
-        if a.get("motion", {}).get("written"):
-            _record_lock(film_dir, a["motion"]["file"], a.get("sources", []))
-        what = f"silent ({a['reason']})" if a["silent"] else f"{a['events']} beats"
         motion = a.get("motion", {})
-        trace = f"; motion trace {motion['entries']} moves" if motion.get("written") else f"; no motion trace: {motion.get('reason')}"
-        lines.append(f"act {a['act']}: {what} → {a['file']}{trace}")
-    lines += [f"act {s['act']}: skipped ({s['reason']})" for s in res.get("skipped", [])]
+        if not dry:
+            sources = a.get("sources", []) + list((a.get("captures") or {}).get("files", []))
+            _record_lock(film_dir, a["file"], sources)
+            if motion.get("written"):
+                _record_lock(film_dir, motion["file"], sources)
+        what = f"silent ({a['reason']})" if a["silent"] else f"{a['events']} beats"
+        if a.get("capture_beats"):
+            what += f", {a['capture_beats']} from captures"
+        if motion.get("written") or motion.get("would_write"):
+            trace = f"; motion trace {motion['entries']} moves"
+        else:
+            trace = f"; no motion trace: {motion.get('reason')}"
+        if dry:
+            found = a.get("problems") or []
+            problems += len(found)
+            verdict = f"{len(found)} problem{'s' if len(found) != 1 else ''}" if found else "would pass"
+            lines.append(f"act {a['act']}: {what} → {a['file']}{trace} ({verdict}; dry run, nothing written)")
+            lines += [f"  - {p}" for p in found]
+        else:
+            lines.append(f"act {a['act']}: {what} → {a['file']}{trace}")
+        lines += [f"  note: {n}" for n in a.get("notes", [])]
+    for s in res.get("skipped", []):
+        waiting = f", {s['capture_beats']} capture beats waiting for it" if s.get("capture_beats") else ""
+        lines.append(f"act {s['act']}: skipped ({s['reason']}{waiting})")
     log.result({k: v for k, v in res.items() if k not in ("ok", "command")}, "\n".join(lines) or "No acts to emit.")
-    return 0
+    # a dry run is the check without the write: it exits 1 when the real run would be refused
+    return 1 if problems else 0
 
 
 # --- slate check ----------------------------------------------------------------------------------------------------
@@ -162,30 +183,47 @@ def banned_words(film_dir: Path) -> list[str] | None:
         return [str(w) for w in words] if isinstance(words, list) else []
 
 
+def _built(film_dir: Path, act: int) -> bool:
+    """A Remotion act the hand-in check reads: scenes/actN/index.* (a web scene has scenes/actN/web/index.html)."""
+    return any((film_dir / "scenes" / f"act{act}" / f"index{ext}").is_file() for ext in (".tsx", ".ts", ".jsx", ".js"))
+
+
+def _web(film_dir: Path, act: int) -> bool:
+    return not _built(film_dir, act) and (film_dir / "scenes" / f"act{act}" / "web" / "index.html").is_file()
+
+
 def _check(args: argparse.Namespace) -> int:
     film_dir = slate_cli.film(args)
     shots = jsonio.read(film_dir / "timing" / "shots.json", default=None)
+    skipped: list[dict] = []
     if args.act == "all":
         if not shots:
             raise UsageError("This film has no timing/shots.json yet.", hint="Run `slate timing` first.")
-        acts = sorted({int(s["act"]) for s in shots.get("shots", [])})
-        acts = [a for a in acts if (film_dir / "scenes" / f"act{a}").is_dir()]
+        every = sorted({int(s["act"]) for s in shots.get("shots", [])})
+        acts = [a for a in every if _built(film_dir, a)]
+        skipped = [{"act": a, "reason": "a web scene: the hand-in check reads Remotion acts only"} for a in every
+                   if _web(film_dir, a)]
+        if not acts:
+            raise UsageError("None of this film's Remotion acts is built yet (no scenes/actN/index.tsx): there's "
+                             "nothing to hand in.", hint="Build an act first; `slate status` shows where the film stands.")
     else:
         try:
             acts = [int(args.act)]
         except ValueError as exc:
             raise UsageError(f"`slate check` takes an act number or 'all', not {args.act!r}.") from exc
     words = banned_words(film_dir)
-    results: list[gates.GateResult] = []
-    for act in acts:
-        res = bridge.call("check", {"film": str(film_dir), "act": act, "banned_words": words,
-                                    "contracts": not args.no_contracts, "hold": args.hold}, timeout=CHECK_TIMEOUT)
-        results += [gates.GateResult.from_dict(g) for g in res["gates"]]
+    # one engine run for every act: at most one bundle, shared by every act's boundary contracts
+    res = bridge.call("check", {"film": str(film_dir), "acts": acts, "banned_words": words,
+                                "contracts": not args.no_contracts, "hold": args.hold},
+                      timeout=CHECK_TIMEOUT * len(acts))
+    results = [gates.GateResult.from_dict(g) for g in res["gates"]]
     if results:
         gates.write_report(film_dir, results)
     summary = gates.summarize(results)
-    log.result({"film": str(film_dir), "acts": acts, "gates": [r.to_dict() for r in results], "summary": summary},
-               gates.format_table(results))
+    human = gates.format_table(results)
+    human += "".join(f"\nact {s['act']}: not checked ({s['reason']})" for s in skipped)
+    log.result({"film": str(film_dir), "acts": acts, "skipped": skipped, "gates": [r.to_dict() for r in results],
+                "summary": summary}, human)
     return gates.exit_code(results)
 
 
@@ -201,7 +239,13 @@ def register(sub) -> None:
     slate_cli.add_command(grp, "skills", _skills,
                           help="fetch Remotion's and ElevenLabs' skills (pinned) into the engine, with Slate's overrides")
     p = slate_cli.add_command(sub, "emit-events", _emit,
-                              help="write each act's visual events (or its silence) and motion trace from its scenes")
+                              help="write each act's visual events (or its silence) and motion trace from its scenes",
+                              description=(
+                                  "Write timing/visual_events/actN.json (each act's beats, from the act's own modules, "
+                                  "the kit's defineEvent() registrations and placed captures' taps) and "
+                                  "timing/motion/actN.json (the kit's motion trace). Nothing is written while a beat "
+                                  "breaks a rule or a word lookup fell back to an estimate. With --dry-run it checks "
+                                  "everything, writes nothing, and exits 1 if the real run would be refused."))
     p.add_argument("--act", type=int, default=None, help="one act (default: every act that's built)")
     p = slate_cli.add_command(sub, "check", _check,
                               help="an act's hand-in check: types, word misses, banned words, events, boundary contracts")

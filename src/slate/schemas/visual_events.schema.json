@@ -2,12 +2,14 @@
  "$schema": "https://json-schema.org/draft/2020-12/schema",
  "$id": "slate/visual_events",
  "title": "timing/visual_events/actN.json",
- "description": "The beats an act's picture lands, exported for sound and QA (the films' v2 beat vocabulary). t is film seconds. An act with no beats says so: {\"silent\": true, \"reason\": \"…\"}. The films named their character kind after the character; here it is \"character\".",
- "oneOf": [
-  {"type": "array", "items": {"$ref": "#/$defs/beat"}},
-  {"type": "object", "required": ["silent", "reason"],
-   "properties": {"silent": {"const": true}, "reason": {"type": "string", "minLength": 1}}}
- ],
+ "description": "The beats an act's picture lands, exported for sound and QA (the films' v2 beat vocabulary). An act with no beats says so: {\"silent\": true, \"reason\": \"…\"}. The films named their character kind after the character; here it is \"character\". Time: t is always the beat, the film second the motion lands (its contact). A sustained motion also carries its span, start (film seconds) and dur (seconds): a draw and a count end on t (t = start + dur), a whoosh and a swell peak on t, inside the span. A draw and a count must give their span; any other kind may. The films timed one act's sustained draw at its start and said elsewhere that a draw ends on t, so the sound engine had to guess; the explicit span removes the guess. slate.timing.beats.problems() checks what a schema can't: t sits inside its span, and a draw or a count ends on t.",
+ "type": ["array", "object"],
+ "if": {"type": "object"},
+ "then": {
+  "required": ["silent", "reason"],
+  "properties": {"silent": {"const": true}, "reason": {"type": "string", "minLength": 1}}
+ },
+ "else": {"items": {"$ref": "#/$defs/beat"}},
  "$defs": {
   "beat": {
    "type": "object",
@@ -15,15 +17,25 @@
    "properties": {
     "shot": {"type": "string"},
     "id": {"type": "string"},
-    "t": {"type": "number", "minimum": 0},
+    "t": {"type": "number", "minimum": 0,
+          "description": "the beat: the film second the motion lands (a draw's or a count's end, a whoosh's or a swell's peak)"},
+    "start": {"type": "number", "minimum": 0, "description": "film seconds where a sustained motion begins"},
+    "dur": {"type": "number", "exclusiveMinimum": 0, "description": "seconds the sustained motion runs, from start"},
     "frame": {"type": "integer", "minimum": 0},
     "kind": {"enum": ["tap", "type", "land", "snap", "count", "draw", "data", "page", "stamp", "whoosh", "swell",
                       "character", "impact"]},
     "size": {"enum": ["s", "m", "l"]},
     "note": {"type": "string"},
-    "from": {"type": "number"},
-    "to": {"type": "number"}
-   }
+    "from": {"type": "number", "description": "a count's first value"},
+    "to": {"type": "number", "description": "a count's last value, reached at t"},
+    "x": {"type": "number", "description": "where across the frame it happens, in pixels (for pan)"},
+    "pan": {"type": "number", "minimum": -1, "maximum": 1, "description": "-1 is hard left, 1 hard right"},
+    "source": {"type": "string",
+               "description": "where the beat came from when it isn't the act's own code, e.g. capture:<name>"}
+   },
+   "dependentRequired": {"start": ["dur"], "dur": ["start"]},
+   "if": {"required": ["kind"], "properties": {"kind": {"enum": ["draw", "count"]}}},
+   "then": {"required": ["start", "dur"]}
   }
  }
 }

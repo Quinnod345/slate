@@ -1,0 +1,1 @@
+Fixture look reference (a stand-in file).

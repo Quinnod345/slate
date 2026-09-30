@@ -1,5 +1,6 @@
 """The `slate voice` command surface: help for every stage, JSON output, exit codes, and detached jobs."""
 
+import importlib
 import json
 import sys
 import types
@@ -73,9 +74,11 @@ def test_detach_submits_a_job_with_the_same_arguments(voice_film, monkeypatch):
         return "job_test_1"
 
     fake.submit = submit
-    import slate.jobs
+    # Patch the jobs package the import system will hand out (sys.modules'), not `slate.jobs` by attribute: another
+    # folder's tests reload slate.jobs, and the attribute can be left pointing at an orphan copy.
+    jobs_pkg = importlib.import_module("slate.jobs")
     monkeypatch.setitem(sys.modules, "slate.jobs.client", fake)
-    monkeypatch.setattr(slate.jobs, "client", fake, raising=False)
+    monkeypatch.setattr(jobs_pkg, "client", fake, raising=False)
     code, out, err = run_cli(["voice", "align", "--film", str(voice_film), "--only", "S01", "--engine",
                               "elevenlabs", "--detach", "--json"])
     assert code == 0, err

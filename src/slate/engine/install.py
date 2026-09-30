@@ -19,6 +19,9 @@ from slate import config, jsonio, log, paths, procs
 from slate.errors import MissingPrerequisite, Refused
 
 MARKER = ".slate-engine.json"
+# puppeteer's postinstall downloads its own Chrome and headless shell (about 1.5 GB into ~/.cache/puppeteer). The open
+# web renderer never uses them: it drives the engine's chrome-headless-shell (Remotion's, `browser-ensure`) by path.
+NPM_CI_ENV = {"PUPPETEER_SKIP_DOWNLOAD": "1"}
 # What an installed engine is made of. Everything else in the engine folder (tests, caches) stays in the repo.
 SOURCE_FILES = ["cli.mjs", "package.json", "package-lock.json", "tsconfig.json", "vitest.config.mjs", "README.md"]
 SOURCE_DIRS = ["remotion", "web", "ae"]
@@ -106,7 +109,7 @@ def ensure(version: str | None = None, *, npm_ci: bool = False) -> Path:
         # SLATE_NPM names one npm exactly (a particular Node install, or a stand-in under test); otherwise the one
         # slate.procs finds, Homebrew's first.
         npm = os.environ.get("SLATE_NPM") or procs.require("npm", hint="Install Node 24 or newer (`slate doctor --install` offers it).")
-        procs.run([npm, "ci", "--no-audit", "--no-fund"], cwd=dest, timeout=1800, check=True)
+        procs.run([npm, "ci", "--no-audit", "--no-fund"], cwd=dest, env=NPM_CI_ENV, timeout=1800, check=True)
         record["npm_ci_lock_sha256"] = record["lock_sha256"]
         record["npm_ci_at"] = record["installed_at"]
     jsonio.write_atomic(dest / MARKER, record)

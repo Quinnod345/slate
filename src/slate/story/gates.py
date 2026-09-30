@@ -103,10 +103,15 @@ def check_on_screen(plan: Plan, rules: dict) -> GateResult:
     cap = int(rules["max_words"])
     dense = [f"{s.id}: {spoken.word_count(s.data.get('on_screen') or '', plan.lang)} on-screen words (at most {cap})"
              for s in plan.shots if spoken.word_count(s.data.get("on_screen") or "", plan.lang) > cap]
+    if dense and cap == 0:
+        return _g("FAIL", "script.on_screen", f"{_plural(len(dense), 'shot')} put words on screen, and this format's "
+                  "picture carries none", dense, max_words=cap)
     if dense:
         return _g("FAIL", "script.on_screen", f"{_plural(len(dense), 'shot')} carry more than {cap} on-screen words",
-                  dense)
-    return _g("PASS", "script.on_screen", f"every shot at or under {cap} on-screen words")
+                  dense, max_words=cap)
+    if cap == 0:
+        return _g("PASS", "script.on_screen", "no words on screen, as the format asks", max_words=cap)
+    return _g("PASS", "script.on_screen", f"every shot at or under {cap} on-screen words", max_words=cap)
 
 
 def check_runtime(plan: Plan, target: dict) -> GateResult:

@@ -12,7 +12,18 @@ from pathlib import Path
 
 import pytest
 
+from slate import replay
+from slate.vendors import higgsfield
+
 from gencap_helpers import FPS, SIZE, write_brand, write_timing
+
+
+@pytest.fixture(autouse=True)
+def _own_fakers(monkeypatch):
+    """Replayed generations come from the Higgsfield module's own fakers, whatever an earlier test registered in
+    their place (the shared registry is process-wide)."""
+    for op, faker in higgsfield.FAKERS.items():
+        monkeypatch.setitem(replay._FAKERS, (higgsfield.PROVIDER, op), faker)  # noqa: SLF001
 
 
 @pytest.fixture

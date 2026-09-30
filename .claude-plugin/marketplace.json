@@ -1,0 +1,17 @@
+{
+ "name": "slate",
+ "owner": {
+  "name": "Quinn O'Donnell",
+  "url": "https://github.com/Quinnod345"
+ },
+ "description": "Slate: a film studio any agent can run.",
+ "plugins": [
+  {
+   "name": "slate",
+   "source": "./plugins/slate",
+   "description": "Brief to finished, gated film: skills for every stage plus Slate's MCP server. Needs Slate installed on the Mac first.",
+   "category": "media",
+   "tags": ["video", "film", "motion-design", "voice", "sound-design"]
+  }
+ ]
+}

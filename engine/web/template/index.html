@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Slate web scene</title>
+<!--
+  A Slate web scene: this page draws one act at any time t. The renderer serves this folder from 127.0.0.1, loads the
+  page in a headless browser that can't reach the network, and captures it frame by frame. scene.ts is compiled when
+  the page asks for it: import 'three', 'gsap', '@slate/web' and '@slate/kit/core' by name, no build step.
+  Colours, type and motion all come from the film's brand pack; nothing here names a brand.
+-->
+<style>
+  html, body { margin: 0; padding: 0; overflow: hidden; }
+  #stage { position: absolute; inset: 0; }
+  #stage canvas { display: block; }
+  #line {
+    position: absolute; left: 0; right: 0; top: 66%; margin: 0;
+    text-align: center; white-space: nowrap;
+  }
+</style>
+</head>
+<body>
+  <div id="stage"></div>
+  <p id="line"></p>
+  <script type="module" src="./scene.ts"></script>
+</body>
+</html>

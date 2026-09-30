@@ -9,6 +9,8 @@
   "generated": {"type": "string"},
   "note": {"type": "string"},
   "aligner": {"type": "object"},
+  "spoken": {"type": "object", "description": "How each number or symbol in the VO lines is said: {token: [[word, ...], ...]}, most usual reading first (slate.timing.spoken.forms), so an engine matches words without number tables of its own.",
+             "additionalProperties": {"type": "array", "items": {"type": "array", "items": {"type": "string"}}}},
   "shots": {
    "type": "object",
    "additionalProperties": {

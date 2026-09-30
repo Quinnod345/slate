@@ -1,0 +1,63 @@
+{
+ "schema": 1,
+ "name": "_template",
+ "display_name": null,
+ "about": null,
+ "note": null,
+ "ownership": {"kind": null, "organisation": null, "company_material": false, "notes": null},
+ "palette": {"roles": {}, "tones": {}, "notes": null},
+ "contrast_pairs": [],
+ "type": {"families": [], "scale": {}, "reference": null, "notes": null},
+ "logos": {},
+ "motif": null,
+ "look": {"id": null, "engine": null, "references": [], "moodboards": [], "overrides": {}, "notes": null},
+ "motion": {
+  "eases": {},
+  "durations": null,
+  "staggers": null,
+  "stagger_cap": null,
+  "exit_factor": null,
+  "roles": {},
+  "overshoot": null,
+  "signature": null,
+  "linear_props": [],
+  "loops": null,
+  "banned": [],
+  "notes": null
+ },
+ "voice": {
+  "provider": "elevenlabs",
+  "source": "library",
+  "voice_id": null,
+  "voice_name": null,
+  "model": null,
+  "settings": {},
+  "seed": null,
+  "lexicon": []
+ },
+ "sound": {
+  "key": null,
+  "tempo": null,
+  "materials": [],
+  "banned_timbres": [],
+  "instrumentation": [],
+  "motif": null,
+  "palette": {},
+  "reference_levels": null,
+  "reference_measured_from": null,
+  "notes": null
+ },
+ "truth": {
+  "sources": [],
+  "claim_authority": null,
+  "approved_claims": [],
+  "banned_words": [],
+  "never_claim": [],
+  "sample_data": null,
+  "rulings": [],
+  "notes": null
+ },
+ "grounding": {"elevenlabs": null, "higgsfield": null, "notes": null},
+ "allow_generator_uploads": false,
+ "references": {"truth": null, "look_motion": null, "voice": null, "sound": null}
+}

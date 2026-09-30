@@ -2,8 +2,9 @@
 // compositions (how the kit's review sheets render) reading the neutral film when no film is given.
 import fs from 'node:fs';
 import path from 'node:path';
+import {spawnSync} from 'node:child_process';
 import {afterAll, beforeAll, describe, expect, it} from 'vitest';
-import {ENGINE, cli, film, ok, probe, readJson, scratch} from './helpers.mjs';
+import {ENGINE, cli, film, ok, probe, readJson, scratch, twoActs} from './helpers.mjs';
 
 let root;
 let data;
@@ -48,6 +49,23 @@ describe('stills', () => {
     ]);
   });
 
+  it("refuses a still of an act that doesn't build (and of the film), before any bundling", () => {
+    const d = film(root, 'broken-still', (f) => {
+      twoActs(f);
+      fs.mkdirSync(path.join(f, 'scenes/act2'), {recursive: true});
+      fs.writeFileSync(path.join(f, 'scenes/act2/index.tsx'), 'export default function Act2() {\n  return (\n}\n');
+    });
+    const bundles = path.join(data, 'cache', 'bundles');
+    const before = fs.readdirSync(bundles).sort();
+    const r = cli('stills', {film: d, specs: ['Act1:0', 'Act2:0'], out_dir: path.join(root, 'broken-out')}, {data});
+    expect(r.code).toBe(1);
+    expect(r.json.error).toMatch(/^Act2 can't render: act 2 doesn't build/);
+    const sheet = cli('stills', {film: d, contact_sheet: {comp: 'Film'}, out_dir: path.join(root, 'broken-out')}, {data});
+    expect(sheet.code).toBe(1);
+    expect(sheet.json.error).toMatch(/^Film can't render/);
+    expect(fs.readdirSync(bundles).sort()).toEqual(before);
+  });
+
   it('refuses a still that is not <composition>:<frame>, or a frame the composition does not have', () => {
     expect(cli('stills', {film: dir, serve_url: bundle.serve_url, specs: ['Act1']}, {data}).code).toBe(2);
     const r = cli('stills', {film: dir, serve_url: bundle.serve_url, specs: ['Act1:30'], out_dir: path.join(root, 'x')}, {data});
@@ -74,6 +92,45 @@ describe('stills', () => {
     expect(probe(r.stills[0].file)).toMatchObject({width: 400, height: 225});
     // it made its own bundle, so it removed it
     expect(fs.readdirSync(path.join(data, 'cache', 'bundles')).filter((n) => n.includes('entry-'))).toEqual([]);
+  });
+
+  it("serves the film's captures and plates to staticFile() as image sequences, read in place", () => {
+    const dir = film(root, 'media', (d) => {
+      // one frame each, as the capture conform and the plate conform write them (f%05d.jpg)
+      for (const [rel, colour] of [['captures/demo/frames/f00000.jpg', 'red'], ['plates/S01/plate/frames/f00000.jpg', 'blue']]) {
+        fs.mkdirSync(path.dirname(path.join(d, rel)), {recursive: true});
+        const r = spawnSync('ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i', `color=c=${colour}:s=64x36`, '-frames:v', '1', '-q:v', '2', path.join(d, rel)]);
+        expect(r.status).toBe(0);
+      }
+      fs.writeFileSync(
+        path.join(d, 'scenes/act1/index.tsx'),
+        [
+          "import React from 'react';",
+          "import {AbsoluteFill, Img, staticFile} from 'remotion';",
+          "export const silent = 'a still of two frames';",
+          'export default function Act1() {',
+          "  return (<AbsoluteFill style={{flexDirection: 'row'}}>",
+          "    <Img src={staticFile('captures/demo/frames/f00000.jpg')} style={{width: '50%', height: '100%'}} />",
+          "    <Img src={staticFile('plates/S01/plate/frames/f00000.jpg')} style={{width: '50%', height: '100%'}} />",
+          '  </AbsoluteFill>);',
+          '}',
+          '',
+        ].join('\n'),
+      );
+    });
+    const bundles = path.join(data, 'cache', 'bundles');
+    const before = fs.readdirSync(bundles).sort();
+    const r = ok('stills', {film: dir, specs: ['Act1:0'], scale: 1, out_dir: path.join(root, 'media-out'), gl: 'swangle'}, {data});
+    expect(r.bundle_reused).toBe(false);
+    const raw = spawnSync('ffmpeg', ['-v', 'error', '-i', r.stills[0].file, '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'], {maxBuffer: 1 << 24}).stdout;
+    const px = (x, y) => [...raw.subarray((y * 320 + x) * 3, (y * 320 + x) * 3 + 3)];
+    const near = (a, b) => a.every((v, i) => Math.abs(v - b[i]) <= 16);
+    expect(near(px(80, 90), [255, 0, 0]), String(px(80, 90))).toBe(true);
+    expect(near(px(240, 90), [0, 0, 255]), String(px(240, 90))).toBe(true);
+    // the render's own bundle is gone; the film's media is where it was, and only links point at it
+    expect(fs.readdirSync(bundles).sort()).toEqual(before);
+    expect(fs.existsSync(path.join(dir, 'captures/demo/frames/f00000.jpg'))).toBe(true);
+    expect(fs.lstatSync(path.join(dir, '.slate/public/captures')).isSymbolicLink()).toBe(true);
   });
 
   const kitReview = path.join(ENGINE, 'remotion', 'kit', 'review', 'entry.tsx');

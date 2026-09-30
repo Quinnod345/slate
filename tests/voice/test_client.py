@@ -69,7 +69,8 @@ def test_ledger_rows_carry_request_ids_and_free_calls_write_none(fx):
     assert set(rows) == {"tts", "music"}
     tts = rows["tts"]
     assert tts["status"] == "done" and tts["replay"] is True and tts["provider"] == "elevenlabs"
-    assert tts["request_ids"][0] == res["client_request_id"] and tts["request_id"] == res["request_id"]
+    assert tts["request_ids"] == [res["request_id"]]  # the vendor's id, never a made-up one nothing can poll
+    assert tts["result"]["client_request_id"] == res["client_request_id"] and tts["key"].startswith("tts-")
     assert tts["estimate"]["amount"] == len("Hello there.")
     assert ledger.spent("elevenlabs") == 0  # replay never counts as spend
 
@@ -149,7 +150,7 @@ class FakeHttp:
 
     def __call__(self, method, url, *, headers=None, json_body=None, data=None, timeout=60, retries=3):
         self.calls.append({"method": method, "url": url, "headers": dict(headers or {}), "json": json_body})
-        self.inflight_seen.append([r.get("request_ids") for r in ledger.inflight()])
+        self.inflight_seen.append([(r.get("key"), r.get("request_ids")) for r in ledger.inflight()])
         if url.endswith("/v1/user/subscription"):
             return 200, {}, json.dumps({"tier": "pro", "character_count": 5, "character_limit": 100}).encode()
         if "/v1/voices/" in url:
@@ -181,12 +182,82 @@ def test_live_tts_falls_back_records_ids_and_keeps_the_key_out_of_urls(live, fx)
     for call in live.calls:
         assert TEST_KEY not in call["url"]
         assert call["headers"]["xi-api-key"] == TEST_KEY
-    # each attempt had an in-flight row carrying our own request id before the vendor answered
-    assert all(seen and seen[-1] and seen[-1][0].startswith("slate_") for seen in live.inflight_seen)
+    # each paid attempt had an in-flight row carrying its stable request key (and no made-up request id) before the
+    # vendor answered, so a crash leaves a row the queue can find and close as orphaned
+    tts_seen = [seen for call, seen in zip(live.calls, live.inflight_seen) if "/v1/text-to-speech/" in call["url"]]
+    assert len(tts_seen) == 2 and all(seen and seen[-1][0].startswith("tts-") and not seen[-1][1]
+                                      for seen in tts_seen)
     rows = ledger.rows(op="tts")
     assert [r["status"] for r in rows] == ["failed", "done"]
     assert rows[-1]["request_id"] == "req_live_1" and rows[-1]["actual"] == 12.0 and rows[-1]["replay"] is False
     assert ledger.spent("elevenlabs") == 12.0
+
+
+def _tts_calls(live):
+    return [c for c in live.calls if "/v1/text-to-speech/" in c["url"]]
+
+
+def test_an_answer_paid_for_before_a_crash_is_never_paid_for_again(live, fx, monkeypatch):
+    """The vendor answered (and billed); the process died before the take was written. The rerun of the same request
+    uses the parked answer: no second call, no second row, and the park is cleared once the file is written."""
+    c = Client()
+    real_write = Client.write_audio
+
+    def crash(*a, **k):
+        raise KeyboardInterrupt("the Mac went to sleep")
+
+    monkeypatch.setattr(Client, "write_audio", staticmethod(crash))
+    with pytest.raises(KeyboardInterrupt):
+        c.tts(voice_id="v", text="Twelve chars", output_format="pcm_44100", out=fx / "take.wav")
+    assert len(_tts_calls(live)) == 1 and not (fx / "take.wav").exists()
+    parked = list((fx / "data" / "cache" / "paid" / "elevenlabs").glob("*.json"))
+    assert len(parked) == 1
+    monkeypatch.setattr(Client, "write_audio", staticmethod(real_write))
+    res = Client().tts(voice_id="v", text="Twelve chars", output_format="pcm_44100", out=fx / "take.wav")
+    assert len(_tts_calls(live)) == 1  # nothing was paid for twice
+    assert res["reused_parked_answer"] and res["request_id"] == "req_live_1" and (fx / "take.wav").is_file()
+    rows = ledger.rows(op="tts")
+    assert [r["status"] for r in rows] == ["done"] and ledger.spent("elevenlabs") == 12.0
+    assert not list((fx / "data" / "cache" / "paid" / "elevenlabs").glob("*"))  # unparked once written
+    again = Client().tts(voice_id="v", text="Twelve chars", output_format="pcm_44100", out=fx / "take2.wav")
+    assert len(_tts_calls(live)) == 2 and not again.get("reused_parked_answer")  # a deliberate rerun pays
+
+
+def test_a_row_abandoned_mid_call_is_orphaned_and_counted(live, fx, monkeypatch):
+    """A process died waiting on ElevenLabs (no answer, no request id). The queue's paid_call finds the row by its key,
+    closes it as orphaned (still counted at its estimate), and makes the call once more under a new row."""
+    c = Client()
+    key = __import__("slate.replay", fromlist=["request_key"]).request_key(
+        "elevenlabs", "tts", {"voice_id": "v", "body": {"text": "Twelve chars", "model_id": "eleven_v4"},
+                              "format": "pcm_44100"})
+    est = ledger.estimate("elevenlabs", "tts", model="eleven_v4", chars=12)
+    with monkeypatch.context() as m:
+        m.setattr(ledger, "_identity", lambda: {"pid": 99999, "proc_start": "gone", "job": None})
+        ledger.begin(est, key=key, note="died waiting")
+    c.tts(voice_id="v", text="Twelve chars", output_format="pcm_44100", out=fx / "t.wav")
+    rows = ledger.rows(key=key)
+    assert [r["status"] for r in rows] == ["orphaned", "done"]
+    assert ledger.spent("elevenlabs") == 12.0 + 12.0  # the orphan counts at its estimate until a reconcile
+
+
+def test_a_crash_between_the_answer_and_the_row_closing_settles_the_row(live, fx, monkeypatch):
+    c = Client()
+    res = c.tts(voice_id="v", text="Twelve chars", output_format="pcm_44100", out=fx / "first.wav")
+    key = ledger.rows(op="tts")[-1]["key"]
+    # re-create the state a crash leaves: the answer parked, its row abandoned in flight
+    c._park(key, {"request-id": "req_live_1", "character-cost": "12"},  # noqa: SLF001
+            {"data": (fx / "first.wav").read_bytes()[44:], "encoding": "pcm_s16le", "rate": 44100, "channels": 1,
+             "words": None})
+    est = ledger.estimate("elevenlabs", "tts", model="eleven_v4", chars=12)
+    with monkeypatch.context() as m:
+        m.setattr(ledger, "_identity", lambda: {"pid": 99999, "proc_start": "gone", "job": None})
+        row = ledger.begin(est, key=key, note="died after the answer")
+    calls = len(_tts_calls(live))
+    again = Client().tts(voice_id="v", text="Twelve chars", output_format="pcm_44100", out=fx / "second.wav")
+    assert len(_tts_calls(live)) == calls and again["reused_parked_answer"]
+    (settled,) = ledger.rows(id=row)
+    assert settled["status"] == "done" and settled["actual"] == 12.0
+    assert res["request_id"] == again["request_id"] == "req_live_1"
 
 
 def test_live_spend_refused_before_any_request(live):

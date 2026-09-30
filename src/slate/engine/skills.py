@@ -62,14 +62,18 @@ PINS: dict[str, dict] = {
     },
 }
 
-STUDIO_NOTE = ("Slate override: Studio never opens a browser. It prints its URL; previews are stills and renders "
-               "(`slate` stills, `slate render`), or a page opened through Aside.")
-SOUND_NOTE = ("> **Slate override.** None of the sounds this page listed (stock and meme effects from remotion.media) is "
-              "used in a Slate film, and no sound is taken from the internet. A film's sound is designed for its brand "
-              "and locked to the picture's events: `slate sfx`, `slate score`, `slate mix`.")
+STUDIO_NOTE = ("Slate override: nothing opens a browser. Studio, if it's ever needed, runs with `--no-open` and prints its "
+               "URL; previews are stills and renders (`slate render stills`, `slate render`), or a page opened through "
+               "Aside.")
+PREVIEW_NOTE = ("> **Slate override.** A Slate film isn't previewed in Remotion Studio, and nothing opens a browser. "
+                "Previews are stills, contact sheets and renders (`slate render stills`, `slate render`), or a page "
+                "opened through Aside. If Studio is ever needed, it runs only with `--no-open`.")
+SOUND_NOTE = ("> **Slate override.** This page listed stock and meme sound effects to load from the internet. None of "
+              "them is used in a Slate film, and no sound is taken from the internet: a film's sound is designed for "
+              "its brand and locked to the picture's events (`slate sfx`, `slate score`, `slate mix`).")
 KEY_NOTE = ("> **Slate override.** In Slate the ElevenLabs key goes into the macOS Keychain through "
             "`slate connect elevenlabs`, typed in your own Terminal: never into a chat and never into a .env file in "
-            "a film or a repo.")
+            "a film or a repo. Skip the .env steps below.")
 
 
 def pins() -> dict[str, dict]:
@@ -109,8 +113,13 @@ def overrides_text(tts_model: str) -> str:
 _FRONTMATTER = re.compile(r"\A---\n.*?\n---\n", re.S)
 _STUDIO = re.compile(r"npx remotion studio(?![^\n`]*--no-open)")
 _OPEN_URL = re.compile(r"(This will open the Studio in the browser[^\n]*|Open the URL in the browser\.)")
+# Lines that send an agent to the Studio or its local URL (checked against the pinned text on 2026-09-30).
+_OPEN_STUDIO_LINE = re.compile(r"^[^\n]*\bopen the \[?Remotion Studio\b[^\n]*$", re.M | re.I)
+_LOCAL_URL_LINE = re.compile(r"^[^\n]*(?:navigating to[^\n]*localhost|open its exact local URL)[^\n]*$", re.M | re.I)
+# Remotion's "make a video" preview section (start Studio, open it in a browser): one Slate note instead.
+_PREVIEW_SECTION = re.compile(r"^## Open the preview\b.*?(?=^## |\Z)", re.S | re.M)
 _OLD_MODEL = re.compile(r"""((?:model_id|modelId|model-id)["']?\s*[:=]?\s*["']?)eleven_multilingual_v2""")
-_SOUND_LIST = re.compile(r"^(- `?https://remotion\.media/[^\n]*|For more sound effects, search the internet[^\n]*)\n?", re.M)
+_STOCK_SOUNDS = re.compile(r"https://remotion\.media/[^\s\"'`)]*\.(?:wav|mp3)|search the internet", re.I)
 
 
 def _note_for(skill_md: Path, root: Path) -> str:
@@ -119,8 +128,21 @@ def _note_for(skill_md: Path, root: Path) -> str:
             "or meme sounds, Studio only with `--no-open`, never a browser.\n\n")
 
 
+def _after_frontmatter(text: str, insert: str) -> str:
+    fm = _FRONTMATTER.match(text)
+    cut = fm.end() if fm else 0
+    return text[:cut] + "\n" + insert + text[cut:].lstrip("\n")
+
+
 def apply_overrides(root: Path, *, tts_model: str | None = None) -> list[str]:
-    """Apply Slate's overrides to fetched skills under `root` (idempotent). Returns what changed, file by file."""
+    """Apply Slate's overrides to fetched skills under `root` (idempotent). Returns what changed, file by file.
+
+    - sfx.md (a page of stock and meme sounds to load from the internet) keeps only its frontmatter and Slate's note;
+    - the preview section that starts Studio and opens it in a browser becomes Slate's note, and any other line that
+      opens Studio or its local URL becomes a one-line note; every `npx remotion studio` gets `--no-open`;
+    - code examples on the old voice model use Slate's pinned TTS model (a comparison table's rows stay as they are);
+    - the key setup starts with Slate's Keychain note, and every SKILL.md with a pointer to SLATE_OVERRIDES.md.
+    """
     root = Path(root)
     tts_model = tts_model or config.model("tts")
     changes: list[str] = []
@@ -129,17 +151,20 @@ def apply_overrides(root: Path, *, tts_model: str | None = None) -> list[str]:
         if md.name == "SLATE_OVERRIDES.md":
             continue
         text = md.read_text(encoding="utf-8")
-        new = _STUDIO.sub("npx remotion studio --no-open", text)
-        new = _OPEN_URL.sub(STUDIO_NOTE, new)
-        new = _OLD_MODEL.sub(lambda m: f"{m.group(1)}{tts_model}", new)
-        if md.name == "sfx.md" and _SOUND_LIST.search(new):
-            new = _SOUND_LIST.sub("", new).rstrip() + "\n\n" + SOUND_NOTE + "\n"
-        if md.parent.name == "setup-api-key" and md.name == "SKILL.md" and KEY_NOTE not in new:
-            new = new.rstrip() + "\n\n" + KEY_NOTE + "\n"
-        if md.name == "SKILL.md" and "Slate overrides apply" not in new:
+        new = text
+        if md.name == "sfx.md" and _STOCK_SOUNDS.search(new):
             fm = _FRONTMATTER.match(new)
-            cut = fm.end() if fm else 0
-            new = new[:cut] + "\n" + _note_for(md, root) + new[cut:].lstrip("\n")
+            new = (fm.group(0) if fm else "") + "\n" + SOUND_NOTE + "\n"
+        new = _PREVIEW_SECTION.sub(lambda _m: "## Open the preview\n\n" + PREVIEW_NOTE + "\n\n", new)
+        new = _STUDIO.sub("npx remotion studio --no-open", new)
+        new = _OPEN_URL.sub(STUDIO_NOTE, new)
+        new = _OPEN_STUDIO_LINE.sub(STUDIO_NOTE, new)
+        new = _LOCAL_URL_LINE.sub(STUDIO_NOTE, new)
+        new = _OLD_MODEL.sub(lambda m: f"{m.group(1)}{tts_model}", new)
+        if md.parent.name == "setup-api-key" and md.name == "SKILL.md" and KEY_NOTE not in new:
+            new = _after_frontmatter(new, KEY_NOTE + "\n\n")
+        if md.name == "SKILL.md" and "Slate overrides apply" not in new:
+            new = _after_frontmatter(new, _note_for(md, root))
         if new != text:
             md.write_text(new, encoding="utf-8")
             changes.append(str(md.relative_to(root)))
@@ -179,9 +204,12 @@ def plan(version: str | None = None) -> dict:
         "overrides_version": OVERRIDES_VERSION,
         "overrides": [
             f"voice: code examples using eleven_multilingual_v2 are rewritten to {tts} (Slate's pinned TTS model)",
-            "sound: Remotion's stock and meme sound list (sfx.md) is removed; sound is designed per brand",
-            "studio: every `npx remotion studio` gets --no-open; 'open the URL in the browser' is replaced",
-            "keys: ElevenLabs' .env key setup points to `slate connect elevenlabs` (Keychain, typed in Terminal)",
+            "sound: Remotion's sfx.md (stock and meme sounds from the internet) keeps only its frontmatter and "
+            "Slate's note; sound is designed per brand",
+            "studio: every `npx remotion studio` gets --no-open; the 'open the preview' section and every line that "
+            "opens Studio or its local URL become Slate's note (stills, renders, or Aside; never a browser)",
+            "keys: ElevenLabs' key setup starts with Slate's note (`slate connect elevenlabs`, the Keychain, typed in "
+            "Terminal) before any .env step",
             "every SKILL.md starts with a note pointing at SLATE_OVERRIDES.md",
         ],
         "repos": repos,

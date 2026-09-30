@@ -103,6 +103,8 @@ class FakeBridge:
         self.bundles: list[Path] = []
         self.bundle_hash = "bundle-abc123"
         self.fail_release = False
+        self.gates: dict[tuple[int, int], list[dict]] = {}  # (act, from) -> the engine's gate results for that chunk
+        self.fail_trace = False
 
     def call(self, command: str, args: dict, *, timeout=None) -> dict:
         self.calls.append((command, dict(args)))
@@ -142,7 +144,16 @@ class FakeBridge:
                 frames = frames[:-1]
             self.media.save(Path(args["out"]), np.stack(frames))
             return {"file": args["out"], "frame_count": len(frames), "frames": [a, b], "samples": args.get("sub"),
-                    "bundle_hash": self.source_hash(Path(args["film"]))}
+                    "bundle_hash": self.source_hash(Path(args["film"])), "gates": self.gates.get(key, [])}
+        if command == "trace":
+            # the engine samples the kit's motion registry into timing/motion/actN.json (engine/cli.mjs trace)
+            if self.fail_trace:
+                raise Refused("Act 1's module throws while loading: boom")
+            film_dir, act = Path(args["film"]), int(args["act"])
+            rel = f"timing/motion/act{act}.json"
+            (film_dir / rel).parent.mkdir(parents=True, exist_ok=True)
+            (film_dir / rel).write_text("[]\n")
+            return {"act": act, "written": True, "file": rel, "entries": 0, "sources": [f"scenes/act{act}/index.tsx"]}
         if command == "stills":
             out_dir = Path(args["out_dir"])
             out_dir.mkdir(parents=True, exist_ok=True)

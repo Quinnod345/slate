@@ -330,6 +330,13 @@ def _load(path: Path) -> Any:
     return data
 
 
+def _timing(film_dir: Path, name: str) -> Path:
+    """A timing file, followed into the parent when a derived film reuses it by reference."""
+    from slate.timing.takes import film_file  # noqa: PLC0415 (takes brings numpy; lookups load it only when used)
+
+    return film_file(film_dir, Path("timing") / name)
+
+
 def _film_lang(film_dir: Path) -> str:
     film = _load(film_dir / "film.json") or {}
     lang = film.get("language") or "en"
@@ -351,17 +358,17 @@ def word_time(film_dir: str | os.PathLike, shot_id: str, word: str, occ: int = 1
     which = "end" if which == "end" else "start"
     try:
         lang = _film_lang(film_dir)
-        shots_doc = _load(film_dir / "timing" / "shots.json") or {}
+        shots_doc = _load(_timing(film_dir, "shots.json")) or {}
         fps = shots_doc["fps_num"] / shots_doc["fps_den"] if shots_doc.get("fps_num") else None
         shot = next((s for s in shots_doc.get("shots", []) if s.get("id") == shot_id), None)
         if shot is None or not fps:
             _record_miss(film_dir, shot_id, word, occ, which, 0.0, "no such shot in timing/shots.json")
             return 0.0, False
         shot_start = shot["frame_in"] / fps
-        cues = _load(film_dir / "timing" / "vo_cues.json") or {}
+        cues = _load(_timing(film_dir, "vo_cues.json")) or {}
         cue = next((c for c in cues.get("cues", []) if c.get("shot") == shot_id), None)
         at = float(cue["at"]) if cue else float(shot.get("vo_lead_sec") or 0.0)
-        record = ((_load(film_dir / "timing" / "vo_words.json") or {}).get("shots") or {}).get(shot_id) or {}
+        record = ((_load(_timing(film_dir, "vo_words.json")) or {}).get("shots") or {}).get(shot_id) or {}
         n = occ if isinstance(occ, int) and occ >= 1 else 1
         hit = lookup(record, word, occ, which, lang) if isinstance(occ, int) else None
         if hit:

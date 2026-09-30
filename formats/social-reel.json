@@ -1,0 +1,45 @@
+{
+ "name": "social-reel",
+ "title": "Social reel",
+ "summary": "A 15-to-45-second vertical film for Instagram Reels, TikTok and YouTube Shorts, with captions burned in by Remotion in the brand's font.",
+ "use_when": "A single idea for a vertical feed. It is the default for autonomous films.",
+ "runtime_s": {"min": 15, "max": 45, "target": 30},
+ "aspects": {
+  "9:16": {"width": 1080, "height": 1920, "channels": ["instagram_reels", "tiktok", "youtube_shorts"], "type_scale": 1.2}
+ },
+ "default_aspect": "9:16",
+ "fps_num": 30,
+ "fps_den": 1,
+ "pace": {"max_words_per_second": 2.6, "lead": 0.2, "tail": 0.25, "act_tail": 0.5,
+          "note": "Tighter than a brand film's placement: every half second of air is a real share of a 30-second reel."},
+ "on_screen_max_words": 8,
+ "structure": {
+  "acts": {"min": 1, "max": 3},
+  "beats": [
+   {"name": "hook", "job": "The reason to stay, inside the first two seconds, readable with the sound off.", "share": 0.1},
+   {"name": "idea", "job": "One idea, shown: a reel is a single thought, not a trailer for one.", "share": 0.6},
+   {"name": "payoff", "job": "The turn or the answer the hook promised.", "share": 0.2},
+   {"name": "end", "job": "A frame that loops cleanly back to the start, or one clear next step.", "share": 0.1}
+  ],
+  "rules": [
+   "Every word the voice says is on screen as a burned-in caption, inside every channel's safe zone.",
+   "Put the subject in the middle band: the platforms cover the top, the bottom and the right-hand buttons."
+  ]
+ },
+ "audio": "required",
+ "loudness": {"lufs": -14, "true_peak": -1, "tolerance_lu": 0.5, "standard": "web, social and streaming delivery"},
+ "captions": {"needed": true, "burn_in": true, "renderer": "remotion", "font": "brand", "sidecar": ["srt"],
+              "max_lines": 2, "max_chars": 32, "max_cps": 17, "min_s": 1.0,
+              "position": "lower middle, above the bottom 35% the platforms keep for their own captions and buttons"},
+ "budget": {"family": "reel_or_ad", "elevenlabs": {"vo": [500, 3000], "score": [1000, 2000]}, "higgsfield": [0, 0],
+            "rework_factor": 1.5, "note": "Generation only when it's allowed and adds something. About 1% of a Pro month."},
+ "broadcast": false,
+ "generation": "rarely",
+ "engines": ["remotion", "web"],
+ "autonomous_default": true,
+ "notes": [
+  "The autonomous default (plan §7): an autonomous film that names no format is a 15-45 second 9:16 reel.",
+  "A reel made from scratch runs at 30 fps. A reel derived from a 16:9 film keeps its parent's clock, so every reused timing stays frame-exact.",
+  "A social channel, so it can take the fast route: fewer motion-blur samples and an ffmpeg master."
+ ]
+}

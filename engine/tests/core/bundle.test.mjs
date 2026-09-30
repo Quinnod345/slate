@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {afterAll, beforeAll, describe, expect, it} from 'vitest';
 import {cli, film, ok, scratch} from './helpers.mjs';
-import {bundleInputs, sourceHash} from '../../remotion/bundle.mjs';
+import {bundleInputs, publicDir, sourceHash} from '../../remotion/bundle.mjs';
 import {ensureEntry} from '../../remotion/entry.mjs';
 import {loadFilm} from '../../remotion/lib/film.mjs';
 
@@ -38,7 +38,7 @@ describe('bundles', () => {
     const ctx = loadFilm(dir);
     const entry = (await ensureEntry(ctx)).entry;
     const inputs = (await bundleInputs(ctx, entry)).map((p) => path.relative(dir, p)).sort();
-    expect(inputs).toEqual(['.slate/Root.tsx', '.slate/entry.tsx', '.slate/film-data.ts', '.slate/label.tsx', 'scenes/act1/index.tsx', 'timing/shots.json']);
+    expect(inputs).toEqual(['.slate/Root.tsx', '.slate/act1.tsx', '.slate/entry.tsx', '.slate/film-data.ts', '.slate/film.tsx', '.slate/label.tsx', 'scenes/act1/index.tsx', 'timing/shots.json']);
     const h0 = await sourceHash(ctx, {entry});
     expect(h0).toBe(first.bundle_hash);
     // an unrelated file in the film changes nothing
@@ -85,6 +85,34 @@ describe('bundles', () => {
     expect(res.removed).toEqual(expect.arrayContaining([path.basename(first.serve_url), '.tmp-engine-fixture-x-999999']));
     expect(fs.readdirSync(bundles)).toEqual([]);
     expect(ok('bundle', {film: dir, release: true}, {data}).released).toEqual([]);
+  });
+
+  it("links the film's public files, captures and plates into the served folder, never copying them", () => {
+    const d = film(root, 'media', (f) => {
+      fs.mkdirSync(path.join(f, 'public'), {recursive: true});
+      fs.writeFileSync(path.join(f, 'public', 'mark.svg'), '<svg/>');
+      fs.mkdirSync(path.join(f, 'captures', 'demo', 'frames'), {recursive: true});
+      fs.mkdirSync(path.join(f, 'plates', 'S01', 'plate', 'frames'), {recursive: true});
+    });
+    const ctx = loadFilm(d);
+    const pub = publicDir(ctx);
+    expect(pub.dir).toBe(path.join(d, '.slate', 'public'));
+    expect(pub.links).toEqual(['captures', 'mark.svg', 'plates']);
+    expect(fs.readlinkSync(path.join(pub.dir, 'captures'))).toBe(path.join('..', '..', 'captures'));
+    expect(fs.readlinkSync(path.join(pub.dir, 'mark.svg'))).toBe(path.join('..', '..', 'public', 'mark.svg'));
+    expect(fs.existsSync(path.join(pub.dir, 'captures', 'demo', 'frames'))).toBe(true);
+    // a name the film's own public/ uses wins, and says so
+    fs.mkdirSync(path.join(d, 'public', 'plates'));
+    const again = publicDir(ctx);
+    expect(fs.readlinkSync(path.join(again.dir, 'plates'))).toBe(path.join('..', '..', 'public', 'plates'));
+    expect(again.warnings).toEqual(["public/plates shadows the film's plates/ folder in staticFile() paths"]);
+    // links to what's gone are removed; the film's files never are
+    fs.rmSync(path.join(d, 'captures'), {recursive: true});
+    expect(publicDir(ctx).links).toEqual(['mark.svg', 'plates']);
+    expect(fs.existsSync(path.join(again.dir, 'captures'))).toBe(false);
+    fs.rmSync(again.dir, {recursive: true});
+    expect(fs.existsSync(path.join(d, 'public', 'mark.svg'))).toBe(true);
+    expect(fs.existsSync(path.join(d, 'plates', 'S01', 'plate', 'frames'))).toBe(true);
   });
 
   it('refuses a serve_url that is not a Slate bundle', () => {

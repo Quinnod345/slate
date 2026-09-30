@@ -1,0 +1,283 @@
+{
+ "$comment": "The channel library: what each place a Slate film ends up needs (sizes, limits, and where the platform draws its own buttons and captions over the picture), with the source and the date each fact was read. Formats list channels per aspect; slate.formats resolves the zones from here. Platforms change their interfaces often, so re-check every source before a production and update verified_on. Zones are fractions of the frame: margins from each edge plus keep-out rectangles [x0, y0, x1, y1] from the top left. Each zone says how sure it is: official (the platform's own numbers), official-template (measured from the platform's own template files), standard (a published broadcast standard), geometry (worked out from how the frame is shown) or estimate.",
+ "verified_on": "2026-09-30",
+ "channels": {
+  "instagram_reels": {
+   "label": "Instagram Reels",
+   "family": "Instagram",
+   "route": "social",
+   "aspects": {"9:16": {"width": 1080, "height": 1920, "note": "Meta recommends 1440 x 2560 for Reels ads; 1080 x 1920 is the common size and keeps the films' short side."}},
+   "duration_s": {"min": 0, "max": 900, "note": "Reels ads: 0 seconds to 15 minutes."},
+   "specs": [
+    "9:16, MP4 or MOV with H.264, up to 4 GB (Meta's Reels ad spec).",
+    "Reels autoplay in a feed, so the words have to read without sound: burn the captions in."
+   ],
+   "zones": {
+    "9:16": {
+     "top": 0.14, "bottom": 0.35, "left": 0.06, "right": 0.06,
+     "keep_out": [[0.79, 0.6, 1.0, 1.0]],
+     "basis": "official", "official": true,
+     "source": "Meta Ads Guide, Instagram Reels video ads: keep at least 14% of the top, 35% of the bottom and 6% on each side free of text, logos and key elements",
+     "verified_on": "2026-09-30",
+     "note": "The margins are Meta's own. The keep-out over the like, comment and share buttons (the right 21% from 60% of the height down) is AdKit's estimate (v2026-09-10), kept because text there gets covered."
+    }
+   },
+   "sources": [
+    {"title": "Meta Ads Guide: Instagram Reels video ads", "url": "https://www.facebook.com/business/ads-guide/update/video/instagram-reels", "checked": "2026-09-30",
+     "says": "9:16; 1440 x 2560 pixels; 0 seconds to 15 minutes; up to 4 GB; MP4 or MOV with H.264; at least 14% of the top, 35% of the bottom and 6% on each side free from text, logos or important creative elements."},
+    {"title": "AdKit safe zones: Meta (v2026-09-10)", "url": "https://adkit.so/tools/safe-zones/meta", "checked": "2026-09-30",
+     "says": "Reels 1080 x 1920: 14% top, 35% bottom, 6% sides, plus a right exclusion of 226.8 px below y = 1152 (AdKit's layout buffer, not an official measurement)."}
+   ]
+  },
+  "instagram_feed": {
+   "label": "Instagram and Facebook feed",
+   "family": "Instagram",
+   "route": "social",
+   "aspects": {"1:1": {"width": 1080, "height": 1080}, "4:5": {"width": 1080, "height": 1350}},
+   "specs": ["Feed video plays muted in the feed until tapped: burn the captions in."],
+   "zones": {
+    "1:1": {"top": 0.1, "bottom": 0.1, "left": 0.1, "right": 0.1, "basis": "estimate", "official": false,
+            "source": "AdKit safe zones: Meta feed square, 108 px on each side of 1080 x 1080 (a layout buffer, not an official measurement)",
+            "verified_on": "2026-09-30"},
+    "4:5": {"top": 0.1, "bottom": 0.1, "left": 0.1, "right": 0.1, "basis": "estimate", "official": false,
+            "source": "AdKit safe zones: Meta feed portrait, 135 px top and bottom and 108 px at the sides of 1080 x 1350 (a layout buffer, not an official measurement)",
+            "verified_on": "2026-09-30"}
+   },
+   "notes": ["Meta publishes no text-safe margins for feed placements; these are a designer's buffer. Refresh them if Meta publishes its own."],
+   "sources": [
+    {"title": "AdKit safe zones: Meta (v2026-09-10)", "url": "https://adkit.so/tools/safe-zones/meta", "checked": "2026-09-30",
+     "says": "Feed square 1080 x 1080: 108 px each side; feed portrait 1080 x 1350: 135 px top and bottom, 108 px sides; all layout buffers, not official."}
+   ]
+  },
+  "tiktok": {
+   "label": "TikTok",
+   "family": "TikTok",
+   "route": "social",
+   "aspects": {"9:16": {"width": 1080, "height": 1920}},
+   "duration_s": {"min": 0, "max": 600, "note": "In-Feed ads run up to 10 minutes; TopView asks 5 to 60 s and recommends 9 to 15 s."},
+   "specs": [
+    "9:16 at 540 x 960 or more; .mp4, .mov, .mpeg, .3gp or .avi; up to 500 MB; at least 516 kbps (TikTok auction In-Feed ads).",
+    "TikTok's own safe zone comes as downloadable overlay files, and it shrinks as the ad caption gets longer."
+   ],
+   "zones": {
+    "9:16": {
+     "top": 0.125, "bottom": 0.3438, "left": 0.1111, "right": 0.1111,
+     "keep_out": [[0.7222, 0.2917, 1.0, 1.0]],
+     "basis": "official-template", "official": false,
+     "source": "TikTok's In-Feed safe-zone overlay (left to right), as measured by AdKit v2026-09-10: 240 px top, 660 px bottom, 120 px each side of 1080 x 1920, and a 300 px action column from y = 560 down",
+     "verified_on": "2026-09-30",
+     "note": "A long ad caption or an anchor add-on covers more of the bottom (TikTok's anchor overlay reserves 1,014 px), so keep captions short."
+    }
+   },
+   "sources": [
+    {"title": "TikTok Ads Help: Auction In-Feed ads", "url": "https://ads.tiktok.com/help/article/tiktok-auction-in-feed-ads", "checked": "2026-09-30",
+     "says": "Vertical 9:16 at 540 x 960 px or more (recommended), 16:9 and 1:1 also accepted; up to 10 minutes; 500 MB or less; 516 kbps or more; the safe zone size is determined by the dimension, ad caption length and any additional formats, with downloadable safe zone files."},
+    {"title": "TikTok Ads Help: Reservation TopView", "url": "https://ads.tiktok.com/help/article/tiktok-reservation-topview", "checked": "2026-09-30",
+     "says": "Vertical 9:16, 540 x 960 or more; 5 to 60 s, 9 to 15 s recommended; 500 MB or less; the longer the caption, the smaller the safe zone."},
+    {"title": "AdKit safe zones: TikTok (v2026-09-10)", "url": "https://adkit.so/tools/safe-zones/tiktok", "checked": "2026-09-30",
+     "says": "In-Feed LTR 1080 x 1920: top 240 px, bottom 660 px, left and right 120 px, action column 300 px wide from 560 px down; measurements match TikTok's downloadable overlays."}
+   ]
+  },
+  "youtube_shorts": {
+   "label": "YouTube Shorts",
+   "family": "YouTube",
+   "route": "social",
+   "aspects": {"9:16": {"width": 1080, "height": 1920}},
+   "duration_s": {"min": 0, "max": 180, "note": "Shorts ads can run up to 3 minutes, but only the first 60 s play in the Shorts feed; under 60 s is recommended."},
+   "specs": ["9:16 vertical is recommended for Shorts; text that runs past one line on mobile is truncated in the ad's headline."],
+   "zones": {
+    "9:16": {
+     "top": 0.15, "bottom": 0.35, "left": 0.0444, "right": 0.1778,
+     "basis": "official-template", "official": false,
+     "source": "Google's transparent vertical video template, as measured by AdKit v2026-09-10: 288 px top, 672 px bottom, 48 px left and 192 px right of 1080 x 1920",
+     "verified_on": "2026-09-30",
+     "note": "Google shows its vertical safe area as an image (support.google.com/google-ads/answer/9128498); the numbers are AdKit's measurement of it."
+    }
+   },
+   "sources": [
+    {"title": "Google Ads Help: Your guide to YouTube Shorts ads", "url": "https://support.google.com/google-ads/answer/16041697", "checked": "2026-09-30",
+     "says": "9:16 vertical assets recommended; video ads can be up to 3 minutes long, though only the first 60 seconds play on the Shorts feed; under 60 seconds recommended."},
+    {"title": "Google Ads Help: Use square and vertical video", "url": "https://support.google.com/google-ads/answer/9128498", "checked": "2026-09-30",
+     "says": "Keep the logo, product, supers and other important elements within the red safe area (shown as a 1080 x 1920 reference image)."},
+    {"title": "AdKit safe zones: YouTube (v2026-09-10)", "url": "https://adkit.so/tools/safe-zones/youtube", "checked": "2026-09-30",
+     "says": "1080 x 1920: top 288 px (15%), bottom 672 px (35%), left 48 px, right 192 px, derived from Google's official transparent vertical template."}
+   ]
+  },
+  "youtube": {
+   "label": "YouTube (watch page)",
+   "family": "YouTube",
+   "route": "hero",
+   "aspects": {"16:9": {"width": 1920, "height": 1080, "note": "3840 x 2160 is fine for a 4K master; the films master at 1920 x 1080."}},
+   "specs": [
+    "MP4, H.264, progressive, 4:2:0; AAC-LC or Opus at 48 kHz; BT.709 for SDR (YouTube's recommended upload settings).",
+    "Upload at the frame rate the film was made at; 1080p at 24 to 30 fps wants about 8 Mbps, at 48 to 60 fps about 12 Mbps.",
+    "End screens can cover the last 5 to 20 seconds of a video that runs 25 seconds or more: leave that stretch calm."
+   ],
+   "zones": {
+    "16:9": {
+     "top": 0.05, "bottom": 0.05, "left": 0.05, "right": 0.05,
+     "basis": "standard", "official": false,
+     "source": "EBU R 95 v1.1 (June 2017) graphics-safe area: 5% in from the top, bottom and sides",
+     "verified_on": "2026-09-30",
+     "note": "YouTube publishes no text-safe area for the watch page; its controls and progress bar draw over the bottom edge while shown, so the broadcast graphics-safe area is the working zone."
+    }
+   },
+   "sources": [
+    {"title": "YouTube Help: Recommended upload encoding settings", "url": "https://support.google.com/youtube/answer/1722171", "checked": "2026-09-30",
+     "says": "MP4; AAC-LC or Opus, 48 kHz; H.264, progressive, 4:2:0; same frame rate as recorded (24, 25, 30, 48, 50, 60); 1080p 8 Mbps standard and 12 Mbps high frame rate; BT.709; 16:9 is the standard aspect."},
+    {"title": "YouTube Help: Add end screens to videos", "url": "https://support.google.com/youtube/answer/6388789", "checked": "2026-09-30",
+     "says": "End screens can be added to the last 5 to 20 seconds of a video; the video must be at least 25 seconds long."},
+    {"title": "EBU R 95: Safe areas for 16:9 television production", "url": "https://tech.ebu.ch/publications/r095", "checked": "2026-09-30",
+     "says": "v1.1, June 2017: action safe area 3.5% and graphics safe area 5% at the top, bottom and lateral edges."}
+   ]
+  },
+  "linkedin": {
+   "label": "LinkedIn",
+   "family": "LinkedIn",
+   "route": "social",
+   "aspects": {
+    "1:1": {"width": 1080, "height": 1080, "note": "LinkedIn takes up to 1920 x 1920."},
+    "4:5": {"width": 1080, "height": 1350},
+    "9:16": {"width": 1080, "height": 1920},
+    "16:9": {"width": 1920, "height": 1080}
+   },
+   "duration_s": {"min": 3, "max": 1800},
+   "max_fps": 30,
+   "specs": [
+    "MP4, 75 KB to 500 MB, 30 fps recommended, AAC or MPEG-4 audio under 64 kHz; captions optional (LinkedIn video ads).",
+    "Feeds play without sound until tapped: burn the captions in."
+   ],
+   "zones": {
+    "1:1": {"top": 0.0741, "bottom": 0.0741, "left": 0.0741, "right": 0.0741, "basis": "estimate", "official": false,
+            "source": "AdKit safe zones: LinkedIn feed square, 80 px buffer on 1080 x 1080 (an estimate, not an official margin)", "verified_on": "2026-09-30"},
+    "4:5": {"top": 0.0593, "bottom": 0.0593, "left": 0.0741, "right": 0.0741, "basis": "estimate", "official": false,
+            "source": "AdKit safe zones: LinkedIn feed portrait, 80 px buffer on 1080 x 1350 (an estimate)", "verified_on": "2026-09-30"},
+    "9:16": {"top": 0.0417, "bottom": 0.0417, "left": 0.0741, "right": 0.0741, "basis": "estimate", "official": false,
+             "source": "AdKit safe zones: LinkedIn vertical video, 80 px buffer on 1080 x 1920 (an estimate)", "verified_on": "2026-09-30"},
+    "16:9": {"top": 0.0658, "bottom": 0.0658, "left": 0.0417, "right": 0.0417, "basis": "estimate", "official": false,
+             "source": "AdKit safe zones: LinkedIn landscape video, 40 px top and bottom and 45 px sides on 1080 x 608 (an estimate)", "verified_on": "2026-09-30"}
+   },
+   "notes": ["LinkedIn publishes no safe zones; these buffers keep text off the frame's edges and the player's controls."],
+   "sources": [
+    {"title": "LinkedIn Ads Guide: Video ads", "url": "https://business.linkedin.com/marketing-solutions/success/ads-guide/video-ads", "checked": "2026-09-30",
+     "says": "1:1 (360 x 360 to 1920 x 1920), 4:5 (to 1080 x 1350), 9:16 (to 1080 x 1920), 16:9 (to 1920 x 1080); 3 seconds to 30 minutes; MP4; 75 KB to 500 MB; 30 fps recommended; AAC or MPEG4 audio under 64 kHz; captions optional."},
+    {"title": "AdKit safe zones: LinkedIn (v2026-09-10)", "url": "https://adkit.so/tools/safe-zones/linkedin", "checked": "2026-09-30",
+     "says": "80 px buffers on square, portrait and vertical video; 40/45 px on landscape video; all estimated, not official."}
+   ]
+  },
+  "website": {
+   "label": "Website",
+   "family": "Web",
+   "route": "hero",
+   "aspects": {
+    "16:9": {"width": 1920, "height": 1080, "note": "Desktop hero."},
+    "9:16": {"width": 1080, "height": 1920, "note": "Mobile hero, full bleed."}
+   },
+   "specs": [
+    "Autoplaying video must be muted or have no audio track: browsers block autoplay only for audible media (MDN).",
+    "Use <video autoplay loop muted playsinline> with an H.264 MP4 and a VP9 (or AV1) WebM source (web.dev); Safari needs playsinline to autoplay.",
+    "Moving content that starts on its own, lasts more than five seconds and sits beside other content needs a pause, stop or hide control (WCAG 2.2.2).",
+    "Honour prefers-reduced-motion: show the poster frame instead of the loop."
+   ],
+   "zones": {
+    "16:9": {
+     "top": 0.119, "bottom": 0.119, "left": 0.125, "right": 0.125,
+     "basis": "geometry", "official": false,
+     "source": "Slate's geometry for a 16:9 frame shown with object-fit: cover in windows from 4:3 (12.5% cropped at each side) to 21:9 (11.9% cropped top and bottom)",
+     "verified_on": "2026-09-30",
+     "note": "Keep the subject inside the centre that survives every window shape. Words belong in the page's HTML, not in the video."
+    },
+    "9:16": {
+     "top": 0.125, "bottom": 0.125, "left": 0.0897, "right": 0.0897,
+     "basis": "geometry", "official": false,
+     "source": "Slate's geometry for a 9:16 frame shown with object-fit: cover on phones up to 9:19.5 (9% cropped at each side) and portrait tablets at 3:4 (12.5% cropped top and bottom)",
+     "verified_on": "2026-09-30"
+    }
+   },
+   "sources": [
+    {"title": "web.dev: Replace animated GIFs with video for faster page loads", "url": "https://web.dev/articles/replace-gifs-with-videos", "checked": "2026-09-30",
+     "says": "<video autoplay loop muted playsinline>, with an H.264 MP4 and a VP9 WebM source (last updated 2018-11-05)."},
+    {"title": "MDN: Autoplay guide for media and Web Audio APIs", "url": "https://developer.mozilla.org/en-US/docs/Web/Media/Guides/Autoplay", "checked": "2026-09-30",
+     "says": "Autoplay blocking is not applied to video elements whose media has no audio track or whose audio is muted; playsinline is required for autoplay in Safari (page modified 2026-09-10)."},
+    {"title": "W3C: Understanding SC 2.2.2 Pause, Stop, Hide (WCAG 2.2)", "url": "https://www.w3.org/WAI/WCAG22/Understanding/pause-stop-hide.html", "checked": "2026-09-30",
+     "says": "Moving, blinking or scrolling information that starts automatically, lasts more than five seconds and is presented in parallel with other content needs a mechanism to pause, stop or hide it."},
+    {"title": "MDN: prefers-reduced-motion", "url": "https://developer.mozilla.org/en-US/docs/Web/CSS/@media/prefers-reduced-motion", "checked": "2026-09-30",
+     "says": "Detects whether the user has asked the device to minimize non-essential motion (page modified 2026-06-10)."}
+   ]
+  },
+  "app_store": {
+   "label": "App Store app preview",
+   "family": "Apple",
+   "route": "hero",
+   "aspects": {
+    "iphone-portrait": {"width": 886, "height": 1920, "note": "iPhone 6.9, 6.5, 6.3 and 6.1 inch displays."},
+    "iphone-landscape": {"width": 1920, "height": 886},
+    "iphone-legacy-portrait": {"width": 1080, "height": 1920, "note": "iPhone 5.5 and 4 inch displays."},
+    "iphone-legacy-landscape": {"width": 1920, "height": 1080},
+    "ipad-portrait": {"width": 1200, "height": 1600, "note": "iPad 13, 12.9, 11 and 10.5 inch displays."},
+    "ipad-landscape": {"width": 1600, "height": 1200},
+    "mac": {"width": 1920, "height": 1080, "note": "Landscape only."},
+    "apple-tv": {"width": 1920, "height": 1080, "note": "Landscape only."},
+    "vision-pro": {"width": 3840, "height": 2160, "note": "Landscape only."}
+   },
+   "duration_s": {"min": 15, "max": 30},
+   "max_fps": 30,
+   "specs": [
+    "H.264 (.mov, .m4v or .mp4; 10 to 12 Mbps, progressive, up to High Profile Level 4.0) or ProRes 422 HQ (.mov, about 220 Mbps); 30 fps at most; up to 500 MB.",
+    "Stereo audio: 256 kbps AAC with H.264, PCM or 256 kbps AAC with ProRes; 44.1 or 48 kHz; every track enabled.",
+    "Up to three previews per language; the poster frame defaults to the frame at 5 seconds.",
+    "Previews play muted by default: carry the story in on-screen copy that stays up long enough to read."
+   ],
+   "zones": {
+    "iphone-portrait": {"top": 0.05, "bottom": 0.05, "left": 0.05, "right": 0.05, "basis": "estimate", "official": false,
+                        "source": "Apple publishes no overlay or safe zone for app previews; Slate keeps a 5% margin so copy clears the store's rounded media corners",
+                        "verified_on": "2026-09-30"},
+    "iphone-landscape": {"top": 0.05, "bottom": 0.05, "left": 0.05, "right": 0.05, "basis": "estimate", "official": false,
+                         "source": "Apple publishes no overlay or safe zone for app previews; Slate keeps a 5% margin", "verified_on": "2026-09-30"},
+    "ipad-portrait": {"top": 0.05, "bottom": 0.05, "left": 0.05, "right": 0.05, "basis": "estimate", "official": false,
+                      "source": "Apple publishes no overlay or safe zone for app previews; Slate keeps a 5% margin", "verified_on": "2026-09-30"},
+    "ipad-landscape": {"top": 0.05, "bottom": 0.05, "left": 0.05, "right": 0.05, "basis": "estimate", "official": false,
+                       "source": "Apple publishes no overlay or safe zone for app previews; Slate keeps a 5% margin", "verified_on": "2026-09-30"},
+    "mac": {"top": 0.05, "bottom": 0.05, "left": 0.05, "right": 0.05, "basis": "estimate", "official": false,
+            "source": "Apple publishes no overlay or safe zone for app previews; Slate keeps a 5% margin", "verified_on": "2026-09-30"}
+   },
+   "sources": [
+    {"title": "App Store Connect Help: App preview specifications", "url": "https://developer.apple.com/help/app-store-connect/reference/app-information/app-preview-specifications", "checked": "2026-09-30",
+     "says": "H.264 or ProRes 422 (HQ only); 15 to 30 seconds; up to 500 MB; 30 fps maximum; stereo 256 kbps AAC (or PCM with ProRes) at 44.1 or 48 kHz; 886 x 1920 for 6.9 to 6.1 inch iPhones, 1080 x 1920 for 5.5 and 4 inch, 1200 x 1600 for iPad Pro and Air, 1920 x 1080 for Mac and Apple TV, 3840 x 2160 for Vision Pro; up to 3 previews; poster frame defaults to 5 seconds."},
+    {"title": "Apple Developer: App previews", "url": "https://developer.apple.com/app-store/app-previews/", "checked": "2026-09-30",
+     "says": "App previews must show only content within the app itself: don't film people interacting with a device. Up to 30 seconds and three previews per language. They play muted by default, so use legible on-screen copy. Appropriate for all ages; licensed material only; avoid seasonal references and pricing."}
+   ]
+  },
+  "broadcast_tv": {
+   "label": "Broadcast TV and cinema",
+   "family": "Broadcast",
+   "route": "hero",
+   "broadcast": true,
+   "aspects": {"16:9": {"width": 1920, "height": 1080}},
+   "specs": [
+    "Loudness to the broadcaster's standard: EBU R 128 (-23 LUFS, -1 dBTP) in Europe, ATSC A/85 (-24 LKFS) in the US.",
+    "Eleven Music's self-serve plans don't cover film, TV or radio: a broadcast film needs an Eleven Music Enterprise licence."
+   ],
+   "zones": {
+    "16:9": {"top": 0.05, "bottom": 0.05, "left": 0.05, "right": 0.05, "basis": "standard", "official": true,
+             "source": "EBU R 95 v1.1 (June 2017) graphics-safe area: 5% in from the top, bottom and sides (action safe is 3.5%)",
+             "verified_on": "2026-09-30"}
+   },
+   "sources": [
+    {"title": "EBU R 95: Safe areas for 16:9 television production", "url": "https://tech.ebu.ch/publications/r095", "checked": "2026-09-30",
+     "says": "v1.1, June 2017: action safe 3.5% and graphics safe 5% at the top, bottom and lateral edges of 16:9 SDTV, HDTV and UHDTV."},
+    {"title": "EBU R 128 (via Slate's media research, 2026-09-30)", "url": "https://tech.ebu.ch/docs/r/r128.pdf", "checked": "2026-09-30",
+     "says": "-23 LUFS integrated, -1 dBTP, +/-0.5 LU."}
+   ]
+  }
+ },
+ "aliases": {
+  "reels": "instagram_reels", "instagram": "instagram_reels", "ig": "instagram_reels", "ig_reels": "instagram_reels",
+  "instagramreels": "instagram_reels", "instagram_feed_post": "instagram_feed", "facebook_feed": "instagram_feed",
+  "meta_feed": "instagram_feed", "tik_tok": "tiktok", "shorts": "youtube_shorts", "yt_shorts": "youtube_shorts",
+  "ytshorts": "youtube_shorts", "youtubeshorts": "youtube_shorts", "yt": "youtube", "youtube_watch": "youtube",
+  "linked_in": "linkedin", "web": "website", "site": "website", "homepage": "website", "appstore": "app_store",
+  "app_store_preview": "app_store", "ios_app_store": "app_store", "tv": "broadcast_tv", "broadcast": "broadcast_tv",
+  "cinema": "broadcast_tv"
+ }
+}

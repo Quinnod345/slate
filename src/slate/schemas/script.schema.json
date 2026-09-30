@@ -38,7 +38,12 @@
     "read_time": {"type": "object"}
    }
   },
-  "acts": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/act"}}
+  "derived_from": {"type": "object", "description": "a derived film's parent script (slate variant writes it): {film, path, sha256}"},
+  "cut": {"type": "object", "description": "a cut-down: {target_s, keep: [the parent's shot ids to keep]}; with no acts of its own the script is those shots",
+          "properties": {"keep": {"type": "array", "items": {"type": "string"}}}},
+  "translate": {"type": "object", "description": "a translation: {from, to}; every shot keeps its parent's id"},
+  "acts": {"type": "array", "items": {"$ref": "#/$defs/act"},
+           "description": "Empty in a new film until someone writes the first act (`slate new` scaffolds it that way); `slate script build` refuses to build a script with no acts."}
  },
  "$defs": {
   "act": {
@@ -74,7 +79,8 @@
     "hold": {"type": "number", "minimum": 0},
     "dur": {"type": "number", "exclusiveMinimum": 0},
     "act_end": {"type": "boolean"},
-    "events": {"type": "array", "items": {"$ref": "#/$defs/event"}}
+    "events": {"type": "array", "items": {"$ref": "#/$defs/event"}},
+    "generate": {"type": "object", "description": "a generation request for this shot (`slate gen` reads it); carried through storyboard.json into timing/shots.json"}
    }
   },
   "source_ref": {

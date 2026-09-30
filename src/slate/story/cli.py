@@ -70,13 +70,15 @@ def _build(args: argparse.Namespace) -> int:
 
 
 def _lint(args: argparse.Namespace) -> int:
-    from slate.story import inputs  # noqa: PLC0415
+    from slate.story import derived, inputs  # noqa: PLC0415
     from slate.story.gates import check_script  # noqa: PLC0415
-    from slate.story.model import load_script  # noqa: PLC0415
 
     film_dir = cli.film(args)
     film = inputs.load_film(film_dir)
-    script = load_script(film_dir)
+    script, parent = derived.load(film_dir, film)
+    if parent.problems:
+        return _report([derived.gate(parent, [])], written=[], refused=True, extra={"film": str(film_dir), "lint": True},
+                       human_tail=["Lint only: nothing written."])
     brand = inputs.load_brand(film.get("brand"))
     fmt, problem = inputs.load_format(film.get("format"))
     results = check_script(script, brand=brand, fmt=fmt, truth=inputs.load_truth(film_dir), film=film,

@@ -8,12 +8,16 @@
               and 3:1 for large text, by WCAG's relative luminance;
 - captions    at most 17 characters a second, and at most 2 lines of 42 characters each;
 - safe_zones  on a 9:16 film, no text sits where Instagram Reels, TikTok or YouTube Shorts draw their own buttons and
-              captions (the format's zones when it has them, else built-in ones), found by OCR on the picture at the
-              contact sheet's frames and those between. UNCHECKED when Vision OCR can't run here.
+              captions (the format's zones when it has them, else built-in ones). The text boxes come from Vision OCR:
+              on the picture every quarter second (the shared sweep, which holds every frame of the half-second
+              contact sheet, read at full size), else on the film's contact sheets, else on the sheet given with
+              --sheet. The label the engine burns into each contact-sheet cell is review material and is left out.
+              UNCHECKED when Vision OCR can't run here.
 
 A sub-check that doesn't apply is left out rather than passed: a 16:9 film has no 9:16 safe zones, and a film with
 no voice has no captions. One that applies but can't run yet (no render, no OCR, no brand pairs) is UNCHECKED, with
-the step that fixes it.
+the step that fixes it. A run narrowed to part of the film (--only, or a file given in place of the film's own) says
+so in an UNCHECKED scope sub-check: it reports what it finds, but only a full run can pass the gate.
 
 How flashes are measured (WCAG 2.2, "general flash and red flash thresholds"): a general flash is a pair of opposing
 changes in relative luminance of at least 0.1 where the darker state is below 0.8; a red flash is a pair of opposing
@@ -67,33 +71,32 @@ CONTRAST = {"body": 4.5, "large": 3.0}
 #: children's programmes and 20 for adults, and two lines of 42). A format may ask for less, never more.
 CAPTIONS = {"max_cps": 17.0, "max_lines": 2, "max_chars": 42}
 
-#: Built-in 9:16 safe zones, as fractions of the frame, for when the film's format doesn't carry its own
-#: (slate.formats.safe_zones wins whenever it answers). Keep text inside: out of the top, bottom and side bands the
-#: platforms cover with their own buttons, names and captions. Checked 2026-09-30.
+#: Built-in 9:16 safe zones, as fractions of the frame, for when slate.formats isn't installed (whenever it is, its
+#: channel library, formats/_platforms.json, answers instead). Text stays out of the top, bottom and side bands and
+#: the keep-out areas ([x0, y0, x1, y1] from the top left) where each platform draws its own buttons, names and
+#: captions. The numbers are the library's own, so the two can't disagree (tests hold them equal); verified 2026-09-30.
 BUILTIN_ZONES: dict[str, dict] = {
     "instagram_reels": {
-        "top": 0.14, "bottom": 0.35, "left": 0.06, "right": 0.06,
-        "source": "Meta's Reels guidance: keep the top 14%, the bottom 35% and 6% at each side free of text and "
-                  "logos (adnova.ai/blogs/meta-ad-safe-zones-guide; hopperhq.com/blog/instagram-reel-size), "
-                  "verified 2026-09-30",
+        "top": 0.14, "bottom": 0.35, "left": 0.06, "right": 0.06, "keep_out": [[0.79, 0.6, 1.0, 1.0]],
+        "source": "Meta Ads Guide, Instagram Reels video ads: keep at least 14% of the top, 35% of the bottom and 6% "
+                  "on each side free of text, logos and key elements (with the action column at the right)",
     },
     "tiktok": {
-        # 160 px at the top, 480 at the bottom and 120 at each side of a 9:16 frame 1,920 tall and 1,080 wide
-        "top": 0.0833, "bottom": 0.25, "left": 0.1111, "right": 0.1111,
-        "source": "TikTok's in-feed overlays as the common guides measure them: profile bar on top, caption and CTA "
-                  "at the bottom, the button column at the right (houseofmarketers.com guide to safe zones; "
-                  "poster.ly TikTok safe zone checker), verified 2026-09-30",
+        "top": 0.125, "bottom": 0.3438, "left": 0.1111, "right": 0.1111, "keep_out": [[0.7222, 0.2917, 1.0, 1.0]],
+        "source": "TikTok's in-feed safe-zone overlay, as measured by AdKit: 240 px top, 660 px bottom, 120 px each "
+                  "side of 1080 x 1920, and a 300 px action column from y = 560 down",
     },
     "youtube_shorts": {
-        "top": 0.125, "bottom": 0.198, "left": 0.056, "right": 0.186,
-        "source": "YouTube Shorts overlays as the common guides measure them: title and channel at the bottom, the "
-                  "button column at the right (reap.video short-form safe zones; poster.ly Shorts safe zone "
-                  "checker), verified 2026-09-30",
+        "top": 0.15, "bottom": 0.35, "left": 0.0444, "right": 0.1778, "keep_out": [],
+        "source": "Google's transparent vertical video template, as measured by AdKit: 288 px top, 672 px bottom, "
+                  "48 px left and 192 px right of 1080 x 1920",
     },
 }
+#: Spellings of the three built-in channels, for when slate.formats (whose library has every alias) isn't installed.
+#: Plain "youtube" is YouTube's own 16:9 channel, not Shorts.
 PLATFORM_ALIASES = {
     "reels": "instagram_reels", "instagram": "instagram_reels", "ig": "instagram_reels", "ig_reels": "instagram_reels",
-    "instagramreels": "instagram_reels", "tik_tok": "tiktok", "shorts": "youtube_shorts", "youtube": "youtube_shorts",
+    "instagramreels": "instagram_reels", "tik_tok": "tiktok", "shorts": "youtube_shorts",
     "yt_shorts": "youtube_shorts", "ytshorts": "youtube_shorts", "youtubeshorts": "youtube_shorts",
 }
 OCR_MIN_CONF = 0.5
@@ -456,7 +459,13 @@ def _picture_sources(ctx, render: str | None, render_act: int | None, render_fro
     return out, missing
 
 
-def check_flashes(ctx, *, render: str | None = None, render_act: int | None = None, render_from: int | None = None):
+def check_flashes(ctx, *, render: str | None = None, render_act: int | None = None, render_from: int | None = None,
+                  read: list | None = None):
+    """At most 3 flashes a second on the picture. Every picture file it reads is appended to `read` (the gate's
+    inputs, so a new render or master turns the result STALE)."""
+    from slate.qa.motion import cached_scan, source_digest  # noqa: PLC0415
+
+    read = read if read is not None else []
     fps = ctx.fps
     if fps is None:
         return _sub("flashes", "UNCHECKED", "film.json has no frame rate, so flashes per second can't be counted")
@@ -474,12 +483,23 @@ def check_flashes(ctx, *, render: str | None = None, render_act: int | None = No
     for label, path, first, count in sources:
         if not path.exists():
             return _sub("flashes", "UNCHECKED", f"{label} doesn't exist", [str(path)])
+        read.append(path)
         if path.is_file() and not media.have("ffmpeg"):
             return _sub("flashes", "UNCHECKED", "ffmpeg isn't installed, so the picture can't be decoded", [],
                         hint="Install it with Homebrew (`brew install ffmpeg`), or run `slate doctor --install`.")
         w, h = size if size else _source_size(path)
+        analysis = flash_size(w, h)
+        key = {"file": label, "sha256": source_digest(ctx, path), "first_frame": first, "frames": count,
+               "fps": [fps.numerator, fps.denominator], "analysis": list(analysis), "flash": FLASH,
+               "version": __version__}
+
+        def scan(path=path, analysis=analysis, count=count, first=first):
+            return scan_flashes(read_rgb(path, analysis, count=count), fps, first_frame=first)
+
         try:
-            res = scan_flashes(read_rgb(path, flash_size(w, h), count=count), fps, first_frame=first)
+            res = dict(cached_scan(ctx, "access", path, key, scan, what="flashes", kind="flashes"))
+        except MissingPrerequisite as exc:
+            return _sub("flashes", "UNCHECKED", exc.message, [label], hint=exc.hint)
         except SlateError as exc:
             return _sub("flashes", "UNCHECKED", f"{label} couldn't be decoded: {exc}", [str(path)])
         res["file"] = label
@@ -555,11 +575,36 @@ def brand_pairs(pack: dict) -> tuple[list[dict] | None, dict, str]:
         except Exception:  # noqa: BLE001
             palette = None
     if not isinstance(palette, dict):
-        palette = pack.get("palette") if isinstance(pack.get("palette"), dict) else {}
+        palette = flat_palette(pack.get("palette") if isinstance(pack.get("palette"), dict) else {})
     tokens = palette.get("tokens") if isinstance(palette.get("tokens"), dict) else palette
     if pairs is None:
         return None, tokens, source
     return [p for p in pairs if isinstance(p, dict)], tokens, source
+
+
+_PALETTE_RESERVED = frozenset({"roles", "tones", "notes", "note", "source", "sources", "pairs", "contrast_pairs",
+                               "tokens"})
+
+
+def flat_palette(pal: dict) -> dict:
+    """A palette as flat tokens ("gray.50": "#…"), with each role (palette.roles) added under its own name: the shape
+    slate.brand.pack.palette gives, for when that module isn't installed."""
+    out: dict[str, Any] = {}
+
+    def walk(tree: Any, prefix: str = "") -> None:
+        for key, value in (tree.items() if isinstance(tree, dict) else ()):
+            if not prefix and key in _PALETTE_RESERVED:
+                continue
+            name = f"{prefix}.{key}" if prefix else str(key)
+            if isinstance(value, dict) and parse_colour(value) is None:
+                walk(value, name)
+            else:
+                out[name] = value
+    walk(pal.get("tokens") if isinstance(pal.get("tokens"), dict) else pal)
+    roles = pal.get("roles") if isinstance(pal.get("roles"), dict) else {}
+    for role, ref in roles.items():
+        out.setdefault(str(role), ref)
+    return out
 
 
 def resolve_colour(ref: Any, palette: dict, depth: int = 0) -> tuple[float, float, float, float] | None:
@@ -591,7 +636,10 @@ def check_pairs(pairs: list[dict], palette: dict) -> tuple[list[dict], list[dict
         bg_ref = p.get("bg", p.get("background", p.get("surface")))
         role = str(p.get("role") or "body").lower()
         need = CONTRAST.get(role, CONTRAST["body"])
-        fg, bg = resolve_colour(fg_ref, palette), resolve_colour(bg_ref, palette)
+        # the brand module resolves each token once (fg_hex / bg_hex), so onboarding and this gate read the same
+        # colour; the ratio is measured here all the same
+        fg = parse_colour(p.get("fg_hex")) or resolve_colour(fg_ref, palette)
+        bg = parse_colour(p.get("bg_hex")) or resolve_colour(bg_ref, palette)
         row = {"fg": fg_ref, "bg": bg_ref, "role": role, "needs": need}
         if fg is None or bg is None:
             which = [str(r) for r, c in ((fg_ref, fg), (bg_ref, bg)) if c is None]
@@ -842,18 +890,78 @@ def check_captions(ctx, *, captions: str | None = None):
 
 # ---------------------------------------------------------------------------------------------------- safe zones
 def _format(ctx) -> dict | None:
-    name = ctx.film.get("format")
+    """The film's format data: slate.formats.load when it's installed, else the format file film.json records
+    (`format_source`, where `slate new` read it), else formats/<name>.json in the repo. None when there's none."""
+    memo = getattr(ctx, "_memo", {})
+    if "access.format" in memo:
+        return memo["access.format"]
+    fmt = _read_format(ctx.film)
+    if isinstance(getattr(ctx, "_memo", None), dict):
+        ctx._memo["access.format"] = fmt
+    return fmt
+
+
+def film_aspect(film: dict) -> str | None:
+    """The film's aspect as film.json says it ("9:16"), else its frame size ("1080x1920")."""
+    if film.get("aspect"):
+        return str(film["aspect"])
+    w, h = film.get("width"), film.get("height")
+    return f"{w}x{h}" if w and h else None
+
+
+def _load_with(mod, ref: str, aspect: str | None) -> dict | None:
+    """slate.formats.load(ref) at the film's aspect (or its default when it doesn't come in that one)."""
+    for kw in (({"aspect": aspect},) if aspect else ()) + ({},):
+        try:
+            fmt = mod.load(ref, **kw)
+        except TypeError:
+            continue  # a load() that takes no aspect
+        except Exception:  # noqa: BLE001 - not this aspect, or not this format
+            continue
+        if isinstance(fmt, dict):
+            return fmt
+    return None
+
+
+def _read_format(film: dict) -> dict | None:
+    """The film's format. When film.json records the file it was made from (`format_source`), that file is the
+    film's format, never another one with the same name; else the format by name."""
+    from slate import paths  # noqa: PLC0415
+
+    name = film.get("format")
     mod = _optional("slate.formats")
-    if not name or mod is None or not hasattr(mod, "load"):
-        return None
+    loader = mod if mod is not None and hasattr(mod, "load") else None
+    aspect = film_aspect(film)
+    source = film.get("format_source")
+    source = Path(source).expanduser() if isinstance(source, str) and source.endswith(".json") else None
+    if source is not None and source.is_file():
+        fmt = _load_with(loader, str(source), aspect) if loader else None
+        return fmt if fmt is not None else _raw_format(source)
+    if name and loader is not None:
+        fmt = _load_with(loader, str(name), aspect)
+        if fmt is not None:
+            return fmt
+    return _raw_format(paths.FORMATS_DIR / f"{name}.json") if name else None
+
+
+def _raw_format(path: Path) -> dict | None:
     try:
-        fmt = mod.load(name)
-    except Exception:  # noqa: BLE001 - an unknown format just means no format data
+        fmt = jsonio.read(path) if path.is_file() else None
+    except SlateError:
         return None
     return fmt if isinstance(fmt, dict) else None
 
 
 def platform_key(name: str) -> str:
+    """A channel's key from any spelling: slate.formats.channel_key (the library's aliases) when it knows the name,
+    else the built-in spellings."""
+    mod = _optional("slate.formats")
+    fn = getattr(mod, "channel_key", None) if mod is not None else None
+    if callable(fn):
+        try:
+            return str(fn(name))
+        except Exception:  # noqa: BLE001 - a channel the library doesn't know: keep the name as written
+            pass
     key = re.sub(r"[^a-z0-9]+", "_", str(name).lower()).strip("_")
     return PLATFORM_ALIASES.get(key, PLATFORM_ALIASES.get(key.replace("_", ""), key))
 
@@ -920,46 +1028,83 @@ def normalize_zone(z: Any, width: int, height: int, source: str) -> dict | None:
 
 
 def platforms_for(ctx, explicit: list[str] | None = None) -> tuple[list[str], str]:
-    """Which platforms' zones apply: the ones asked for, else the format's, else (for 9:16) the three short-video
-    platforms."""
+    """Which platforms' zones apply: the ones asked for; else, on a 9:16 film, the channels its format makes it for
+    at that aspect, else the three short-video platforms; else a format of the film's own that names platforms and
+    their zones outright. A landscape film made from a library format has no platform zones to check (the plan's
+    zones are the 9:16 ones)."""
     if explicit:
-        return [platform_key(p) for p in explicit], "asked for"
+        return list(dict.fromkeys(platform_key(p) for p in explicit)), "asked for"
     fmt = _format(ctx)
-    if isinstance(fmt, dict):
-        declared = fmt.get("platforms") or fmt.get("channels")
-        if isinstance(declared, dict):
-            declared = list(declared)
-        zones = fmt.get("safe_zones")
-        if not declared and isinstance(zones, dict):
-            declared = list(zones)
-        if isinstance(declared, list) and declared:
-            return [platform_key(p) for p in declared if isinstance(p, str)], f"the {ctx.film.get('format')} format"
     w, h = ctx.size or (0, 0)
-    if is_vertical(w, h):
+    vertical = is_vertical(w, h)
+    name = ctx.film.get("format")
+    if isinstance(fmt, dict):
+        aspects = fmt.get("aspects") if isinstance(fmt.get("aspects"), dict) else None
+        declared: Any = None
+        if vertical and aspects and isinstance(aspects.get(fmt.get("aspect")), dict):
+            declared = aspects[fmt["aspect"]].get("channels")
+        if not declared and (vertical or aspects is None):
+            declared = fmt.get("platforms") or fmt.get("channels")
+            if isinstance(declared, dict):
+                declared = list(declared)
+            zones = fmt.get("safe_zones")
+            if not declared and isinstance(zones, dict):
+                declared = list(zones)
+        if isinstance(declared, list) and declared:
+            return (list(dict.fromkeys(platform_key(p) for p in declared if isinstance(p, str))),
+                    f"the {name} format" + (f" at {fmt.get('aspect')}" if aspects and fmt.get("aspect") else ""))
+    if vertical:
         return list(BUILTIN_ZONES), "the three 9:16 platforms (built in)"
     return [], "none"
 
 
-def zone_for(ctx, platform: str) -> dict | None:
-    """A platform's zone: slate.formats.safe_zones when it answers, else the built-in one, else None."""
+def lookup_zone(ctx, platform: str) -> tuple[dict | None, str]:
+    """(zone, where from) for one platform on this film, or (None, "none") when the formats library says the channel
+    keeps no part of this frame, or (None, "unknown") when nothing knows its zones. The library answers first
+    (slate.formats.safe_zones at the film's aspect; its answer is final), then the format's own `safe_zones`, then the
+    built-in 9:16 zones."""
     w, h = ctx.size or (0, 0)
     mod = _optional("slate.formats")
     fn = getattr(mod, "safe_zones", None) if mod is not None else None
-    fmt_name = ctx.film.get("format")
-    if callable(fn) and fmt_name:
-        for arg in (fmt_name, _format(ctx)):
-            if arg is None:
-                continue
+    name = ctx.film.get("format")
+    fmt = _format(ctx)
+    if callable(fn) and (fmt is not None or name):
+        arg = fmt if fmt is not None else name
+        aspect = fmt.get("aspect") if isinstance(fmt, dict) else None
+        where = f"slate.formats.safe_zones({name!r}, {platform!r}" + (f", aspect={aspect!r})" if aspect else ")")
+        answered, z = False, None
+        for kw in (({"aspect": aspect},) if aspect else ()) + ({},):
             try:
-                z = fn(arg, platform)
-            except Exception:  # noqa: BLE001 - this format/platform has no zones; try the next form, then built-in
-                continue
-            norm = normalize_zone(z, w, h, f"slate.formats.safe_zones({fmt_name!r}, {platform!r})")
-            if norm:
-                return norm
+                z = fn(arg, platform, **kw)
+                answered = True
+                break
+            except TypeError:
+                continue  # a safe_zones() that takes no aspect
+            except Exception:  # noqa: BLE001 - a channel it doesn't know: fall back below
+                break
+        if answered:
+            norm = normalize_zone(z, w, h, where)
+            if norm is not None:
+                norm["source"] = (z.get("source") if isinstance(z, dict) and z.get("source") else where)
+                return norm, where
+            if isinstance(fmt, dict) and fmt.get("aspects"):
+                return None, "none"  # the library's own format: no zone for this channel at this aspect
+    own = fmt.get("safe_zones") if isinstance(fmt, dict) else None
+    if isinstance(own, dict):
+        z = own.get(platform)
+        if z is None:
+            z = next((v for k, v in own.items() if platform_key(k) == platform), None)
+        norm = normalize_zone(z, w, h, f"the {name} format's safe_zones.{platform}")
+        if norm:
+            return norm, f"the {name} format"
     if platform in BUILTIN_ZONES and is_vertical(w, h):
-        return normalize_zone(BUILTIN_ZONES[platform], w, h, BUILTIN_ZONES[platform]["source"])
-    return None
+        return normalize_zone(BUILTIN_ZONES[platform], w, h, BUILTIN_ZONES[platform]["source"]), "built in"
+    return None, "unknown"
+
+
+def zone_for(ctx, platform: str) -> dict | None:
+    """A platform's zone on this film (see lookup_zone), or None."""
+    return lookup_zone(ctx, platform)[0]
 
 
 def box_from_ocr(box: Any) -> list[float] | None:
@@ -991,65 +1136,313 @@ def zone_problems(box: list[float], zone: dict) -> list[str]:
     return out
 
 
-def sheet_images(path: Path) -> list[tuple[str, Any]]:
-    """(label, PIL image) for an explicit contact sheet: a folder of frames, a single frame, or a sheet image with a
-    sidecar JSON listing its tiles ({"tiles": [{"rect": [x, y, w, h], "t" or "frame": …}]})."""
-    from PIL import Image  # noqa: PLC0415
+# ---------------------------------------------------------------------------------------------------- contact sheets
+#: Where a film's contact sheets live. The engine's stills command tiles a sheet into <Comp>_sheet.png and writes its
+#: index, <Comp>_sheet.json ({comp, file, rows, columns, cells: [{cell, frame, film_frame, shot, timecode}]}), beside
+#: it: review/stills/ by default, and the review packet keeps its sheets under review/ too.
+SHEET_DIRS = ("review", "renders/stills")
+#: The engine burns a label ("Act2 · f120 · S04 · 00:00:04:00") into each cell's bottom-left corner: a 3.2%-high
+#: line with its padding and margin, so its box ends within the bottom 8% of the cell. Text there that reads as the
+#: label is review material, not the film's own text, and is left out of the safe-zone check.
+STAMP_BAND = 0.14
+STAMP_LEFT = 0.5
+STAMP_MATCH = 0.75  # an OCR line is the label when at least 75% of its letters and digits match the label's in order
+#: The widest gutter the geometry search tries (the engine uses 8 px). A sheet laid out with more says so in its index.
+MAX_TILE_PADDING = 64
 
+
+@dataclasses.dataclass
+class Cell:
+    """One frame read for text: its picture, where it sits in the film (when known), and the label the engine burned
+    into it, if any (review material, never the film's own text)."""
+
+    label: str
+    image: Any
+    t: float | None = None
+    frame: int | None = None
+    stamp: str | None = None
+
+
+def tile_geometry(sheet_size: tuple[int, int], columns: int, rows: int, aspect: float | None = None,
+                  hint: dict | None = None) -> dict | None:
+    """Where the cells of a tiled contact sheet sit: {"cell": [w, h], "padding": p, "margin": m} in sheet pixels.
+
+    ffmpeg's tile filter (what the engine's sheets use) puts `margin` round the grid and `padding` between cells, so
+    width = 2·margin + columns·w + (columns − 1)·padding. When the index says, that's used. Otherwise the padding
+    (the engine uses one number for both, 8 px unless asked) is the one up to MAX_TILE_PADDING that leaves whole
+    cells of the film's shape, nearest 8 on a tie. None when nothing fits within 2% of the film's shape.
+    """
+    W, H = (int(v) for v in sheet_size)
+    columns, rows = max(1, int(columns)), max(1, int(rows))
+    if isinstance(hint, dict):
+        cell = hint.get("cell") if isinstance(hint.get("cell"), (list, tuple)) else \
+            [hint.get("cell_width"), hint.get("cell_height")]
+        cw, ch = (_num(v) for v in (list(cell) + [None, None])[:2])
+        if cw and ch:
+            pad = _num(hint.get("padding")) or 0.0
+            margin = _num(hint.get("margin"))
+            return {"cell": [int(cw), int(ch)], "padding": int(pad), "margin": int(pad if margin is None else margin)}
+    best = None
+    for p in range(0, MAX_TILE_PADDING + 1):
+        wn, hn = W - (columns + 1) * p, H - (rows + 1) * p
+        if wn <= 0 or hn <= 0:
+            break
+        if wn % columns or hn % rows:
+            continue
+        cw, ch = wn // columns, hn // rows
+        err = abs((cw / ch) / aspect - 1.0) if aspect else 0.0
+        cand = (round(err, 4), abs(p - 8), p, cw, ch)
+        if best is None or cand < best:
+            best = cand
+    if best is None or (aspect and best[0] > 0.02):
+        return None
+    return {"cell": [best[3], best[4]], "padding": best[2], "margin": best[2]}
+
+
+def stamp_for(index: dict, cell: dict) -> str | None:
+    """The label the engine burned into a cell ("<comp> · f<frame> · <shot> · <timecode>"), or None when the index
+    says the sheet has no labels."""
+    if index.get("labels") is False or cell.get("frame") is None:
+        return None
+    parts = [str(index.get("comp") or "Film"), f"f{cell['frame']}"]
+    if cell.get("shot"):
+        parts.append(str(cell["shot"]))
+    if cell.get("timecode"):
+        parts.append(str(cell["timecode"]))
+    return " · ".join(parts)
+
+
+def _alnum(s: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", str(s).lower())
+
+
+_FRAME_TOKEN = re.compile(r"(?<![a-z0-9])f\s*\d+(?![0-9])", re.I)
+_TIMECODE = re.compile(r"\d{1,2}\s*[:;.]\s*\d{2}\s*[:;.]\s*\d{2}(?:\s*[:;.]\s*\d{2})?")
+
+
+def is_stamp(text: str, box: list[float], stamp: str | None) -> bool:
+    """Whether an OCR line is a contact-sheet cell's burned-in label, which is review material, not the film's text.
+
+    It has to sit in the cell's bottom-left corner, where the engine draws the label, and read as the label: all of
+    it part of the label and either shaped like one (a frame number "f120" or a timecode) or long enough not to be a
+    coincidence; or, allowing for OCR misreads, shaped like a label with 75% of its letters and digits the label's,
+    in order. Film text in that corner ("Film 2026", "Act 2") stays in the check."""
+    if not stamp or box is None:
+        return False
+    x0, y0, _x1, _y1 = box
+    if y0 < 1.0 - STAMP_BAND or x0 > STAMP_LEFT:
+        return False
+    t, s = _alnum(text), _alnum(stamp)
+    if len(t) < 3:
+        return False
+    shaped = bool(_FRAME_TOKEN.search(text) or _TIMECODE.search(text))
+    if t in s and (shaped or len(t) >= 8):
+        return True
+    if not shaped:
+        return False
+    import difflib  # noqa: PLC0415
+
+    matched = sum(b.size for b in difflib.SequenceMatcher(None, t, s, autojunk=False).get_matching_blocks())
+    return matched >= STAMP_MATCH * len(t)
+
+
+def _images_in(folder: Path) -> list[Path]:
     from slate.qa.motion import IMAGE_EXTS  # noqa: PLC0415
+
+    return sorted(p for p in folder.iterdir() if p.suffix.lower() in IMAGE_EXTS and not p.name.startswith("."))
+
+
+def sheet_cells(path: Path, *, film_size: tuple[int, int] | None = None, fps: float | None = None) -> list[Cell]:
+    """The frames of a contact sheet, each with where it sits in the film and its burned-in label.
+
+    `path` is an engine sheet (its PNG, or its index JSON) whose index gives rows, columns and cells; a sheet with a
+    tiles index ({"tiles": [{"rect": [x, y, w, h], "t" or "frame": …}]}); a folder of frames; or one frame.
+    """
+    from PIL import Image  # noqa: PLC0415
 
     path = Path(path)
     if path.is_dir():
         out = []
-        for p in sorted(path.iterdir()):
-            if p.suffix.lower() in IMAGE_EXTS and not p.name.startswith("."):
-                with Image.open(p) as im:
-                    out.append((p.name, im.convert("RGB")))
+        for p in _images_in(path):
+            with Image.open(p) as im:
+                out.append(Cell(p.name, im.convert("RGB")))
         return out
-    with Image.open(path) as im:
+    index: Any = None
+    image = path
+    if path.suffix.lower() == ".json":
+        index = jsonio.read(path)
+        name = index.get("file") if isinstance(index, dict) else None
+        image = path.parent / str(name or path.with_suffix(".png").name)
+        if not image.is_file():
+            raise UsageError(f"{path.name} indexes a contact sheet, but its image ({image.name}) isn't beside it.")
+    else:
+        side = path.with_suffix(".json")
+        index = jsonio.read(side) if side.is_file() else None
+    with Image.open(image) as im:
         sheet = im.convert("RGB")
-    manifest = path.with_suffix(".json")
-    if manifest.is_file():
-        doc = jsonio.read(manifest)
-        tiles = doc.get("tiles") if isinstance(doc, dict) else None
-        if isinstance(tiles, list) and tiles:
-            out = []
-            for i, t in enumerate(tiles):
-                r = t.get("rect") if isinstance(t, dict) else None
-                if not (isinstance(r, (list, tuple)) and len(r) == 4):
-                    continue
-                x, y, w, h = (int(round(float(v))) for v in r)
-                label = f"{path.name} tile {i + 1}" + (f" ({t['t']} s)" if "t" in t else
-                                                       f" (frame {t['frame']})" if "frame" in t else "")
-                out.append((label, sheet.crop((x, y, x + w, y + h))))
-            return out
-    return [(path.name, sheet)]
+    if not isinstance(index, dict):
+        return [Cell(image.name, sheet)]
+    tiles = index.get("tiles")
+    if isinstance(tiles, list) and tiles:
+        out = []
+        for i, t in enumerate(tiles):
+            r = t.get("rect") if isinstance(t, dict) else None
+            if not (isinstance(r, (list, tuple)) and len(r) == 4 and all(_num(v) is not None for v in r)):
+                continue
+            x, y, w, h = (int(round(float(v))) for v in r)
+            frame = t.get("film_frame", t.get("frame"))
+            secs = _num(t.get("t"))
+            if secs is None and fps and _num(frame) is not None:
+                secs = float(frame) / fps
+            label = f"{image.name} tile {i + 1}" + (f" (film frame {frame})" if frame is not None else
+                                                    f" ({secs:.2f} s)" if secs is not None else "")
+            out.append(Cell(label, sheet.crop((x, y, x + w, y + h)), secs,
+                            int(frame) if _num(frame) is not None else None, t.get("stamp")))
+        return out
+    cells = index.get("cells")
+    if isinstance(cells, list) and cells and _num(index.get("columns")) and _num(index.get("rows")):
+        columns, rows = int(index["columns"]), int(index["rows"])
+        aspect = film_size[0] / film_size[1] if film_size and film_size[1] else None
+        geo = tile_geometry(sheet.size, columns, rows, aspect, index.get("geometry") or index)
+        if geo is None:
+            raise UsageError(f"The cells of {image.name} can't be located: its index doesn't give their size, and no "
+                             f"padding leaves {columns}×{rows} cells of the film's shape in a {sheet.size[0]}×"
+                             f"{sheet.size[1]} sheet.",
+                             hint="Make the sheet again with the engine's stills command (it tiles the film's frames "
+                                  "at the film's shape), or pass a folder of frames with --sheet.")
+        (cw, ch), pad, margin = geo["cell"], geo["padding"], geo["margin"]
+        out = []
+        for k, c in enumerate(cells):
+            if not isinstance(c, dict):
+                continue
+            i = int(c.get("cell", k))
+            col, row = i % columns, i // columns
+            x, y = margin + col * (cw + pad), margin + row * (ch + pad)
+            if x + cw > sheet.size[0] or y + ch > sheet.size[1]:
+                continue
+            ff = c.get("film_frame")
+            secs = float(ff) / fps if fps and _num(ff) is not None else None
+            where = [f"film frame {ff}"] if ff is not None else [f"frame {c.get('frame')}"]
+            if secs is not None:
+                where.append(f"{secs:.2f} s")
+            out.append(Cell(f"{image.name} cell {i + 1} ({', '.join(where)})", sheet.crop((x, y, x + cw, y + ch)),
+                            secs, int(ff) if _num(ff) is not None else None, stamp_for(index, c)))
+        return out
+    return [Cell(image.name, sheet)]
+
+
+def find_sheets(ctx) -> list[Path]:
+    """The film's contact sheets: the index JSONs under review/ and renders/stills/ that describe a tiled sheet (rows,
+    columns and cells, as the engine writes them) with its image beside it. When several versions of one
+    composition's sheet exist, only the newest counts."""
+    newest: dict[str, tuple[float, Path]] = {}
+    for d in SHEET_DIRS:
+        folder = ctx.path(d)
+        if not folder.is_dir():
+            continue
+        for p in sorted(folder.rglob("*.json")):
+            try:
+                doc = jsonio.read(p)
+            except SlateError:
+                continue
+            if not (isinstance(doc, dict) and isinstance(doc.get("cells"), list) and _num(doc.get("rows"))
+                    and _num(doc.get("columns")) and (p.parent / str(doc.get("file") or "")).is_file()):
+                continue
+            comp = str(doc.get("comp") or p.stem)
+            mtime = p.stat().st_mtime
+            if comp not in newest or mtime > newest[comp][0]:
+                newest[comp] = (mtime, p)
+    return sorted(p for _m, p in newest.values())
+
+
+def _has_picture(ctx) -> bool:
+    """Whether the film has a picture the OCR sweep can read (a master, or a whole-act render)."""
+    if ctx.masters():
+        return True
+    return any(Path(e["path"]).is_file() for e in ctx.current_renders().values())
+
+
+def _read_cells(ctx, cells: list[Cell], sources: list[Path]) -> tuple[list[dict], dict]:
+    """OCR each cell (cached against the sheets' hashes, so a quick run reuses it and never starts it)."""
+    from slate.qa import ocr  # noqa: PLC0415
+    from slate.qa.motion import cached_scan, source_digest  # noqa: PLC0415
+
+    backend = ocr.backend()
+    engine = dict(backend.engine)
+    key = {"sources": [{"file": ctx.rel(f), "sha256": source_digest(ctx, Path(f))} for f in _sheet_files(sources)],
+           "cells": [c.label for c in cells], "engine": engine, "version": __version__}
+
+    def scan():
+        return [backend.recognize(c.image) for c in cells]
+
+    lines = cached_scan(ctx, "access", sources[0], key, scan, what="text", kind="sheet")
+    samples = [{"label": c.label, "t": c.t, "frame": c.frame, "stamp": c.stamp, "lines": ln or []}
+               for c, ln in zip(cells, lines)]
+    return samples, engine
 
 
 def _ocr_samples(ctx, sheet: str | None) -> tuple[list[dict], dict, list[str]]:
-    """OCR'd text boxes, as [{label, t, boxes: [{text, conf, box}]}], the engine that read them, and the files."""
+    """OCR'd text boxes, as [{label, t, frame, stamp, lines: [{text, conf, box}]}], the engine that read them, and
+    the files read: an explicit sheet; else the shared sweep of the picture; else, with no picture yet, the film's
+    contact sheets. Raises MissingPrerequisite (UNCHECKED) when there's nothing to read or OCR can't run."""
     from slate.qa import ocr  # noqa: PLC0415
 
+    fps = float(ctx.fps) if ctx.fps else None
     if sheet:
         p = Path(sheet).expanduser()
         p = p if p.is_absolute() or p.exists() else ctx.path(sheet)
         if not p.exists():
             raise UsageError(f"There's no contact sheet at {p}.")
-        backend = ocr.backend()
-        samples = []
-        for label, img in sheet_images(p):
-            samples.append({"label": label, "t": None, "lines": backend.recognize(img)})
-        return samples, dict(backend.engine), [str(p)]
-    sweep = ocr.sweep(ctx)
-    samples = [{"label": f"{s['t']:.2f} s (film frame {s['frame']})", "t": s["t"], "lines": s.get("lines") or []}
-               for s in sweep.samples]
-    extra = {"every_s": sweep.every, "source": sweep.source, "cache": sweep.cache}
-    if sweep.missing_acts:
-        extra["missing_acts"] = sweep.missing_acts
-    return samples, {**sweep.engine, **extra}, list(sweep.files)
+        cells = sheet_cells(p, film_size=ctx.size, fps=fps)
+        if not cells:
+            raise MissingPrerequisite(f"{ctx.rel(p)} has no frames in it to read.")
+        samples, engine = _read_cells(ctx, cells, [p])
+        return samples, {**engine, "source": f"contact sheet {ctx.rel(p)}"}, _sheet_files([p])
+    if _has_picture(ctx):
+        sweep = ocr.sweep(ctx)
+        samples = [{"label": f"{s['t']:.2f} s (film frame {s['frame']})", "t": s["t"], "frame": s["frame"],
+                    "stamp": None, "lines": s.get("lines") or []} for s in sweep.samples]
+        extra = {"every_s": sweep.every, "source": f"the picture ({sweep.source}), every {sweep.every:g} s: every "
+                 "frame of the half-second contact sheet and those between, at full size", "cache": sweep.cache}
+        if sweep.missing_acts:
+            extra["missing_acts"] = sweep.missing_acts
+        return samples, {**sweep.engine, **extra}, list(sweep.files)
+    sheets = find_sheets(ctx)
+    if not sheets:
+        raise MissingPrerequisite("There's nothing to read for text yet: no master, no act render and no contact "
+                                  "sheet.", hint="Render the acts (`slate render`) or make the review packet's "
+                                                 "contact sheet, then run `slate qa access` again.")
+    cells: list[Cell] = []
+    for s in sheets:
+        cells += sheet_cells(s, film_size=ctx.size, fps=fps)
+    samples, engine = _read_cells(ctx, cells, sheets)
+    return samples, {**engine, "source": "the film's contact sheets: " + ", ".join(ctx.rel(s) for s in sheets)}, \
+        _sheet_files(sheets)
 
 
-def check_safe_zones(ctx, *, sheet: str | None = None, platforms: list[str] | None = None):
+def _sheet_files(paths: list[Path]) -> list[str]:
+    """A contact sheet's files, image first and then its index (or a folder's frames): what the check read, for the
+    gate's inputs and the OCR cache's key."""
+    out: list[str] = []
+    for p in paths:
+        p = Path(p)
+        if p.is_dir():
+            out += [str(x) for x in _images_in(p)]
+            continue
+        if p.suffix.lower() == ".json":
+            doc = jsonio.read(p, default=None) if p.is_file() else None
+            name = doc.get("file") if isinstance(doc, dict) else None
+            pair = [p.parent / str(name or p.with_suffix(".png").name), p]
+        else:
+            pair = [p, p.with_suffix(".json")]
+        out += [str(q) for q in pair if q.is_file() and str(q) not in out]
+    return out
+
+
+def check_safe_zones(ctx, *, sheet: str | None = None, platforms: list[str] | None = None, read: list | None = None):
+    """Text inside the platforms' safe zones on a 9:16 film, by OCR'd text boxes. The contact sheets it reads are
+    appended to `read` (the gate's inputs)."""
+    read = read if read is not None else []
     size = ctx.size
     if not size:
         return _sub("safe_zones", "UNCHECKED", "film.json has no width and height, so the frame's shape is unknown")
@@ -1058,12 +1451,17 @@ def check_safe_zones(ctx, *, sheet: str | None = None, platforms: list[str] | No
         return None  # not 9:16 and no format zones: no platform safe zones apply
     zones = {}
     unknown = []
+    no_zone = []
     for n in names:
-        z = zone_for(ctx, n)
-        if z is None:
-            unknown.append(n)
-        else:
+        z, where = lookup_zone(ctx, n)
+        if z is not None:
             zones[n] = z
+        elif where == "none":
+            no_zone.append(n)  # the channel draws nothing over this frame
+        else:
+            unknown.append(n)
+    if not zones and not unknown:
+        return None  # none of the film's channels keeps text out of any part of this frame
     if not zones:
         return _sub("safe_zones", "UNCHECKED", f"no safe zones are known for {', '.join(unknown)} at this frame shape",
                     [], hint="Add the platform's zones to the film's format (formats/<name>.json).", platforms=names)
@@ -1078,10 +1476,12 @@ def check_safe_zones(ctx, *, sheet: str | None = None, platforms: list[str] | No
     except MissingPrerequisite as exc:
         return _sub("safe_zones", "UNCHECKED", f"the frames couldn't be read for text: {exc.message}", [],
                     hint=exc.hint, platforms=list(zones))
+    read += list(files)
     if not samples:
         return _sub("safe_zones", "UNCHECKED", "there were no frames to read for text", [], platforms=list(zones))
     violations = []
     texts = 0
+    stamps = 0
     for s in samples:
         for line in s["lines"]:
             text = str(line.get("text") or "").strip()
@@ -1090,6 +1490,9 @@ def check_safe_zones(ctx, *, sheet: str | None = None, platforms: list[str] | No
             if not text or box is None or not re.search(r"[A-Za-z0-9]", text):
                 continue
             if conf is not None and conf < OCR_MIN_CONF:
+                continue
+            if is_stamp(text, box, s.get("stamp")):
+                stamps += 1  # the contact sheet's own label, burned into the cell for review
                 continue
             texts += 1
             for name, z in zones.items():
@@ -1100,9 +1503,11 @@ def check_safe_zones(ctx, *, sheet: str | None = None, platforms: list[str] | No
     details = {"platforms": {n: {"safe": [round(v, 4) for v in z["safe"]], "keep_out": z["keep_out"],
                                  "source": z["source"]} for n, z in zones.items()},
                "platforms_from": why, "frames_read": len(samples), "text_boxes": texts, "engine": engine,
-               "files": files}
+               "files": files, **({"sheet_labels_left_out": stamps} if stamps else {})}
     if unknown:
         details["no_zones_for"] = unknown
+    if no_zone:
+        details["no_zone_at_this_aspect"] = no_zone
     if violations:
         details["violations"] = violations[:60]
         details["violations_total"] = len(violations)
@@ -1126,21 +1531,32 @@ def check_safe_zones(ctx, *, sheet: str | None = None, platforms: list[str] | No
 
 
 # ---------------------------------------------------------------------------------------------------- the gate
+SUBCHECKS = ("flashes", "contrast", "captions", "safe_zones")
+
+
 def evaluate(film_dir: Path, *, render: str | None = None, render_act: int | None = None,
              render_from: int | None = None, captions: str | None = None, sheet: str | None = None,
              platforms: list[str] | None = None, only: Iterable[str] | None = None) -> GateResult:
-    """Run the access sub-checks on a film and combine them into the one `access` gate result."""
+    """Run the access sub-checks on a film (every one, or `only` these) and combine them into the one `access` gate
+    result. A narrowed run (some sub-checks, or a file given in place of the film's own) carries an UNCHECKED scope
+    sub-check, so it can't pass the gate."""
     from slate.qa.checks import combine  # noqa: PLC0415
     from slate.qa.film import context  # noqa: PLC0415
+    from slate.qa.motion import lifted_review_items, scope_sub  # noqa: PLC0415
 
     ctx = context(film_dir)
     _ = ctx.film
     wanted = set(only) if only else None
+    if wanted is not None and not wanted <= set(SUBCHECKS):
+        bad = ", ".join(sorted(wanted - set(SUBCHECKS)))
+        raise UsageError(f"The access gate has no {bad} check.", hint="Its checks: " + ", ".join(SUBCHECKS) + ".")
+    read: list[Any] = []
     runs: list[tuple[str, Callable]] = [
-        ("flashes", lambda: check_flashes(ctx, render=render, render_act=render_act, render_from=render_from)),
+        ("flashes", lambda: check_flashes(ctx, render=render, render_act=render_act, render_from=render_from,
+                                          read=read)),
         ("contrast", lambda: check_contrast(ctx)),
         ("captions", lambda: check_captions(ctx, captions=captions)),
-        ("safe_zones", lambda: check_safe_zones(ctx, sheet=sheet, platforms=platforms)),
+        ("safe_zones", lambda: check_safe_zones(ctx, sheet=sheet, platforms=platforms, read=read)),
     ]
     subs = []
     for name, run in runs:
@@ -1149,11 +1565,28 @@ def evaluate(film_dir: Path, *, render: str | None = None, render_act: int | Non
         s = run()
         if s is not None:
             subs.append(s)
+    narrowed = []
+    runs_it = {n: wanted is None or n in wanted for n in SUBCHECKS}
+    if wanted is not None and wanted != set(SUBCHECKS):
+        narrowed.append(f"only {', '.join(s for s in SUBCHECKS if s in wanted)} (--only)")
+    if render and runs_it["flashes"]:
+        narrowed.append(f"the flashes of {render} instead of the film's picture (--render)")
+    if captions and runs_it["captions"]:
+        narrowed.append(f"the captions in {captions} instead of the film's own (--captions)")
+    if sheet and runs_it["safe_zones"]:
+        narrowed.append(f"the text of {sheet} instead of the film's picture (--sheet)")
+    if platforms and runs_it["safe_zones"]:
+        default, _why = platforms_for(ctx, None)
+        if {platform_key(x) for x in platforms} != set(default):
+            narrowed.append(f"the zones of {', '.join(platform_key(x) for x in platforms)} (--platform)")
+    if narrowed:
+        subs.append(scope_sub(GATE, narrowed))
     paths: list[Any] = ["film.json", "timing/shots.json", "renders/registry.json"]
     paths += [str(p) for p in ctx.masters()]
     paths += [str(p) for p in caption_files(ctx, captions)]
+    paths += [str(p) for p in read]
     for extra in (render, sheet):
-        if extra:
+        if extra and not read:
             paths.append(extra)
     from slate.qa import brandinfo  # noqa: PLC0415
 
@@ -1166,10 +1599,9 @@ def evaluate(film_dir: Path, *, render: str | None = None, render_act: int | Non
                           flashes="WCAG 2.3.1 general and red flash thresholds (2.2 definitions)",
                           contrast="WCAG relative luminance",
                           decoder=f"ffmpeg {media.version('ffmpeg') or 'not installed'}")
-    from slate.qa.motion import lifted_review_items  # noqa: PLC0415
-
-    result = combine(GATE, subs, engine=engine, inputs=ctx.inputs(paths),
-                     details={"only": sorted(wanted) if wanted else None, **lifted_review_items(subs)},
+    result = combine(GATE, subs, engine=engine, inputs=ctx.inputs(dict.fromkeys(str(p) for p in paths)),
+                     details={"only": sorted(wanted) if wanted else None,
+                              **({"narrowed": narrowed} if narrowed else {}), **lifted_review_items(subs)},
                      empty_summary="nothing to check yet")
     if result.status == "PASS":
         result.summary = "accessible: " + "; ".join(c["summary"] for c in result.details.get("checks", []))
@@ -1181,48 +1613,46 @@ def gate(film_dir: Path) -> GateResult:
     at 4.5:1 (body) and 3:1 (large), captions at 17 characters a second and 2 lines of 42, and on 9:16 films text
     inside the platforms' safe zones (by OCR; UNCHECKED without it).
 
-    The film folder in, one GateResult out (slate.qa runs it with every other gate; `slate qa access` alone)."""
-    return evaluate(Path(film_dir))
+    The film folder in, one GateResult out (slate.qa runs it with every other gate; `slate qa access` alone). Inside a
+    `slate.qa.motion.run_options(...)` block it takes that run's options (--only, --render, --captions, --sheet,
+    --platform)."""
+    from slate.qa.motion import current_options  # noqa: PLC0415
+
+    opts = current_options()
+    only = [o for o in opts.get("only") or [] if o in SUBCHECKS] or None
+    acts = opts.get("acts")
+    return evaluate(Path(film_dir), render=opts.get("render"), render_act=acts[0] if acts else None,
+                    render_from=opts.get("render_from"), captions=opts.get("captions"), sheet=opts.get("sheet"),
+                    platforms=opts.get("platforms"), only=only)
 
 
 GATES: dict[str, Callable[[Path], GateResult]] = {GATE: gate}
-#: Gates here that read the whole picture (the flash scan decodes it; the safe zones read it through OCR).
+#: Gates here that read the whole picture (the flash scan decodes it; the safe zones read it through OCR). Under
+#: `slate qa --quick` they reuse their cached scans and never start one.
 SLOW = (GATE,)
 
 
 # ---------------------------------------------------------------------------------------------------- CLI
-SUBCHECKS = ("flashes", "contrast", "captions", "safe_zones")
 HELP = "flashes, text contrast, caption pace and 9:16 safe zones"
 DESCRIPTION = """Check the film's accessibility: at most 3 flashes a second (WCAG 2.3.1's general and red flash
 thresholds, on the master or each act's render), the brand's text colour pairs (4.5:1 body, 3:1 large), captions
 (at most 17 characters a second and 2 lines of 42), and on 9:16 films the platform safe zones (Instagram Reels,
-TikTok, YouTube Shorts, or the format's own), located by Vision OCR. Without OCR the safe zones are UNCHECKED."""
+TikTok, YouTube Shorts, or the format's own), located by Vision OCR on the picture or the film's contact sheet.
+Without OCR the safe zones are UNCHECKED. A run narrowed with --only, --render, --captions, --sheet or --platform
+reports what it finds but can't pass the gate."""
 
 
 def _cmd(args: argparse.Namespace) -> int:
-    from slate import cli  # noqa: PLC0415
-    from slate.qa.motion import report  # noqa: PLC0415
+    from slate.qa.motion import run_command  # noqa: PLC0415
 
-    film_dir = cli.film(args)
-    result = evaluate(film_dir, render=args.render, render_act=args.act, render_from=args.render_from,
-                      captions=args.captions, sheet=args.sheet, platforms=args.platform, only=args.only)
-    return report(film_dir, result, args)
+    return run_command(GATE, args)
 
 
 def register(sub) -> None:
-    """Add `access` to a subparsers object (the `qa` group's stages: `slate qa access`)."""
+    """Add `access` to a subparsers object (a stage-style `qa` group: `slate qa access`). qa-core's `slate qa` runs
+    the same gate by name and takes these flags through slate.qa.motion.add_qa_options and qa_options."""
     from slate.cli import add_command  # noqa: PLC0415
+    from slate.qa.motion import add_qa_options  # noqa: PLC0415
 
     p = add_command(sub, "access", _cmd, help=HELP, description=DESCRIPTION)
-    p.add_argument("--only", action="append", choices=SUBCHECKS, metavar="CHECK",
-                   help=f"run only this sub-check (repeat for more): {', '.join(SUBCHECKS)}")
-    p.add_argument("--render", metavar="PATH",
-                   help="scan this picture for flashes (a video, or a folder of frames) instead of the film's own")
-    p.add_argument("--act", type=int, metavar="N", help="with --render: the act it shows (sets its first film frame)")
-    p.add_argument("--render-from", dest="render_from", type=int, metavar="FRAME",
-                   help="with --render: the film frame of its first frame")
-    p.add_argument("--captions", metavar="PATH", help="check this caption file (.srt, .vtt or captions.json)")
-    p.add_argument("--sheet", metavar="PATH",
-                   help="read text from this contact sheet (a folder of frames, a frame, or a sheet with a tiles JSON)")
-    p.add_argument("--platform", action="append", metavar="NAME",
-                   help="check this platform's safe zones (repeat for more): instagram_reels, tiktok, youtube_shorts")
+    add_qa_options(p, gates=(GATE,))

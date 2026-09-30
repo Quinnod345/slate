@@ -7,12 +7,17 @@
 - trace       every act has a well-formed trace. An act without one can't pass: UNCHECKED, with the next step.
 - eases       only the brand's named eases, and the samples really follow the curve they name. Overshoot only where
               the brand's overshoot policy allows it, up to its peak. Linear only for drifts that outlast their shot,
-              things that show time (progress, a playhead) and a constant spin.
+              things that show time (progress, a playhead), a constant spin, and the declared exemptions (a reading
+              sweep; a line whose steadiness is the meaning). Besides the brand's eases, a rig part may use the rig's
+              own rest-to-rest curves (sway, land) and a carry the even travel profile; any move may use one of those
+              the brand declares (EXTRA_CURVES).
 - durations   every move lasts one of the brand's duration tokens (exits at its exit factor), to within a frame.
 - staggers    a staggered group spreads no wider than the brand's caps, steps on whole frames, and staggers only on
-              eases the brand lets stagger.
+              eases the brand lets stagger. A declared reading sweep is time-based, not a stagger.
 - entrances   entrances start from at least 85% scale: nothing scales from zero.
-- speed       peak speed ≤ 30 px/frame and acceleration ≤ 8 px/frame² at 1080p, scaled to the film's size.
+- speed       peak speed and acceleration by what moves (SPEED_CLASSES), at 1080p: a rig part 30 px/frame and
+              8 px/frame² (the plan's law), a UI element 60 and 16, a page, card or camera carry 170 and 45; a
+              whip past the carry limits goes to a person. Scaled to the film's size.
 - loops       no loop or wobble faster than a 16-frame period: a channel's reversals are at least 8 frames apart.
 - symmetry    a mark rig's parts move as whole-frame-delayed copies of each other: in unison, in pairs, or as a wave.
 - pixels      block matching on each act's render finds fast motion the trace doesn't explain (REVIEW), so a scene
@@ -24,15 +29,31 @@ and the 16-sample shutter behind them, the minimum period, the three phase modes
 values live in the brand pack. Only the law that holds for every brand lives here.
 
 Trace entries follow the contract: {id, shot, prop, ease, frame_in, frame_out, from, to, samples: [[frame, value]…],
-entrance, loop_period, rig}. Two optional keys are read when an engine writes them: `exception` (a reason, which
-turns that entry's violations into REVIEW items a person accepts) and `size` (the element's size in px, so a scale or
-rotation can be speed-checked at its edges).
+entrance, loop_period, rig}. Optional keys are read when an engine writes them: `class` (rig, ui, carry or whip: the
+speed limits it's held to), `exempt` (reading_sweep or steady, with an optional `reason`), `exception` (a reason,
+which turns that entry's violations into REVIEW items a person accepts) and `size` (the element's size in px, so a
+scale or rotation can be speed-checked at its edges). An entry whose ease is "measured" (an act sampled in After Effects,
+slate.ae.acts.trace_from_samples, from a property's first key to its last) is split into its moves at their rests, and
+each is judged by the brand ease its samples follow, by shape.
+
+The limits scale with the frame's short side, which is its height on a landscape or square film: the law was set on
+the 1920 × 1080 output, where 30 px/frame keeps the gap between the 16 shutter samples under a pixel for a rig's fine
+parts. A 1080 × 1920 reel is a 1080p frame too and keeps those numbers; scaling by its height would allow 53 px/frame
+for a rig and bring the echoes back.
+
+Whole-picture work (the pixel scan) is cached in qa/motion/ against the render's hash, so it runs once per render;
+`slate qa --quick` reuses a cached scan and never starts one. Every render read is one of the gate's inputs, so a new
+render turns the result STALE. A run narrowed to some acts, one render or some checks reports what it finds, but an
+UNCHECKED scope sub-check keeps it from being recorded as the gate's PASS.
 """
 
 from __future__ import annotations
 
 import argparse
+import contextlib
+import contextvars
 import dataclasses
+import hashlib
 import importlib
 import math
 import re
@@ -41,7 +62,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Iterator
 
 from slate import __version__, gates, jsonio, log
-from slate.errors import SlateError, UsageError
+from slate.errors import MissingPrerequisite, SlateError, UsageError
 from slate.gates import GateResult
 
 GATE = "motion"
@@ -75,6 +96,67 @@ LAW: dict[str, Any] = {
     "reversal_threshold": 0.02,  # a reversal must swing back at least 2% of the channel's range (noise isn't a wobble)
 }
 
+#: Speed limits by what moves, as fractions of the frame's short side (per frame, and per frame² for acceleration).
+#: The plan's 30 px/frame and 8 px/frame² came from the character spec, where a rig's fine parts must keep the gap
+#: between the 16 shutter samples under a pixel; one ceiling for everything failed every carry the films approved.
+#: At 1080p:
+#:
+#: - rig    30 px/frame, 8 px/frame²: a character or mark rig's parts (the plan's law; the crest exception is rig-only).
+#: - ui     60 px/frame, 16 px/frame²: a UI element moving within the frame (type, a chip, a card settling). Twice the
+#:          rig's: a sample gap under 2 px, with the blur's length changing by at most 8 px a frame, so a card that
+#:          leaves rest at full speed still fails. Slate's default, not a number the films measured.
+#: - carry  170 px/frame, 45 px/frame²: a page, a card or the camera carried across the frame. The films' page and
+#:          camera carries ran clean at 136 to 169 px/frame (speed changing by up to 25 px/frame² on the way), and a
+#:          carry peaking at 310 streaked in the 16-sample render and was re-timed. The acceleration keeps the rig's
+#:          ratio to speed (8 × 170 / 30).
+#: - whip   no ceiling of its own: a deliberate whip past the carry limits is a person's call (REVIEW). The films' one
+#:          fast pull-back (267 px/frame) read as a pop and was cut.
+#:
+#: A trace entry says which it is with `class` (aliases: character and mark are rig; element is ui; page and camera
+#: are carry). Without one: a rig part is rig, an element whose id or prop starts with camera (or cam) is carry, and
+#: anything else is ui, so a page or card carried across the frame says `"class": "carry"`. A brand may set its own
+#: limits in its motion data, `speed_limits: {class: {speed, accel}}`, as fractions of the short side or as px with
+#: the `short_side` they were measured on.
+SPEED_CLASSES: dict[str, dict[str, Any]] = {
+    "rig": {"speed": 1 / 36, "accel": 1 / 135, "what": "a character or mark rig's parts",
+            "source": "the plan's law (16 samples over a 180° shutter keep the sample gap under a pixel)"},
+    "ui": {"speed": 1 / 18, "accel": 2 / 135, "what": "a UI element moving within the frame",
+           "source": "Slate's default: twice the rig's (a sample gap under 2 px)"},
+    "carry": {"speed": 17 / 108, "accel": 17 / 405, "what": "a page, card or camera carried across the frame",
+              "source": "the films' carries: clean at 136 to 169 px/frame at 1080p, streaking at 310"},
+    "whip": {"speed": None, "accel": None, "what": "a deliberate whip",
+             "source": "a person judges any whip past the carry limits"},
+}
+CLASS_ALIASES = {"rig": "rig", "character": "rig", "mark": "rig", "ui": "ui", "element": "ui", "carry": "carry",
+                 "page": "carry", "camera": "carry", "whip": "whip"}
+_CAMERA_WORDS = {"camera", "cam"}
+
+#: Exemptions a trace entry may declare (`exempt`, with an optional `reason`), each a lesson from the films:
+#: - reading_sweep  a line resolving items at a constant speed: time-based, so it may run linear, is off the
+#:                  duration scale, and a group of them isn't held to the stagger caps;
+#: - steady         linear motion whose steady speed is the meaning (a durable line drawing at a constant rate while
+#:                  a competitor races and breaks).
+EXEMPTIONS = {"reading_sweep": "a reading sweep (declared)", "steady": "steadiness is the meaning (declared)"}
+
+#: Curves the gate knows besides the brand's named eases, generic to every brand (the kit's own curves):
+#: - sway     (1 − cos πu) / 2, the kit's `sine`: a rig's rest-to-rest curve for breaths, spreads, leans and flights;
+#: - land     cubic-bezier(0.25, 0, 0.25, 1), the shape of a zero-bounce spring: a rig's quick stroke that settles;
+#: - spring0  the kit's zero-bounce spring, the same job as land;
+#: - even     the even travel profile: rest to rest through a third of the travel at each third of the time (a
+#:            monotone spline), so its peak speed is 1.33 times its average where a glide's is about 2.9: for long
+#:            carries of type, which strobe at a glide's peak, and for camera drifts.
+#: A rig part may use sway, land or spring0 and a carry may use even without saying so; any other move may use one
+#: when the brand declares it in its motion data (`extra_curves`). A brand ease of the same name always wins.
+EXTRA_CURVES: dict[str, dict[str, Any]] = {
+    "sway": {"spec": "sine", "for": "rig", "lineage": "(1 − cos πu) / 2; the kit's sine"},
+    "land": {"spec": [0.25, 0, 0.25, 1], "for": "rig", "lineage": "cubic-bezier(0.25, 0, 0.25, 1), a zero-bounce "
+                                                                  "spring's shape"},
+    "spring0": {"spec": "spring0", "for": "rig", "lineage": "the kit's zero-bounce spring"},
+    "even": {"spline": [[0.0, 0.0], [1 / 3, 1 / 3], [2 / 3, 2 / 3], [1.0, 1.0]], "for": "carry",
+             "lineage": "the even travel profile (peak speed 1.33 × average)"},
+}
+EXTRA_ALIASES = {"sine": "sway", "sineinout": "sway", "spring": "spring0", "eventravel": "even", "evenmove": "even"}
+
 # Pixel cross-check: frames are compared at a small size (a short side of 48 px, so one analysis pixel is 22.5 px at
 # 1080p) in 4 px blocks, searching 5 times the speed limit each way (10–20 ms a frame pair). A block is "fast" when it
 # moves 1.25 times the limit, so measurement error can't flag a legal move. Its best match must beat any match more
@@ -86,7 +168,8 @@ PIXEL = {"short_side": 48, "fast_factor": 1.25, "search_factor": 5.0, "min_block
 
 
 def limits(width: int, height: int) -> dict[str, float]:
-    """The speed and acceleration limits in px for a film of this size (see LAW)."""
+    """The rig's speed and acceleration limits in px for a film of this size, with its crest exception (see LAW).
+    Other kinds of element have their own limits: class_limits()."""
     short = float(min(int(width), int(height)))
     return {
         "short_side": short,
@@ -95,6 +178,76 @@ def limits(width: int, height: int) -> dict[str, float]:
         "crest_speed": short * LAW["crest_speed_per_short_side"],
         "crest_travel": short * LAW["crest_travel_per_short_side"],
     }
+
+
+def _per_short_side(v: Any, measured_on: float | None) -> float | None:
+    """A brand's limit as a fraction of the short side: a fraction as given (under 1), or px on the frame whose short
+    side the brand names."""
+    n = _num(v)
+    if n is None or n <= 0:
+        return None
+    if n < 1.0:
+        return n
+    return n / measured_on if measured_on else None
+
+
+def brand_speed_limits(raw: Any) -> tuple[dict[str, dict[str, float]], list[str]]:
+    """A brand's own speed limits ({class: {speed, accel}} as fractions of the short side), and what couldn't be read.
+    Values are fractions of the short side, or px with the `short_side` they were measured on."""
+    out: dict[str, dict[str, float]] = {}
+    problems: list[str] = []
+    if not isinstance(raw, dict):
+        return out, problems
+    for name, spec in raw.items():
+        cls = CLASS_ALIASES.get(_key(name))
+        if cls is None or cls == "whip" or not isinstance(spec, dict):
+            problems.append(f"speed_limits.{name} isn't one of the classes with limits (rig, ui, carry)")
+            continue
+        on = _num(spec.get("short_side"))
+        got = {}
+        for k in ("speed", "accel"):
+            if spec.get(k) is None:
+                continue
+            f = _per_short_side(spec[k], on)
+            if f is None:
+                problems.append(f"speed_limits.{name}.{k} needs a positive fraction of the short side, or px with "
+                                "the short_side they were measured on")
+            else:
+                got[k] = f
+        if got:
+            out[cls] = got
+    return out, problems
+
+
+def class_limits(width: int, height: int, law: "Law | None" = None) -> dict[str, dict[str, Any]]:
+    """Each element class's speed and acceleration limits in px for a film of this size ({class: {speed, accel,
+    source}}), with the brand's own where its motion data sets them (see SPEED_CLASSES)."""
+    short = float(min(int(width), int(height)))
+    own = law.speed_limits if law is not None else {}
+    out: dict[str, dict[str, Any]] = {}
+    for cls, spec in SPEED_CLASSES.items():
+        mine = own.get(cls) or {}
+        row: dict[str, Any] = {"what": spec["what"], "source": spec["source"]}
+        for k in ("speed", "accel"):
+            f = mine.get(k, spec[k])
+            row[k] = None if f is None else short * float(f)
+        if mine:
+            row["source"] = f"the brand's speed_limits.{cls} ({law.source})" if law is not None else row["source"]
+        out[cls] = row
+    return out
+
+
+def element_class(m: "Move") -> tuple[str, str]:
+    """(class, why) for a move: its declared class, else rig for a rig part, else carry for the camera, a page or a
+    scroll, else ui."""
+    if m.cls:
+        return m.cls, "declared"
+    if m.rig:
+        return "rig", "a rig part"
+    firsts = {(re.split(r"[^a-z0-9]+", str(v).lower().strip()) or [""])[0] for v in (m.id, m.prop)}
+    if firsts & _CAMERA_WORDS:
+        return "carry", "the camera (by its name)"
+    return "ui", "a UI element (no class declared)"
 
 
 def min_loop_period(fps: float, brand_frames: float | None = None) -> float:
@@ -286,6 +439,9 @@ class Law:
     time_props: set[str] = dataclasses.field(default_factory=set)
     rigs: dict[str, dict] = dataclasses.field(default_factory=dict)
     min_loop_period: Span | None = None
+    speed_limits: dict[str, dict[str, float]] = dataclasses.field(default_factory=dict)  # the brand's own, per class
+    extra: dict[str, Ease] = dataclasses.field(default_factory=dict)  # EXTRA_CURVES, evaluated the kit's way
+    extra_declared: set[str] = dataclasses.field(default_factory=set)  # extra curves the brand says any move may use
     neutral: bool = False  # the brand has no law of its own: the kit's neutral law stood in
     source: str = ""
     notes: list[str] = dataclasses.field(default_factory=list)
@@ -300,6 +456,17 @@ class Law:
             return self.eases[self.roles[name]]
         folded = {_key(k): v for k, v in self.eases.items()}
         return folded.get(_key(name))
+
+    def extra_curve(self, name: str | None) -> Ease | None:
+        """One of the generic curves the gate knows besides the brand's eases (EXTRA_CURVES), by name or alias."""
+        if name is None:
+            return None
+        k = _key(name)
+        return self.extra.get(EXTRA_ALIASES.get(k, k))
+
+    def curve(self, name: str | None) -> Ease | None:
+        """The curve a move names: the brand's ease (which always wins), else a generic extra curve."""
+        return self.ease(name) or self.extra_curve(name)
 
     def allowed_peak(self, name: str | None) -> float:
         e = self.ease(name)
@@ -400,7 +567,47 @@ def law_from(motion: dict, *, source: str = "", fps: float | None = None) -> Law
             law.min_loop_period = ("s", float(_first(loops, "min_period_s", "min_period_seconds")))
         elif loops.get("min_period") is not None:
             law.min_loop_period = _span(loops["min_period"])
+    law.speed_limits, problems = brand_speed_limits(motion.get("speed_limits"))
+    law.notes.extend(problems)
+    law.extra = extra_curves(kit)
+    declared = motion.get("extra_curves")
+    names = list(declared) if isinstance(declared, (list, tuple, dict)) else []
+    for n in names:
+        k = _key(n)
+        k = EXTRA_ALIASES.get(k, k)
+        if k in law.extra:
+            law.extra_declared.add(k)
+        else:
+            law.notes.append(f"extra_curves names {n!r}, which isn't a curve the gate knows ({', '.join(law.extra)})")
     return law
+
+
+def extra_curves(kit=None) -> dict[str, Ease]:
+    """EXTRA_CURVES as Eases, evaluated with the kit's own maths (slate.motion.eases), so the gate reads each curve
+    exactly as the kit draws it."""
+    kit = kit or _optional("slate.motion.eases")
+    if kit is None:
+        return {}
+    out: dict[str, Ease] = {}
+    for name, spec in EXTRA_CURVES.items():
+        if "spline" in spec and hasattr(kit, "mono_spline"):
+            keys = [list(k) for k in spec["spline"]]
+            fn = _vectorised(lambda u, keys=keys: kit.mono_spline(min(max(u, 0.0), 1.0), keys))
+            e = Ease(name, kind="spline", role=spec["for"], lineage=spec["lineage"], fn=fn,
+                     fn_source="slate.motion.eases.mono_spline")
+        elif "spec" in spec and hasattr(kit, "parse"):
+            parsed = kit.parse(spec["spec"])
+            if parsed is None:
+                continue
+            e = Ease(name, kind=str(parsed.kind), points=tuple(parsed.bezier) if parsed.bezier else None,
+                     role=spec["for"], lineage=spec["lineage"],
+                     fn=_vectorised(lambda u, parsed=parsed: kit.evaluate(parsed, u)),
+                     fn_source="slate.motion.eases.evaluate")
+        else:
+            continue
+        e.peak = 1.0  # none of them overshoots
+        out[name] = e
+    return out
 
 
 def brand_motion(brand: str | None) -> tuple[dict | None, str]:
@@ -460,6 +667,18 @@ class Move:
     exception: str | None = None
     size: tuple[float, float] | None = None
     file: str | None = None
+    cls: str | None = None  # the element class it declares (rig, ui, carry, whip), for the speed limits
+    exempt: str | None = None  # a declared exemption (EXEMPTIONS)
+    exempt_reason: str | None = None
+    measured: bool = False  # sampled from a render with no ease named (an AE act measured in AE): fitted by shape
+    fitted: str | None = None  # the brand ease a measured move follows, when one does
+    fit_best: str | None = None  # the closest brand ease, and how far off it is (a fraction of the travel)
+    fit_dev: float | None = None
+
+    @property
+    def ease_used(self) -> str | None:
+        """The ease the rules judge: the named one, or for a measured move the brand ease its samples follow."""
+        return self.fitted if self.measured else self.ease
 
     @property
     def duration(self) -> float:
@@ -512,6 +731,13 @@ def _entry_problem(e: Any) -> str | None:
         return "has an entrance flag that isn't true or false"
     if e.get("rig") is not None and not isinstance(e["rig"], str):
         return "has a rig that isn't a name"
+    cls = e.get("class")
+    if cls is not None and CLASS_ALIASES.get(_key(cls)) is None:
+        return (f"declares class {cls!r}, which isn't one of the element classes "
+                f"({', '.join(SPEED_CLASSES)}; also character, mark, element, page, camera)")
+    ex = e.get("exempt")
+    if ex is not None and _key(ex) not in {_key(k) for k in EXEMPTIONS}:
+        return f"declares exempt {ex!r}, which isn't one of the law's exemptions ({', '.join(EXEMPTIONS)})"
     return None
 
 
@@ -539,6 +765,10 @@ def move_from(e: dict, act: int, index: int, offset: float = 0.0, file: str | No
     if end is None and len(values):
         end = values[-1].copy()
     lp = _num(e.get("loop_period"))
+    cls = CLASS_ALIASES.get(_key(e["class"])) if e.get("class") is not None else None
+    ex = e.get("exempt")
+    exempt = next((k for k in EXEMPTIONS if _key(k) == _key(ex)), None) if ex is not None else None
+    reason = e.get("reason") if isinstance(e.get("reason"), str) and e["reason"].strip() else None
     return Move(act=int(act), index=index, id=str(e["id"]), shot=None if e.get("shot") is None else str(e["shot"]),
                 prop=str(e["prop"]), kind=prop_kind(e["prop"], e.get("unit")),
                 ease=None if e.get("ease") in (None, "") else str(e["ease"]),
@@ -547,7 +777,91 @@ def move_from(e: dict, act: int, index: int, offset: float = 0.0, file: str | No
                 loop_period=lp, rig=e.get("rig") if isinstance(e.get("rig"), str) else None,
                 exception=str(e["exception"]).strip() if isinstance(e.get("exception"), str) and
                 str(e["exception"]).strip() else None,
-                size=_size(e.get("size") if e.get("size") is not None else e.get("size_px")), file=file)
+                size=_size(e.get("size") if e.get("size") is not None else e.get("size_px")), file=file,
+                cls=cls, exempt=exempt, exempt_reason=reason.strip() if reason else None)
+
+
+#: The ease an engine writes when it measured a move instead of naming its curve (an AE act sampled in AE, where the
+#: curve is whatever AE drew): the move is judged by the brand ease its samples follow.
+MEASURED = "measured"
+
+
+def is_measured(e: dict) -> bool:
+    return str(e.get("ease") or "").strip().lower() == MEASURED or e.get("measured") is True
+
+
+def rest_segments(frames, values, rel_tol: float = 1e-7) -> list[tuple[int, int]]:
+    """Index ranges (first, last) of the stretches where a sampled channel moves, split at its rests (samples that
+    don't change). Each stretch, from the rest before it to the rest after it, is one move."""
+    np = _np()
+    if len(values) < 2:
+        return []
+    tol = rel_tol * float(np.ptp(values, axis=0).max()) + 1e-12
+    moving = np.abs(np.diff(values, axis=0)).max(axis=1) > tol
+    out: list[tuple[int, int]] = []
+    k, n = 0, len(moving)
+    while k < n:
+        if not moving[k]:
+            k += 1
+            continue
+        j = k
+        while j + 1 < n and moving[j + 1]:
+            j += 1
+        out.append((k, j + 1))
+        k = j + 1
+    return out
+
+
+def split_measured(m: "Move") -> list["Move"]:
+    """A measured entry (a property sampled every frame from its first key to its last) as one Move per stretch of
+    motion between rests, so each is judged as the move it is. A measured scale-up is held to the entrance rule
+    (for a person to judge, since the samples can't say whether it's an entrance)."""
+    np = _np()
+    out = []
+    for i0, i1 in rest_segments(m.frames, m.values):
+        seg = dataclasses.replace(m, frame_in=float(m.frames[i0]), frame_out=float(m.frames[i1]),
+                                  start=m.values[i0].copy(), end=m.values[i1].copy(),
+                                  frames=m.frames[i0:i1 + 1].copy(), values=m.values[i0:i1 + 1].copy(), measured=True)
+        if seg.kind == "scale" and float(np.linalg.norm(seg.end)) > float(np.linalg.norm(seg.start)):
+            seg.entrance = True
+        out.append(seg)
+    return out
+
+
+def allowed_extras(law: "Law | None", m: "Move") -> dict[str, Ease]:
+    """The generic curves (EXTRA_CURVES) this move may use without the brand naming them: a rig part's rest-to-rest
+    curves, a carry's even profile, and any the brand's motion data declares (`extra_curves`) for every move."""
+    if law is None:
+        return {}
+    cls, _why = element_class(m)
+    return {name: e for name, e in law.extra.items()
+            if name in law.extra_declared or e.role == cls}
+
+
+def fit_measured(m: "Move", law: "Law | None") -> None:
+    """Which of the brand's eases a measured move follows, by shape: the one its samples stray from least, when that
+    is within LAW['ease_tolerance'] of its travel. Plain linear is a candidate too, so the linear rules still apply,
+    and so are the generic curves this move may use (allowed_extras)."""
+    np = _np()
+    if law is None:
+        return
+    pq = _progress(m)
+    if pq is None:
+        return
+    u, q = pq
+    candidates = {n: e for n, e in law.eases.items() if e.fn is not None}
+    for n, e in allowed_extras(law, m).items():
+        candidates.setdefault(n, e)
+    if not any(e.kind == "linear" for e in candidates.values()):
+        candidates["linear"] = Ease("linear", kind="linear", fn=lambda x: np.asarray(x, dtype=float))
+    best: tuple[str, float] | None = None
+    for name, e in candidates.items():
+        dev = float(np.max(np.abs(q - np.asarray(e.fn(u), dtype=float))))
+        if best is None or dev < best[1] - 1e-12:
+            best = (name, dev)
+    if best is not None:
+        m.fit_best, m.fit_dev = best
+        m.fitted = best[0] if best[1] <= LAW["ease_tolerance"] else None
 
 
 @dataclasses.dataclass
@@ -670,7 +984,11 @@ def load_data(film_dir: Path, *, acts: Iterable[int] | None = None, ctx=None) ->
         if note:
             data.notes.append(note)
         for i, e in good:
-            data.moves.append(move_from(e, a, i, offset, rel))
+            m = move_from(e, a, i, offset, rel)
+            if is_measured(e):
+                data.moves.extend(split_measured(m))
+            else:
+                data.moves.append(m)
     brand = ctx.brand
     motion, source = brand_motion(brand)
     if motion is None:
@@ -680,6 +998,10 @@ def load_data(film_dir: Path, *, acts: Iterable[int] | None = None, ctx=None) ->
         if data.law is None:
             data.law_reason = ("slate.motion.eases, the kit's own reading of a brand's motion law, isn't installed, "
                                "so the brand's eases can't be read the way the kit renders them")
+    if data.law is not None and not data.law.neutral:
+        for m in data.moves:
+            if m.measured:
+                fit_measured(m, data.law)
     from slate.qa import brandinfo  # noqa: PLC0415
 
     folder = brandinfo.find(brand) if brand else None
@@ -834,7 +1156,7 @@ def _dense(m: Move, law: Law | None):
     np = _np()
     if m.duration <= 0 or len(m.frames) >= m.duration / 1.5 or law is None:
         return m.frames, m.values
-    e = law.ease(m.ease)
+    e = law.curve(m.ease_used)
     if e is None or e.fn is None or m.start is None or m.end is None or m.start.shape != m.end.shape:
         return m.frames, m.values
     grid = np.arange(math.floor(m.frame_in), math.ceil(m.frame_out) + 1, dtype=float)
@@ -973,7 +1295,10 @@ def _shot_span(data: MotionData, m: Move) -> tuple[float, float] | None:
 
 
 def linear_allowed(data: MotionData, m: Move) -> str | None:
-    """Why a linear move is allowed (the banned list's reasoned exceptions), or None when it isn't."""
+    """Why a linear move is allowed (the banned list's reasoned exceptions, and the declared ones: a reading sweep, a
+    line whose steadiness is the meaning), or None when it isn't."""
+    if m.exempt in EXEMPTIONS:
+        return EXEMPTIONS[m.exempt]
     prop = _key(re.split(r"[.\-/:]", m.prop)[-1])
     extra = data.law.time_props if data.law else set()
     if prop in _TIME_PROPS or _key(m.prop) in _TIME_PROPS or prop in extra or _key(m.prop) in extra:
@@ -1004,10 +1329,18 @@ def check_eases(data: MotionData, ctx=None):
     worst = 0.0
     jumps = 0
     exempt: dict[str, int] = {}
+    extras_used: dict[str, int] = {}
     names = ", ".join(law.eases)
     transforms = POSITIONAL + ("scale", "rotation", "depth")
     for m in moving:
-        name = m.ease
+        if m.measured and m.fitted is None:
+            best = (f"; the closest, {m.fit_best!r}, is off by {m.fit_dev * 100:.1f}% of its travel"
+                    if m.fit_best and m.fit_dev is not None else "")
+            _route(Finding("eases", m, f"was measured from its render and follows none of the brand's eases{best} "
+                           "(two moves chained without a stop read this way too: give each its own keys)",
+                           m.fit_dev), fails, reviews)
+            continue
+        name = m.ease_used
         if name is None:
             _route(Finding("eases", m, "names no ease"), fails, reviews)
             continue
@@ -1016,6 +1349,18 @@ def check_eases(data: MotionData, ctx=None):
             jumps += 1
             continue
         e = law.ease(name)
+        is_extra = False
+        if e is None and law.extra_curve(name) is not None:
+            x = law.extra_curve(name)
+            if x.name in allowed_extras(law, m):
+                e, is_extra = x, True
+                extras_used[x.name] = extras_used.get(x.name, 0) + 1
+            else:
+                _cls, why = element_class(m)
+                only = {"rig": "rig parts", "carry": "carries"}.get(str(x.role), "some moves")
+                _route(Finding("eases", m, f"uses {name!r} ({x.lineage}), which only {only} use unless the brand "
+                               f"declares it in motion.extra_curves; this move is {why}"), fails, reviews)
+                continue
         linear = (e.kind == "linear") if e is not None else low == "linear"
         if linear:
             # The banned list: linear transform keys are mechanical starts and stops, except drifts that outlast
@@ -1042,9 +1387,11 @@ def check_eases(data: MotionData, ctx=None):
             continue
         u, q = pq
         peak = float(max(q.max() - 1.0, -q.min(), 0.0))
-        allowed = law.allowed_peak(e.name)
+        allowed = float(e.peak or 1.0) if is_extra else law.allowed_peak(e.name)
         if peak > LAW["overshoot_tolerance"] and 1.0 + peak > allowed + LAW["overshoot_tolerance"]:
-            if allowed <= 1.0:
+            if is_extra:
+                text = f"overshoots by {peak * 100:.1f}% of its travel, and {e.name!r} ({e.lineage}) never does"
+            elif allowed <= 1.0:
                 text = (f"overshoots by {peak * 100:.1f}% of its travel, and the brand's overshoot policy doesn't "
                         f"allow {e.name!r} to" + ("" if law.overshoot_stated else " (the brand states no overshoot "
                                                                                    "policy, so none is allowed)"))
@@ -1065,10 +1412,13 @@ def check_eases(data: MotionData, ctx=None):
                    fails, reviews)
     extra = {"law": law.source, "eases": {n: {"kind": e.kind, "bezier": e.points, "role": e.role,
                                                "evaluated_by": e.fn_source} for n, e in law.eases.items()},
-             "worst_deviation": round(worst, 4), "linear_exceptions": exempt, "jumps": jumps}
+             "worst_deviation": round(worst, 4), "linear_exceptions": exempt, "jumps": jumps,
+             "extra_curves": extras_used, "extra_curves_declared": sorted(law.extra_declared)}
+    others = (f"; generic curves where they apply: " + ", ".join(f"{n} × {c}" for n, c in sorted(extras_used.items()))
+              if extras_used else "")
     return _verdict("eases", data, fails, reviews, checked=len(moving), extra=extra, ctx=ctx,
                     pass_summary=f"every move uses one of the brand's eases and follows it (to "
-                                 f"{worst * 100:.1f}% at worst){_coverage(data)}",
+                                 f"{worst * 100:.1f}% at worst{others}){_coverage(data)}",
                     fail_summary=lambda fs: f"{_plural(len(fs), 'move')} {_verb(fs, 'breaks', 'break')} the brand's "
                                             f"eases: {fs[0].move.label} "
                                             f"{fs[0].text}")
@@ -1079,10 +1429,12 @@ def _exempt_from_scale(data: MotionData, m: Move) -> str | None:
         return "rig"
     if m.loop_period:
         return "loop"
-    if m.ease and m.ease.lower() in ("hold", "step", "none", "cut"):
+    if m.exempt == "reading_sweep":
+        return "reading sweep"  # time-based: its length is what it reads, not a token
+    if m.ease_used and m.ease_used.lower() in ("hold", "step", "none", "cut"):
         return "jump"
-    e = data.law.ease(m.ease) if data.law else None
-    if (e is not None and e.kind == "linear") or (e is None and str(m.ease or "").lower() == "linear"):
+    e = data.law.ease(m.ease_used) if data.law else None
+    if (e is not None and e.kind == "linear") or (e is None and str(m.ease_used or "").lower() == "linear"):
         return "linear" if linear_allowed(data, m) else None
     return None
 
@@ -1120,8 +1472,8 @@ def check_durations(data: MotionData, ctx=None):
             continue
         seen.add(key)
         checked += 1
-        e = law.ease(m.ease)
-        is_exit = bool(e and e.role == "exit") or "exit" in str(m.ease or "").lower()
+        e = law.ease(m.ease_used)
+        is_exit = bool(e and e.role == "exit") or "exit" in str(m.ease_used or "").lower()
         options = dict(tokens)
         if is_exit and law.exit_factor:
             options.update({f"{n} × {law.exit_factor:g}": f * law.exit_factor for n, f in tokens.items()})
@@ -1150,16 +1502,18 @@ def check_durations(data: MotionData, ctx=None):
 
 def stagger_groups(data: MotionData) -> list[list[Move]]:
     """Moves that stagger: in one act and shot, the same property on the same ease for the same length, on different
-    elements, starting within a stagger step of each other. Rigs are left to the symmetry check."""
+    elements, starting within a stagger step of each other. Rigs are left to the symmetry check, and a declared reading
+    sweep (items resolved by a line moving at a constant speed) is time-based, not a stagger."""
     fps = data.fps_float or 0.0
     gap = LAW["stagger_gap_s"] * fps
     if data.law and data.law.stagger_units:
         gap = max(span_frames(u, fps) for u in data.law.stagger_units) + 1.0
     buckets: dict[tuple, list[Move]] = {}
     for m in data.moves:
-        if not m.changes or m.rig or m.loop_period or m.duration <= 0:
+        if not m.changes or m.rig or m.loop_period or m.duration <= 0 or m.exempt == "reading_sweep":
             continue
-        buckets.setdefault((m.act, m.shot, m.kind, _key(m.prop), m.ease, round(m.duration * 2) / 2), []).append(m)
+        buckets.setdefault((m.act, m.shot, m.kind, _key(m.prop), m.ease_used, round(m.duration * 2) / 2),
+                           []).append(m)
     groups: list[list[Move]] = []
     for ms in buckets.values():
         firsts: dict[str, Move] = {}
@@ -1204,7 +1558,7 @@ def check_staggers(data: MotionData, ctx=None):
         starts = [m.frame_in for m in g]
         spread = starts[-1] - starts[0]
         lead = g[0]
-        who = f"act {lead.act} {lead.shot or ''} {lead.prop} on {lead.ease} ({', '.join(m.id for m in g[:6])}" \
+        who = f"act {lead.act} {lead.shot or ''} {lead.prop} on {lead.ease_used} ({', '.join(m.id for m in g[:6])}" \
               f"{'…' if len(g) > 6 else ''})".replace("  ", " ")
         problems = []
         if cap_frames is not None and spread > cap_frames + 1e-6:
@@ -1217,8 +1571,8 @@ def check_staggers(data: MotionData, ctx=None):
         if law.stagger_max_items is not None and len(distinct) > law.stagger_max_items:
             problems.append(f"staggers {len(distinct)} items one by one; past {law.stagger_max_items} they're "
                             "grouped, never staggered singly")
-        if law.stagger_eases is not None and lead.ease not in law.stagger_eases:
-            problems.append(f"staggers on {lead.ease!r}, which the brand keeps together (only "
+        if law.stagger_eases is not None and lead.ease_used not in law.stagger_eases:
+            problems.append(f"staggers on {lead.ease_used!r}, which the brand keeps together (only "
                             f"{', '.join(sorted(law.stagger_eases))} stagger)")
         steps = [b - a for a, b in zip(distinct, distinct[1:])]
         off = [s for s in steps if abs(s - round(s)) > LAW["whole_frame_tolerance"]]
@@ -1229,8 +1583,10 @@ def check_staggers(data: MotionData, ctx=None):
                        "steps": [round(s, 3) for s in steps[:12]], "problems": problems})
         for p in problems:
             _route(Finding("staggers", lead, f"{who} {p}", spread), fails, reviews)
+    sweeps = sum(1 for m in data.moves if m.exempt == "reading_sweep" and m.changes)
     extra = {"law": law.source, "groups": report[:30], "cap_s": (cap_frames / fps) if cap_frames else None,
-             "cap_fraction": law.stagger_cap_fraction, "max_items": law.stagger_max_items}
+             "cap_fraction": law.stagger_cap_fraction, "max_items": law.stagger_max_items,
+             **({"reading_sweeps_left_out": sweeps} if sweeps else {})}
     return _verdict("staggers", data, fails, reviews, checked=len(groups), extra=extra, ctx=ctx,
                     pass_summary=f"{_plural(len(groups), 'staggered group')} within the brand's caps, on whole "
                                  f"frames{_coverage(data)}",
@@ -1261,8 +1617,13 @@ def check_entrances(data: MotionData, ctx=None):
         low = min(ratios)
         lowest = min(lowest, low)
         if low < floor - 1e-6:
-            _route(Finding("entrances", m, f"enters from {low * 100:.0f}% of its size; entrances start from at "
-                           f"least {floor * 100:.0f}% (nothing scales from zero)", low), fails, reviews)
+            if m.measured:
+                text = (f"was measured scaling up from {low * 100:.0f}% of its size: if it's an entrance, entrances "
+                        f"start from at least {floor * 100:.0f}% (nothing scales from zero)")
+            else:
+                text = (f"enters from {low * 100:.0f}% of its size; entrances start from at least {floor * 100:.0f}% "
+                        "(nothing scales from zero)")
+            _route(Finding("entrances", m, text, low, person=m.measured), fails, reviews)
     return _verdict("entrances", data, fails, reviews, checked=len(entries), ctx=ctx,
                     extra={"lowest": None if lowest == math.inf else round(lowest, 4)},
                     pass_summary=f"every scaled entrance starts from at least {floor * 100:.0f}% of its size"
@@ -1290,7 +1651,18 @@ def _edge_series(m: Move, law: Law | None):
     return grid, edge
 
 
+CLASS_LABEL = {"rig": "a rig part", "ui": "a UI element", "carry": "a carry", "whip": "a whip"}
+
+
+def _strictest(classes: Iterable[str], table: dict[str, dict]) -> str:
+    """Of an element's classes, the one with the lowest speed limit (a whip, with none of its own, the loosest)."""
+    return min(sorted(classes), key=lambda c: math.inf if table[c]["speed"] is None else table[c]["speed"])
+
+
 def check_speed(data: MotionData, ctx=None):
+    """Peak speed and acceleration per element, each held to its class's limits at the film's size (SPEED_CLASSES):
+    a rig part to the plan's 30 px/frame and 8 px/frame² (with the crest exception), a UI element to 60 and 16, a carry
+    to 170 and 45; a whip past the carry limits goes to a person."""
     np = _np()
     if not any(m.changes and (m.kind in POSITIONAL or (m.size and m.kind in ("scale", "rotation")))
                for m in data.moves):
@@ -1298,11 +1670,14 @@ def check_speed(data: MotionData, ctx=None):
     if not data.size:
         return _sub("speed", "UNCHECKED", "film.json has no width and height, so the px limits can't be scaled")
     lim = limits(*data.size)
+    table = class_limits(*data.size, data.law)
+    carry = table["carry"]
     lo_c, hi_c = LAW["crest_window"]
     fails: list[Finding] = []
     reviews: list[Finding] = []
     fastest = (0.0, None)
     hardest = (0.0, None)
+    by_class: dict[str, dict] = {}
     by_id: dict[tuple[int, str], list[Move]] = {}
     for m in data.moves:
         by_id.setdefault((m.act, m.id), []).append(m)
@@ -1321,49 +1696,77 @@ def check_speed(data: MotionData, ctx=None):
             v, speed, accel = _motion_of(grid, pos)
             if not len(speed):
                 continue
+            cls = _strictest({element_class(m)[0] for m in members}, table)
+            why = next(element_class(m)[1] for m in members if element_class(m)[0] == cls)
+            row = table[cls]
+            whip = row["speed"] is None
+            speed_limit = carry["speed"] if whip else row["speed"]
+            accel_limit = carry["accel"] if row["accel"] is None else row["accel"]
+            label = CLASS_LABEL[cls] + ("" if why == "declared" else f" ({why})")
+            undeclared = cls == "ui" and why != "declared"
+            carry_hint = (' (a page or card carried across the frame says "class": "carry" in its trace, and '
+                          f"carries go to {_fmt(carry['speed'])} px/frame)") if undeclared else ""
             k = int(np.argmax(speed))
             top = float(speed[k])
+            stats = by_class.setdefault(cls, {"elements": 0, "fastest": 0.0, "hardest": 0.0})
+            stats["elements"] += 1
+            stats["fastest"] = max(stats["fastest"], round(top, 3))
             owner = next((m for m in members if m.frame_in - 1 <= grid[k + 1] <= m.frame_out + 1), members[0])
             if top > fastest[0]:
                 fastest = (top, f"act {act} {ident} at frame {int(grid[k + 1])}")
-            if top > lim["speed"] + 1e-6:
-                moving = speed > max(0.02 * top, 1e-6)
-                a = k
-                while a > 0 and moving[a - 1]:
-                    a -= 1
-                b = k
-                while b < len(speed) - 1 and moving[b + 1]:
-                    b += 1
-                travel = float(np.linalg.norm(pos[b + 1] - pos[a]))
-                where = (k - a + 0.5) / max(b - a + 1, 1)
-                crest = travel > lim["crest_travel"] and lo_c <= where <= hi_c and top <= lim["crest_speed"] + 1e-6
-                text = (f"moves its {what} {_fmt(top)} px/frame at frame {int(grid[k + 1])}, past the "
-                        f"{_fmt(lim['speed'])} px/frame limit at this size")
+            if top > speed_limit + 1e-6:
+                crest = False
+                if cls == "rig":
+                    moving = speed > max(0.02 * top, 1e-6)
+                    a = k
+                    while a > 0 and moving[a - 1]:
+                        a -= 1
+                    b = k
+                    while b < len(speed) - 1 and moving[b + 1]:
+                        b += 1
+                    travel = float(np.linalg.norm(pos[b + 1] - pos[a]))
+                    where = (k - a + 0.5) / max(b - a + 1, 1)
+                    crest = travel > lim["crest_travel"] and lo_c <= where <= hi_c and top <= lim["crest_speed"] + 1e-6
+                if whip:
+                    text = (f"whips its {what} at {_fmt(top)} px/frame at frame {int(grid[k + 1])}, past the "
+                            f"{_fmt(speed_limit)} px/frame a carry may reach: a whip is a person's call")
+                else:
+                    text = (f"moves its {what} {_fmt(top)} px/frame at frame {int(grid[k + 1])}, past the "
+                            f"{_fmt(speed_limit)} px/frame limit for {label} at this size{carry_hint}")
                 if crest:
                     text += (f", at the crest of a {_fmt(travel, 0)} px flight: up to {_fmt(lim['crest_speed'])} is "
                              "allowed there only when the beat can't afford a slower flight")
-                _route(Finding("speed", owner, text, top, person=crest), fails, reviews)
+                _route(Finding("speed", owner, text, top, person=crest or whip), fails, reviews)
             if len(accel):
                 j = int(np.argmax(accel))
                 hard = float(accel[j])
+                stats["hardest"] = max(stats["hardest"], round(hard, 3))
                 if hard > hardest[0]:
                     hardest = (hard, f"act {act} {ident} at frame {int(grid[j + 1])}")
-                if hard > lim["accel"] + 1e-6:
+                if hard > accel_limit + 1e-6:
                     owner_a = next((m for m in members if m.frame_in - 1 <= grid[j + 1] <= m.frame_out + 1),
                                    members[0])
                     from_rest = speed[j] < 1e-6 < speed[j + 1]
                     hint = " (it leaves rest at full speed, so its blur jumps from nothing to a streak)" \
                         if from_rest else ""
-                    _route(Finding("speed", owner_a, f"changes its {what} speed by {_fmt(hard)} px/frame² at frame "
-                                   f"{int(grid[j + 1])}, past the {_fmt(lim['accel'])} px/frame² limit{hint}", hard),
-                           fails, reviews)
+                    past = (f"the {_fmt(accel_limit)} px/frame² a carry may reach: a whip is a person's call" if whip
+                            else f"the {_fmt(accel_limit)} px/frame² limit for {label}")
+                    text = (f"changes its {what} speed by {_fmt(hard)} px/frame² at frame {int(grid[j + 1])}, past "
+                            f"{past}{hint}")
+                    _route(Finding("speed", owner_a, text, hard, person=whip), fails, reviews)
     extra = {"limits": {k: round(v, 3) for k, v in lim.items()}, "size": list(data.size),
+             "class_limits": {c: {"speed": None if r["speed"] is None else round(r["speed"], 3),
+                                  "accel": None if r["accel"] is None else round(r["accel"], 3),
+                                  "what": r["what"], "source": r["source"]} for c, r in table.items()},
+             "classes": by_class,
              "fastest": {"px_per_frame": round(fastest[0], 3), "where": fastest[1]},
              "hardest": {"px_per_frame2": round(hardest[0], 3), "where": hardest[1]}}
+    used = ", ".join(f"{c} {_fmt(table[c]['speed'])} and {_fmt(table[c]['accel'])}" for c in SPEED_CLASSES
+                     if c in by_class and table[c]["speed"] is not None)
     return _verdict("speed", data, fails, reviews, checked=checked, extra=extra, ctx=ctx,
-                    pass_summary=f"every traced move stays within {_fmt(lim['speed'])} px/frame and "
-                                 f"{_fmt(lim['accel'])} px/frame² at this size (fastest {_fmt(fastest[0])}, "
-                                 f"hardest change {_fmt(hardest[0])}){_coverage(data)}",
+                    pass_summary=f"every traced move stays within its class's limits at this size ({used}; "
+                                 f"fastest {_fmt(fastest[0])} px/frame, hardest change {_fmt(hardest[0])} "
+                                 f"px/frame²){_coverage(data)}",
                     fail_summary=lambda fs: f"{_plural(len(fs), 'move')} {_verb(fs, 'breaks', 'break')} the speed "
                                             "limits: "
                                             f"{fs[0].move.label} {fs[0].text}")
@@ -1885,9 +2288,48 @@ def render_sources(ctx, data: MotionData, *, render: str | None = None, act: int
     return out, missing
 
 
+def source_digest(ctx, path: Path) -> str | None:
+    """What a picture source is, as a hash: the file's sha256, or for a folder of frames a hash over each frame's
+    name and sha256 (so a changed frame is a changed source)."""
+    path = Path(path)
+    if path.is_file():
+        return ctx.sha(path)
+    if not path.is_dir():
+        return None
+    h = hashlib.sha256()
+    for p in sorted(x for x in path.iterdir() if x.suffix.lower() in IMAGE_EXTS and not x.name.startswith(".")):
+        h.update(f"{p.name}:{jsonio.sha256(p)}\n".encode())
+    return h.hexdigest()
+
+
+def cache_name(ctx, path: Path) -> str:
+    """A cache file name for one picture source (its film-relative path, flattened)."""
+    return re.sub(r"[^A-Za-z0-9]+", "_", ctx.rel(path)).strip("_")[-120:] or "source"
+
+
+def cached_scan(ctx, folder: str, path: Path, key: dict, scan: Callable[[], Any], *, what: str, kind: str = "pixels"):
+    """A whole-picture scan, cached in qa/<folder>/<kind>_<source>.json against the source's hash and the scan's
+    settings, the way the glitch scan is. Under --quick (ctx.quick) a cached scan is reused and a missing one is never
+    started: that's a MissingPrerequisite, which the sub-check reports as UNCHECKED."""
+    cache = ctx.path(f"qa/{folder}/{kind}_{cache_name(ctx, path)}.json")
+    cached = jsonio.read(cache, default=None) if cache.is_file() else None
+    if isinstance(cached, dict) and cached.get("key") == key:
+        return cached.get("scan")
+    if getattr(ctx, "quick", False):
+        raise MissingPrerequisite(f"{ctx.rel(path)} hasn't been scanned for {what} in this version, and --quick "
+                                  "doesn't start whole-picture work.",
+                                  hint=f"Run `slate qa {folder}` without --quick to scan it once; later quick runs "
+                                       "reuse the scan.")
+    result = scan()
+    jsonio.write_atomic(cache, {"generated": f"do not edit by hand: slate qa {folder}", "key": key, "scan": result})
+    return result
+
+
 def check_pixels(ctx, data: MotionData, *, render: str | None = None, render_act: int | None = None,
-                 render_from: int | None = None, skip: bool = False):
-    """Cross-check the traces on the pixels: fast motion in a render that no traced move explains is REVIEW."""
+                 render_from: int | None = None, skip: bool = False, read: list | None = None):
+    """Cross-check the traces on the pixels: fast motion in a render that no traced move explains is REVIEW.
+    Every picture file it reads is appended to `read` (the gate's inputs, so a new render turns it STALE)."""
+    read = read if read is not None else []
     if skip:
         return _sub("pixels", "UNCHECKED", "the pixel cross-check was skipped (--no-pixels), so fast motion outside "
                     "the trace hasn't been looked for", [], hint="Run `slate qa motion` without --no-pixels.")
@@ -1913,14 +2355,26 @@ def check_pixels(ctx, data: MotionData, *, render: str | None = None, render_act
     for src in sources:
         if not src.path.exists():
             return _sub("pixels", "UNCHECKED", f"{src.path} doesn't exist", [str(src.path)])
+        read.append(src.path)
         if src.path.is_file() and not media.have("ffmpeg"):
             return _sub("pixels", "UNCHECKED", "ffmpeg isn't installed, so the render can't be decoded", [],
                         hint="Install it with Homebrew (`brew install ffmpeg`), or run `slate doctor --install`.")
-        try:
+        key = {"file": ctx.rel(src.path), "sha256": source_digest(ctx, src.path), "film_frame": src.film_frame,
+               "frames": src.frames, "analysis": list(size), "film_short": min(w, h),
+               "speed_limit": round(lim["speed"], 6), "pixel": PIXEL, "version": __version__}
+
+        def scan(src=src):
             pairs, summary = fast_pairs(read_gray(src.path, size, count=src.frames), film_short=min(w, h),
                                         speed_limit=lim["speed"], analysis_short=min(size))
+            return {"pairs": pairs, "summary": summary}
+
+        try:
+            done = cached_scan(ctx, "motion", src.path, key, scan, what="fast motion")
+        except MissingPrerequisite as exc:
+            return _sub("pixels", "UNCHECKED", exc.message, [ctx.rel(src.path)], hint=exc.hint)
         except SlateError as exc:
             return _sub("pixels", "UNCHECKED", f"{ctx.rel(src.path)} couldn't be decoded: {exc}", [str(src.path)])
+        pairs, summary = done["pairs"], done["summary"]
         scans.append({"act": src.act, "file": ctx.rel(src.path), "film_frame": src.film_frame, **summary})
         evidence.append(f"{ctx.rel(src.path)}: {summary['pairs']} frame pairs, fastest measured "
                         f"{summary['fastest_measured']} px/frame")
@@ -1936,25 +2390,33 @@ def check_pixels(ctx, data: MotionData, *, render: str | None = None, render_act
             traced = max(traced_speed.get(x, 0.0) for x in near)
             if traced < PIXEL["under_traced"] * p["speed"]:
                 flagged.append((f, p, "under-traced", traced))
+        # One place per stretch of fast motion (gaps of up to 2 frames bridged), whatever the trace says along it: a
+        # fast move that runs on past the end of a slow traced one is one thing for a person to judge, not two.
         segments: list[dict] = []
         for f, p, why, traced in flagged:
-            if segments and f - segments[-1]["to"] <= 2 and segments[-1]["why"] == why:
+            if segments and f - segments[-1]["to"] <= 2:
                 seg = segments[-1]
                 seg["to"] = f
                 if p["speed"] > seg["speed"]:
                     seg.update(speed=p["speed"], at=f, box=p["box"])
                 seg["traced"] = max(seg["traced"], traced)
+                seg["whys"].add(why)
             else:
-                segments.append({"from": f, "to": f, "at": f, "speed": p["speed"], "box": p["box"], "why": why,
+                segments.append({"from": f, "to": f, "at": f, "speed": p["speed"], "box": p["box"], "whys": {why},
                                  "traced": traced})
         for seg in segments:
             act_txt = f"act {src.act} " if src.act is not None else ""
-            if seg["why"] == "untraced":
-                what = (f"{act_txt}film frames {seg['from']}–{seg['to']}: the render moves {_fmt(seg['speed'])} "
-                        f"px/frame where no traced move is under way (region {seg['box']})")
+            span = f"{act_txt}film frames {seg['from']}–{seg['to']}: the render moves {_fmt(seg['speed'])} px/frame"
+            if seg["whys"] == {"untraced"}:
+                seg["why"] = "untraced"
+                what = f"{span} where no traced move is under way (region {seg['box']})"
+            elif seg["whys"] == {"under-traced"}:
+                seg["why"] = "under-traced"
+                what = f"{span} but the trace's fastest move there is {_fmt(seg['traced'])}"
             else:
-                what = (f"{act_txt}film frames {seg['from']}–{seg['to']}: the render moves {_fmt(seg['speed'])} "
-                        f"px/frame but the trace's fastest move there is {_fmt(seg['traced'])}")
+                seg["why"] = "untraced and under-traced"
+                what = (f"{span}; part of it has no traced move under way and the rest is traced at no more than "
+                        f"{_fmt(seg['traced'])} (region {seg['box']})")
             items.append({"key": f"pixels:{ctx.rel(src.path)}:{seg['from']}-{seg['to']}", "what": what,
                           "basis": ({ctx.rel(src.path): ctx.sha(src.path)} if src.path.is_file() else
                                     {"renders/registry.json": ctx.sha("renders/registry.json")}),
@@ -1981,39 +2443,75 @@ def check_pixels(ctx, data: MotionData, *, render: str | None = None, render_act
 
 
 # ---------------------------------------------------------------------------------------------------- the gate
+SUBCHECKS = (*CHECKS, "pixels")
+
+
+def scope_sub(gate: str, narrowed: list[str]):
+    """An UNCHECKED sub-check for a run that looked at less than the whole film (some acts, an unregistered render,
+    some sub-checks). Such a run still reports what it found, and a FAIL stays a FAIL, but it can never be recorded
+    as the gate's PASS: only a full run can pass a gate."""
+    return _sub("scope", "UNCHECKED", f"this run checked only part of the film ({'; '.join(narrowed)}), so it can't "
+                "pass the gate", [], hint=f"Run `slate qa {gate}` with no narrowing options to check the whole film.",
+                narrowed=narrowed)
+
+
 def evaluate(film_dir: Path, *, acts: Iterable[int] | None = None, render: str | None = None,
-             render_act: int | None = None, render_from: int | None = None, pixels: bool = True) -> GateResult:
-    """Run every motion sub-check on a film and combine them into the one `motion` gate result."""
+             render_act: int | None = None, render_from: int | None = None, pixels: bool = True,
+             only: Iterable[str] | None = None) -> GateResult:
+    """Run the motion sub-checks on a film (every one, or `only` these) and combine them into the one `motion` gate
+    result. A narrowed run (some acts, an explicit render, some sub-checks) carries an UNCHECKED scope sub-check."""
     from slate.qa.checks import combine  # noqa: PLC0415
     from slate.qa.film import context  # noqa: PLC0415
 
     ctx = context(film_dir)
     _ = ctx.film  # a folder without film.json is a usage error, not a gate result
-    acts = list(acts) if acts else None
+    acts = sorted({int(a) for a in acts}) if acts else None
+    wanted = set(only) if only else None
+    if wanted is not None and not wanted <= set(SUBCHECKS):
+        bad = ", ".join(sorted(wanted - set(SUBCHECKS)))
+        raise UsageError(f"The motion gate has no {bad} check.", hint="Its checks: " + ", ".join(SUBCHECKS) + ".")
     data = load_data(ctx.dir, acts=acts, ctx=ctx)
     subs = []
-    for fn in CHECKS.values():
+    for name, fn in CHECKS.items():
+        if wanted is not None and name not in wanted:
+            continue
         s = fn(data, ctx)
         if s is not None:
             subs.append(s)
-    subs.append(check_pixels(ctx, data, render=render, render_act=render_act if render_act is not None else
-                             (acts[0] if acts and len(acts) == 1 else None), render_from=render_from,
-                             skip=not pixels))
+    read: list = []
+    run_pixels = wanted is None or "pixels" in wanted
+    if run_pixels:
+        subs.append(check_pixels(ctx, data, render=render, render_act=render_act if render_act is not None else
+                                 (acts[0] if acts and len(acts) == 1 else None), render_from=render_from,
+                                 skip=not pixels, read=read))
+    narrowed = []
+    film_acts = [int(a["index"]) for a in ctx.acts]
+    if acts and film_acts and set(film_acts) - set(acts):
+        narrowed.append(f"act{'s' if len(acts) > 1 else ''} {', '.join(map(str, acts))} of "
+                        f"{', '.join(map(str, film_acts))} (--act)")
+    if render and run_pixels and pixels:
+        narrowed.append(f"the pixels of {render} instead of the registered renders (--render)")
+    if wanted is not None and wanted != set(SUBCHECKS):
+        narrowed.append(f"only {', '.join(s for s in SUBCHECKS if s in wanted)} (--only)")
+    if narrowed:
+        subs.append(scope_sub(GATE, narrowed))
     law = data.law
     fn_sources = sorted({e.fn_source for e in (law.eases.values() if law else []) if e.fn_source})
     engine = gates.engine("slate qa motion", __version__, eases=", ".join(fn_sources) or None,
                           pixels="block matching on band-passed luma"
-                                 + (f" ({_media_version()})" if pixels else ""))
+                                 + (f" ({_media_version()})" if pixels and run_pixels else ""))
     inputs_paths = ["film.json", "timing/shots.json", "renders/registry.json"]
     inputs_paths += [data.files[a] for a in sorted(data.files)]
     inputs_paths += [f"{TRACE_DIR}/act{a}.json" for a in data.missing]
     inputs_paths += data.brand_files
-    if render:
+    inputs_paths += [p for p in read if Path(p).is_file()]
+    if render and not read:
         inputs_paths.append(render)
-    inputs = ctx.inputs(inputs_paths)
+    inputs = ctx.inputs(dict.fromkeys(str(p) for p in inputs_paths))
     details = {"acts": data.acts, "traced": data.traced, "missing": data.missing, "law": law.source if law else None,
                "law_reason": data.law_reason, "law_notes": law.notes if law else [], "notes": data.notes,
-               **lifted_review_items(subs)}
+               "limits_basis": "the frame's short side (its height on a landscape or square film)",
+               **({"narrowed": narrowed} if narrowed else {}), **lifted_review_items(subs)}
     result = combine(GATE, subs, engine=engine, inputs=inputs, details=details,
                      empty_summary="nothing to check yet: no acts and no motion traces")
     if result.status == "PASS":
@@ -2044,16 +2542,226 @@ def _media_version() -> str:
 
 def gate(film_dir: Path) -> GateResult:
     """The motion law on every act's trace: the brand's eases, durations and stagger caps, entrances from at least
-    85% scale, at most 30 px/frame and 8 px/frame² at 1080p, no loop faster than a 16-frame period, symmetric mark
-    rigs; and a pixel cross-check that finds fast motion the trace doesn't explain.
+    85% scale, speed and acceleration by what moves (a rig part 30 px/frame and 8 px/frame² at 1080p, a UI element
+    60 and 16, a carry 170 and 45), no loop faster than a 16-frame period, symmetric mark rigs; and a pixel
+    cross-check that finds fast motion the trace doesn't explain.
 
-    The film folder in, one GateResult out (slate.qa runs it with every other gate; `slate qa motion` alone)."""
-    return evaluate(Path(film_dir))
+    The film folder in, one GateResult out (slate.qa runs it with every other gate; `slate qa motion` alone). Inside a
+    `run_options(...)` block it takes that run's options (some acts, an explicit render, --no-pixels, --only)."""
+    opts = current_options()
+    only = [o for o in opts.get("only") or [] if o in SUBCHECKS] or None
+    acts = opts.get("acts")
+    return evaluate(Path(film_dir), acts=acts, render=opts.get("render"),
+                    render_act=acts[0] if opts.get("render") and acts else None, render_from=opts.get("render_from"),
+                    pixels=opts.get("pixels", True), only=only)
 
 
 GATES: dict[str, Callable[[Path], GateResult]] = {GATE: gate}
-#: Gates here that read whole renders; `slate qa --quick` can leave them out the way it leaves out the glitch scan.
+#: Gates here that read whole renders. Under `slate qa --quick` they reuse their cached scans and never start one.
 SLOW = (GATE,)
+
+
+# ---------------------------------------------------------------------------------------------------- run options
+#: The options of one run of the motion or access gate (`slate qa motion --act 2 --no-pixels`). slate.qa.run calls
+#: every gate with the film folder alone, so the options travel beside the call: `with run_options(...)` around the
+#: run, and each gate reads the ones it takes. Outside such a block every gate checks the whole film.
+_RUN_OPTIONS: contextvars.ContextVar[dict | None] = contextvars.ContextVar("slate_qa_gate_options", default=None)
+OPTION_KEYS = ("acts", "render", "render_from", "pixels", "only", "captions", "sheet", "platforms")
+
+#: The command-line flags for those options: flag -> (argparse dest, the gates that take it).
+FLAGS: dict[str, tuple[str, tuple[str, ...]]] = {
+    "--act": ("act", ("motion", "access")),
+    "--render": ("render", ("motion", "access")),
+    "--render-from": ("render_from", ("motion", "access")),
+    "--no-pixels": ("no_pixels", ("motion",)),
+    "--only": ("only", ("motion", "access")),
+    "--captions": ("captions", ("access",)),
+    "--sheet": ("sheet", ("access",)),
+    "--platform": ("platform", ("access",)),
+}
+OUR_GATES = ("motion", "access")
+
+
+@contextlib.contextmanager
+def run_options(**opts):
+    """Give the motion and access gates these options for the run inside the block (see OPTION_KEYS)."""
+    unknown = set(opts) - set(OPTION_KEYS)
+    if unknown:
+        raise TypeError(f"unknown gate options: {', '.join(sorted(unknown))}")
+    token = _RUN_OPTIONS.set({k: v for k, v in opts.items() if v is not None and v != [] and v != ()})
+    try:
+        yield
+    finally:
+        _RUN_OPTIONS.reset(token)
+
+
+def current_options() -> dict:
+    """The options of the run in progress ({} outside a run_options block)."""
+    return dict(_RUN_OPTIONS.get() or {})
+
+
+def _subchecks(gate_name: str) -> tuple[str, ...]:
+    if gate_name == GATE:
+        return SUBCHECKS
+    from slate.qa import access  # noqa: PLC0415 - access imports this module, so it's read at call time
+
+    return access.SUBCHECKS
+
+
+def add_qa_options(parser, gates: Iterable[str] = OUR_GATES) -> None:
+    """Add the flags of the motion and access gates to a parser: qa-core's `slate qa` (both gates, one set of flags,
+    so the shared ones are added once) or one gate's own command."""
+    gates = tuple(gates)
+    title = ("motion and access options (with `slate qa motion` or `slate qa access`)" if len(gates) > 1 else
+             f"{gates[0]} options")
+    g = parser.add_argument_group(title)
+    both = len(gates) > 1
+
+    def who(name: str) -> str:
+        return f"{name}: " if both else ""
+
+    if "motion" in gates:
+        g.add_argument("--act", type=int, action="append", metavar="N",
+                       help=f"{who('motion')}check only this act (repeat for more); with --render, the act the "
+                            "render shows")
+    else:
+        g.add_argument("--act", type=int, action="append", metavar="N",
+                       help="with --render: the act the render shows (sets its first film frame)")
+    g.add_argument("--render", metavar="PATH",
+                   help="read this render (a video, or a folder of frames) instead of the registered ones"
+                        + (": motion cross-checks its pixels, access scans it for flashes" if both else ""))
+    g.add_argument("--render-from", dest="render_from", type=int, metavar="FRAME",
+                   help="with --render: the film frame of its first frame (default: the first frame of --act)")
+    if "motion" in gates:
+        g.add_argument("--no-pixels", dest="no_pixels", action="store_true",
+                       help=f"{who('motion')}skip the pixel cross-check (reported as skipped, so the gate can't "
+                            "pass without it)")
+    names = [s for n in gates for s in _subchecks(n)]
+    g.add_argument("--only", action="append", metavar="CHECK",
+                   help=f"run only this sub-check (repeat for more): {', '.join(names)}. A narrowed run reports "
+                        "what it finds but can't pass the gate")
+    if "access" in gates:
+        g.add_argument("--captions", metavar="PATH",
+                       help=f"{who('access')}check this caption file (.srt, .vtt or captions.json)")
+        g.add_argument("--sheet", metavar="PATH",
+                       help=f"{who('access')}read the text for the safe zones from this contact sheet (the "
+                            "engine's sheet with its index JSON, a folder of frames, or one frame)")
+        g.add_argument("--platform", action="append", metavar="NAME",
+                       help=f"{who('access')}check this platform's safe zones (repeat for more): instagram_reels, "
+                            "tiktok, youtube_shorts")
+
+
+def _given(args: argparse.Namespace) -> dict[str, Any]:
+    out = {}
+    for flag, (dest, _g) in FLAGS.items():
+        v = getattr(args, dest, None)
+        if v not in (None, False, []):
+            out[flag] = v
+    return out
+
+
+def _exists(film_dir: Path | None, ref: str) -> bool:
+    p = Path(ref).expanduser()
+    return p.exists() or (not p.is_absolute() and film_dir is not None and (Path(film_dir) / ref).exists())
+
+
+def options_from(args: argparse.Namespace, targets: Iterable[str], film_dir: Path | None = None) -> dict:
+    """The run options in parsed arguments, checked against the gates this run checks (and the film, when given).
+    A flag for a gate that isn't running, an unknown sub-check, an act the film doesn't have or a file that isn't
+    there is a usage error (exit 2), before any gate runs."""
+    given = _given(args)
+    if not given:
+        return {}
+    names = [str(t) for t in targets]
+    ours = [n for n in names if n in OUR_GATES]
+    flags = ", ".join(given)
+    if not names or len(ours) != len(names):
+        raise UsageError(f"{flags} {'goes' if len(given) == 1 else 'go'} with `slate qa motion` or `slate qa access` "
+                         "on their own, not with other gates.",
+                         hint="slate qa motion --act 2  ·  slate qa access --only captions")
+    for flag in given:
+        takes = FLAGS[flag][1]
+        if not any(n in takes for n in ours):
+            raise UsageError(f"{flag} is {' and '.join(takes)}'s option; this run checks {', '.join(ours)}.")
+    only = given.get("--only")
+    if only:
+        known = {n: set(_subchecks(n)) for n in ours}
+        unknown = [o for o in only if not any(o in k for k in known.values())]
+        if unknown:
+            raise UsageError(f"There's no {', '.join(unknown)} check in {' or '.join(ours)}.",
+                             hint="Checks: " + "; ".join(f"{n}: {', '.join(_subchecks(n))}" for n in ours) + ".")
+        for n in ours:
+            if not any(o in known[n] for o in only):
+                raise UsageError(f"--only names none of {n}'s checks ({', '.join(_subchecks(n))}).")
+    acts = given.get("--act")
+    render = given.get("--render")
+    if render and acts and len(acts) > 1:
+        raise UsageError("--render reads one render, so give it one --act (the act it shows).")
+    if acts and "motion" not in ours and not render:
+        raise UsageError("`slate qa access` checks the whole film; --act only says which act a --render shows.",
+                         hint="slate qa access --render take3.mov --act 2")
+    if "--render-from" in given and not render:
+        raise UsageError("--render-from says where a --render starts, so it needs --render.")
+    for flag in ("--render", "--captions", "--sheet"):
+        if flag in given and not _exists(film_dir, given[flag]):
+            raise UsageError(f"There's nothing at {given[flag]} ({flag}).")
+    if acts and film_dir is not None:
+        check_acts(film_dir, acts)
+    return {"acts": acts, "render": render, "render_from": given.get("--render-from"),
+            "pixels": False if given.get("--no-pixels") else None, "only": only, "captions": given.get("--captions"),
+            "sheet": given.get("--sheet"), "platforms": given.get("--platform")}
+
+
+def check_acts(film_dir: Path, acts: Iterable[int]) -> None:
+    """UsageError when the film has none of these acts (in timing/shots.json or as a motion trace)."""
+    from slate.qa.film import context  # noqa: PLC0415
+
+    ctx = context(film_dir)
+    known = {int(a["index"]) for a in ctx.acts}
+    folder = ctx.path(TRACE_DIR)
+    if folder.is_dir():
+        known |= {int(m.group(1)) for p in folder.glob("act*.json") if (m := re.fullmatch(r"act(\d+)\.json", p.name))}
+    unknown = sorted(int(a) for a in acts if int(a) not in known)
+    if unknown:
+        listing = ", ".join(map(str, sorted(known))) or "none yet"
+        raise UsageError(f"There's no act {', '.join(map(str, unknown))} in this film (acts: {listing}).")
+
+
+@contextlib.contextmanager
+def qa_options(args: argparse.Namespace, targets: Iterable[str]):
+    """The hook for qa-core's `slate qa`: hand the motion and access flags given on the command line to those gates
+    for the run inside the block. Refuses flags that don't fit the gates being run (UsageError, exit 2). With no such
+    flags it changes nothing, so it can wrap every run.
+
+        with qa_motion.qa_options(args, targets):
+            return _run(targets, quick=...)
+    """
+    targets = list(targets)
+    film_dir = None
+    if _given(args):
+        from slate import cli  # noqa: PLC0415
+
+        try:
+            film_dir = cli.film(args)
+        except UsageError:
+            film_dir = None  # the run itself says there's no film
+    opts = options_from(args, targets, film_dir)
+    with run_options(**opts):
+        yield opts
+
+
+def qa_option_argv(args: argparse.Namespace) -> list[str]:
+    """The motion and access flags in `args` as command-line words (for a detached run's argv)."""
+    out: list[str] = []
+    for flag, v in _given(args).items():
+        if v is True:
+            out.append(flag)
+        elif isinstance(v, list):
+            for x in v:
+                out += [flag, str(x)]
+        else:
+            out += [flag, str(v)]
+    return out
 
 
 # ---------------------------------------------------------------------------------------------------- CLI
@@ -2065,28 +2773,54 @@ def show(result: GateResult) -> str:
     return "\n".join(lines)
 
 
-def report(film_dir: Path, result: GateResult, args: argparse.Namespace) -> int:
-    """Record a result in qa/gates.json (unless --dry-run) and print it the way the mode asks."""
-    from slate import cli  # noqa: PLC0415
+def run_command(gate_name: str, args: argparse.Namespace) -> int:
+    """`slate qa motion` or `slate qa access` as a command of its own: check the options, run the one gate the way
+    slate.qa.run does (recorded in qa/gates.json and qa/history.jsonl; an autonomous film parks on REVIEW), or only
+    compute it with --dry-run, and print it."""
+    from slate import cli, qa  # noqa: PLC0415
+    from slate.qa import park  # noqa: PLC0415
+    from slate.qa.film import session  # noqa: PLC0415
 
+    film_dir = cli.film(args)
+    opts = options_from(args, [gate_name], film_dir)
     dry = bool(cli.flag(args, "dry_run", False))
-    path = None if dry else gates.write_report(film_dir, [result])
-    human = show(result) + ("\n(dry run: qa/gates.json not updated)" if dry else f"\nrecorded in {path}")
-    log.result({"gates": [result.to_dict()], "summary": gates.summarize([result]),
-                "report": None if path is None else str(path), "dry_run": dry}, human)
-    return gates.exit_code([result])
+    with run_options(**opts):
+        if dry:
+            with session(film_dir):
+                result = GATE_FUNCTIONS[gate_name]()(film_dir)
+            results = [result]
+        else:
+            results = qa.run(film_dir, [gate_name])
+    report_path = None if dry else Path(film_dir) / "qa" / "gates.json"
+    parked = None if dry else park.status(Path(film_dir))
+    human = ["\n".join(show(r) for r in results)]
+    human.append("(dry run: qa/gates.json not updated)" if dry else f"recorded in {report_path}")
+    if parked:
+        human.append(f"PARKED: {parked.get('why')} Release: {parked.get('release')}")
+    summary = gates.summarize(results)
+    if summary["status"] != "PASS" and not dry:
+        human.append("next: slate qa triage   (what isn't passing, with the next step for each)")
+    log.result({"gates": [r.to_dict() for r in results], "summary": summary,
+                "report": None if report_path is None else str(report_path), "dry_run": dry, "parked": parked,
+                "options": {k: v for k, v in opts.items() if v is not None}}, "\n".join(human))
+    return gates.exit_code(results)
+
+
+def _gate_fn(name: str):
+    def get():
+        if name == GATE:
+            return gate
+        from slate.qa import access  # noqa: PLC0415
+
+        return access.gate
+    return get
+
+
+GATE_FUNCTIONS = {"motion": _gate_fn("motion"), "access": _gate_fn("access")}
 
 
 def _cmd(args: argparse.Namespace) -> int:
-    from slate import cli  # noqa: PLC0415
-
-    film_dir = cli.film(args)
-    if args.render and args.act and len(args.act) > 1:
-        raise UsageError("--render checks one render, so give it one --act (the act it shows).")
-    result = evaluate(film_dir, acts=args.act, render=args.render,
-                      render_act=args.act[0] if args.act else None, render_from=args.render_from,
-                      pixels=not args.no_pixels)
-    return report(film_dir, result, args)
+    return run_command(GATE, args)
 
 
 HELP = "the motion law on every act's trace, cross-checked on the renders"
@@ -2094,21 +2828,19 @@ DESCRIPTION = """Check the motion law on every act's motion trace (timing/motion
 the renders. Sub-checks: trace, eases, durations, staggers, entrances, speed, loops, symmetry, pixels. The gate
 passes only when every one does; REVIEW items wait for a person (`slate qa triage`).
 
-Limits: peak speed 30 px/frame and acceleration 8 px/frame² at 1080p (scaled to the film's size), entrances from at
-least 85% scale, no loop faster than a 16-frame period, rig parts as whole-frame-delayed copies. Eases, durations,
-staggers and overshoot come from the brand's motion data."""
+Limits by what moves, at 1080p and scaled to the film's short side: a rig part 30 px/frame and 8 px/frame² (the
+plan's law), a UI element 60 and 16, a page, card or camera carry 170 and 45 (a trace entry says which with
+"class"; a whip past the carry limits goes to a person). Entrances from at least 85% scale, no loop faster than a
+16-frame period (and never faster than 1.9 Hz), rig parts as whole-frame-delayed copies. Eases, durations, staggers
+and overshoot come from the brand's motion data; rigs may also use sway and land, carries the even travel profile,
+and a trace entry may declare a reading sweep or a steady line (exempt). A run narrowed with --act, --render or
+--only reports what it finds but can't pass the gate."""
 
 
 def register(sub) -> None:
-    """Add `motion` to a subparsers object (the `qa` group's stages: `slate qa motion`)."""
+    """Add `motion` to a subparsers object (a stage-style `qa` group: `slate qa motion`). qa-core's `slate qa` runs
+    the same gate by name and takes these flags through add_qa_options and qa_options."""
     from slate.cli import add_command  # noqa: PLC0415
 
     p = add_command(sub, "motion", _cmd, help=HELP, description=DESCRIPTION)
-    p.add_argument("--act", type=int, action="append", metavar="N",
-                   help="check only this act (repeat for more); with --render, the act the render shows")
-    p.add_argument("--render", metavar="PATH",
-                   help="cross-check this render (a video, or a folder of frames) instead of the registered ones")
-    p.add_argument("--render-from", dest="render_from", type=int, metavar="FRAME",
-                   help="the film frame of the render's first frame (default: the first frame of --act)")
-    p.add_argument("--no-pixels", dest="no_pixels", action="store_true",
-                   help="skip the pixel cross-check (reported as skipped, so the gate can't pass without it)")
+    add_qa_options(p, gates=(GATE,))

@@ -2,6 +2,7 @@
 // type-checks from the film folder, placeholders for acts not built yet, and no deep relative imports anywhere.
 import fs from 'node:fs';
 import path from 'node:path';
+import {spawnSync} from 'node:child_process';
 import {afterAll, beforeAll, describe, expect, it} from 'vitest';
 import {ENGINE, cli, film, kitCore, ok, readJson, scratch, twoActs, writeJson} from './helpers.mjs';
 import {filmDataSource, writeNeutralData} from '../../remotion/entry.mjs';
@@ -22,22 +23,25 @@ describe('entry', () => {
     const r = ok('entry', {film: dir}, {data});
     expect(r.compositions).toEqual(['Act1', 'Film']);
     expect(r.acts).toEqual([{act: 1, comp: 'Act1', scene: 'scenes/act1/index.tsx', frame_in: 0, frames: 30}]);
-    for (const f of ['.slate/entry.tsx', '.slate/Root.tsx', '.slate/film-data.ts', '.slate/placeholder.tsx', '.slate/label.tsx', 'tsconfig.json', '.slate/tsconfig.act1.json']) {
+    for (const f of ['.slate/entry.tsx', '.slate/Root.tsx', '.slate/act1.tsx', '.slate/film.tsx', '.slate/film-data.ts', '.slate/placeholder.tsx', '.slate/broken.tsx', '.slate/label.tsx', 'tsconfig.json', '.slate/tsconfig.act1.json']) {
       expect(fs.existsSync(path.join(dir, f)), f).toBe(true);
     }
     const rootTsx = fs.readFileSync(path.join(dir, '.slate/Root.tsx'), 'utf8');
-    expect(rootTsx).toMatch(/<Composition id="Act1"/);
-    expect(rootTsx).toMatch(/<Composition id="Film"/);
+    expect(rootTsx).toMatch(/<Composition id="Act1" lazyComponent=\{\(\) => import\('\.\/act1'\)\}/);
+    expect(rootTsx).toMatch(/<Composition id="Film" lazyComponent=\{\(\) => import\('\.\/film'\)\}/);
     expect(rootTsx).toMatch(/Do not edit by hand/);
     // sizes and rates are read from film.json through @film/data, never written into the Root
     expect(rootTsx).not.toMatch(/width=\{\d/);
     expect(rootTsx).toMatch(/fps=\{FPS\}/);
+    // each act's module holds its scene; the Root imports no scene at all
+    expect(rootTsx).not.toMatch(/scenes\//);
+    expect(fs.readFileSync(path.join(dir, '.slate/act1.tsx'), 'utf8')).toContain("import Scene from '../scenes/act1';");
   });
 
   it('never imports up out of the film: scenes reach the kit and data by alias', () => {
     const dir = film(root, 'aliases');
     ok('entry', {film: dir}, {data});
-    for (const f of ['.slate/Root.tsx', '.slate/entry.tsx', '.slate/film-data.ts', '.slate/placeholder.tsx', '.slate/label.tsx']) {
+    for (const f of ['.slate/Root.tsx', '.slate/entry.tsx', '.slate/act1.tsx', '.slate/film.tsx', '.slate/film-data.ts', '.slate/placeholder.tsx', '.slate/broken.tsx', '.slate/label.tsx']) {
       const text = fs.readFileSync(path.join(dir, f), 'utf8');
       expect(text, f).not.toMatch(/from '(\.\.\/){2,}/);
     }
@@ -62,27 +66,136 @@ describe('entry', () => {
     expect(g.engine).toEqual({name: 'typescript', version: '5.9.3'});
   });
 
+  it("lets anyone run the engine's own tsc from inside the film folder with the generated tsconfig", () => {
+    const dir = film(root, 'tsc');
+    ok('entry', {film: dir}, {data});
+    const tsc = path.join(ENGINE, 'node_modules', 'typescript', 'bin', 'tsc');
+    const run = () => spawnSync(process.execPath, [tsc, '-p', 'tsconfig.json'], {cwd: dir, encoding: 'utf8'});
+    const clean = run();
+    expect(clean.status, clean.stdout + clean.stderr).toBe(0);
+    const f = path.join(dir, 'scenes/act1/index.tsx');
+    fs.writeFileSync(f, fs.readFileSync(f, 'utf8') + "\nexport const oops: number = 'not a number';\n");
+    const broken = run();
+    expect(broken.status).not.toBe(0);
+    expect(broken.stdout).toMatch(/scenes\/act1\/index\.tsx\(\d+,\d+\): error TS2322/);
+  });
+
   it('registers an act that is not built yet as a placeholder, so the film renders from day one', () => {
     const dir = film(root, 'placeholder', twoActs);
     const r = ok('entry', {film: dir}, {data});
     expect(r.compositions).toEqual(['Act1', 'Act2', 'Film']);
     expect(r.acts[1]).toMatchObject({act: 2, scene: null, frame_in: 15, frames: 15});
-    const rootTsx = fs.readFileSync(path.join(dir, '.slate/Root.tsx'), 'utf8');
+    const act2 = fs.readFileSync(path.join(dir, '.slate/act2.tsx'), 'utf8');
+    expect(act2).toContain('<Scene sub={S(sub)} act={2} firstFrame={15} />');
     // the kit's placeholder (in the brand's look, inside its ActRoot) when the kit is there; the engine's own otherwise
-    const use = fs.existsSync(path.join(ENGINE, 'remotion', 'kit', 'index.ts')) ? 'KitPlaceholder' : 'Placeholder';
-    expect(rootTsx).toContain(`<${use} sub={S(sub)} act={2} firstFrame={15} />`);
-    if (use === 'KitPlaceholder') expect(rootTsx).toContain("import {ActRoot, PlaceholderAct} from '@slate/kit';");
+    if (fs.existsSync(path.join(ENGINE, 'remotion', 'kit', 'index.ts'))) {
+      expect(act2).toContain("import {KitPlaceholder as Scene} from './kit-placeholder';");
+      expect(fs.readFileSync(path.join(dir, '.slate/kit-placeholder.tsx'), 'utf8')).toContain("import {ActRoot, PlaceholderAct} from '@slate/kit';");
+    } else {
+      expect(act2).toContain("import {Placeholder as Scene} from './placeholder';");
+    }
     expect(typecheck(loadFilm(dir), 1, 'x').status).toBe('PASS');
   });
 
-  it('refuses an act without a default export', () => {
-    const dir = film(root, 'nodefault', (d) => {
+  it("leaves an act that doesn't build out of the bundle behind a stand-in, and takes it back once it builds", () => {
+    const dir = film(root, 'broken', (d) => {
+      twoActs(d);
+      fs.mkdirSync(path.join(d, 'scenes/act2'), {recursive: true});
+      fs.writeFileSync(path.join(d, 'scenes/act2/index.tsx'), "import React from 'react';\nexport default function Act2() {\n  return (<div>half-written\n}\n");
+    });
+    const r = ok('entry', {film: dir}, {data});
+    expect(r.broken).toHaveLength(1);
+    expect(r.broken[0]).toMatchObject({act: 2});
+    expect(r.broken[0].error).toMatch(/^scenes\/act2\/index\.tsx:\d+:\d+: /);
+    expect(r.acts[1].broken).toBe(r.broken[0].error);
+    expect(r.warnings.join('\n')).toMatch(/act 2 doesn't build \(scenes\/act2\/index\.tsx:\d+:\d+: .*\): it's left out of the bundle until it does/);
+    const act2 = fs.readFileSync(path.join(dir, '.slate/act2.tsx'), 'utf8');
+    expect(act2).toContain("import {Broken} from './broken';");
+    expect(act2).not.toContain('../scenes/act2');
+    expect(fs.readFileSync(path.join(dir, '.slate/film.tsx'), 'utf8')).not.toContain('../scenes/act2');
+    // act 1 still imports its scene, and the Root still lists every act
+    expect(fs.readFileSync(path.join(dir, '.slate/act1.tsx'), 'utf8')).toContain("import Scene from '../scenes/act1';");
+    expect(r.compositions).toEqual(['Act1', 'Act2', 'Film']);
+    // fixed: the act is back in
+    fs.writeFileSync(path.join(dir, 'scenes/act2/index.tsx'), "import React from 'react';\nexport default function Act2() {\n  return <div>whole</div>;\n}\n");
+    const fixed = ok('entry', {film: dir}, {data});
+    expect(fixed.broken).toEqual([]);
+    expect(fs.readFileSync(path.join(dir, '.slate/act2.tsx'), 'utf8')).toContain("import Scene from '../scenes/act2';");
+  });
+
+  it('drops rest-state stills while scenes/contracts.tsx does not build, and says why', () => {
+    const dir = film(root, 'contracts-broken', (d) => {
+      fs.writeFileSync(path.join(d, 'scenes/contracts.tsx'), "import React from 'react';\nexport function Rest() {\n  return (<div>\n}\n");
+    });
+    const r = ok('entry', {film: dir}, {data});
+    expect(r.contracts).toEqual([]);
+    expect(r.contracts_error).toMatch(/^scenes\/contracts\.tsx:\d+:\d+: /);
+    expect(r.compositions).toEqual(['Act1', 'Film']);
+    expect(fs.existsSync(path.join(dir, '.slate/rest-states.tsx'))).toBe(false);
+    expect(r.warnings.join('\n')).toMatch(/scenes\/contracts\.tsx doesn't build .*no rest-state stills until it does/);
+  });
+
+  it("removes an act's generated modules when the act leaves timing/shots.json", () => {
+    const dir = film(root, 'fewer', twoActs);
+    ok('entry', {film: dir}, {data});
+    expect(fs.existsSync(path.join(dir, '.slate/act2.tsx'))).toBe(true);
+    const f = path.join(dir, 'timing/shots.json');
+    const d = readJson(f);
+    d.acts = [{index: 1, name: 'One', shots: ['S01', 'S02']}];
+    d.shots[1].act = 1;
+    writeJson(f, d);
+    const r = ok('entry', {film: dir}, {data});
+    expect(r.changed).toEqual(expect.arrayContaining(['.slate/act2.tsx', '.slate/tsconfig.act2.json']));
+    expect(fs.existsSync(path.join(dir, '.slate/act2.tsx'))).toBe(false);
+    expect(fs.existsSync(path.join(dir, '.slate/tsconfig.act2.json'))).toBe(false);
+  });
+
+  it("takes an act's component from its default export, or a named Act<N> (the kit README's pattern)", () => {
+    const dir = film(root, 'named', (d) => {
       const f = path.join(d, 'scenes/act1/index.tsx');
       fs.writeFileSync(f, fs.readFileSync(f, 'utf8').replace('export default function Act1', 'export function Act1'));
     });
+    const r = ok('entry', {film: dir}, {data});
+    expect(r.acts[0]).toMatchObject({act: 1, scene: 'scenes/act1/index.tsx', export: 'Act1'});
+    expect(fs.readFileSync(path.join(dir, '.slate/act1.tsx'), 'utf8')).toContain("import {Act1 as Scene} from '../scenes/act1';");
+    expect(fs.readFileSync(path.join(dir, '.slate/film.tsx'), 'utf8')).toContain("import {Act1 as Act1Scene} from '../scenes/act1';");
+    expect(typecheck(loadFilm(dir), 1, 'x').status).toBe('PASS');
+  });
+
+  it('refuses an act module that exports neither a default nor Act<N>', () => {
+    const dir = film(root, 'nodefault', (d) => {
+      const f = path.join(d, 'scenes/act1/index.tsx');
+      fs.writeFileSync(f, fs.readFileSync(f, 'utf8').replace('export default function Act1', 'export function Scene'));
+    });
     const r = cli('entry', {film: dir}, {data});
     expect(r.code).toBe(2);
-    expect(r.json.error).toMatch(/no default export/);
+    expect(r.json.error).toMatch(/exports no component: neither a default export nor Act1/);
+  });
+
+  it('writes the entry for an act with a syntax error, so the type check can name the line', () => {
+    const dir = film(root, 'syntax', (d) => {
+      const f = path.join(d, 'scenes/act1/index.tsx');
+      fs.writeFileSync(f, fs.readFileSync(f, 'utf8').replace('return (', 'return ((('));
+    });
+    const r = ok('entry', {film: dir}, {data});
+    expect(r.acts[0].scene).toBe('scenes/act1/index.tsx');
+    const g = typecheck(loadFilm(dir), 1, 'x');
+    expect(g.status).toBe('FAIL');
+    expect(g.evidence[0]).toMatch(/^scenes\/act1\/index\.tsx:\d+:\d+ TS\d+ /);
+  });
+
+  it('says so when an act folder has sources but no index.tsx, instead of quietly using a placeholder', () => {
+    const dir = film(root, 'noindex', (d) => {
+      twoActs(d);
+      fs.mkdirSync(path.join(d, 'scenes/act2'), {recursive: true});
+      fs.writeFileSync(path.join(d, 'scenes/act2/Act2.tsx'), 'export default function Act2() { return null; }\n');
+    });
+    const r = ok('entry', {film: dir}, {data});
+    expect(r.acts[1]).toMatchObject({act: 2, scene: null});
+    expect(r.warnings.join('\n')).toMatch(/scenes\/act2 has Act2\.tsx but no index\.tsx, the act's entry point: act 2 renders as a placeholder/);
+    const one = cli('emit-events', {film: dir, act: 2}, {data});
+    expect(one.code).toBe(2);
+    expect(one.json.error).toMatch(/Act 2 isn't built yet \(scenes\/act2 has Act2\.tsx but no index\.tsx/);
   });
 
   it('refuses timing built at another frame rate than film.json', () => {

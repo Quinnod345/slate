@@ -117,13 +117,15 @@
      "type": [
       "number",
       "null"
-     ]
+     ],
+     "description": "The quoted price: /estimate's usd, after any discount."
     },
     "discounted_usd": {
      "type": [
       "number",
       "null"
-     ]
+     ],
+     "description": "Deprecated: older records put discount.usd here, which is the saving, not a price. Never written now."
     },
     "actual_usd": {
      "type": [
@@ -152,6 +154,20 @@
       "string",
       "null"
      ]
+    },
+    "saving_usd": {
+     "type": [
+      "number",
+      "null"
+     ],
+     "description": "What a discount saved (/estimate's discount.usd): the saving, never the price."
+    },
+    "list_usd": {
+     "type": [
+      "number",
+      "null"
+     ],
+     "description": "The price before any discount (price plus saving)."
     }
    }
   },

@@ -3,7 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {afterAll, beforeAll, describe, expect, it} from 'vitest';
-import {cli, film, kitCore, ok, readJson, scratch, twoActs} from './helpers.mjs';
+import {cli, film, kitCore, ok, readJson, scratch, twoActs, writeJson} from './helpers.mjs';
 
 let root;
 let data;
@@ -63,6 +63,7 @@ describe('emit-events', () => {
         "  {shot: 'S01', id: 'c', t: 0.3, kind: 'impact', size: 'l', note: ''},",
         "  {shot: 'S02', id: 'd', t: 0.1, kind: 'tap', size: 'm', note: 'wrong shot for its time'},",
         "  {shot: 'S09', id: 'e', t: 5, kind: 'tap', size: 'm', note: 'outside the act'},",
+        "  {shot: 'S02', id: 'f', t: 0.9, kind: 'count', size: 's', note: 'a count with bad extras', from: 'zero', dur: -1, pan: 2, x: 'left'},",
         '];',
       ].join('\n'),
     );
@@ -76,6 +77,10 @@ describe('emit-events', () => {
     expect(problems).toMatch(/says S02 but lands at 0\.100 s/);
     expect(problems).toMatch(/outside act 1/);
     expect(problems).toMatch(/2 impacts in act 1: at most one/);
+    expect(problems).toMatch(/\(f\): from must be a number/);
+    expect(problems).toMatch(/\(f\): x must be a number/);
+    expect(problems).toMatch(/\(f\): dur must be a positive number of seconds/);
+    expect(problems).toMatch(/\(f\): pan must be a number from -1 \(left\) to 1 \(right\)/);
   });
 
   it('refuses an act whose module throws while loading, and says why', () => {
@@ -97,6 +102,124 @@ describe('emit-events', () => {
     const one = cli('emit-events', {film: dir, act: 2}, {data});
     expect(one.code).toBe(2);
     expect(one.json.error).toMatch(/isn't built yet/);
+  });
+
+  it('in a dry run computes and checks every act, and writes nothing', () => {
+    const dir = film(root, 'dry');
+    const r = ok('emit-events', {film: dir, dry_run: true}, {data});
+    expect(r.dry_run).toBe(true);
+    expect(r.acts[0]).toMatchObject({act: 1, events: 2, dry_run: true, written: false, problems: [], misses: []});
+    expect(fs.existsSync(path.join(dir, 'timing/visual_events'))).toBe(false);
+  });
+
+  it('in a dry run reports what would be refused, instead of refusing', () => {
+    const dir = withEvents('dry-mute', 'export const events = [];');
+    const r = ok('emit-events', {film: dir, dry_run: true}, {data});
+    expect(r.acts[0].problems.join('\n')).toMatch(/no beats and doesn't say it's silent/);
+    expect(fs.existsSync(path.join(dir, 'timing/visual_events/act1.json'))).toBe(false);
+  });
+
+  it("merges placed captures' taps into their acts, with their source, sizes spelled s/m/l, ties ordered by id", () => {
+    const dir = film(root, 'captures', (d) => {
+      writeJson(path.join(d, 'captures/demo/beats.json'), {
+        capture: 'demo',
+        film_in: 3,
+        events: [
+          {shot: 'S01', id: 'demo.tap1', t: 0.1, frame: 3, kind: 'tap', size: 'small', note: 'tap in capture demo', source: 'capture:demo'},
+          {shot: 'S02', id: 'demo.type2', t: 0.8, frame: 24, kind: 'type', size: 'm', note: 'typing in capture demo'},
+        ],
+      });
+      writeJson(path.join(d, 'captures/later/beats.json'), {capture: 'later', film_in: null, events: []});
+    });
+    const r = ok('emit-events', {film: dir}, {data});
+    expect(r.acts[0]).toMatchObject({events: 4, capture_beats: 2, kinds: {whoosh: 1, land: 1, tap: 1, type: 1}});
+    expect(r.acts[0].notes.join('\n')).toMatch(/capture later isn't placed on the film clock yet/);
+    const beats = readJson(path.join(dir, 'timing/visual_events/act1.json'));
+    // demo.tap1 and square_enters both land at 0.1 s: ids break the tie
+    expect(beats.map((b) => b.id)).toEqual(['demo.tap1', 'square_enters', 'square_crosses_centre', 'demo.type2']);
+    expect(beats[0]).toMatchObject({size: 's', source: 'capture:demo', frame: 3});
+    expect(beats[3]).toMatchObject({size: 'm', source: 'capture:demo'});
+  });
+
+  it('refuses a capture tap that no act holds, rather than dropping it', () => {
+    const dir = film(root, 'stray', (d) => {
+      writeJson(path.join(d, 'captures/demo/beats.json'), {capture: 'demo', film_in: 0, events: [{shot: 'S99', id: 'demo.lost', t: 9, kind: 'tap', size: 's', note: 'a tap past the end'}]});
+    });
+    const r = cli('emit-events', {film: dir}, {data});
+    expect(r.code).toBe(1);
+    expect(r.json.details.problems.join('\n')).toMatch(/a capture tap no act holds: captures\/demo\/beats\.json: demo\.lost at 9\.000 s on "S99" is in no act/);
+  });
+
+  it("allows a beat within half a frame of the act's end (the kit's rule) and refuses one past it", () => {
+    const near = withEvents('edge-ok', "export const events = [{shot: 'S02', id: 'edge', t: 1 + 0.4 / 30, kind: 'land', size: 'm', note: 'lands on the last frame'}];");
+    ok('emit-events', {film: near}, {data});
+    const far = withEvents('edge-out', "export const events = [{shot: 'S02', id: 'edge', t: 1 + 0.6 / 30, kind: 'land', size: 'm', note: 'lands after the act'}];");
+    const r = cli('emit-events', {film: far}, {data});
+    expect(r.code).toBe(1);
+    expect(r.json.details.problems.join('\n')).toMatch(/t 1\.020 s is outside act 1 \(0\.000–1\.000 s\)/);
+  });
+
+  it("hands a web act to the open web renderer's emit mode, then adds its captures' taps", () => {
+    const dir = withEvents('web-act', "export const events = [{shot: 'S01', id: 'square_enters', t: 0.1, kind: 'whoosh', size: 's', note: 'The square slides in.'}];");
+    twoActs(dir);
+    fs.mkdirSync(path.join(dir, 'scenes/act2/web'), {recursive: true});
+    fs.writeFileSync(path.join(dir, 'scenes/act2/web/index.html'), '<!doctype html><title>act 2</title>\n');
+    writeJson(path.join(dir, 'captures/demo/beats.json'), {capture: 'demo', film_in: 15, events: [{shot: 'S02', id: 'demo.tap', t: 0.6, kind: 'tap', size: 'small', note: 'a tap in act 2'}]});
+    // a stand-in for engine/web/render.mjs: writes what the page would say, and hands back what it was asked
+    const fake = path.join(root, 'fake-web-emit.mjs');
+    fs.writeFileSync(
+      fake,
+      [
+        "import fs from 'node:fs';",
+        "import path from 'node:path';",
+        'export async function webRender(args) {',
+        "  const file = path.join(args.film, 'timing', 'visual_events', `act${args.act}.json`);",
+        '  fs.mkdirSync(path.dirname(file), {recursive: true});',
+        "  fs.writeFileSync(file, JSON.stringify([{shot: 'S02', id: 'page.lands', t: 0.8, kind: 'land', size: 'm', note: 'the page lands'}]));",
+        '  return {acts: [{act: args.act, file: `timing/visual_events/act${args.act}.json`, silent: false, events: 1, asked: args}], skipped: []};',
+        '}',
+        '',
+      ].join('\n'),
+    );
+    const r = ok('emit-events', {film: dir}, {data, env: {SLATE_WEB_RENDER_MODULE: fake}});
+    expect(r.acts.map((a) => [a.act, a.engine ?? 'remotion'])).toEqual([[1, 'remotion'], [2, 'web']]);
+    expect(r.acts[1].asked).toEqual({film: dir, act: 2, emit: true});
+    expect(r.acts[1]).toMatchObject({events: 2, capture_beats: 1, kinds: {tap: 1, land: 1}});
+    expect(readJson(path.join(dir, 'timing/visual_events/act2.json')).map((b) => [b.id, b.size])).toEqual([['demo.tap', 's'], ['page.lands', 'm']]);
+    // a dry run doesn't open a page, and says so
+    const dry = ok('emit-events', {film: dir, dry_run: true}, {data, env: {SLATE_WEB_RENDER_MODULE: fake}});
+    expect(dry.skipped).toEqual([{act: 2, reason: "a web scene: its beats are read from its page, which a dry run doesn't open", engine: 'web'}]);
+  });
+
+  it.skipIf(!kitCore)("refuses to write while a word lookup falls back to an estimate (film C's rule)", () => {
+    const dir = film(root, 'misses', (d) => {
+      fs.writeFileSync(path.join(d, 'scenes/act1/beats.ts'), "import {word} from '@slate/kit/core';\nexport const said = word('S02', 'square');\n");
+    });
+    const r = cli('emit-events', {film: dir}, {data});
+    expect(r.code).toBe(1);
+    // the fixture has no VO at all, so the kit also records the read and the cue it couldn't find
+    expect(r.json.error).toMatch(/3 word lookups fell back to an estimate \(.*S02:square\): the beats would land on guessed times/);
+    expect(r.json.details.misses).toContain('S02:square');
+    expect(fs.existsSync(path.join(dir, 'timing/visual_events/act1.json'))).toBe(false);
+    const dry = ok('emit-events', {film: dir, dry_run: true}, {data});
+    expect(dry.acts[0].misses).toEqual(r.json.details.misses);
+  });
+
+  it.skipIf(!kitCore)('refuses what the kit recorded about a bad defineEvent (one id, two different beats)', () => {
+    const dir = film(root, 'kit-problems', (d) => {
+      fs.writeFileSync(
+        path.join(d, 'scenes/act1/beats.ts'),
+        [
+          "import {defineEvent} from '@slate/kit/core';",
+          "defineEvent({shot: 'S01', id: 'twice', frame: 4, kind: 'tap', size: 's', note: 'first'});",
+          "defineEvent({shot: 'S01', id: 'twice', frame: 6, kind: 'tap', size: 's', note: 'second'});",
+          '',
+        ].join('\n'),
+      );
+    });
+    const r = cli('emit-events', {film: dir}, {data});
+    expect(r.code).toBe(1);
+    expect(r.json.details.problems.join('\n')).toMatch(/the kit: event "twice" in S01 is defined twice with different values/);
   });
 
   it.skipIf(!kitCore)("adds the kit's registered beats and writes the act's motion trace (§12 shape)", () => {

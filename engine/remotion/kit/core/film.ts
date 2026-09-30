@@ -9,7 +9,7 @@
 // `misses()` lists every one, and the hand-in check (`slate check`) refuses an act while the list isn't empty. A throw at
 // module load would take every composition in the bundle down with it (the films learned that twice).
 import rawFilmData from '@film/data';
-import type {FilmData, FilmInfo, ShotRecord, VoCue, Word} from './types';
+import type {FilmData, FilmInfo, LangRules, ShotRecord, VoCue, VoToken, Word} from './types';
 
 // ------------------------------------------------------------------------------------------------------------ the data
 type Cache = {
@@ -311,74 +311,198 @@ export function voSpan(id: string): {start: number; end: number; exact: boolean}
 }
 
 // ------------------------------------------------------------------------------------------------------------ words
-/**
- * Word matching needs no language table: letters, digits and marks of any script survive, case folds, punctuation goes.
- * "%" stays so "54%" can match a transcript that kept it. How a number or symbol is *said* comes from the data
- * (`spoken`, resolved in Python by timing.spoken.forms), never from a table here.
- */
-export function norm(s: string): string {
-  return String(s).normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}\p{M}%]+/gu, '');
+// The kit keeps no language table. How a word becomes a match key, and how a number or symbol is said, both come from
+// the data Python writes (slate.timing): `lang` (the language's match rules), `spoken` (each number's and symbol's
+// spoken forms) and each read's `tokens` (every script word already lined up with what was heard). The rules are the
+// ones in tests/vectors/spoken.json, which pytest checks against slate.timing.words and vitest against this file.
+
+/** When the film data has no `lang` (an older entry): letters and digits, plus "%". */
+const FALLBACK_RULES: Required<LangRules> = {lang: '', keep: '%', strip_keep: '%', negative_marks: '-', max_run: 6};
+const LETTER_OR_DIGIT = /[\p{L}\p{N}]/u;
+const LETTERS_ONLY = /^\p{L}+$/u;
+const DIGIT = /\p{Nd}/u;
+
+/** The film language's match rules (from '@film/data' `lang`), with the fallback filling any gap. */
+export function langRules(): Required<LangRules> {
+  const raw = (current?.lang ?? {}) as LangRules;
+  const run = Number(raw.max_run);
+  return {
+    lang: typeof raw.lang === 'string' ? raw.lang : FALLBACK_RULES.lang,
+    keep: typeof raw.keep === 'string' ? raw.keep : FALLBACK_RULES.keep,
+    strip_keep: typeof raw.strip_keep === 'string' ? raw.strip_keep : typeof raw.keep === 'string' ? raw.keep : FALLBACK_RULES.strip_keep,
+    negative_marks: typeof raw.negative_marks === 'string' ? raw.negative_marks : FALLBACK_RULES.negative_marks,
+    max_run: Number.isInteger(run) && run > 0 ? run : FALLBACK_RULES.max_run,
+  };
 }
 
-/** The ways a token is said: itself, plus every spoken form the film data lists for it. Each form is normalised text. */
-export function spokenForms(token: string): string[] {
-  const out: string[] = [];
-  const self = norm(token);
-  if (self) out.push(self);
-  const table = current?.spoken ?? {};
-  const forms = table[token] ?? table[token.trim()] ?? table[self] ?? [];
-  for (const f of forms) {
-    const joined = norm((Array.isArray(f) ? f : [f]).join(' '));
-    if (joined && !out.includes(joined)) out.push(joined);
+/**
+ * A word's match key: NFKC, lower case, then only letters, digits and the language's kept symbols ("Sixty-four." →
+ * "sixtyfour", "54%" → "54%", "$15." → "$15"). `keep` overrides the film's kept symbols.
+ */
+export function norm(s: string, keep?: string): string {
+  const k = keep ?? langRules().keep;
+  let out = '';
+  for (const ch of String(s ?? '').normalize('NFKC').toLowerCase()) {
+    if (LETTER_OR_DIGIT.test(ch) || k.includes(ch)) out += ch;
   }
   return out;
 }
 
+/** A token without the punctuation around it ("(664)." → "664"); spoken symbols and a leading minus stay ("-5", "$15"). */
+export function stripEdges(token: string): string {
+  const {strip_keep, negative_marks} = langRules();
+  const chars = [...String(token ?? '').normalize('NFKC').trim()];
+  const kept = (ch: string) => LETTER_OR_DIGIT.test(ch) || strip_keep.includes(ch);
+  let start = 0;
+  let end = chars.length;
+  while (start < end && !kept(chars[start])) {
+    if (negative_marks.includes(chars[start]) && start + 1 < end && DIGIT.test(chars[start + 1])) break;
+    start++;
+  }
+  while (end > start && !kept(chars[end - 1])) end--;
+  return chars.slice(start, end).join('');
+}
+
+/** A token's own match key: the key its script word has in vo_words' `tokens`. */
+export const tokenKey = (token: string): string => norm(stripEdges(token));
+
+/** One way a token can be heard: the joined match key of a spoken form, and how many words that form is. */
+export type MatchTarget = {key: string; words: number};
+
+function formsOf(token: string): string[][] {
+  const table = current?.spoken ?? {};
+  const edge = stripEdges(token);
+  const forms = table[edge] ?? table[token] ?? table[String(token).trim()] ?? table[norm(token)] ?? [];
+  return forms.map((f) => (Array.isArray(f) ? f.map(String) : [String(f)]));
+}
+
 /**
- * Where each occurrence of a token sits in a list of timed words: [first word index, last word index]. A form matches a
- * run of consecutive words whose normalised text joins to it, so "sixty-four" said as one word or two matches the same.
+ * Every way a token is heard, its own key first (slate.timing.words.candidates): the written form, then each spoken
+ * form the film data lists for it ("64" → "64", "sixtyfour", "sixfour"), each once.
  */
-export function findOccurrences(words: {w: string}[], token: string): [number, number][] {
-  const forms = spokenForms(token);
-  const texts = words.map((x) => norm(x.w));
-  const hits: [number, number][] = [];
-  let i = 0;
-  while (i < texts.length) {
-    let matched: [number, number] | null = null;
-    if (texts[i]) {
-      for (const form of forms) {
-        let acc = '';
-        for (let j = i; j < texts.length; j++) {
-          acc += texts[j];
-          if (acc === form) {
-            if (!matched || j > matched[1]) matched = [i, j];
-            break;
-          }
-          if (acc.length >= form.length || !form.startsWith(acc)) break;
-        }
+export function targetsFor(token: string): MatchTarget[] {
+  const out: MatchTarget[] = [];
+  const own = tokenKey(token);
+  if (own) out.push({key: own, words: 1});
+  for (const form of formsOf(token)) {
+    const key = form.map((w) => norm(w)).join('');
+    if (key && !out.some((t) => t.key === key)) out.push({key, words: form.length});
+  }
+  return out;
+}
+
+/** The ways a token is said, as match keys (its own first). */
+export function spokenForms(token: string): string[] {
+  return targetsFor(token).map((t) => t.key);
+}
+
+/** Lengths L such that keys[i..i+L) joined is one of the targets (runs of at most min(maxRun, words + 2) words). */
+function runMatches(keys: string[], i: number, targets: MatchTarget[], maxRun: number): number[] {
+  const lengths = new Set<number>();
+  for (const {key, words} of targets) {
+    let acc = '';
+    for (let length = 1; length <= Math.min(maxRun, words + 2); length++) {
+      if (i + length > keys.length) break;
+      acc += keys[i + length - 1];
+      if (acc === key) {
+        lengths.add(length);
+        break;
       }
+      if (!key.startsWith(acc)) break;
     }
-    if (matched) {
-      hits.push(matched);
-      i = matched[1] + 1;
+  }
+  return [...lengths].sort((a, b) => a - b);
+}
+
+export type FindOptions = {
+  /** match targets for each heard word (a heard number's spoken forms); computed from the film data when absent */
+  heardTargets?: (i: number) => string[];
+  /** the longest run of heard words one token is said as (the language's max_run by default) */
+  maxRun?: number;
+};
+
+/**
+ * Every place the targets are heard in a list of heard-word keys, as [first, end) index spans, scanning left to right
+ * (the rules in tests/vectors/spoken.json): the longest run that matches a target wins and the scan skips past it; a
+ * heard word that isn't all letters (a number or a symbol) also matches on its own when one of its own targets is the
+ * query's key ("12" heard for "twelve").
+ */
+export function findSpans(keys: string[], targets: MatchTarget[], opts: FindOptions = {}): [number, number][] {
+  const hits: [number, number][] = [];
+  if (!keys.length || !targets.length) return hits;
+  const maxRun = opts.maxRun ?? langRules().max_run;
+  const own = targets[0].key;
+  let i = 0;
+  while (i < keys.length) {
+    let lengths = keys[i] ? runMatches(keys, i, targets, maxRun) : [];
+    if (!lengths.length && keys[i] && !LETTERS_ONLY.test(keys[i]) && opts.heardTargets?.(i).includes(own)) lengths = [1];
+    if (lengths.length) {
+      const run = Math.max(...lengths);
+      hits.push([i, i + run]);
+      i += run;
     } else i++;
   }
   return hits;
 }
 
+/** The occ-th place (from 1) the targets are heard: [first, end), or null. See findSpans. */
+export function findSpan(keys: string[], targets: MatchTarget[], occ = 1, opts: FindOptions = {}): [number, number] | null {
+  if (!Number.isInteger(occ) || occ < 1) return null;
+  return findSpans(keys, targets, opts)[occ - 1] ?? null;
+}
+
+function heardTargetsOf(words: {w: string}[]): (i: number) => string[] {
+  const memo = new Map<number, string[]>();
+  return (i) => {
+    if (!memo.has(i)) memo.set(i, spokenForms(String(words[i]?.w ?? '')));
+    return memo.get(i) as string[];
+  };
+}
+
+/**
+ * Where each occurrence of a token is heard in a list of timed words: [first word index, last word index]. A form
+ * matches a run of consecutive words whose keys join to it, so "sixty-four" said as one word or two matches the same.
+ */
+export function findOccurrences(words: {w: string}[], token: string): [number, number][] {
+  const keys = words.map((x) => norm(String(x.w ?? '')));
+  return findSpans(keys, targetsFor(token), {heardTargets: heardTargetsOf(words)}).map(([a, b]) => [a, b - 1]);
+}
+
+function tokensOf(id: string): VoToken[] {
+  const list = current?.vo_words?.shots?.[id]?.tokens;
+  return Array.isArray(list) ? list : [];
+}
+
+/** The occ-th script token of a read whose key is the query's (slate.timing.words.token_span). */
+function tokenSpan(id: string, token: string, occ: number): VoToken | null {
+  const key = tokenKey(token);
+  if (!key || !Number.isInteger(occ) || occ < 1) return null;
+  let seen = 0;
+  for (const t of tokensOf(id)) {
+    if (t && t.key === key && ++seen === occ) return t;
+  }
+  return null;
+}
+
 /**
  * Film seconds at which a read starts (or ends) a word, and whether that is exact: `[t, exact]`. The same contract as
  * slate.timing.words.word_time. `occ` counts repeats from 1. Never throws; a miss is estimated and recorded.
+ *
+ * The script's own words come first (vo_words' `tokens`: Python lined the script up with what was heard, so it knows
+ * which "and" the "&" in "Sam and Jo run Salt & Stone" was); then anything heard, for spellings the script doesn't use.
  */
 export function wordTime(id: string, token: string, occ = 1, which: 'start' | 'end' = 'start'): [number, boolean] {
   const s = shot(id);
   if (s.missing) return [0, false];
   const words = wordsOf(id);
   const base = s.start + voLead(id);
-  const hits = findOccurrences(words, token);
-  const hit = hits[occ - 1];
-  if (hit) return [base + (which === 'start' ? words[hit[0]].start : words[hit[1]].end), true];
-  const estimate = estimateWord(id, token, occ, which);
+  const tok = tokenSpan(id, token, occ);
+  if (tok && tok.exact && Number.isFinite(Number(tok[which]))) return [base + Number(tok[which]), true];
+  const keys = words.map((x) => norm(String(x.w ?? '')));
+  const hit = findSpan(keys, targetsFor(token), occ, {heardTargets: heardTargetsOf(words)});
+  if (hit) return [base + (which === 'start' ? words[hit[0]].start : words[hit[1] - 1].end), true];
+  const inLine = tok && Number.isFinite(Number(tok[which]));
+  const estimate = inLine ? base + Number(tok[which]) : estimateWord(id, token, occ, which);
   recordMiss({
     kind: 'word',
     shot: id,
@@ -386,7 +510,11 @@ export function wordTime(id: string, token: string, occ = 1, which: 'start' | 'e
     occ,
     which,
     estimate,
-    reason: words.length ? `the read never says "${token}"${occ > 1 ? ` a ${ordinal(occ)} time` : ''}` : 'this read has no word timings yet',
+    reason: inLine
+      ? 'in the script line but not heard in the take'
+      : words.length
+        ? `the read never says "${token}"${occ > 1 ? ` a ${ordinal(occ)} time` : ''}`
+        : 'this read has no word timings yet',
   });
   return [estimate, false];
 }
@@ -410,7 +538,7 @@ function estimateWord(id: string, token: string, occ: number, which: 'start' | '
   let seen = 0;
   let chars = 0;
   for (const p of parts) {
-    if (target.includes(norm(p)) && ++seen === occ) {
+    if (spokenForms(p).some((k) => target.includes(k)) && ++seen === occ) {
       const f = (chars + (which === 'end' ? p.length : 0)) / total;
       return span.start + Math.min(1, Math.max(0, f)) * (span.end - span.start);
     }

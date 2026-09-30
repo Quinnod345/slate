@@ -1,0 +1,25 @@
+#!/bin/sh
+# Slate's desktop extension launcher.
+#
+# The extension carries no Slate code of its own: this starts the `slate mcp` installed on this Mac, so a chat in the
+# Claude desktop app and the command line always run the same Slate, with the same films, job queue, ledger and keys.
+# Nothing here opens a browser, and nothing here prompts.
+
+BROWSER=none
+export BROWSER
+PATH="/opt/homebrew/bin:/opt/homebrew/sbin:$HOME/.local/bin:$PATH:/usr/local/bin:/usr/bin:/bin"
+export PATH
+
+for candidate in "$SLATE_BIN" "$HOME/.local/bin/slate" "/opt/homebrew/bin/slate"; do
+  case "$candidate" in
+    ""|*'${'*) continue ;;  # empty, or a setting the app left unfilled
+  esac
+  if [ -x "$candidate" ]; then
+    exec "$candidate" mcp
+  fi
+done
+
+echo "Slate isn't installed on this Mac yet, so its desktop extension can't start." >&2
+echo "Install it first with one command in Terminal, then restart Claude:" >&2
+echo "  git clone https://github.com/Quinnod345/slate.git ~/code/slate && ~/code/slate/install.sh" >&2
+exit 3

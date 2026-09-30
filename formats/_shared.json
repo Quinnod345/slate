@@ -1,0 +1,96 @@
+{
+ "$comment": "Slate's own defaults that every format shares: the pace ceiling, caption limits, loudness presets, the default budgets from plan §8, the two channel routes and the format aliases. A format file states its own values; slate.formats checks them against these (a format may be tighter, never looser). Edit here, then run `slate formats check`.",
+ "pace": {
+  "max_words_per_second": 2.6,
+  "source": "Plan §7, stage 3: voice-over at no more than 2.6 words per second of shot."
+ },
+ "captions": {
+  "max_lines": 2,
+  "max_cps": 17,
+  "min_s": 1.0,
+  "max_chars_by_aspect": {"16:9": 42, "1:1": 36, "4:5": 36, "9:16": 32, "landscape": 42, "portrait": 32},
+  "sources": [
+   {"title": "Slate plan, Quality: accessibility gate", "checked": "2026-09-30",
+    "says": "Captions at no more than 17 characters a second, and 2 lines of 42."},
+   {"title": "Nimdzi: Subtitling vertical videos, guidelines where art thou? (2019-11-17)", "url": "https://www.nimdzi.com/subtitling-vertical-videos-guidelines-where-art-thou/", "checked": "2026-09-30",
+    "says": "The BBC caps lines at 37 characters; Netflix's vertical previews run 33 characters a line without hurting readability; one or two lines; each caption 1 to 6 seconds. No platform sets a vertical standard, so Slate uses 32 for 9:16 and 36 for square and 4:5."}
+  ]
+ },
+ "loudness": {
+  "web": {"lufs": -14, "true_peak": -1, "tolerance_lu": 0.5,
+          "standard": "Slate's delivery target for web, social and streaming (plan §7, stage 9: -14 LUFS +/-0.5, no louder than -1 dBTP)"},
+  "broadcast": {
+   "ebu_r128": {"lufs": -23, "true_peak": -1, "tolerance_lu": 0.5, "standard": "EBU R 128 (Europe and most of the world)"},
+   "atsc_a85": {"lufs": -24, "true_peak": -2, "tolerance_lu": 2, "standard": "ATSC A/85 (US, the CALM Act)"}
+  },
+  "sources": [
+   {"title": "EBU R 128", "url": "https://tech.ebu.ch/docs/r/r128.pdf", "checked": "2026-09-30", "says": "-23 LUFS integrated, -1 dBTP maximum true peak, +/-0.5 LU."},
+   {"title": "ProVideo Coalition: The CALM Act and commercial loudness", "url": "https://www.provideocoalition.com/the-calm-act-commercial-advertisement-loudness-mitigation/", "checked": "2026-09-30",
+    "says": "ATSC A/85: -24 LKFS integrated, +/-2 dB, with true peaks no higher than -2 dBTP (a secondary source; check the broadcaster's own delivery spec)."}
+  ]
+ },
+ "budgets": {
+  "reel_or_ad": {"label": "Reel or ad (6-45 s)", "runtime_s": [6, 45],
+                 "elevenlabs": {"vo": [500, 3000], "score": [1000, 2000]}, "higgsfield": [0, 0],
+                 "note": "Generation only when it's allowed and adds something. About 1% of a Pro month."},
+  "explainer": {"label": "Explainer (60-120 s)", "runtime_s": [60, 120],
+                "elevenlabs": {"vo": [1000, 5000], "score": [2500, 5000]}, "higgsfield": [0, 60],
+                "note": "0-2 generated shots at about $15-30 each, including one reject."},
+  "brand_film": {"label": "Brand film (2-6 min)", "runtime_s": [120, 360],
+                 "elevenlabs": {"vo": [4000, 12000], "score": [9000, 28000]}, "higgsfield": [40, 85],
+                 "note": "What the first brand films spent; the voice-over range includes tag A/B takes."},
+  "onboarding": {"label": "Brand onboarding (once per brand)",
+                 "elevenlabs": {"voice_design": [5000, 5000]}, "higgsfield": [15, 20],
+                 "note": "Voice Design about 5,000 credits and $15-20 of look tests; the sound reference is made locally."},
+  "rework_factor": 1.5,
+  "source": "Plan §8, Default budgets (2026-09-30): a hard stop at the budget, up to 1.5x for rework; prices live in registry.json with the date they were checked."
+ },
+ "routes": {
+  "hero": {
+   "label": "Hero placement",
+   "quality": "master",
+   "pipeline": "full",
+   "how": "A derived film (slate variant <film> <child> --aspect <aspect> --format <format>) through the whole pipeline.",
+   "render_samples": "render.motion_blur_samples (true motion blur, 16 sub-frames averaged)",
+   "master": "After Effects finishes films a person supervises, started by that person; ffmpeg masters autonomous and draft films, which are held.",
+   "gates": "Every film gate.",
+   "approval": "Its own final-cut approval."
+  },
+  "social": {
+   "label": "Social cut-down",
+   "quality": "fast",
+   "pipeline": "fast",
+   "how": "A derived film rendered with fewer motion-blur samples and mastered with ffmpeg, so a cut-down takes minutes, not an evening.",
+   "render_samples": "render.draft_samples",
+   "master": "ffmpeg",
+   "gates": "Every film gate still runs; a derived film never inherits its parent's results.",
+   "approval": "Its own approval.",
+   "engine": "remotion",
+   "candidate": {
+    "engine": "higgsedit",
+    "status": "pending",
+    "decided_by": "slate bench higgsedit",
+    "rule": "Kept as the fast route only if the phase 8 benchmark shows it is genuinely faster than a Remotion cut-down at acceptable quality (decision 9)."
+   }
+  }
+ },
+ "broadcast": {
+  "rule": "Film, TV and radio need an Eleven Music Enterprise licence; online commercial use is fine on paid plans. A format or film.json with broadcast: true makes the sound module's music-licence gate ask for that licence.",
+  "loudness": "Use the broadcaster's standard (EBU R 128 or ATSC A/85) instead of the web target.",
+  "source": "Plan, Risks and licences: Eleven Music terms (2026-09-30)."
+ },
+ "aliases": {
+  "reel": "social-reel", "reels": "social-reel", "social": "social-reel", "short": "social-reel", "shorts": "social-reel",
+  "brand": "brand-film", "brand-video": "brand-film",
+  "demo": "product-demo", "app-demo": "product-demo",
+  "commercial": "ad", "spot": "ad",
+  "linkedin-cut": "linkedin",
+  "hero-loop": "website-hero-loop", "hero-video": "website-hero-loop", "website-loop": "website-hero-loop",
+  "app-preview": "app-store-preview", "app-store": "app-store-preview",
+  "teaser": "launch-teaser", "launch": "launch-teaser",
+  "announcement": "feature-announcement", "feature": "feature-announcement",
+  "kinetic": "kinetic-type", "kinetic-typography": "kinetic-type",
+  "sting": "logo-sting", "logo": "logo-sting", "logo-reveal": "logo-sting",
+  "character": "character-led", "mascot": "character-led"
+ }
+}

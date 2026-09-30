@@ -47,7 +47,8 @@ def _lerp(a, b, p):
 
 
 def entry(ident: str, prop: str, f0: float, f1: float, v0, v1, *, ease: str = "move", fn: Callable | None = None,
-          step: float = 1.0, shot: str = "S1", entrance: bool = False, loop_period=None, rig=None, law: dict = NEUTRAL_LAW,
+          step: float = 1.0, shot: str = "S1", entrance: bool = False, loop_period=None, rig=None,
+          law: dict = NEUTRAL_LAW,
           **extra) -> dict:
     """One trace entry in the contract's shape, sampled from a curve (the named law ease unless `fn` is given)."""
     fn = fn or curve(ease, law)

@@ -158,6 +158,47 @@ def _render_chunk(eng: engines.Engine, ws: chunks_mod.Workspace, c: chunks_mod.C
                   hint="The chunks that finished are kept: fix the cause, then `slate render --resume`.")
 
 
+_WORST_FIRST = ("FAIL", "STALE", "UNCHECKED", "REVIEW", "PASS")
+
+
+def _engine_gates(t: Target, ws: chunks_mod.Workspace) -> list[dict]:
+    """The engine's own gate results for this render (the kit's font gate, the web renderer's network wall), read from
+    every chunk's record so a resumed render keeps them too: one per gate, the worst across the chunks, named
+    render.act<N>.<gate> so `slate status` files them under the render."""
+    worst: dict[str, dict] = {}
+    for c in ws.chunks:
+        record = jsonio.read(c.sidecar, default=None) or {}
+        for g in (record.get("engine_result") or {}).get("gates") or []:
+            if not isinstance(g, dict) or not g.get("gate") or g.get("status") not in _WORST_FIRST:
+                continue
+            name = f"render.act{t.act.index}.{g['gate']}"
+            held = worst.get(name)
+            if held is None or _WORST_FIRST.index(g["status"]) < _WORST_FIRST.index(held["status"]):
+                details = dict(g.get("details") or {}) if isinstance(g.get("details"), dict) else {}
+                worst[name] = {**g, "gate": name, "details": {**details, "stage": "render", "chunk": c.index}}
+    return [worst[k] for k in sorted(worst)]
+
+
+def _refresh_trace(film_dir: Path, t: Target, eng: engines.Engine) -> dict | None:
+    """Bring the act's motion trace up to date with the scenes just rendered (`slate qa motion` reads it), and record
+    what made it. A trace that can't be written is reported, never a reason to undo a proven render."""
+    try:
+        res = eng.trace(t.act.index)
+    except SlateError as exc:
+        log.warn(f"act {t.act.index} is rendered, but its motion trace couldn't be refreshed: {exc.message}")
+        return {"written": False, "reason": exc.message}
+    if not res:
+        return None
+    trace = {k: res[k] for k in ("written", "file", "entries", "reason") if k in res}
+    if trace.get("written") and trace.get("file"):
+        try:
+            deps.state_lock().record(film_dir, trace["file"], producer=f"slate render --act {t.act.index}",
+                                     inputs=sorted(set(list(res.get("sources") or []) + ["timing/shots.json"])))
+        except SlateError as exc:
+            log.warn(f"couldn't record {trace['file']} in film.lock.json: {exc.message}")
+    return trace
+
+
 def _frames_gate(t: Target, proof: dict, m: media.Media) -> gates.GateResult:
     ok = proof["status"] == "PASS"
     name = f"render.act{t.act.index}.frames" if t.kind != "range" else "render.range.frames"
@@ -229,7 +270,7 @@ def _render_target(film_dir: Path, p: Plan, t: Target, eng: engines.Engine, ws: 
     result = {"kind": t.kind, "act": t.act.index, "shots": t.act.shots, "file": t.out, "first": t.first,
               "last": t.last, "film_frames": t.film_frames, "frame_count": proof["frames"],
               "chunks": {"total": len(ws.chunks), "kept": kept, "rendered": rendered}, "proof": proof,
-              "gates": [frames_gate.to_dict()], "registered": False}
+              "gates": [frames_gate.to_dict(), *_engine_gates(t, ws)], "registered": False}
     if proof["status"] != "PASS":
         joined.unlink(missing_ok=True)
         ws.write_plan("failed", problems=proof["problems"])
@@ -266,6 +307,12 @@ def _render_target(film_dir: Path, p: Plan, t: Target, eng: engines.Engine, ws: 
             result["registered"] = True
         else:
             os.replace(joined, final)
+    # A render that becomes the act's picture (a whole act, or a patch spliced into it) refreshes the act's motion
+    # trace; a range written to a file of your choosing is a look, and leaves the film's files alone.
+    if t.kind in ("act", "patch"):
+        trace = _refresh_trace(film_dir, t, eng)
+        if trace is not None:
+            result["trace"] = trace
     ws.write_plan("done")
     ws.remove()
     _prune_empty(film_dir / chunks_mod.CHUNKS, film_dir / "renders" / "patches")

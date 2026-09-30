@@ -18,15 +18,18 @@ from pathlib import Path
 from slate import __version__, gates, jsonio, log
 from slate.errors import MissingPrerequisite, Refused
 from slate.gates import GateResult
-from slate.story import freeze, inputs, scriptmd
+from slate.story import derived, freeze, inputs, scriptmd
 from slate.story import gates as script_gates
-from slate.story.model import SCRIPT, Plan, load_script, plan
+from slate.story.model import SCRIPT, Plan, plan
 from slate.timing.takes import find_takes
 
 STORYBOARD = Path("script") / "storyboard.json"
 SCRIPT_MD = Path("script") / "SCRIPT.md"
 TRUTH = Path("brief") / "truth.json"
 COMMAND = "slate script build"
+# The film.json values the storyboard is made from. The lock records these keys, not the whole file, so a pin written
+# at first use (a model id, a tool version) doesn't make the storyboard, and everything after it, stale.
+FILM_KEYS = ("brand", "format", "mode", "targets", "language", "title")
 
 
 @dataclass
@@ -60,6 +63,8 @@ def _shot_doc(s) -> dict:
         doc["source_id"] = s.source_id
     if d.get("events"):
         doc["events"] = d["events"]
+    if d.get("generate"):
+        doc["generate"] = d["generate"]  # the shot's generation request, carried to timing/shots.json for `slate gen`
     if s.take:
         doc["take"] = s.take
     return doc
@@ -118,11 +123,28 @@ def _record_lock(film_dir: Path, rel: Path, inputs_: dict) -> None:
         log.warn(f"couldn't record {rel} in film.lock.json: {exc}")
 
 
+def lock_inputs(film_dir: Path, film: dict, files: list) -> dict:
+    """{input: sha256} for the lock and the storyboard's made_from: the files read, the film.json keys used, the brand
+    pack and the format template (state's named inputs, so each is checked on its own)."""
+    keys = [str(f) for f in files] + [f"film:{k}" for k in FILM_KEYS if k in film]
+    if film.get("brand"):
+        keys.append(f"brand:{film['brand']}")
+    if film.get("format"):
+        keys.append(f"format:{film['format']}")
+    try:
+        from slate.state import lock as state_lock  # noqa: PLC0415
+
+        hashed = state_lock.hash_inputs(film_dir, keys)
+    except Exception:  # noqa: BLE001 - without film state, hash the files ourselves and leave the named inputs out
+        hashed = gates.inputs_for(film_dir, files)
+    return dict(hashed)  # a file that isn't there yet stays in, as None, so its arrival makes the storyboard stale
+
+
 def run(film_dir: Path, *, check_only: bool = False, from_takes: bool = False) -> ScriptBuild:
     """Plan, gate and (when nothing fails and this isn't a check) write the storyboard and SCRIPT.md."""
     film_dir = Path(film_dir)
     film = inputs.load_film(film_dir)
-    script = load_script(film_dir)
+    script, parent = derived.load(film_dir, film)  # a cut-down's script comes from its parent's shots
     lang = film.get("language") or script.get("language") or "en"
     brand = inputs.load_brand(film.get("brand"))
     fmt, fmt_problem = inputs.load_format(film.get("format"))
@@ -135,6 +157,8 @@ def run(film_dir: Path, *, check_only: bool = False, from_takes: bool = False) -
     if schema is not None:
         schema.inputs = gates.inputs_for(film_dir, [SCRIPT])
         return ScriptBuild(results=[schema], refused=True)
+    if parent.problems:  # a cut that keeps nothing, or keeps shots its parent doesn't have
+        return ScriptBuild(results=[derived.gate(parent, [])], refused=True)
     takes = find_takes(film_dir) if use_takes else {}
     default_token = (script.get("defaults") or {}).get("enter_token")
     p = plan(script, timing=timing, takes=takes, use_takes=use_takes, lang=lang, default_enter_token=default_token)
@@ -146,7 +170,12 @@ def run(film_dir: Path, *, check_only: bool = False, from_takes: bool = False) -
     out.results = script_gates.check_plan(p, brand=brand, fmt=fmt, truth=truth, film=film, format_problem=fmt_problem)
     if not p.problems:
         out.results.append(freeze.check(film_dir, p))
+        lineage = derived.gate(parent, [s.id for s in p.shots])
+        if lineage is not None:
+            out.results.append(lineage)
     input_paths = [SCRIPT, "film.json", TRUTH]
+    if parent.parent_script:
+        input_paths.append(parent.parent_script)
     brand_dir = brand.get("_dir")
     if brand_dir:
         input_paths.append(Path(brand_dir) / "brand.json")
@@ -166,9 +195,8 @@ def run(film_dir: Path, *, check_only: bool = False, from_takes: bool = False) -
         raise Refused(f"The storyboard is locked: {lock}.",
                       hint="An approved script changes only through its approval; unlock it with the state tools first.")
     target = inputs.runtime_target(film, fmt)
-    made_from = {k: v for k, v in stamped.items() if v and not Path(k).is_absolute()}
-    if brand_dir:
-        made_from[f"brand:{film.get('brand')}"] = jsonio.sha256(Path(brand_dir) / "brand.json")
+    made_from = lock_inputs(film_dir, film, [SCRIPT, TRUTH, *[t.rel for t in takes.values()],
+                                             *([parent.parent_script] if parent.parent_script else [])])
     out.storyboard = storyboard_doc(p, film=film, results=out.results, previous=previous, target=target,
                                     made_from=made_from)
     title = str(out.storyboard.get("title") or film.get("id") or "Film")

@@ -19,6 +19,7 @@ Paid calls go through the spend ledger and replay offline under SLATE_FAKE_VENDO
 from __future__ import annotations
 
 import argparse
+import importlib
 import sys
 from pathlib import Path
 
@@ -81,7 +82,9 @@ def _rebuild(parser: argparse.ArgumentParser, args: argparse.Namespace) -> list[
 
 def _detach(args, stage: str, parser: argparse.ArgumentParser) -> int:
     try:
-        from slate.jobs import client as jobs  # noqa: PLC0415
+        # By its full name, so the module registered in sys.modules is the one used (a `from slate.jobs import
+        # client` reads the package attribute instead, which can point elsewhere after a module is reloaded).
+        jobs = importlib.import_module("slate.jobs.client")
     except ModuleNotFoundError as exc:
         if not str(exc.name or "").startswith("slate.jobs"):
             raise

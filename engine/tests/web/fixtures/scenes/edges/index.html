@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; background: rgb(0, 0, 0); overflow: hidden; }
+  .bar { position: absolute; width: 60px; height: 60px; background: rgb(255, 255, 255); }
+  #still { left: 40px; top: 10px; }
+  #moving { left: 20px; top: 100px; will-change: transform; }
+</style>
+</head>
+<body>
+  <div class="bar" id="still"></div><div class="bar" id="moving"></div>
+  <script type="module" src="./scene.js"></script>
+</body>
+</html>

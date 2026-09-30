@@ -1,0 +1,43 @@
+{
+ "name": "logo-sting",
+ "title": "Logo sting",
+ "summary": "A 2-to-10-second logo animation with a designed sound: the mark builds from its parts, resolves on the lockup and holds.",
+ "use_when": "An opener or closer for other films, a channel bumper, or the end of an ad.",
+ "runtime_s": {"min": 2, "max": 10, "target": 5},
+ "aspects": {
+  "16:9": {"width": 1920, "height": 1080, "channels": ["youtube", "website"], "type_scale": 1.0},
+  "1:1": {"width": 1080, "height": 1080, "channels": ["instagram_feed"], "type_scale": 1.1,
+          "note": "Not LinkedIn: its videos run 3 seconds or more, and a sting can be shorter."},
+  "9:16": {"width": 1080, "height": 1920, "channels": ["instagram_reels", "tiktok", "youtube_shorts"], "type_scale": 1.2}
+ },
+ "default_aspect": "16:9",
+ "fps_num": 30000,
+ "fps_den": 1001,
+ "pace": {"max_words_per_second": 2.6, "note": "Usually no voice; a spoken tagline, if there is one, stays under the ceiling."},
+ "on_screen_max_words": 6,
+ "structure": {
+  "acts": {"min": 1, "max": 1},
+  "beats": [
+   {"name": "build", "job": "The mark assembles from its parts, following the brand's logo-build spec.", "share": 0.45},
+   {"name": "resolve", "job": "It lands on the lockup, with the sound's accent on the landing frame.", "share": 0.2},
+   {"name": "hold", "job": "The lockup holds, still and legible, for at least 1.5 seconds.", "share": 0.35}
+  ],
+  "rules": [
+   "The motion is the brand's signature motion from its pack, not a stock reveal.",
+   "The sound's accent lands within a frame of the resolve.",
+   "End on a clean frame that can cut to black or straight into a film."
+  ]
+ },
+ "audio": "required",
+ "loudness": {"lufs": -14, "true_peak": -1, "tolerance_lu": 0.5, "standard": "web, social and streaming delivery",
+              "note": "Measured over a few seconds, integrated loudness is a rough guide; the sting should sit level with the film it opens or closes."},
+ "captions": {"needed": false, "burn_in": false, "max_lines": 2, "max_chars": 42, "max_cps": 17, "min_s": 1.0,
+              "note": "No speech by default. A spoken tagline gets captions like any line."},
+ "budget": {"family": "reel_or_ad", "elevenlabs": {"vo": [0, 500], "score": [0, 1000]}, "higgsfield": [0, 0],
+            "rework_factor": 1.5,
+            "note": "A sting rarely speaks; its sound is designed from the brand's palette, or a short score take."},
+ "broadcast": false,
+ "generation": "rarely",
+ "engines": ["remotion", "ae"],
+ "notes": ["Built from the brand pack's logos (SVG) and logo-build spec; the kit's logo build and sting components do the work."]
+}

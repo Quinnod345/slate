@@ -17,6 +17,12 @@ export type SceneGlobals = {
   frames: [number, number];
   samples: number;
   shutter: number;
+  /** the brand pack's font sources, mapped to the URLs the local server serves them at */
+  fontUrls?: Record<string, string>;
+  /** local copies of families the pack serves from off this Mac (Google Fonts, a type service), by family */
+  fontFiles?: Record<string, {url: string; weight: string; style: 'normal' | 'italic'}[]>;
+  /** where Slate looks for those copies: <fontDir>/<Family>/ */
+  fontDir?: string;
 };
 
 declare global {

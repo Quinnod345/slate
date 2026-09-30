@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -143,3 +144,46 @@ def test_fetch_checks_out_the_pinned_commits_into_the_installed_engine(slate_hom
     assert skills.plan()["up_to_date"] is True  # the lock matches the pins in force (this test's commits)
     # the repo checkout never receives vendor skills
     assert not (paths.ENGINE_SRC / "skills").exists()
+
+
+# --- the overrides against the vendors' real text ---------------------------------------------------------------------
+# The vendor text can't be copied into this repo (Remotion's skills carry no licence: depend, never vendor), so this runs
+# against local mirrors of the two repos when SLATE_TEST_SKILLS_MIRROR names a folder holding `remotion` and `elevenlabs`
+# clones (any clone that has the pinned commits). The install wave runs it before the real fetch.
+MIRROR = os.environ.get("SLATE_TEST_SKILLS_MIRROR")
+
+
+@pytest.mark.skipif(not MIRROR, reason="set SLATE_TEST_SKILLS_MIRROR to clones of remotion-dev/skills and elevenlabs/skills")
+def test_overrides_hold_on_the_pinned_vendor_text(slate_home):
+    mirror = Path(MIRROR)
+    install.ensure()
+    lock = skills.fetch(sources={"remotion": str(mirror / "remotion"), "elevenlabs": str(mirror / "elevenlabs")})
+    assert lock["repos"]["remotion"]["commit"] == skills.PINS["remotion"]["commit"]
+    assert lock["repos"]["remotion"]["count"] == lock["repos"]["remotion"]["expected"] == 12
+    assert lock["repos"]["elevenlabs"]["count"] == lock["repos"]["elevenlabs"]["expected"] == 10
+    dest = skills.destination()
+    problems = []
+    for md in sorted(dest.rglob("*.md")):
+        if md.name == "SLATE_OVERRIDES.md":
+            continue
+        rel = md.relative_to(dest)
+        text = md.read_text(encoding="utf-8")
+        for n, line in enumerate(text.splitlines(), 1):
+            if "npx remotion studio" in line and "--no-open" not in line:
+                problems.append(f"{rel}:{n}: Studio without --no-open")
+            low = line.lower()
+            for phrase in ("open the url in the browser", "open the studio in the browser", "open the remotion studio",
+                           "open the [remotion studio", "localhost", "open its exact local url"):
+                if phrase in low:
+                    problems.append(f"{rel}:{n}: {phrase!r}")
+        if md.name == "sfx.md" and ("remotion.media/" in text or "search the internet" in text):
+            problems.append(f"{rel}: stock sounds left")
+        if skills._OLD_MODEL.search(text):
+            problems.append(f"{rel}: an example still voices on the old model")
+        if md.name == "SKILL.md" and "Slate overrides apply" not in text:
+            problems.append(f"{rel}: no pointer to SLATE_OVERRIDES.md")
+    assert problems == []
+    key = (dest / "elevenlabs" / "setup-api-key" / "SKILL.md").read_text(encoding="utf-8")
+    assert key.index("slate connect elevenlabs") < key.index(".env")
+    # a second pass changes nothing
+    assert skills.apply_overrides(dest) == []

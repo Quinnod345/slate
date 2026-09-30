@@ -1,0 +1,80 @@
+{
+ "name": "app-store-preview",
+ "title": "App Store preview",
+ "summary": "A 15-to-30-second App Store app preview made only from the app's own screens, sized per device class to Apple's current specs.",
+ "use_when": "An iOS, iPadOS or Mac app's product page. Apple's rules decide what it may show.",
+ "runtime_s": {"min": 15, "max": 30, "target": 25},
+ "aspects": {
+  "iphone-portrait": {"width": 886, "height": 1920, "channels": ["app_store"], "type_scale": 1.2,
+                      "label": "iPhone 6.9, 6.5, 6.3 and 6.1 inch, portrait"},
+  "iphone-landscape": {"width": 1920, "height": 886, "channels": ["app_store"], "type_scale": 1.0,
+                       "label": "iPhone 6.9, 6.5, 6.3 and 6.1 inch, landscape"},
+  "ipad-portrait": {"width": 1200, "height": 1600, "channels": ["app_store"], "type_scale": 1.1,
+                    "label": "iPad 13, 12.9, 11 and 10.5 inch, portrait"},
+  "ipad-landscape": {"width": 1600, "height": 1200, "channels": ["app_store"], "type_scale": 1.0,
+                     "label": "iPad 13, 12.9, 11 and 10.5 inch, landscape"},
+  "mac": {"width": 1920, "height": 1080, "channels": ["app_store"], "type_scale": 1.0, "label": "Mac (landscape only)"}
+ },
+ "default_aspect": "iphone-portrait",
+ "fps_num": 30,
+ "fps_den": 1,
+ "pace": {"max_words_per_second": 2.6, "lead": 0.2, "tail": 0.25, "act_tail": 0.5,
+          "note": "Previews play muted by default, so any voice-over is a bonus and the on-screen copy carries the story."},
+ "on_screen_max_words": 8,
+ "structure": {
+  "acts": {"min": 1, "max": 3},
+  "beats": [
+   {"name": "open", "job": "The app's core moment, in the first three seconds, readable without sound.", "share": 0.2},
+   {"name": "features", "job": "Two or three things the app does, each in its own real screens with one line of copy.", "share": 0.65},
+   {"name": "close", "job": "The app's home or its value in one line; the poster frame is a strong still too.", "share": 0.15}
+  ],
+  "rules": [
+   "The poster frame defaults to the frame at five seconds: make that frame worth stopping on, or choose another.",
+   "Copy stays on screen long enough to read (the read-time gate checks it)."
+  ]
+ },
+ "capture": {
+  "source": "slate capture ios (the Simulator with status-bar overrides, a seeded demo account and a pinned build); slate capture web for a Mac app's web views",
+  "principle": "Only what the app itself shows: real screen captures, conformed to the film's frame rate. Copy cards and captions may sit around them; the app's interface is never redrawn or invented.",
+  "rules": [
+   "No people, hands or devices: Apple asks for the app's own content only.",
+   "Sample data is the demo account's, never a real customer's."
+  ]
+ },
+ "content_rules": [
+  "App previews must show only content within the app itself; don't film people interacting with a device.",
+  "Appropriate for all ages: no violence, adult themes or profanity.",
+  "Only material you have the right to show, licensed for marketing in every territory.",
+  "No seasonal references and no specific pricing.",
+  "Up to three previews per language, each 15 to 30 seconds."
+ ],
+ "encode": {
+  "deliver": ["H.264 in .mov, .m4v or .mp4: 10-12 Mbps, progressive, High Profile Level 4.0 or lower",
+              "or ProRes 422 HQ in .mov (about 220 Mbps)"],
+  "max_fps": 30,
+  "max_bytes": 500000000,
+  "audio": "Stereo; 256 kbps AAC with H.264, PCM or 256 kbps AAC with ProRes; 44.1 or 48 kHz; every track enabled.",
+  "note": "Apple's limit is 500 MB; Slate treats it as 500,000,000 bytes to stay under it either way."
+ },
+ "audio": "optional",
+ "loudness": {"lufs": -14, "true_peak": -1, "tolerance_lu": 0.5,
+              "standard": "Slate's web target; Apple publishes no loudness target for previews"},
+ "captions": {"needed": true, "burn_in": true, "renderer": "remotion", "font": "brand", "max_lines": 2, "max_chars": 42,
+              "max_cps": 17, "min_s": 1.0, "position": "clear of the app's own controls",
+              "note": "Apple's preview specs list only video and audio tracks, and previews play muted, so any voice-over is captioned in the picture."},
+ "budget": {"family": "reel_or_ad", "elevenlabs": {"vo": [500, 3000], "score": [1000, 2000]}, "higgsfield": [0, 0],
+            "rework_factor": 1.5, "note": "Generation is off: previews show the app itself."},
+ "broadcast": false,
+ "generation": "none",
+ "engines": ["remotion"],
+ "notes": [
+  "A hero placement: every device size is a derived film at master quality through the full pipeline.",
+  "Apple also lists 1080 x 1920 for 5.5 and 4 inch iPhones, 1920 x 1080 for Apple TV and 3840 x 2160 for Vision Pro (see the app_store channel)."
+ ],
+ "sources": [
+  {"title": "App Store Connect Help: App preview specifications", "url": "https://developer.apple.com/help/app-store-connect/reference/app-information/app-preview-specifications", "checked": "2026-09-30",
+   "says": "H.264 or ProRes 422 (HQ only); 15 to 30 seconds; up to 500 MB; 30 fps maximum; stereo audio at 44.1 or 48 kHz; the resolutions per device; up to 3 previews; the poster frame defaults to 5 seconds."},
+  {"title": "Apple Developer: App previews", "url": "https://developer.apple.com/app-store/app-previews/", "checked": "2026-09-30",
+   "says": "Show only content within the app itself; previews play muted by default, so use legible on-screen copy; appropriate for all ages; avoid seasonal references and pricing."}
+ ]
+}

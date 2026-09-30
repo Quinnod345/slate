@@ -118,12 +118,15 @@ def test_unknown_film_and_act_are_usage_errors(slate_home, law):
 def test_access_command_runs_one_subcheck_with_json(slate_home):
     film = make_film(slate_home["films"], film_id="captioned")
     (film / "voice" / "captions").mkdir(parents=True)
-    (film / "voice" / "captions" / "c.srt").write_text("1\n00:00:00,000 --> 00:00:01,000\nMuch too much to read in a second\n")
+    (film / "voice" / "captions" / "c.srt").write_text(
+        "1\n00:00:00,000 --> 00:00:01,000\nMuch too much to read in a second\n")
     code, out = _run(["qa", "access", "--film", str(film), "--only", "captions", "--json"])
     doc = json.loads(out)
     assert code == 1 and doc["gates"][0]["gate"] == "access"
-    assert [c["check"] for c in doc["gates"][0]["details"]["checks"]] == ["captions"]
-    assert "characters a second" in doc["gates"][0]["summary"]
+    # the narrowed run reports its FAIL (a FAIL stays a FAIL) and says it only looked at the captions
+    assert [c["check"] for c in doc["gates"][0]["details"]["checks"]] == ["captions", "scope"]
+    assert doc["gates"][0]["status"] == "FAIL" and "characters a second" in doc["gates"][0]["summary"]
+    assert doc["options"] == {"only": ["captions"]}
 
 
 # ---------------------------------------------------------------------------------------------------- slate.qa

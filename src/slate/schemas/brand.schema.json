@@ -1,0 +1,291 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "slate/brand",
+ "title": "Brand pack (brand.json)",
+ "description": "A brand as data (docs/ARCHITECTURE.md §7): its palette, type by reference, logos and their build, motif, look, motion law, voice, sound palette, truth, grounding ids, the generator-uploads decision and its four approved references. Every engine reads brand.json as it is, so it is the one source of truth; files beside it that repeat part of it (motion.json, MOTION.md, onboarding/truth/TRUTH.md) are written from it by `slate brand onboard`. Keys starting with x_ are free for extensions; keys starting with _ are added at runtime and never saved.",
+ "type": "object",
+ "required": ["name"],
+ "properties": {
+  "schema": {"const": 1, "description": "The pack format's version."},
+  "name": {"type": "string", "pattern": "^([a-z0-9][a-z0-9._-]{0,63}|_template)$", "description": "The pack's folder name: how films and commands name the brand."},
+  "display_name": {"type": ["string", "null"], "description": "The brand as it's written and said."},
+  "about": {"type": ["string", "null"], "description": "What the brand is, in a sentence or two."},
+  "note": {"type": ["string", "null"]},
+  "ownership": {"$ref": "#/$defs/ownership"},
+  "palette": {"$ref": "#/$defs/palette"},
+  "contrast_pairs": {"type": "array", "items": {"$ref": "#/$defs/pair"}, "description": "Every text colour pair the brand uses, by token or role: body text needs 4.5:1, large text 3:1."},
+  "type": {"$ref": "#/$defs/type"},
+  "logos": {"$ref": "#/$defs/logos"},
+  "motif": {"type": ["object", "null"], "description": "An optional brand mark made of parts (the kit's motif rig): parts, shape, corner, part_size, ring, groups, mark_ratio, orient, curves, and gestures (meaning → gesture kinds). file/path may point at the mark's SVG."},
+  "look": {"$ref": "#/$defs/look"},
+  "motion": {"$ref": "#/$defs/motion"},
+  "voice": {"$ref": "#/$defs/voice"},
+  "sound": {"$ref": "#/$defs/sound"},
+  "truth": {"$ref": "#/$defs/truth"},
+  "grounding": {"$ref": "#/$defs/grounding"},
+  "allow_generator_uploads": {"type": "boolean", "description": "May brand material (logos, UI frames, references) be uploaded to generators? Only when the brand owner allows it; false by default."},
+  "references": {"$ref": "#/$defs/references"}
+ },
+ "patternProperties": {"^(x_|_)": {}},
+ "additionalProperties": false,
+ "$defs": {
+  "text": {"type": ["string", "null"]},
+  "strings": {"type": "array", "items": {"type": "string"}},
+  "ownership": {
+   "type": "object",
+   "description": "Whose brand this is. own: the owner's own brand (the owner may rule on claims). client: a brand the owner doesn't own (a company, a client): its claim authority is a named person at that organisation. neutral: Slate's own demo and template. company_material: true keeps the pack on this Mac only (never in a repo with a remote) and means its source code is read in place, never copied.",
+   "properties": {
+    "kind": {"enum": ["own", "client", "neutral", null]},
+    "organisation": {"$ref": "#/$defs/text"},
+    "company_material": {"type": "boolean"},
+    "notes": {"$ref": "#/$defs/text"}
+   },
+   "additionalProperties": false
+  },
+  "palette": {
+   "type": "object",
+   "description": "Colour tokens, flat or nested (\"gray\": {\"50\": \"#…\"}), as #RRGGBB (or any CSS colour; onboarding writes hex). roles names the kit's roles (page, surface, ink, ink2, ink3, hairline, accent, accentInk, softAccent, inverse, inverseDeep, line) by token or colour; tones gives ok, warn and risk as {dot} or {bg, ink, dot}.",
+   "properties": {
+    "roles": {"type": "object", "additionalProperties": {"type": "string"}},
+    "tones": {"type": "object", "additionalProperties": {"anyOf": [{"type": "string"}, {"type": "object", "additionalProperties": {"type": "string"}}]}},
+    "notes": {"$ref": "#/$defs/text"},
+    "sources": {"type": "array"}
+   },
+   "additionalProperties": {"anyOf": [{"type": "string"}, {"type": "object"}]}
+  },
+  "pair": {
+   "type": "object",
+   "required": ["fg", "bg"],
+   "properties": {
+    "fg": {"type": "string", "description": "the text colour: a token, a role or a colour"},
+    "bg": {"type": "string", "description": "the colour behind it"},
+    "role": {"enum": ["body", "large"], "description": "body text needs 4.5:1, large text (≥ 24 px, or 18.7 px bold, at 1080 lines) 3:1"},
+    "where": {"$ref": "#/$defs/text"},
+    "note": {"$ref": "#/$defs/text"}
+   },
+   "additionalProperties": false
+  },
+  "font_source": {
+   "description": "Fonts by reference only, never font files: installed (a font installed on the machine, used in place), google (Google Fonts, through @remotion/google-fonts), or a type service's kit (its stylesheet URL).",
+   "anyOf": [
+    {"enum": ["installed", "google"]},
+    {"type": "string", "pattern": "^https://"},
+    {"type": "object", "required": ["kind"], "properties": {
+     "kind": {"enum": ["installed", "google", "kit"]},
+     "name": {"type": "string"},
+     "family": {"type": "string"},
+     "url": {"type": "string", "pattern": "^https://"},
+     "note": {"$ref": "#/$defs/text"}
+    }, "additionalProperties": false}
+   ]
+  },
+  "family": {
+   "type": "object",
+   "required": ["family", "source"],
+   "properties": {
+    "role": {"type": "string", "description": "sans, display, serif, mono, or a role the brand names"},
+    "family": {"type": "string", "minLength": 1},
+    "weights": {"type": "array", "items": {"type": ["integer", "string"]}},
+    "styles": {"type": "array", "items": {"enum": ["normal", "italic"]}},
+    "source": {"$ref": "#/$defs/font_source"},
+    "licence": {"type": "string", "description": "the licence it's used under (required for every family)"},
+    "postscript": {"type": "string", "description": "the PostScript name of this role's face, which After Effects sets fonts by"},
+    "fallback": {"enum": ["sans-serif", "serif", "monospace"]},
+    "notes": {"$ref": "#/$defs/text"}
+   },
+   "additionalProperties": false
+  },
+  "type": {
+   "type": "object",
+   "properties": {
+    "families": {"anyOf": [{"type": "array", "items": {"$ref": "#/$defs/family"}}, {"type": "object", "additionalProperties": {"$ref": "#/$defs/family"}}]},
+    "scale": {"type": "object", "description": "optional overrides of the kit's text roles (hero, h1, body, …) as fractions of the frame's short side, or px with reference"},
+    "reference": {"type": ["number", "null"]},
+    "notes": {"$ref": "#/$defs/text"}
+   },
+   "additionalProperties": false
+  },
+  "logo": {
+   "type": "object",
+   "properties": {
+    "name": {"type": "string"},
+    "file": {"type": "string", "pattern": "\\.svg$", "description": "the SVG, relative to the pack"},
+    "path": {"type": "string", "pattern": "\\.svg$"},
+    "svg": {"type": "string", "description": "the SVG inline (the engine inlines file/path itself)"},
+    "build": {"type": "object", "description": "the logo build: guides (edges|none|{h, v}), vertices (corners|all|none), order, keystone, keystone_from, outline, impact, timing {construct, outline, fill, stagger, drop, out} in seconds or duration tokens"},
+    "on": {"type": "string", "description": "the background it's drawn for (a token or role)"},
+    "clear_space": {"type": ["number", "string", "null"]},
+    "marks": {"type": "array", "items": {"type": "string"}, "description": "® ™ and the like, per the guidelines"},
+    "notes": {"$ref": "#/$defs/text"}
+   },
+   "additionalProperties": false
+  },
+  "logos": {"anyOf": [{"type": "object", "additionalProperties": {"$ref": "#/$defs/logo"}}, {"type": "array", "items": {"$ref": "#/$defs/logo"}}]},
+  "moodboard": {
+   "type": "object",
+   "required": ["direction"],
+   "properties": {
+    "direction": {"type": "string"},
+    "files": {"$ref": "#/$defs/strings"},
+    "grounded_in": {"type": ["string", "null"], "description": "the brand kit it was grounded in (elevenlabs:<id>, higgsfield:<id> or pack: the pack's own tokens and references)"},
+    "note": {"$ref": "#/$defs/text"},
+    "recorded_at": {"$ref": "#/$defs/text"}
+   },
+   "additionalProperties": false
+  },
+  "look": {
+   "type": "object",
+   "properties": {
+    "id": {"type": ["string", "null"], "description": "the look from the looks library (flat, paper-2.5d, editorial, blueprint, an AE look) or the brand's own"},
+    "engine": {"enum": ["remotion", "web", "ae", null]},
+    "references": {"type": "array", "items": {"type": "object"}, "description": "reference films and frames the look draws on: {file, what, note}"},
+    "moodboards": {"type": "array", "items": {"$ref": "#/$defs/moodboard"}},
+    "overrides": {"type": "object"},
+    "notes": {"$ref": "#/$defs/text"}
+   },
+   "additionalProperties": false
+  },
+  "ease": {
+   "description": "A named ease: [x1, y1, x2, y2], \"cubic-bezier(…)\", \"linear\", \"sine\", or {bezier | kind (linear, sine, spring0) and stiffness} with lineage (where it comes from), job, duration_s, peak (its highest point, above 1 when it overshoots).",
+   "anyOf": [
+    {"type": "string"},
+    {"type": "array", "items": {"type": "number"}, "minItems": 4, "maxItems": 4},
+    {"type": "object"}
+   ]
+  },
+  "motion": {
+   "type": "object",
+   "description": "The brand's motion law. eases: named eases with lineage; durations: the duration scale ({token: seconds}); staggers: units ({unit: seconds} or {frames, at_fps}); stagger_cap: {seconds, fraction}; exit_factor; roles: which ease does each job (entrance, move, state, exit, relayout); overshoot: the policy ({allowed, max, where}); signature: the brand motif's signature motion; linear_props, loops, rigs, banned: the law's other rules.",
+   "properties": {
+    "eases": {"type": "object", "additionalProperties": {"$ref": "#/$defs/ease"}},
+    "durations": {"anyOf": [{"type": "null"}, {"type": "object", "additionalProperties": {"anyOf": [{"type": "number", "exclusiveMinimum": 0}, {"type": "object"}]}}, {"type": "array", "items": {"type": "object"}}], "description": "null (or left out) lets the kit's neutral scale stand in until onboarding writes one"},
+    "staggers": {"type": ["object", "null"]},
+    "stagger_cap": {"anyOf": [{"type": "null"}, {"type": "object", "properties": {"seconds": {"type": "number"}, "fraction": {"type": "number"}, "max_items": {"type": "integer"}}}]},
+    "exit_factor": {"anyOf": [{"type": "null"}, {"type": "number", "exclusiveMinimum": 0}]},
+    "roles": {"type": "object", "additionalProperties": {"type": "string"}},
+    "overshoot": {"anyOf": [{"type": "null"}, {"type": "object"}, {"type": "boolean"}, {"type": "string"}]},
+    "signature": {"type": ["object", "null"]},
+    "linear_props": {"$ref": "#/$defs/strings"},
+    "loops": {"type": ["object", "null"]},
+    "rigs": {"type": ["object", "null"]},
+    "banned": {"type": "array"},
+    "notes": {"$ref": "#/$defs/text"}
+   },
+   "additionalProperties": true
+  },
+  "voice": {
+   "type": "object",
+   "description": "The brand's voice profile (schemas/voice_profile.schema.json is the full contract; the voice module validates it): provider, source, voice_id, model, settings, seed, lexicon (brand words Whisper must hear in full), tag policy, pacing, fit and targets.",
+   "properties": {
+    "provider": {"enum": ["elevenlabs", "recording", null]},
+    "source": {"enum": ["library", "designed", "clone", "recording", null]},
+    "voice_id": {"type": ["string", "null"]},
+    "voice_name": {"type": ["string", "null"]},
+    "model": {"type": ["string", "null"]},
+    "settings": {"type": ["object", "null"]},
+    "seed": {"type": ["integer", "null"], "minimum": 0},
+    "lexicon": {"$ref": "#/$defs/strings"}
+   },
+   "additionalProperties": true
+  },
+  "sound": {
+   "type": "object",
+   "description": "The brand's sound palette. key, tempo (bpm or [lo, hi]), materials (what the effects are made of; the score never plays them), banned_timbres, instrumentation, motif ({instrument, …}: the character's own sound), palette (overrides of the starting palette, key by key: levels, kinds, rules), reference_levels (measured against the voice on the approved sound reference, LU per stem).",
+   "properties": {
+    "key": {"type": ["string", "null"]},
+    "tempo": {"anyOf": [{"type": "number"}, {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2}, {"type": "null"}]},
+    "materials": {"$ref": "#/$defs/strings"},
+    "banned_timbres": {"$ref": "#/$defs/strings"},
+    "instrumentation": {"anyOf": [{"type": "string"}, {"$ref": "#/$defs/strings"}, {"type": "null"}]},
+    "motif": {"type": ["object", "null"]},
+    "palette": {"type": ["object", "null"]},
+    "reference_levels": {"type": ["object", "null"], "additionalProperties": {"type": ["number", "null"]}},
+    "reference_measured_from": {"type": ["object", "null"]},
+    "notes": {"$ref": "#/$defs/text"}
+   },
+   "additionalProperties": true
+  },
+  "source": {
+   "type": "object",
+   "required": ["id"],
+   "properties": {
+    "id": {"type": "string", "minLength": 1, "description": "a short code a claim cites"},
+    "kind": {"enum": ["code", "website", "app", "guidelines", "document", "knowledge_base", "person", "demo", "video", "other"]},
+    "where": {"$ref": "#/$defs/text"},
+    "pin": {"type": ["string", "null"], "description": "a commit, a date or a hash: what exactly was read"},
+    "read": {"enum": ["in_place", "fetched", "copied", "told", null], "description": "company code is always read in place"},
+    "note": {"$ref": "#/$defs/text"},
+    "numbers": {"type": "array"}
+   },
+   "additionalProperties": true
+  },
+  "claim": {
+   "anyOf": [
+    {"type": "string", "minLength": 1},
+    {"type": "object", "required": ["text"], "properties": {
+     "id": {"type": "string"}, "text": {"type": "string", "minLength": 1}, "source": {"type": ["string", "null"]},
+     "numbers": {"type": "array"}, "note": {"$ref": "#/$defs/text"}
+    }, "additionalProperties": true}
+   ]
+  },
+  "truth": {
+   "type": "object",
+   "properties": {
+    "sources": {"type": "array", "items": {"$ref": "#/$defs/source"}, "description": "the sources of truth, pinned; the product's own code first"},
+    "claim_authority": {"anyOf": [{"type": "null"}, {"type": "string"}, {"type": "object", "properties": {
+     "name": {"type": ["string", "null"]}, "role": {"$ref": "#/$defs/text"}, "organisation": {"$ref": "#/$defs/text"},
+     "contact": {"$ref": "#/$defs/text"}, "decides": {"$ref": "#/$defs/strings"}, "note": {"$ref": "#/$defs/text"}
+    }, "additionalProperties": false}], "description": "the named person who rules on claims for this brand; for a brand the owner doesn't own, a person at that organisation"},
+    "approved_claims": {"type": "array", "items": {"$ref": "#/$defs/claim"}},
+    "banned_words": {"type": "array", "items": {"anyOf": [{"type": "string"}, {"type": "object"}]}},
+    "never_claim": {"type": "array", "items": {"anyOf": [{"type": "string"}, {"type": "object"}]}, "description": "what the film never says or shows: owner rulings, things not built, retracted words"},
+    "sample_data": {"description": "the one set of sample numbers films show (always labelled as sample data)"},
+    "rulings": {"type": "array", "items": {"type": "object"}, "description": "conflicts and the authority's rulings: {question, ruling, by, at, source}"},
+    "notes": {"$ref": "#/$defs/text"}
+   },
+   "additionalProperties": false
+  },
+  "kit_id": {
+   "anyOf": [{"type": "null"}, {"type": "object", "properties": {
+    "brand_kit_id": {"type": ["string", "null"]}, "name": {"$ref": "#/$defs/text"}, "note": {"$ref": "#/$defs/text"}
+   }, "additionalProperties": false}]
+  },
+  "grounding": {
+   "type": "object",
+   "description": "Brand-kit ids that ground generations in the brand: ElevenLabs (Flows) and Higgsfield. uploads_allowed mirrors allow_generator_uploads (the generate stage reads it); if the two disagree the answer is no.",
+   "properties": {
+    "elevenlabs": {"$ref": "#/$defs/kit_id"},
+    "higgsfield": {"$ref": "#/$defs/kit_id"},
+    "uploads_allowed": {"type": "boolean"},
+    "notes": {"$ref": "#/$defs/text"}
+   },
+   "additionalProperties": false
+  },
+  "reference": {
+   "anyOf": [
+    {"type": "null"},
+    {"type": "object", "properties": {
+     "file": {"type": ["string", "null"], "description": "the approved file, relative to the pack (or absolute)"},
+     "sha256": {"anyOf": [{"type": "null"}, {"type": "string", "pattern": "^[0-9a-f]{64}$"}]},
+     "approved_by": {"type": ["string", "null"]},
+     "approved_at": {"type": ["string", "null"]},
+     "placeholder": {"type": "boolean"},
+     "covers": {"$ref": "#/$defs/strings"},
+     "covers_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+     "note": {"$ref": "#/$defs/text"}
+    }, "additionalProperties": true}
+   ]
+  },
+  "references": {
+   "type": "object",
+   "description": "The four onboarding references, each null until a person approves it with `slate brand approve`.",
+   "properties": {
+    "truth": {"$ref": "#/$defs/reference"},
+    "look_motion": {"$ref": "#/$defs/reference"},
+    "voice": {"$ref": "#/$defs/reference"},
+    "sound": {"$ref": "#/$defs/reference"}
+   },
+   "additionalProperties": false
+  }
+ }
+}

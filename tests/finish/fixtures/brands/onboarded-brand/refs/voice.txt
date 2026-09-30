@@ -1,0 +1,1 @@
+Fixture voice reference (a stand-in file).

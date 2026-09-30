@@ -36,8 +36,47 @@ export const DEFAULT_GL = 'angle';
 
 export function glFlags(gl) {
   if (!GL_FLAGS[gl]) throw usage(`Unknown GL mode ${JSON.stringify(gl)}. Use one of: ${GL_MODES.join(', ')}.`);
-  return GL_FLAGS[gl];
+  // Chrome 149 only runs WebGL on SwiftShader when asked to by name (Remotion's software modes pass the same flag).
+  return gl === 'swangle' || gl === 'swiftshader' ? [...GL_FLAGS[gl], '--enable-unsafe-swiftshader'] : GL_FLAGS[gl];
 }
+
+/**
+ * The rest of the command line: Remotion 4.0.521's own flags where they matter to a frame (an sRGB colour profile, no
+ * throttling of pages in the background, hidden scrollbars, no Keychain prompts on macOS), minus its proxy bypass,
+ * because here the proxy is the wall.
+ */
+export const CHROME_FLAGS = [
+  '--force-color-profile=srgb',
+  '--hide-scrollbars',
+  '--mute-audio',
+  '--font-render-hinting=none',
+  '--disable-background-timer-throttling',
+  '--disable-backgrounding-occluded-windows',
+  '--disable-renderer-backgrounding',
+  '--disable-ipc-flooding-protection',
+  '--disable-hang-monitor',
+  '--disable-background-networking',
+  '--disable-component-update',
+  '--disable-domain-reliability',
+  '--disable-client-side-phishing-detection',
+  '--disable-default-apps',
+  '--disable-extensions',
+  '--disable-sync',
+  '--disable-breakpad',
+  '--disable-features=Translate,BackForwardCache,IntensiveWakeUpThrottling,MediaRouter,OptimizationHints',
+  '--metrics-recording-only',
+  '--no-first-run',
+  '--no-pings',
+  '--no-default-browser-check',
+  '--password-store=basic',
+  '--use-mock-keychain',
+  '--disable-checker-imaging',
+  '--run-all-compositor-stages-before-draw',
+  '--autoplay-policy=no-user-gesture-required',
+  // WebRTC may only use the proxy (the wall), never a raw UDP socket to somewhere else
+  '--force-webrtc-ip-handling-policy=disable_non_proxied_udp',
+  '--webrtc-ip-handling-policy=disable_non_proxied_udp',
+];
 
 function isExecutable(p) {
   try {
@@ -106,16 +145,11 @@ export async function launchBrowser({executablePath, gl, width, height, wallPort
   const puppeteer = (await import('puppeteer')).default;
   const args = [
     ...glFlags(gl),
+    // every connection that isn't to 127.0.0.1 goes to the wall (Chrome sends loopback direct by itself), and no name
+    // resolves but the loopback address
     `--proxy-server=http://127.0.0.1:${wallPort}`,
     '--host-resolver-rules=MAP * ~NOTFOUND , EXCLUDE 127.0.0.1',
-    '--disable-component-update',
-    '--disable-domain-reliability',
-    '--no-pings',
-    '--no-default-browser-check',
-    '--font-render-hinting=none',
-    '--disable-checker-imaging',
-    '--run-all-compositor-stages-before-draw',
-    '--autoplay-policy=no-user-gesture-required',
+    ...CHROME_FLAGS,
   ];
   return puppeteer.launch({
     executablePath,

@@ -29,6 +29,7 @@ from slate.render.plan import CHUNK_CODEC
 
 BUNDLE_TIMEOUT_S = 900
 STILLS_TIMEOUT_S = 900
+TRACE_TIMEOUT_S = 300
 # Generous: a chunk that takes longer than this has hung. The films measured about 0.03 s per sub-frame at
 # concurrency 8; this allows eight times that plus start-up.
 SECONDS_PER_SUBFRAME_LIMIT = 0.25
@@ -125,6 +126,11 @@ class Engine:
     def render(self, act: int, first: int, last: int, out: Path, samples: int | None) -> dict:
         raise NotImplementedError
 
+    def trace(self, act: int) -> dict | None:
+        """Bring the act's motion trace (timing/motion/actN.json) up to date with what was just rendered, so
+        `slate qa motion` reads what the picture does. None when the engine writes it while it renders."""
+        return None
+
     def close(self) -> None:
         pass
 
@@ -169,6 +175,10 @@ class RemotionEngine(Engine):
             args["serve_url"] = self.bundle
         return deps.bridge_call("stills", args, timeout=STILLS_TIMEOUT_S)
 
+    def trace(self, act: int) -> dict | None:
+        """The kit's motion registry, sampled from the act's modules as they are now (the engine's `trace`)."""
+        return deps.bridge_call("trace", {"film": str(self.film_dir), "act": act}, timeout=TRACE_TIMEOUT_S)
+
     def close(self) -> None:
         if not self.bundle:
             return
@@ -187,11 +197,38 @@ class RemotionEngine(Engine):
 
 
 class WebEngine(Engine):
+    """The open web renderer (engine/web, through the engine's `web-render`). It writes the act's motion trace while it
+    renders, so there's nothing to refresh afterwards."""
+
     name = "web"
 
     def render(self, act: int, first: int, last: int, out: Path, samples: int | None) -> dict:
         return deps.bridge_call("web-render", self._args(act, first, last, out, samples),
                                 timeout=chunk_timeout(last - first + 1, samples))
+
+    def stills(self, act: int, frames: list[int], out_dir: Path, *, scale: float, samples: int) -> dict:
+        """One PNG per frame: the web renderer draws a still as one frame of its range (`from` = `to`), averaging
+        `samples` sub-frames, at the film's own size; ffmpeg scales it after when `scale` isn't 1."""
+        made = []
+        for f in frames:
+            file = Path(out_dir) / f"{COMP_PREFIX}{act}_f{int(f):05d}.png"
+            result = deps.bridge_call("web-render", {"film": str(self.film_dir), "act": act, "from": int(f),
+                                                     "to": int(f), "sub": samples, "out": str(file)},
+                                      timeout=chunk_timeout(1, samples))
+            if scale != 1:
+                _scale_png(file, scale)
+            made.append({"comp": f"{COMP_PREFIX}{act}", "frame": int(f), "file": str(file),
+                         "gates": result.get("gates") or []})
+        return {"stills": made}
+
+
+def _scale_png(file: Path, scale: float) -> None:
+    """Resize a still in place (Lanczos), so `scale` means the same for web stills as for the Remotion engine's."""
+    ffmpeg = procs.require("ffmpeg", hint="Install ffmpeg (`slate doctor --install` offers it).")
+    tmp = file.with_name(f".{file.stem}.scaled{file.suffix}")
+    vf = f"scale=w='max(1,round(iw*{scale:g}))':h='max(1,round(ih*{scale:g}))':flags=lanczos"
+    procs.run([ffmpeg, "-y", "-v", "error", "-i", str(file), "-vf", vf, str(tmp)], timeout=120, check=True)
+    os.replace(tmp, file)
 
 
 class AeEngine(Engine):

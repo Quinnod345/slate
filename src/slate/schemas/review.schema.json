@@ -1,0 +1,110 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "slate/review",
+ "title": "Review packet (review/vN/packet.json)",
+ "description": "One version's review packet, written by `slate review`: a phone cut with the timecode and shot id burned in, contact sheets a frame every 0.5 s, what changed since the last version (content, film.lock.json, approvals, gates, directions), the open questions, and the snapshot the next packet compares against. Every file is listed with its sha256. Nothing here is approved for publishing.",
+ "type": "object",
+ "required": ["schema", "film", "version", "made_at", "source", "content_fingerprint", "files", "changes", "questions",
+              "snapshot", "publishing"],
+ "properties": {
+  "generated": {"type": "string"},
+  "schema": {"const": 1},
+  "film": {
+   "type": "object",
+   "required": ["id", "mode", "fps", "width", "height", "frames"],
+   "properties": {
+    "id": {"type": "string", "minLength": 1},
+    "title": {"type": "string"},
+    "brand": {"type": ["string", "null"]},
+    "mode": {"enum": ["supervised", "express", "draft", "autonomous"]},
+    "fps": {"type": "string", "pattern": "^[0-9]+/[0-9]+$"},
+    "width": {"type": "integer", "minimum": 1},
+    "height": {"type": "integer", "minimum": 1},
+    "frames": {"type": "integer", "minimum": 1},
+    "seconds": {"type": "number", "minimum": 0}
+   }
+  },
+  "version": {"type": "integer", "minimum": 1},
+  "started_version": {"type": "boolean"},
+  "why_new_version": {"type": "array", "items": {"type": "string"}},
+  "made_at": {"type": "string", "minLength": 10},
+  "source": {
+   "type": "object",
+   "required": ["kind", "files"],
+   "properties": {
+    "kind": {"enum": ["master", "renders"]},
+    "files": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+    "audio": {"type": ["string", "null"]},
+    "notes": {"type": "array", "items": {"type": "string"}}
+   }
+  },
+  "content_fingerprint": {"$ref": "#/$defs/sha256"},
+  "files": {
+   "type": "object",
+   "required": ["phone_cut", "contact_sheets", "sheet_index"],
+   "properties": {
+    "phone_cut": {
+     "allOf": [{"$ref": "#/$defs/file"}],
+     "required": ["frames", "burnin"],
+     "properties": {
+      "frames": {"type": "integer", "minimum": 1},
+      "size": {"type": "array", "items": {"type": "integer"}, "minItems": 2, "maxItems": 2},
+      "burnin": {
+       "type": "object",
+       "required": ["method", "timecode", "shot_ids"],
+       "properties": {
+        "method": {"enum": ["drawtext", "pillow"]},
+        "timecode": {"type": "string"},
+        "shot_ids": {"const": true}
+       }
+      }
+     }
+    },
+    "contact_sheets": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/file"}},
+    "sheet_index": {"type": "string"},
+    "review_md": {"type": "string"}
+   }
+  },
+  "sheet": {
+   "type": "object",
+   "properties": {
+    "step_s": {"type": "number", "exclusiveMinimum": 0},
+    "tile": {"type": "array", "items": {"type": "integer"}},
+    "grid": {"type": "array", "items": {"type": "integer"}},
+    "tiles": {"type": "integer", "minimum": 1}
+   }
+  },
+  "changes": {
+   "type": "object",
+   "required": ["first", "content", "lock", "approvals_new", "approvals_lapsed", "gates_moved", "gates_to_rerun",
+                "summary"],
+   "properties": {
+    "since": {"type": ["integer", "null"]},
+    "first": {"type": "boolean"},
+    "summary": {"type": "array", "items": {"type": "string"}}
+   }
+  },
+  "questions": {
+   "type": "array",
+   "items": {"type": "object", "required": ["id", "text"], "properties": {"id": {"type": ["string", "null"]},
+                                                                           "text": {"type": ["string", "null"]}}}
+  },
+  "snapshot": {
+   "type": "object",
+   "required": ["content", "lock", "approvals", "gates", "directions"]
+  },
+  "publishing": {"const": "not approved for publishing"}
+ },
+ "$defs": {
+  "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+  "file": {
+   "type": "object",
+   "required": ["file", "sha256", "bytes"],
+   "properties": {
+    "file": {"type": "string", "minLength": 1},
+    "sha256": {"$ref": "#/$defs/sha256"},
+    "bytes": {"type": "integer", "minimum": 0}
+   }
+  }
+ }
+}

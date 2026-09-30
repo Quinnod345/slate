@@ -1,0 +1,79 @@
+# Slate's CI: the Python tests in replay mode, the engine's tests, and the checks that keep generated files honest.
+# Nothing here spends on a vendor (SLATE_FAKE_VENDORS=1) or opens a browser (BROWSER=none).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  SLATE_FAKE_VENDORS: "1"
+  BROWSER: none
+  PUPPETEER_SKIP_DOWNLOAD: "1"
+
+jobs:
+  python:
+    name: Python tests and generated-file checks
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install ffmpeg (the audio and picture gates measure with it)
+        run: brew install ffmpeg
+
+      - name: Install Slate
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/python -m pip install -e ".[dev]"
+
+      - name: pytest (replay mode, temporary Slate folders)
+        run: .venv/bin/python -m pytest tests -q -p no:cacheprovider
+
+      - name: The plugin's skill copies, Codex sidecars and OpenClaw entries match the skills
+        run: .venv/bin/python -m slate skills build --check
+
+      - name: The desktop extension's manifest matches Slate
+        run: .venv/bin/python -m slate mcpb build --check
+
+      - name: Every lesson is mapped to a destination
+        run: .venv/bin/python -m slate knowledge check
+
+  engine:
+    name: Engine tests (vitest)
+    runs-on: macos-15
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: engine
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: engine/package-lock.json
+
+      - name: Install the engine's pinned packages
+        run: npm ci
+
+      - name: Remotion's headless Chrome (for the kit's golden stills)
+        run: npx --no-install remotion browser ensure
+
+      - name: vitest
+        run: npx --no-install vitest run

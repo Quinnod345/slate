@@ -106,7 +106,8 @@ def test_contrast_maths():
 
 
 def test_pairs_resolve_tokens_and_hold_body_and_large_text_to_their_bars():
-    palette = {"ink": "#777777", "paper": "#ffffff", "muted": "ink", "night": "#101418", "glass": "rgba(255,255,255,0.2)"}
+    palette = {"ink": "#777777", "paper": "#ffffff", "muted": "ink", "night": "#101418",
+               "glass": "rgba(255,255,255,0.2)"}
     pairs = [{"fg": "ink", "bg": "paper", "role": "body"},
              {"fg": "muted", "bg": "paper", "role": "large"},
              {"fg": "paper", "bg": "night", "role": "body"},
@@ -270,7 +271,8 @@ def test_a_format_may_tighten_caption_limits(slate_home, monkeypatch):
     monkeypatch.setitem(sys.modules, "slate.formats", fake)
     film = _voiced(slate_home, "reel")
     (film / "voice" / "captions").mkdir(parents=True)
-    (film / "voice" / "captions" / "c.srt").write_text("1\n00:00:00,000 --> 00:00:03,000\nThirty-five characters, give or tak\n")
+    (film / "voice" / "captions" / "c.srt").write_text(
+        "1\n00:00:00,000 --> 00:00:03,000\nThirty-five characters, give or tak\n")
     s = A.check_captions(FilmContext(film))
     assert s.status == "FAIL" and "the limit is 32" in s.summary
     assert s.details["limits"]["max_cps"] == 17.0  # a format can tighten, never loosen
@@ -310,7 +312,10 @@ def test_ocr_boxes_come_from_the_bottom_left():
 def test_zone_problems():
     z = A.normalize_zone(A.BUILTIN_ZONES["instagram_reels"], 1080, 1920, "x")
     assert A.zone_problems([0.2, 0.3, 0.8, 0.4], z) == []
-    assert A.zone_problems([0.2, 0.7, 0.8, 0.75], z) == ["into the bottom 35.0%"]
+    assert A.zone_problems([0.2, 0.7, 0.7, 0.75], z) == ["into the bottom 35.0%"]
+    # wider, it also reaches the column of buttons Reels draws down the right-hand side
+    assert A.zone_problems([0.2, 0.7, 0.8, 0.75], z) == ["into the bottom 35.0%",
+                                                         "over a covered area [0.79, 0.6, 1.0, 1.0]"]
     k = {"safe": [0, 0, 1, 1], "keep_out": [[0.85, 0.4, 1.0, 0.9]]}
     assert A.zone_problems([0.8, 0.5, 0.9, 0.55], k)[0].startswith("over a covered area")
 
@@ -354,7 +359,7 @@ def test_text_in_a_platforms_covered_band_fails(slate_home):
         s = A.check_safe_zones(FilmContext(film), sheet=str(_sheet(slate_home["tmp"])))
     assert s.status == "FAIL"
     platforms = {v["platform"] for v in s.details["violations"]}
-    assert platforms == {"instagram_reels", "tiktok"}  # 0.76 is past Reels' 0.65 and TikTok's 0.75
+    assert platforms == {"instagram_reels", "tiktok", "youtube_shorts"}  # 0.76 is past 0.65 on all three
     assert all(v["text"] == "Tap to learn more" for v in s.details["violations"])
 
 
@@ -408,8 +413,9 @@ def test_a_sheet_with_a_tiles_manifest_is_cut_into_frames(slate_home):
     Image.new("RGB", (400, 200), "black").save(sheet)
     (slate_home["tmp"] / "contact.json").write_text(json.dumps({"tiles": [{"rect": [0, 0, 100, 178], "t": 0.0},
                                                                           {"rect": [104, 0, 100, 178], "t": 0.5}]}))
-    tiles = A.sheet_images(sheet)
-    assert [t[1].size for t in tiles] == [(100, 178), (100, 178)] and "0.5 s" in tiles[1][0]
+    cells = A.sheet_cells(sheet, fps=30.0)
+    assert [c.image.size for c in cells] == [(100, 178), (100, 178)]
+    assert cells[1].t == 0.5 and "0.50 s" in cells[1].label and cells[0].stamp is None
 
 
 @pytest.mark.skipif(procs.which("ffmpeg") is None, reason="ffmpeg isn't installed")
@@ -443,7 +449,10 @@ def test_access_gate_on_a_film_with_flashing_picture(slate_home, monkeypatch, no
     assert checks == {"flashes": "FAIL", "contrast": "PASS"}  # no voice, not 9:16: captions and zones don't apply
     assert r.status == "FAIL" and "flashes up to 5 times a second" in r.summary
     only = A.evaluate(film, only=["contrast"])
-    assert only.status == "PASS" and [c["check"] for c in only.details["checks"]] == ["contrast"]
+    checks = {c["check"]: c["status"] for c in only.details["checks"]}
+    # the contrast check passes, but a run narrowed to one check can never be recorded as the gate's PASS
+    assert checks == {"contrast": "PASS", "scope": "UNCHECKED"} and only.status == "UNCHECKED"
+    assert only.details["narrowed"] == ["only contrast (--only)"]
 
 
 def test_no_picture_yet_is_unchecked(slate_home):

@@ -1,0 +1,47 @@
+{
+ "name": "character-led",
+ "title": "Character-led film",
+ "summary": "A 15-to-120-second film led by the brand's own mark as a character: it comes alive, wants something, meets a turn and settles back into the lockup.",
+ "use_when": "The brand has a mark or motif with personality, and the story is easier to feel through a character than to explain.",
+ "runtime_s": {"min": 15, "max": 120, "target": 60},
+ "aspects": {
+  "16:9": {"width": 1920, "height": 1080, "channels": ["youtube", "website"], "type_scale": 1.0},
+  "9:16": {"width": 1080, "height": 1920, "channels": ["instagram_reels", "tiktok", "youtube_shorts"], "type_scale": 1.2},
+  "1:1": {"width": 1080, "height": 1080, "channels": ["instagram_feed", "linkedin"], "type_scale": 1.1}
+ },
+ "default_aspect": "16:9",
+ "fps_num": 30000,
+ "fps_den": 1001,
+ "pace": {"max_words_per_second": 2.6, "lead": 0.3, "tail": 0.3, "act_tail": 0.9},
+ "on_screen_max_words": 8,
+ "structure": {
+  "acts": {"min": 2, "max": 5},
+  "beats": [
+   {"name": "meet", "job": "The mark comes alive; its first move is the brand's signature motion.", "share": 0.15},
+   {"name": "want", "job": "What it's after, tied to what the brand does for people.", "share": 0.2},
+   {"name": "obstacle", "job": "What stands in the way.", "share": 0.25},
+   {"name": "turn", "job": "The signature moment: how it gets past.", "share": 0.25},
+   {"name": "resolution", "job": "It settles back into the lockup, with the call to action.", "share": 0.15}
+  ],
+  "rules": ["Emotion comes from motion and timing, not from extra words."]
+ },
+ "character": {
+  "source": "The brand pack's motif (the motif rig: N-part marks, ripples, pulses and waves), moved by the brand's motion law.",
+  "rules": [
+   "The character is the brand's own mark or motif. It gets a face only if the brand's look already has one.",
+   "It moves by the brand's motion law: its named eases, its duration scale and its overshoot policy.",
+   "Its moves read as intent (anticipation, follow-through) and never as idle wobble.",
+   "Mark rigs stay symmetric, and no loop runs faster than a 16-frame period (the motion gate checks both).",
+   "If it speaks, its voice is designed or from the library, never a clone of anyone except the owner's own verified voice."
+  ]
+ },
+ "audio": "required",
+ "loudness": {"lufs": -14, "true_peak": -1, "tolerance_lu": 0.5, "standard": "web, social and streaming delivery"},
+ "captions": {"needed": true, "burn_in": false, "sidecar": ["srt", "vtt"], "max_lines": 2, "max_chars": 42, "max_cps": 17,
+              "min_s": 1.0, "note": "Vertical and square cuts burn their captions in and use shorter lines (32 and 36)."},
+ "budget": {"family": "explainer", "elevenlabs": {"vo": [1000, 5000], "score": [2500, 5000]}, "higgsfield": [0, 60],
+            "rework_factor": 1.5, "note": "The explainer row: a character film is crafted like one, whatever its length."},
+ "broadcast": false,
+ "generation": "rarely",
+ "engines": ["remotion", "ae"]
+}

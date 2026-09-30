@@ -19,6 +19,11 @@ The last three stages of a film (docs/PLAN.md §7, stages 11 to 13):
   the owner, a separate reviewer grades the contact sheet and the sound against the brand's references, the owner's
   taste and the visionary bar. Holding the film needs that grade.
 
+An autonomous film, start to finish: `slate master` (ffmpeg) → `slate qa` → `slate deliver` → `slate review` →
+`slate review grade-brief` → a separate reviewer runs `slate review grade` → `slate review` (held: parked for the
+owner, sent by iMessage with the phone cut and a push) → the owner approves the exact file (`slate approve final_cut
+<file> --by NAME`) → `slate approved <file>` exits 0, and only then is that file posted.
+
 Cross-module interface (docs/ARCHITECTURE.md §12):
 
     master.run(film_dir, *, method) -> dict
@@ -31,8 +36,8 @@ from __future__ import annotations
 
 import importlib
 
-_SUBMODULES = {"approved", "changes", "checks", "cli", "deliver", "deps", "film", "grade", "master", "media",
-               "notes", "review", "settings", "sheet", "burnin", "synthetic"}
+_SUBMODULES = {"approved", "burnin", "changes", "checks", "cli", "cuts", "deliver", "deps", "film", "grade", "master",
+               "media", "notes", "review", "settings", "sheet", "synthetic", "versions"}
 
 
 def __getattr__(name: str):

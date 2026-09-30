@@ -4,7 +4,6 @@ bug the films hit comes back as a failure here."""
 from __future__ import annotations
 
 import math
-from fractions import Fraction
 
 import numpy as np
 import pytest
@@ -256,15 +255,19 @@ def test_regression_a_fast_carry_streaks():
 
 
 def test_regression_a_move_that_starts_at_full_speed_breaks_the_acceleration_limit():
-    fast_start = M.check_speed(data([entry("card", "y", 0, 16, 60, 0, ease="enter")], size=(1920, 1080)))
+    # the films' cards on an arriving curve smeared on their first frame: rest to full speed in one frame
+    fast_start = M.check_speed(data([entry("card", "y", 0, 16, 200, 0, ease="enter")], size=(1920, 1080)))
     assert fast_start.status == "FAIL"
     assert "px/frame²" in fast_start.summary and "leaves rest at full speed" in fast_start.summary
-    at_rest = M.check_speed(data([entry("card", "y", 0, 16, 60, 0, ease="move")], size=(1920, 1080)))
+    at_rest = M.check_speed(data([entry("card", "y", 0, 16, 200, 0, ease="move")], size=(1920, 1080)))
     assert at_rest.status == "PASS", at_rest.summary
+    # a rig part is held to the plan's 8 px/frame²: even a 60 px arrival breaks it
+    tile = M.check_speed(data([entry("tile", "y", 0, 16, 60, 0, ease="enter", rig="mark")], size=(1920, 1080)))
+    assert tile.status == "FAIL" and "limit for a rig part" in tile.summary
 
 
 def test_speed_limits_scale_with_the_frame():
-    move = [entry("card", "x", 0, 36, 0, 520, ease="move")]  # peaks about 41 px/frame
+    move = [entry("tile", "x", 0, 36, 0, 520, ease="move", **{"class": "rig"})]  # peaks about 41 px/frame
     peak = M.check_speed(data(move, size=(3840, 2160))).details["fastest"]["px_per_frame"]
     assert 30 < peak < 60
     assert M.check_speed(data(move, size=(3840, 2160))).status == "PASS"  # limit 60
@@ -273,8 +276,8 @@ def test_speed_limits_scale_with_the_frame():
 
 
 def test_diagonal_moves_combine_their_axes():
-    x = entry("card", "x", 0, 36, 0, 300, ease="move")
-    y = entry("card", "y", 0, 36, 0, 300, ease="move")
+    x = entry("card", "x", 0, 36, 0, 300, ease="move", **{"class": "rig"})
+    y = entry("card", "y", 0, 36, 0, 300, ease="move", **{"class": "rig"})
     assert M.check_speed(data([x], size=(1920, 1080))).status == "PASS"
     s = M.check_speed(data([x, y], size=(1920, 1080)))
     assert s.status == "FAIL"
@@ -283,7 +286,7 @@ def test_diagonal_moves_combine_their_axes():
 
 
 def test_the_crest_of_a_long_flight_goes_to_a_person():
-    s = M.check_speed(data([entry("tile", "x", 0, 64, 0, 800, ease="move")], size=(1920, 1080)))
+    s = M.check_speed(data([entry("tile", "x", 0, 64, 0, 800, ease="move", rig="mark")], size=(1920, 1080)))
     top = s.details["fastest"]["px_per_frame"]
     assert 30 < top <= 48
     assert s.status == "REVIEW" and "crest" in s.summary

@@ -28,7 +28,7 @@ export function bundlesRoot(args = {}) {
 const safeId = (id) => String(id).replace(/[^A-Za-z0-9._-]+/g, '-').slice(0, 60) || 'film';
 
 /** The files the engine writes in .slate/ (entry.mjs), the only ones it hashes there. */
-const ENGINE_GLUE = ['entry.tsx', 'Root.tsx', 'film-data.ts', 'placeholder.tsx', 'label.tsx', 'spoken.json'];
+const ENGINE_GLUE = /^(entry\.tsx|Root\.tsx|film\.tsx|act\d+\.tsx|film-data\.ts|placeholder\.tsx|kit-placeholder\.tsx|broken\.tsx|rest-states\.tsx|label\.tsx|spoken\.json)$/;
 
 // A file being written next to the sources (an editor's or a builder's temp file) is never a source.
 const TEMP_NAME = /(\.tmp(\.|$)|\.swp$|~$)/;
@@ -83,7 +83,7 @@ export async function sourceHash(ctx, {entry}) {
   } else {
     // only the engine's own files in .slate/ (the state module keeps its lock and hash cache there too)
     const sd = slateDir(ctx.dir);
-    for (const name of ENGINE_GLUE) if (fs.existsSync(path.join(sd, name))) add(path.join(sd, name));
+    for (const name of fs.readdirSync(sd).sort()) if (ENGINE_GLUE.test(name)) add(path.join(sd, name));
     for (const rel of listFiles(path.join(ctx.dir, 'scenes'))) add(path.join(ctx.dir, 'scenes', rel));
     for (const rel of Object.values(TIMING_FILES)) if (fs.existsSync(path.join(ctx.dir, rel))) add(path.join(ctx.dir, rel));
     for (const rel of listFiles(KIT_DIR)) add(path.join(KIT_DIR, rel));
@@ -220,12 +220,45 @@ function webpackOverrideFor(ctx) {
   });
 }
 
-function publicDir(ctx) {
+/**
+ * Folders a scene reads as image sequences with staticFile(): conformed captures (captures/<name>/frames) and plates
+ * (plates/<shot>/plate/frames, plates/<shot>/matte/frames), each f%05d.jpg at the film's rate.
+ */
+export const MEDIA_DIRS = ['captures', 'plates'];
+
+/**
+ * The folder served as the bundle's public/: .slate/public, holding links (never copies) to everything in the film's
+ * own public/ and to its captures/ and plates/, so `staticFile('captures/demo/frames/f00012.jpg')` reads the film's
+ * files in place. A name the film's public/ already uses wins. Returns {dir, links, warnings}.
+ *
+ * Links are safe to delete: removing a bundle or this folder removes the links, never what they point at.
+ */
+export function publicDir(ctx) {
+  const dir = path.join(slateDir(ctx.dir), 'public');
+  fs.mkdirSync(dir, {recursive: true});
+  const want = new Map();
+  const warnings = [];
   const own = path.join(ctx.dir, 'public');
-  if (fs.existsSync(own)) return own;
-  const empty = path.join(slateDir(ctx.dir), 'public');
-  fs.mkdirSync(empty, {recursive: true});
-  return empty;
+  if (fs.existsSync(own) && fs.statSync(own).isDirectory()) {
+    for (const name of fs.readdirSync(own)) if (name !== '.DS_Store') want.set(name, path.join('..', '..', 'public', name));
+  }
+  for (const name of MEDIA_DIRS) {
+    if (!fs.existsSync(path.join(ctx.dir, name))) continue;
+    if (want.has(name)) warnings.push(`public/${name} shadows the film's ${name}/ folder in staticFile() paths`);
+    else want.set(name, path.join('..', '..', name));
+  }
+  for (const name of fs.readdirSync(dir)) {
+    const full = path.join(dir, name);
+    const st = fs.lstatSync(full);
+    // only the links this function made are ever removed here
+    if (st.isSymbolicLink() && (!want.has(name) || fs.readlinkSync(full) !== want.get(name))) fs.unlinkSync(full);
+  }
+  for (const [name, target] of want) {
+    const full = path.join(dir, name);
+    if (fs.lstatSync(full, {throwIfNoEntry: false})) continue;
+    fs.symlinkSync(target, full);
+  }
+  return {dir, links: [...want.keys()].sort(), warnings};
 }
 
 function explainBundleError(e) {
@@ -263,17 +296,24 @@ export async function getBundle(ctx, args = {}) {
   }
   const tmp = path.join(root, `.tmp-${name}-${process.pid}`);
   fs.rmSync(tmp, {recursive: true, force: true});
+  // A process stopped mid-bundle (a signal, the caller's deadline) takes its half-made bundle with it.
+  const dropTmp = () => fs.rmSync(tmp, {recursive: true, force: true});
+  process.once('exit', dropTmp);
   const t0 = Date.now();
   let lastPct = -1;
   log(`bundling ${ctx.id} (${hash.slice(0, 12)})`);
+  const pub = publicDir(ctx);
+  for (const w of pub.warnings) log(`note: ${w}`);
   try {
     await remotionBundle({
       entryPoint: entryFile,
       outDir: tmp,
       enableCaching: false,
       rootDir: ctx.dir,
-      publicDir: publicDir(ctx),
+      publicDir: pub.dir,
       symlinkPublicDir: true,
+      // the public folder holds links to the film's own media on purpose
+      onSymlinkDetected: () => {},
       webpackOverride: webpackOverrideFor(ctx),
       onProgress: (p) => {
         const step = Math.floor(p / 25) * 25;
@@ -284,9 +324,11 @@ export async function getBundle(ctx, args = {}) {
       },
     });
   } catch (e) {
-    fs.rmSync(tmp, {recursive: true, force: true});
+    dropTmp();
+    process.removeListener('exit', dropTmp);
     throw explainBundleError(e);
   }
+  process.removeListener('exit', dropTmp);
   fs.writeFileSync(path.join(tmp, MARKER), JSON.stringify({film: ctx.id, film_dir: ctx.dir, hash, entry: entryFile, made_at: new Date().toISOString(), format: BUNDLE_FORMAT}, null, 1) + '\n');
   try {
     fs.renameSync(tmp, dir);
@@ -343,7 +385,14 @@ export async function bundleCommand(ctx, args) {
   // The caller owns this bundle now: this process's lease ends when it exits, and the bundle stays for the renders.
   dropLease(b.dir);
   // a custom entry (a review sheet) has its own compositions; only the film's entry lists them here
-  return {serve_url: b.serve_url, bundle_hash: b.hash, reused: b.reused, compositions: args.entry ? null : (b.entry?.compositions ?? null)};
+  return {
+    serve_url: b.serve_url,
+    bundle_hash: b.hash,
+    reused: b.reused,
+    compositions: args.entry ? null : (b.entry?.compositions ?? null),
+    // acts left out because their modules don't build: every other act renders from this bundle
+    broken: b.entry?.broken ?? [],
+  };
 }
 
 /** `bundle` with {cleanup: true} and no film: remove every unleased bundle (disk janitor, doctor). */

@@ -1,0 +1,105 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "slate/manifest",
+ "title": "Delivery manifest (deliver/vN/manifest.json)",
+ "description": "What one delivered version holds, written by `slate deliver` last of all (delivery_manifest.py generalized): every file with its size, sha256 and what ffprobe reads, anything expected but missing, the gates it passed, and, internal only, which voices, shots and music are synthetic and the labelling position (none unless a law requires one; each platform's rule is the owner's call). Every file is 'not approved for publishing' until the owner approves that exact sha256 (`slate approved <file>` checks). A final delivery has every gate passing and no replayed stand-in; drafts are never final. A delivered folder is never overwritten.",
+ "type": "object",
+ "required": ["schema", "film", "version", "final", "why_not_final", "delivered_at", "folder", "method",
+              "content_fingerprint", "publishing", "gates", "files", "missing", "replayed", "internal"],
+ "properties": {
+  "generated": {"type": "string"},
+  "schema": {"const": 1},
+  "film": {
+   "type": "object",
+   "required": ["id", "mode", "fps", "width", "height", "frames"],
+   "properties": {
+    "id": {"type": "string", "minLength": 1},
+    "title": {"type": "string"},
+    "brand": {"type": ["string", "null"]},
+    "format": {"type": ["string", "null"]},
+    "mode": {"enum": ["supervised", "express", "draft", "autonomous"]},
+    "language": {"type": "string"},
+    "fps": {"type": "string", "pattern": "^[0-9]+/[0-9]+$"},
+    "width": {"type": "integer", "minimum": 1},
+    "height": {"type": "integer", "minimum": 1},
+    "frames": {"type": "integer", "minimum": 1},
+    "seconds": {"type": "number", "minimum": 0}
+   }
+  },
+  "version": {"type": "integer", "minimum": 1},
+  "draft_number": {"type": ["integer", "null"], "minimum": 1},
+  "final": {"type": "boolean"},
+  "why_not_final": {"type": "array", "items": {"type": "string"}},
+  "delivered_at": {"type": "string", "minLength": 10},
+  "delivered_by": {"type": "string"},
+  "folder": {"type": "string", "pattern": "^deliver/"},
+  "method": {"enum": ["ae", "ffmpeg"]},
+  "content_fingerprint": {"$ref": "#/$defs/sha256"},
+  "publishing": {
+   "type": "object",
+   "required": ["approved", "status", "rule", "approve", "check"],
+   "properties": {
+    "approved": {"const": false},
+    "status": {"const": "not approved for publishing"},
+    "rule": {"type": "string"},
+    "approve": {"type": "string"},
+    "check": {"type": "string"}
+   }
+  },
+  "gates": {
+   "type": "object",
+   "required": ["passed", "required", "results", "blocking"],
+   "properties": {
+    "passed": {"type": "boolean"},
+    "required": {"type": "array", "items": {"type": "string"}},
+    "results": {"type": "array", "items": {"type": "object", "required": ["gate", "status"]}},
+    "blocking": {"type": "array", "items": {"type": "object", "required": ["gate", "status"]}}
+   }
+  },
+  "files": {
+   "type": "array",
+   "minItems": 1,
+   "items": {
+    "type": "object",
+    "required": ["what", "kind", "file", "bytes", "sha256", "publishing"],
+    "properties": {
+     "what": {"type": "string", "minLength": 1},
+     "kind": {"type": "string", "minLength": 1},
+     "file": {"type": "string", "minLength": 1, "not": {"const": "manifest.json"}},
+     "source": {"type": ["string", "null"]},
+     "bytes": {"type": "integer", "minimum": 0},
+     "sha256": {"$ref": "#/$defs/sha256"},
+     "media": {"type": ["object", "null"]},
+     "publishing": {"const": "not approved for publishing"}
+    }
+   }
+  },
+  "missing": {"type": "array", "items": {"type": "object", "required": ["what", "expected"]}},
+  "replayed": {"type": "array", "items": {"type": "object", "required": ["what", "record"]}},
+  "internal": {
+   "type": "object",
+   "required": ["note", "synthetic_media", "labels"],
+   "properties": {
+    "note": {"type": "string"},
+    "synthetic_media": {"type": "object", "required": ["summary", "voices", "shots", "music"]},
+    "labels": {"type": "object", "required": ["ai_label", "why", "platforms"]}
+   }
+  }
+ },
+ "allOf": [
+  {
+   "if": {"properties": {"final": {"const": true}}},
+   "then": {
+    "properties": {
+     "why_not_final": {"maxItems": 0},
+     "replayed": {"maxItems": 0},
+     "gates": {"properties": {"passed": {"const": true}, "blocking": {"maxItems": 0}}},
+     "film": {"properties": {"mode": {"not": {"const": "draft"}}}}
+    }
+   }
+  }
+ ],
+ "$defs": {
+  "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+ }
+}

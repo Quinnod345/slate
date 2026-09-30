@@ -197,6 +197,10 @@ def banned_words(film_dir: Path) -> GateResult:
 
 
 # ---------------------------------------------------------------------------------------------- read time
+READING_KEY = "reading"
+READING_FLAGS = ("not_for_reading", "voice_matched")
+
+
 def _statements(ctx: FilmContext) -> tuple[list[tuple[str, str]], str | None]:
     """(shot, statement) pairs to time, and where they came from."""
     for label, shots in (("script/storyboard.json", list(iter_storyboard_shots(ctx.storyboard or {}))),
@@ -208,32 +212,120 @@ def _statements(ctx: FilmContext) -> tuple[list[tuple[str, str]], str | None]:
     return [], None
 
 
+def reading_declarations(ctx: FilmContext) -> tuple[dict[str, dict], list[str]]:
+    """The read-time exemptions the film declares, by shot id, and what's wrong with any of them.
+
+    A shot says `"reading": {"not_for_reading": true | [statements], "voice_matched": true | [statements],
+    "reason": "…"}` in script/script.json (the one hand-edited file; the storyboard's copy wins when it carries one):
+
+    - not_for_reading: a surface shown too small to read on purpose (a report at 0.6 scale as a closing object). Its
+      small print isn't timed; only its large elements must read, so a list names exactly which statements are exempt;
+    - voice_matched: a definition the voice reads along as it lands. It may run past the on-screen word budget, and
+      must stay complete for 1.5 s (the floor) rather than 0.4 s + 0.3 s a word.
+
+    An exemption says why (`reason`), and names statements the shot really shows: otherwise it's a problem, never a
+    quiet pass. Returns ({shot: {flag: True | set of squashed statements, "reason": str}}, problems).
+    """
+    script_shots_by_id = {str(shot.get("id")): shot for _w, shot in script_shots(ctx.script or {})}
+    board = {str(s.get("id")): s for s in iter_storyboard_shots(ctx.storyboard or {})}
+    out: dict[str, dict] = {}
+    problems: list[str] = []
+    for sid in dict.fromkeys([*board, *script_shots_by_id, *(str(s.get("id")) for s in ctx.shots)]):
+        shot = board.get(sid) or {}
+        raw = shot.get(READING_KEY)
+        if raw is None:
+            src = script_shots_by_id.get(str(shot.get("source_id") or sid)) or {}
+            raw = src.get(READING_KEY)
+        if raw is None:
+            continue
+        if not isinstance(raw, dict):
+            problems.append(f"{sid}: \"{READING_KEY}\" should be an object like "
+                            '{"not_for_reading": true, "reason": "…"}')
+            continue
+        unknown = sorted(set(raw) - {*READING_FLAGS, "reason"})
+        if unknown:
+            problems.append(f"{sid}: \"{READING_KEY}\" has {', '.join(unknown)}; it takes not_for_reading, "
+                            "voice_matched and reason")
+        decl: dict = {}
+        for flag in READING_FLAGS:
+            v = raw.get(flag)
+            if v is None or v is False:
+                continue
+            if v is True:
+                decl[flag] = True
+            elif isinstance(v, list) and v and all(isinstance(x, str) and x.strip() for x in v):
+                decl[flag] = {textmatch.squash(p) for x in v for p in (textmatch.statement_parts(x) or [x])}
+            else:
+                problems.append(f"{sid}: {flag} should be true or a list of the statements it covers")
+        if not decl:
+            continue
+        reason = raw.get("reason")
+        if not (isinstance(reason, str) and reason.strip()):
+            problems.append(f"{sid}: declares {' and '.join(decl)} without a reason; an exemption says why")
+            continue
+        decl["reason"] = reason.strip()
+        out[sid] = decl
+    return out, problems
+
+
+def _declared(decl: dict | None, flag: str, text: str) -> bool:
+    v = (decl or {}).get(flag)
+    return v is True or (isinstance(v, set) and textmatch.squash(text) in v)
+
+
 def readtime(film_dir: Path) -> GateResult:
-    """Every on-screen statement stays readable for max(1.5 s, 0.4 s + 0.3 s per word) once fully built."""
+    """Every on-screen statement stays readable for max(1.5 s, 0.4 s + 0.3 s per word) once fully built (a declared
+    voice-matched definition for 1.5 s; a surface declared not for reading isn't timed)."""
     ctx = context(film_dir)
     ok, info = ocrmod.available()
     engine = gates.engine("slate read-time matcher", __version__, ocr=info)
     items, source = _statements(ctx)
-    read = ["script/storyboard.json", ctx.SHOTS]
+    read = ["script/storyboard.json", ctx.SHOTS, "script/script.json"]
     if source is None:
         return GateResult.unchecked("readtime", "there's no storyboard or shot list with on-screen text yet",
                                     evidence=["next: slate script build"], engine=engine, inputs=ctx.inputs(read))
+    decls, decl_problems = reading_declarations(ctx)
+    exempt = [(sid, text) for sid, text in items if _declared(decls.get(sid), "not_for_reading", text)]
+    timed = [(sid, text) for sid, text in items if (sid, text) not in exempt]
+    for sid, decl in decls.items():
+        for flag in READING_FLAGS:
+            listed = decl.get(flag)
+            if isinstance(listed, set):
+                shown = {textmatch.squash(t) for s, t in items if s == sid}
+                for stray in sorted(listed - shown):
+                    decl_problems.append(f"{sid}: {flag} names a statement the shot doesn't show ({stray!r})")
+    subs: list[Sub] = []
+    if decl_problems:
+        subs.append(Sub("declarations", "FAIL", f"{plural(len(decl_problems), 'read-time exemption')} can't be "
+                        f"honoured: {decl_problems[0]}", decl_problems))
+    exempt_rows = [f"{sid} '{text}': not for reading ({decls[sid]['reason']})" for sid, text in exempt]
+    if exempt_rows:
+        subs.append(Sub("exempt", "PASS", f"{plural(len(exempt_rows), 'statement')} declared not for reading, so not "
+                        "timed", exempt_rows))
+    details = {"statements": len(items), "source": source, "exempt": exempt_rows,
+               "voice_matched": sorted({sid for sid, d in decls.items() if "voice_matched" in d})}
     if not items:
-        return combine("readtime", [Sub("statements", "PASS", f"{source} has no on-screen statements to time")],
-                       engine=engine, inputs=ctx.inputs(read))
+        subs.append(Sub("statements", "PASS", f"{source} has no on-screen statements to time"))
+        return combine("readtime", subs, engine=engine, inputs=ctx.inputs(read), details=details)
+    if not timed:
+        return combine("readtime", subs, engine=engine, inputs=ctx.inputs(read), details=details)
     if not ok:
-        return GateResult.unchecked("readtime", f"{ocrmod.ENGINE_NAME} isn't available here: {info.get('reason')}",
-                                    evidence=[f"next: {info.get('hint')}"], engine=info, inputs=ctx.inputs(read))
+        subs.append(Sub("ocr", "UNCHECKED", f"{ocrmod.ENGINE_NAME} isn't available here: {info.get('reason')}",
+                        [f"next: {info.get('hint')}"]))
+        return combine("readtime", subs, engine=info, inputs=ctx.inputs(read), details=details)
     try:
         sw = ocrmod.sweep(ctx)
     except (ocrmod.OcrUnavailable, MissingPrerequisite, SlateError) as exc:
-        return _ocr_unchecked("readtime", ctx, exc, ctx.inputs(read))
+        hint = getattr(exc, "hint", None)
+        subs.append(Sub("ocr", "UNCHECKED", str(exc).splitlines()[0], [f"next: {hint}"] if hint else []))
+        return combine("readtime", subs, engine=ocrmod.unavailable_engine(exc), inputs=ctx.inputs(read),
+                       details=details)
     every = sw.every
     texts = [(s["t"], textmatch.squash(sw.text_at(s))) for s in sw.samples]
     shots = ctx.shot_by_id
     rows, short, unplaced, missing_picture = [], [], [], []
     rendered = {a["index"] for a in ctx.acts} - set(sw.missing_acts)
-    for sid, text in items:
+    for sid, text in timed:
         s = shots.get(sid)
         if s is None:
             unplaced.append(f"{sid}: '{text}' (the shot isn't in shots.json)")
@@ -244,13 +336,13 @@ def readtime(film_dir: Path) -> GateResult:
         t0, t1 = ctx.secs_of(int(s["frame_in"])), ctx.secs_of(int(s["frame_out"]))
         hit_times = [t for t, ft in texts if t0 - 0.5 <= t <= t1 + 0.5 and textmatch.present(text, ft)]
         longest = textmatch.longest_run(hit_times, every)
-        need = textmatch.need_seconds(text)
+        matched = _declared(decls.get(sid), "voice_matched", text)
+        need = textmatch.need_seconds(text, per_word=0.0, base=0.0) if matched else textmatch.need_seconds(text)
         since = f" from {hit_times[0]:.2f} s" if hit_times else ""
-        row = f"{sid} '{text}' {longest:.2f} s{since} (needs {need:.2f} s)"
+        row = f"{sid} '{text}' {longest:.2f} s{since} (needs {need:.2f} s{', voice-matched' if matched else ''})"
         rows.append(row)
         if longest + every < need:  # one OCR interval of slack: the run is sampled, not exact
             short.append(row)
-    subs = []
     if unplaced:
         subs.append(Sub("unplaced", "FAIL", f"statements in shots that don't exist: {unplaced[0]}", unplaced))
     if short:
@@ -264,7 +356,7 @@ def readtime(film_dir: Path) -> GateResult:
                         f"(OCR every {every} s)", rows))
     return combine("readtime", subs, engine=gates.engine("slate read-time matcher", __version__, ocr=sw.engine),
                    inputs=ctx.inputs(read + _sweep_inputs(ctx, sw)),
-                   details={"statements": len(items), "source": source, "short": short, "rows": rows})
+                   details={**details, "short": short, "rows": rows})
 
 
 # ---------------------------------------------------------------------------------------------- captions

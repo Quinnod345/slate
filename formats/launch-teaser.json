@@ -1,0 +1,41 @@
+{
+ "name": "launch-teaser",
+ "title": "Launch teaser",
+ "summary": "A 6-to-30-second teaser before a launch: a glimpse, a build, and the date. It promises; it doesn't explain.",
+ "use_when": "Something is coming and the brand wants attention before it lands.",
+ "runtime_s": {"min": 6, "max": 30, "target": 15},
+ "aspects": {
+  "16:9": {"width": 1920, "height": 1080, "channels": ["youtube", "website"], "type_scale": 1.0},
+  "1:1": {"width": 1080, "height": 1080, "channels": ["instagram_feed", "linkedin"], "type_scale": 1.1},
+  "9:16": {"width": 1080, "height": 1920, "channels": ["instagram_reels", "tiktok", "youtube_shorts"], "type_scale": 1.2}
+ },
+ "default_aspect": "16:9",
+ "fps_num": 30000,
+ "fps_den": 1001,
+ "pace": {"max_words_per_second": 2.6, "lead": 0.2, "tail": 0.25, "act_tail": 0.5},
+ "on_screen_max_words": 6,
+ "structure": {
+  "acts": {"min": 1, "max": 2},
+  "beats": [
+   {"name": "glimpse", "job": "A detail, a silhouette or a sound: enough to wonder about, never the reveal.", "share": 0.35},
+   {"name": "build", "job": "Rising tension, carried by the score and the motion.", "share": 0.4},
+   {"name": "date", "job": "When and where, in one line, readable without sound.", "share": 0.25}
+  ],
+  "rules": [
+   "Promise, don't explain: a teaser that shows everything is an ad.",
+   "One date or one call to action.",
+   "Teasing is still claiming: every hint stays inside the approved claims."
+  ]
+ },
+ "audio": "required",
+ "loudness": {"lufs": -14, "true_peak": -1, "tolerance_lu": 0.5, "standard": "web, social and streaming delivery"},
+ "captions": {"needed": true, "burn_in": true, "renderer": "remotion", "font": "brand", "sidecar": ["srt"],
+              "max_lines": 2, "max_chars": 42, "max_cps": 17, "min_s": 1.0,
+              "position": "inside the channel's safe zone for the aspect",
+              "note": "Square and vertical cuts use shorter lines (36 and 32 characters)."},
+ "budget": {"family": "reel_or_ad", "elevenlabs": {"vo": [500, 3000], "score": [1000, 2000]}, "higgsfield": [0, 0],
+            "rework_factor": 1.5, "note": "Generation only when it's allowed and adds something."},
+ "broadcast": false,
+ "generation": "rarely",
+ "engines": ["remotion", "ae", "web"]
+}

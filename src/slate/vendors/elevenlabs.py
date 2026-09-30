@@ -6,9 +6,14 @@ Every call is replay-aware and every paid call is ledger-wrapped:
   fixtures, or from deterministic fakes registered here: a harmonic "voice" whose length follows the text (one burst
   per word, so alignment and fit checks still mean something), three previews per design call, a soft pad for music.
   Nothing leaves the machine and nothing is spent; every result says `"replay": true`.
-- **Live** (`--live`): the estimate comes first, then the budget check, then an in-flight ledger row that already
-  carries a request id before Slate waits on ElevenLabs. The vendor's own request id and billed characters are added
-  as soon as the response arrives.
+- **Live** (`--live`): the estimate comes first, then the budget check, then an in-flight ledger row that carries the
+  request's stable key before Slate waits on ElevenLabs. The vendor's own request id and billed characters are added
+  as soon as the response arrives. Every paid call goes through `slate.jobs.resume.paid_call`, so a row whose process
+  died is found by its key and closed as orphaned (counted at its estimate until `slate ledger reconcile` settles it)
+  rather than left in flight or lost.
+- **Never pay twice for an answer already received.** ElevenLabs answers in the same request it bills, so the answer
+  is parked (`DATA/cache/paid/elevenlabs/<key>`) before the ledger row closes, and unparked once the output file is
+  written. A crash in between leaves it parked, and the rerun of the same request uses it instead of paying again.
 
 Keys come only from `slate.secrets` (never argv, never a URL, never a log line). Autonomous films use Oneiro's own
 capped key (`elevenlabs_oneiro`), which is also its own spend pool in the ledger.
@@ -24,6 +29,7 @@ professional clone, which the owner makes and verifies in ElevenLabs themselves.
 from __future__ import annotations
 
 import base64
+import datetime as _dt
 import hashlib
 import json
 import math
@@ -35,7 +41,7 @@ from typing import Any, Callable
 
 import numpy as np
 
-from slate import config, http, jsonio, ledger, log, procs, replay, secrets
+from slate import config, http, jsonio, ledger, log, paths, procs, replay, secrets
 from slate.errors import MissingPrerequisite, UsageError
 from slate.voice import audio as audio_mod
 
@@ -290,11 +296,14 @@ def _fake_music(key: str, request: dict) -> dict:
             "audio_b64": _b64(_pcm16(x))}
 
 
-for _op, _faker in (("subscription", _fake_subscription), ("voice", _fake_voice), ("tts", _fake_tts),
-                    ("design", lambda k, r: _fake_previews(k, r, "design")),
-                    ("remix", lambda k, r: _fake_previews(k, r, "remix")),
-                    ("save_voice", _fake_save_voice), ("isolate", _fake_isolate), ("align", _fake_align),
-                    ("music", _fake_music)):
+# The replay stand-ins, by operation. Tests re-install these before each test, so a stub another test left in the
+# shared registry can't change what a replayed call answers.
+FAKERS: dict[str, Callable[[str, dict], dict]] = {
+    "subscription": _fake_subscription, "voice": _fake_voice, "tts": _fake_tts,
+    "design": lambda k, r: _fake_previews(k, r, "design"), "remix": lambda k, r: _fake_previews(k, r, "remix"),
+    "save_voice": _fake_save_voice, "isolate": _fake_isolate, "align": _fake_align, "music": _fake_music,
+}
+for _op, _faker in FAKERS.items():
     replay.register_faker(PROVIDER, _op, _faker)
 
 
@@ -394,22 +403,106 @@ class Client:
 
     def _spend(self, op: str, est: ledger.Estimate, call: Callable[[], tuple[dict, Any]], note: str | None = None,
                request: dict | None = None) -> dict:
-        """Budget check and in-flight row (with our request id) first, then the call, then the vendor's id and cost.
-        The row also carries the request's stable key, so a restarted job can find its own in-flight row."""
+        """One paid call through `slate.jobs.resume.paid_call`: budget check and an in-flight row carrying the
+        request's stable key first, then the call, then the vendor's request id and billed cost. The answer is parked
+        before the row closes (live only), so a crash before the output is written never pays twice."""
         client_rid = f"slate_{uuid.uuid4().hex[:16]}"
-        kw = {"key": replay.request_key(PROVIDER, op, request)} if request is not None else {}
-        with ledger.spend(est, film=self.film, mode=self.mode, approval_id=self.approval_id, rework=self.rework,
-                          note=note or op, **kw) as row:
-            row.request(client_rid)
+        key = replay.request_key(PROVIDER, op, request) if request is not None else f"{op}-{uuid.uuid4().hex[:16]}"
+        parked = self._parked(key, est)
+        if parked is not None:
+            return parked
+
+        def submit() -> tuple[dict, Any]:
             headers, payload = call()
-            vendor_rid = headers.get("request-id") or headers.get("x-request-id") or headers.get("history-item-id")
-            if vendor_rid:
-                row.request(str(vendor_rid))
-            cost = _number(headers.get("character-cost") or headers.get("x-character-count"))
-            row.actual(cost, request_id=vendor_rid, client_request_id=client_rid, replay=self.replay)
+            self._park(key, headers, payload)
+            return headers, payload
+
+        def vendor_id(result: tuple[dict, Any]) -> str | None:
+            h = result[0]
+            rid = h.get("request-id") or h.get("x-request-id") or h.get("history-item-id")
+            return str(rid) if rid else None
+
+        def cost_of(result: tuple[dict, Any]) -> float | None:
+            return _number(result[0].get("character-cost") or result[0].get("x-character-count"))
+
+        def summary(result: tuple[dict, Any]) -> dict:
+            return {"request_id": vendor_id(result), "client_request_id": client_rid, "replay": self.replay}
+
+        kw = dict(film=self.film, mode=self.mode, approval_id=self.approval_id, rework=self.rework, note=note or op)
+        resume = _resume()
+        if resume is not None and hasattr(resume, "paid_call"):
+            headers, payload = resume.paid_call(est, key=key, submit=submit, wait=None, cost=cost_of,
+                                                summarize=summary, request_id_of=vendor_id, **kw)
+            row_id = next((r["id"] for r in reversed(ledger.rows(key=key))), None)
+        else:  # the job queue isn't installed: the same dance, straight through the ledger
+            with ledger.spend(est, key=key, **kw) as row:
+                headers, payload = submit()
+                if vendor_id((headers, payload)):
+                    row.request(vendor_id((headers, payload)))
+                row.actual(cost_of((headers, payload)), **summary((headers, payload)))
+            row_id = row.id
+        vendor_rid = vendor_id((headers, payload))
         return {"headers": headers, "payload": payload, "request_id": str(vendor_rid or client_rid),
-                "client_request_id": client_rid, "ledger_row": row.id, "character_cost": cost,
-                "estimate": est.to_dict()}
+                "client_request_id": client_rid, "ledger_row": row_id, "character_cost": cost_of((headers, payload)),
+                "estimate": est.to_dict(), "key": key}
+
+    # -- parked answers (live only): paid for, not yet written ---------------------------------------------------
+
+    @staticmethod
+    def _park_dir() -> Path:
+        return paths.cache_dir() / "paid" / PROVIDER
+
+    def _park(self, key: str, headers: dict, payload: Any) -> None:
+        """Keep a paid answer until its output is written (live only: replay spends nothing)."""
+        if self.replay:
+            return
+        folder = self._park_dir()
+        folder.mkdir(parents=True, exist_ok=True)
+        meta: dict[str, Any] = {"key": key, "headers": headers,
+                                "parked_at": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds")}
+        if isinstance(payload, dict) and isinstance(payload.get("data"), (bytes, bytearray)):
+            jsonio.write_text_atomic(folder / f"{key}.bin", bytes(payload["data"]))
+            meta["payload"] = {k: v for k, v in payload.items() if k != "data"}
+            meta["data_file"] = f"{key}.bin"
+        else:
+            meta["payload"] = payload
+        jsonio.write_atomic(folder / f"{key}.json", meta)
+
+    def _parked(self, key: str, est: ledger.Estimate) -> dict | None:
+        """A paid answer a crashed run left parked for this exact request: used instead of paying again."""
+        if self.replay:
+            return None
+        meta_path = self._park_dir() / f"{key}.json"
+        if not meta_path.is_file():
+            return None
+        try:
+            meta = jsonio.read(meta_path)
+            payload = meta.get("payload")
+            if meta.get("data_file"):
+                payload = {**(payload or {}), "data": (self._park_dir() / meta["data_file"]).read_bytes()}
+        except (OSError, ValueError) as exc:
+            log.warn(f"a parked ElevenLabs answer for {key} couldn't be read ({exc}); asking again")
+            return None
+        headers = _lower(meta.get("headers"))
+        cost = _number(headers.get("character-cost") or headers.get("x-character-count"))
+        rid = headers.get("request-id") or headers.get("x-request-id") or headers.get("history-item-id")
+        resume = _resume()
+        for row in (resume.pending(key=key, provider=self.provider) if resume is not None else []):
+            ledger.finish(row["id"], status="done", actual=cost, result={"request_id": rid, "recovered":
+                                                                         "the answer was parked before the crash"})
+        log.info(f"ElevenLabs already answered this request (paid for {meta.get('parked_at')}); using that answer "
+                 "instead of paying again")
+        row_id = next((r["id"] for r in reversed(ledger.rows(key=key))), None)
+        return {"headers": headers, "payload": payload, "request_id": str(rid or key), "client_request_id": None,
+                "ledger_row": row_id, "character_cost": cost, "estimate": est.to_dict(), "key": key, "reused": True}
+
+    def _unpark(self, res: dict) -> None:
+        """The output is written: the parked answer has done its job."""
+        key = res.get("key")
+        if not key or self.replay:
+            return
+        for suffix in (".bin", ".json"):
+            (self._park_dir() / f"{key}{suffix}").unlink(missing_ok=True)
 
     def _free(self, op: str, request: dict, path: str, *, method: str = "GET", json_body: Any = None,
               query: dict | None = None) -> dict:
@@ -583,6 +676,9 @@ class Client:
                                            payload["channels"], out))
         else:
             result["audio"] = payload["data"]
+        if res.get("reused"):
+            result["reused_parked_answer"] = True
+        self._unpark(res)
         return result
 
     # -- Voice Design and Remix -----------------------------------------------------------------------------------
@@ -624,6 +720,7 @@ class Client:
             else:
                 row["audio"] = raw
             previews.append(row)
+        self._unpark(res)
         return {"previews": previews, "text": data.get("text", body.get("text")), "format": fmt,
                 "request_id": res["request_id"], "client_request_id": res["client_request_id"],
                 "character_cost": res["character_cost"], "ledger_row": res["ledger_row"], "replay": self.replay}
@@ -726,6 +823,7 @@ class Client:
 
         res = self._spend("align", est, call, request=request)
         data = res["payload"].get("json") or {}
+        self._unpark(res)
         return {"words": data.get("words") or [], "characters": data.get("characters") or [],
                 "loss": data.get("loss"), "model": model, "request_id": res["request_id"],
                 "client_request_id": res["client_request_id"], "ledger_row": res["ledger_row"],
@@ -789,12 +887,23 @@ def remaining_credits(key: str = PROVIDER) -> float:
     return float(sub["character_limit"]) - float(sub.get("character_count") or 0)
 
 
+def _resume():
+    """slate.jobs.resume, by its full name (the module the queue itself uses), or None when the queue isn't built."""
+    import importlib  # noqa: PLC0415
+
+    try:
+        return importlib.import_module("slate.jobs.resume")
+    except ModuleNotFoundError as exc:
+        if str(exc.name or "").startswith("slate.jobs"):
+            return None
+        raise
+
+
 def _register_resume_hooks() -> None:
     # ElevenLabs answers in the same request it bills, so there's no request to poll after a crash (the queue closes
     # such rows as orphaned and `slate ledger reconcile` settles them). Balances, though, it can read for free.
-    try:
-        from slate.jobs import resume  # noqa: PLC0415
-    except ImportError:
+    resume = _resume()
+    if resume is None:
         return
     if hasattr(resume, "register_balance"):
         resume.register_balance(PROVIDER, lambda: remaining_credits(PROVIDER))

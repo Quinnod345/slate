@@ -52,7 +52,7 @@ export function KineticWords({shot: shotId, text, times, role = 'hero', highligh
   const d = durRank(2);
   const e = easeNamed(roleEase('entrance'));
   const lead = t90Of(roleEase('entrance')) * d;
-  const hi = new Set(highlight.map(norm));
+  const hi = new Set(highlight.map((w) => norm(w)));
   const exitU = out === undefined ? 0 : easeNamed(roleEase('exit'))((t - out) / exitDur(d));
   return (
     <div style={{...s, width: W * width, display: 'flex', flexWrap: 'wrap', justifyContent: align === 'center' ? 'center' : align === 'right' ? 'flex-end' : 'flex-start', columnGap: '0.28em', rowGap: '0.05em', opacity: 1 - exitU, transform: exitU > 0 ? `translateY(${(-0.015 * short * exitU).toFixed(3)}px)` : undefined, ...style}}>

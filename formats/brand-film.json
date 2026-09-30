@@ -1,0 +1,50 @@
+{
+ "name": "brand-film",
+ "title": "Brand film",
+ "summary": "A two-to-six-minute 16:9 film that tells a brand's whole story: what it is, why it matters, how it works and what it unlocks. The shape of the films Slate was built from.",
+ "use_when": "The brand needs its flagship: the film for the website and YouTube that every shorter cut comes from.",
+ "runtime_s": {"min": 120, "max": 360, "target": 180},
+ "aspects": {
+  "16:9": {"width": 1920, "height": 1080, "channels": ["youtube", "website"], "type_scale": 1.0}
+ },
+ "default_aspect": "16:9",
+ "fps_num": 30000,
+ "fps_den": 1001,
+ "pace": {"max_words_per_second": 2.6, "lead": 0.3, "tail": 0.3, "act_tail": 0.9,
+          "note": "The films' own placement: a line starts 0.3 s into its shot, the next shot starts 0.3 s after it ends, and an act break breathes for 0.9 s."},
+ "on_screen_max_words": 12,
+ "structure": {
+  "acts": {"min": 5, "max": 8},
+  "beats": [
+   {"name": "hook", "job": "One idea or question the viewer can't ignore, inside the first five seconds.", "share": 0.08},
+   {"name": "tension", "job": "The problem, or the world before: why this matters now.", "share": 0.15},
+   {"name": "reveal", "job": "What the brand is, named plainly.", "share": 0.12},
+   {"name": "how it works", "job": "The product or idea in three steps or fewer, shown working rather than listed.", "share": 0.25},
+   {"name": "proof", "job": "Sourced numbers, the real product and approved claims only.", "share": 0.15},
+   {"name": "what it unlocks", "job": "The viewer's life after: outcomes, not features.", "share": 0.15},
+   {"name": "close", "job": "The lockup and one call to action that says where to go.", "share": 0.1}
+  ],
+  "rules": [
+   "One signature moment per act: the beat people remember and retell.",
+   "On-screen words support the voice instead of repeating it; when the text repeats the voice, people read instead of listening.",
+   "Carry objects across cuts instead of hard-cutting in and out of section cards.",
+   "No long static holds: give every contrast in the voice something to look at.",
+   "Body copy big enough to read at video size; the read-time gate checks every hold.",
+   "End on a call to action with somewhere to go. For YouTube, keep the last 5 to 20 seconds calm enough for end screens."
+  ]
+ },
+ "audio": "required",
+ "loudness": {"lufs": -14, "true_peak": -1, "tolerance_lu": 0.5, "standard": "web, social and streaming delivery"},
+ "captions": {"needed": true, "burn_in": false, "sidecar": ["srt", "vtt"], "max_lines": 2, "max_chars": 42, "max_cps": 17,
+              "min_s": 1.0, "position": "drawn by the player from the sidecar files"},
+ "budget": {"family": "brand_film", "elevenlabs": {"vo": [4000, 12000], "score": [9000, 28000]}, "higgsfield": [40, 85],
+            "rework_factor": 1.5, "note": "What the first brand films spent; the voice-over range includes tag A/B takes."},
+ "broadcast": false,
+ "generation": "rarely",
+ "engines": ["remotion", "ae", "web"],
+ "notes": [
+  "The hero film. Every social cut-down, aspect or language version is a derived film of this one (slate variant), reusing its approved takes and timings by reference.",
+  "A supervised brand film is finished in After Effects, started by the person who supervises it.",
+  "Set broadcast: true in film.json before it airs on TV or in a cinema: broadcast loudness and an Eleven Music Enterprise licence."
+ ]
+}

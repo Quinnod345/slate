@@ -1,8 +1,9 @@
-"""Review stills: PNG frames from the Remotion engine, all from one bundle, which is deleted afterwards.
+"""Review stills: PNG frames from the Remotion engine (all from one bundle, which is deleted afterwards) or from the
+open web renderer (one frame of its range per still, at the film's size, then scaled).
 
 Frames are the act's own frame numbers with `act`, otherwise film frames (Slate finds each one's act). Half size and
 one sample by default, as the films' review stills were: a still is for looking at layout and type, and motion blur on
-a single frame mostly just softens it.
+a single frame mostly just softens it. After Effects renders comps, not frames, so its stills come from its renders.
 """
 
 from __future__ import annotations
@@ -43,10 +44,11 @@ def _files(result: dict) -> list:
 def stills(film_dir: Path, *, frames: list[int], act: int | None = None, scale: float = 0.5, samples: int = 1,
            out_dir: str | Path | None = None, engine: str = "remotion") -> dict:
     """Render stills and return where they landed: {"out_dir", "stills": [{act, frame, film_frame, file}]}."""
-    if engine != "remotion":
-        raise Refused(f"Stills come from the Remotion engine; the {engine} engine renders ranges.",
-                      hint=f"For one frame from {engine}: slate render --engine {engine} --act N --from F --to F "
-                           "--out still.mov")
+    if engine not in ("remotion", "web"):
+        raise Refused(f"Stills come from the Remotion engine or the open web renderer; the {engine} engine renders "
+                      "whole acts.",
+                      hint=f"Render the whole act (slate render --engine {engine} --act N --go); every frame is "
+                           "then in its registered render (slate render list shows where).")
     if not frames:
         raise UsageError("Say which frames: --frames 0,120,240.")
     if not 0 < scale <= 4:
@@ -60,7 +62,7 @@ def stills(film_dir: Path, *, frames: list[int], act: int | None = None, scale: 
     out = Path(out_dir).expanduser() if out_dir else film_dir / DEFAULT_DIR
     out = out if out.is_absolute() else film_dir / out
     out.mkdir(parents=True, exist_ok=True)
-    eng = engines.RemotionEngine(film_dir, film)
+    eng = engines.get(engine, film_dir, film)
     eng.preflight()
     made = []
     try:

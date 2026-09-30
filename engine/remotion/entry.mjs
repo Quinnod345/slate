@@ -4,19 +4,26 @@
 // From timing/shots.json and scenes/act<N>/, this writes <film>/.slate/:
 //   entry.tsx       registerRoot(Root)
 //   Root.tsx        one composition per act (Act1…ActN), the whole film (Film), and a Contract-<Name> still for each
-//                   rest state exported by scenes/contracts.tsx
+//                   rest state exported by scenes/contracts.tsx, each loading its own module only when it renders
+//   act<N>.tsx      one act's composition, in a module of its own, so a half-written or throwing act can't take the
+//                   others down (the films' lessons 2 and 3)
+//   film.tsx        the whole film, every act in order
 //   film-data.ts    what scenes import as '@film/data': the film's size and rate, its acts, and its timing JSON
 //   placeholder.tsx an act that isn't built yet renders its shot ids, on-screen text and VO, so every act (and the
-//                   whole film) renders from day one
+//                   whole film) renders from day one (kit-placeholder.tsx draws it in the brand's look when the kit is
+//                   there)
+//   broken.tsx      stands in for an act whose module doesn't build, so the bundle still builds for every other act
+//   rest-states.tsx the rest states from scenes/contracts, one wrapper each
 //   label.tsx       the frame label contact sheets burn into their cells
 // and <film>/tsconfig.json, so a type check runs from the film folder against the engine's kit and packages.
 //
-// Scenes import '@slate/kit' (engine/remotion/kit) and '@film/data'. Every act exports its component as default;
-// it receives {sub, act, firstFrame}: the motion-blur sample count, its act number and its first film frame.
+// Scenes import '@slate/kit' (engine/remotion/kit) and '@film/data'. An act's component is its module's default
+// export, or a named Act<N>; it receives {sub, act, firstFrame}: the motion-blur sample count, its act number and its
+// first film frame.
 import fs from 'node:fs';
 import path from 'node:path';
 import {build} from 'esbuild';
-import {ENGINE_DIR, KIT_DIR, NODE_MODULES, readJson, usage, writeIfChanged} from './lib/common.mjs';
+import {ENGINE_DIR, KIT_DIR, NODE_MODULES, readJson, refused, usage, writeIfChanged} from './lib/common.mjs';
 import {googleFamilies} from './kit_bridge.mjs';
 import {DATA_KEYS, FILM_COMP, SPOKEN_FALLBACK, TIMING_FILES, compIdForAct} from './lib/film.mjs';
 
@@ -108,6 +115,42 @@ export async function moduleExports(file) {
 }
 
 const hasDefaultExport = (text) => /export\s+default\b/.test(text) || /export\s*\{[^}]*\bas\s+default\b/.test(text);
+
+/**
+ * Which export of an act's module is its component: 'default', else the named `Act<N>` (the kit README's pattern),
+ * else null. When esbuild can't parse the file (a syntax error the type check reports with its line), the text is read
+ * instead, and a file with neither form counts as 'default' so the bundle and the type check name the real problem.
+ */
+export async function actExport(file, act) {
+  const named = `Act${act}`;
+  let names = null;
+  try {
+    names = await moduleExports(file);
+  } catch {
+    names = null;
+  }
+  if (names) {
+    if (names.includes('default')) return 'default';
+    if (names.includes(named)) return named;
+    return null;
+  }
+  const text = fs.readFileSync(file, 'utf8');
+  if (hasDefaultExport(text)) return 'default';
+  if (new RegExp(`export\\s+(const|let|var|function|class)\\s+${named}\\b`).test(text)) return named;
+  return 'default';
+}
+
+/**
+ * Why an act without scenes/act<N>/index.* has no module: nothing there at all, or source files the engine won't guess
+ * between (an act has one entry point, its index).
+ */
+export function missingIndexNote(filmDir, act) {
+  const dir = path.join(filmDir, 'scenes', `act${act}`);
+  if (!fs.existsSync(dir)) return `no scenes/act${act}/index.tsx`;
+  const sources = fs.readdirSync(dir).filter((f) => SCENE_EXTS.includes(path.extname(f)));
+  if (!sources.length) return `no scenes/act${act}/index.tsx`;
+  return `scenes/act${act} has ${sources.slice(0, 3).join(', ')}${sources.length > 3 ? '…' : ''} but no index.tsx, the act's entry point`;
+}
 
 /** The '@film/data' module for a film, written so its imports are relative to `outFile`. */
 export function filmDataSource(ctx, outFile, {brand = null, brandDir = null} = {}) {
@@ -273,108 +316,224 @@ function entrySource(google) {
   return lines.join('\n');
 }
 
-function rootSource(ctx, scenes, contractNames, {kitPlaceholder = false} = {}) {
-  const first = ctx.acts[0].frameIn;
-  const total = ctx.acts.at(-1).frameOut - first;
-  const imports = [];
-  const blocks = [];
-  const comps = [];
-  const seq = [];
-  for (const a of ctx.acts) {
-    const scene = scenes.get(a.act);
-    const Comp = `Act${a.act}Scene`;
-    if (scene) imports.push(`import ${Comp} from '${importPath(slateDir(ctx.dir), scene).replace(/\/index\.(tsx|ts|jsx|js)$/, '')}';`);
-    const Use = scene ? Comp : kitPlaceholder ? 'KitPlaceholder' : 'Placeholder';
-    const where = scene ? path.relative(ctx.dir, scene) : 'not built yet (placeholder)';
-    blocks.push(
-      `// Act ${a.act}${a.name ? ` · ${a.name}` : ''}: film frames ${a.frameIn}–${a.frameOut} (${a.frames} frames), ${a.firstShot}–${a.lastShot}; ${where}`,
-      `const Act${a.act}Frames = ${a.frames};`,
-      `const Act${a.act}: React.FC<Props> = ({sub, label}) => (`,
-      '  <AbsoluteFill>',
-      `    <${Use} sub={S(sub)} act={${a.act}} firstFrame={${a.frameIn}} />`,
-      '    {label ? <Label text={label} /> : null}',
-      '  </AbsoluteFill>',
-      ');',
-      '',
-    );
-    comps.push(
-      `    <Composition id="${compIdForAct(a.act)}" component={Act${a.act}} durationInFrames={Act${a.act}Frames} fps={FPS} width={film.width} height={film.height} defaultProps={{sub: 1}} calculateMetadata={({props}) => ({durationInFrames: Act${a.act}Frames * S(props.sub)})} />`,
-    );
-    seq.push(
-      `      <Sequence from={${a.frameIn - first} * s} durationInFrames={Act${a.act}Frames * s} name="Act ${a.act}">`,
-      `        <${Use} sub={s} act={${a.act}} firstFrame={${a.frameIn}} />`,
-      '      </Sequence>',
-    );
+const KIT_PLACEHOLDER_TSX = `// ${GENERATED_NOTE}
+// An act that isn't built yet, drawn by the kit's placeholder in the brand's look, on the film's clock.
+import React from 'react';
+import {ActRoot, PlaceholderAct} from '@slate/kit';
+import type {SceneProps} from '@film/data';
+
+export const KitPlaceholder: React.FC<SceneProps> = ({sub, act}) => (
+  <ActRoot act={act} sub={sub}>
+    <PlaceholderAct act={act} />
+  </ActRoot>
+);
+`;
+
+const BROKEN_TSX = `// ${GENERATED_NOTE}
+// An act whose module doesn't build yet (a half-written file, a missing import): this stands in for it so every other
+// act still bundles and renders. Slate refuses to render it; \`slate check <act>\` names the file and line.
+import React from 'react';
+import {AbsoluteFill} from 'remotion';
+import {film} from '@film/data';
+import type {SceneProps} from '@film/data';
+
+export const Broken: React.FC<SceneProps & {error: string}> = ({act, error}) => {
+  const u = film.height / 100;
+  return (
+    <AbsoluteFill style={{background: '#1a1a1a', color: '#ececec', fontFamily: 'Menlo, ui-monospace, monospace', padding: u * 8}}>
+      <div style={{fontSize: u * 3, letterSpacing: '0.06em', textTransform: 'uppercase'}}>Act {act} doesn't build</div>
+      <div style={{fontSize: u * 2.4, marginTop: u * 2, whiteSpace: 'pre-wrap', opacity: 0.8}}>{error}</div>
+    </AbsoluteFill>
+  );
+};
+`;
+
+/**
+ * How an act's scene is bound to a local name in a generated module: its default or Act<N> export, the placeholder
+ * when it isn't built, or the Broken stand-in when it doesn't build. Returns {imports, defs, where}.
+ */
+function bindScene(ctx, a, local, {scene, broken, kitPlaceholder}) {
+  if (broken) {
+    return {
+      imports: ["import {Broken} from './broken';", "import type {SceneProps} from '@film/data';"],
+      defs: [`const ${local}: React.FC<SceneProps> = (p) => <Broken {...p} error={${JSON.stringify(broken)}} />;`],
+      where: "doesn't build yet: a stand-in, which renders refuse",
+    };
   }
-  for (const name of contractNames) {
-    comps.push(
-      `    <Composition id="Contract-${name}" component={Contract${name}} durationInFrames={1} fps={FPS} width={film.width} height={film.height} defaultProps={{sub: 1}} />`,
-    );
+  if (scene) {
+    const from = importPath(slateDir(ctx.dir), scene.file).replace(/\/index\.(tsx|ts|jsx|js)$/, '');
+    return {
+      imports: [scene.exportName === 'default' ? `import ${local} from '${from}';` : `import {${scene.exportName} as ${local}} from '${from}';`],
+      defs: [],
+      where: `${path.relative(ctx.dir, scene.file)}${scene.exportName === 'default' ? '' : ` (${scene.exportName})`}`,
+    };
   }
-  const contractImports = contractNames.length
-    ? [`import * as Contracts from '${importPath(slateDir(ctx.dir), contractsModule(ctx.dir)).replace(/\.(tsx|ts|jsx|js)$/, '')}';`]
-    : [];
-  const contractBlocks = contractNames.flatMap((name) => [
-    `// The rest state "${name}" from scenes/contracts: both acts at a boundary that declares it render exactly this.`,
-    `const Contract${name}: React.FC<Props> = () => (`,
-    '  <AbsoluteFill>',
-    `    <Contracts.${name} />`,
-    '  </AbsoluteFill>',
-    ');',
-    '',
-  ]);
+  return {
+    imports: [kitPlaceholder ? `import {KitPlaceholder as ${local}} from './kit-placeholder';` : `import {Placeholder as ${local}} from './placeholder';`],
+    defs: [],
+    where: 'not built yet (placeholder)',
+  };
+}
+
+const actLine = (a, where) => `// Act ${a.act}${a.name ? ` · ${a.name}` : ''}: film frames ${a.frameIn}–${a.frameOut} (${a.frames} frames), ${a.firstShot}–${a.lastShot}; ${where}.`;
+
+/** .slate/act<N>.tsx: one act's composition component, in a module of its own. */
+function actModuleSource(a, bound) {
   return [
     `// ${GENERATED_NOTE}`,
-    '// Compositions: one per act (frame 0 is the act\'s first film frame), the whole film, and one still per rest',
-    '// state. Every composition is sub times longer when rendered with motion blur (render_mb averages the samples).',
+    actLine(a, bound.where),
+    "// Its own module, loaded only when this act's composition renders: another act's module can't break it.",
     "import React from 'react';",
-    "import {AbsoluteFill, Composition, Sequence} from 'remotion';",
-    "import {film} from '@film/data';",
+    "import {AbsoluteFill} from 'remotion';",
     "import {Label} from './label';",
-    "import {Placeholder} from './placeholder';",
-    ...(kitPlaceholder && ctx.acts.some((a) => !scenes.has(a.act))
-      ? ["import {ActRoot, PlaceholderAct} from '@slate/kit';", "import type {SceneProps} from '@film/data';"]
-      : []),
-    ...imports,
-    ...contractImports,
+    ...bound.imports,
     '',
-    'type Props = {sub: number; label?: string};',
-    'const FPS = film.fps_num / film.fps_den;',
+    ...bound.defs,
     'const S = (sub: number) => Math.max(1, Math.round(sub));',
     '',
-    ...(kitPlaceholder && ctx.acts.some((a) => !scenes.has(a.act))
-      ? [
-          "// An act that isn't built yet, drawn by the kit's placeholder in the brand's look, on the film's clock.",
-          'const KitPlaceholder: React.FC<SceneProps> = ({sub, act}) => (',
-          '  <ActRoot act={act} sub={sub}>',
-          '    <PlaceholderAct act={act} />',
-          '  </ActRoot>',
-          ');',
-          '',
-        ]
-      : []),
-    ...blocks,
-    ...contractBlocks,
-    `// The whole film: every act in order, film frames ${first}–${first + total}.`,
-    `const FilmFrames = ${total};`,
-    'const Film: React.FC<Props> = ({sub, label}) => {',
+    `const Act${a.act}: React.FC<{sub: number; label?: string}> = ({sub, label}) => (`,
+    '  <AbsoluteFill>',
+    `    <Scene sub={S(sub)} act={${a.act}} firstFrame={${a.frameIn}} />`,
+    '    {label ? <Label text={label} /> : null}',
+    '  </AbsoluteFill>',
+    ');',
+    `export default Act${a.act};`,
+    '',
+  ].join('\n');
+}
+
+/** .slate/film.tsx: every act in order, each on its own Sequence (the one module that needs them all). */
+function filmModuleSource(ctx, bindings) {
+  const first = ctx.acts[0].frameIn;
+  const total = ctx.acts.at(-1).frameOut - first;
+  const imports = [...new Set(bindings.flatMap((b) => b.imports))];
+  return [
+    `// ${GENERATED_NOTE}`,
+    `// The whole film: every act in order, film frames ${first}–${first + total}. It loads every act's module, so it`,
+    "// renders only when every act builds; each act's own composition doesn't wait for the others.",
+    "import React from 'react';",
+    "import {AbsoluteFill, Sequence} from 'remotion';",
+    "import {Label} from './label';",
+    ...imports,
+    '',
+    ...bindings.flatMap((b) => b.defs),
+    'const S = (sub: number) => Math.max(1, Math.round(sub));',
+    '',
+    'const Film: React.FC<{sub: number; label?: string}> = ({sub, label}) => {',
     '  const s = S(sub);',
     '  return (',
     '    <AbsoluteFill>',
-    ...seq,
+    ...ctx.acts.flatMap((a) => [
+      `      <Sequence from={${a.frameIn - first} * s} durationInFrames={${a.frames} * s} name="Act ${a.act}">`,
+      `        <Act${a.act}Scene sub={s} act={${a.act}} firstFrame={${a.frameIn}} />`,
+      '      </Sequence>',
+    ]),
     '      {label ? <Label text={label} /> : null}',
     '    </AbsoluteFill>',
     '  );',
     '};',
+    'export default Film;',
+    '',
+  ].join('\n');
+}
+
+/** .slate/rest-states.tsx: one wrapper per rest state exported by scenes/contracts. */
+function restStatesSource(ctx, contractNames) {
+  const from = importPath(slateDir(ctx.dir), contractsModule(ctx.dir)).replace(/\.(tsx|ts|jsx|js)$/, '');
+  return [
+    `// ${GENERATED_NOTE}`,
+    '// The rest states from scenes/contracts: both acts at a boundary that declares one render exactly this. Loaded',
+    '// only when a Contract-<Name> still renders.',
+    "import React from 'react';",
+    "import {AbsoluteFill} from 'remotion';",
+    `import * as Contracts from '${from}';`,
+    '',
+    ...contractNames.flatMap((name) => [
+      `export const Contract${name}: React.FC<{sub?: number}> = () => (`,
+      '  <AbsoluteFill>',
+      `    <Contracts.${name} />`,
+      '  </AbsoluteFill>',
+      ');',
+    ]),
+    '',
+  ].join('\n');
+}
+
+/**
+ * Root.tsx: every composition, each loading its own module only when it renders (Remotion's lazyComponent), so a
+ * half-written or throwing act breaks its own composition and the whole film, never another act (the films' lessons 2
+ * and 3: one act's file took down every composition in the shared bundle).
+ */
+function rootSource(ctx, contractNames) {
+  const first = ctx.acts[0].frameIn;
+  const total = ctx.acts.at(-1).frameOut - first;
+  const dims = 'fps={FPS} width={film.width} height={film.height} defaultProps={{sub: 1}}';
+  return [
+    `// ${GENERATED_NOTE}`,
+    "// Compositions: one per act (frame 0 is the act's first film frame), the whole film, and one still per rest",
+    '// state. Every composition is sub times longer when rendered with motion blur (render_mb averages the samples).',
+    '// Each loads its own module only when it renders: a half-written or throwing act breaks its own composition (and',
+    '// the whole film), never another act.',
+    "import React from 'react';",
+    "import {Composition} from 'remotion';",
+    "import {film} from '@film/data';",
+    '',
+    'const FPS = film.fps_num / film.fps_den;',
+    'const S = (sub: number) => Math.max(1, Math.round(sub));',
+    ...ctx.acts.map((a) => `const Act${a.act}Frames = ${a.frames}; // film frames ${a.frameIn}–${a.frameOut}`),
+    `const FilmFrames = ${total}; // film frames ${first}–${first + total}`,
     '',
     'export const Root: React.FC = () => (',
     '  <>',
-    ...comps,
-    `    <Composition id="${FILM_COMP}" component={Film} durationInFrames={FilmFrames} fps={FPS} width={film.width} height={film.height} defaultProps={{sub: 1}} calculateMetadata={({props}) => ({durationInFrames: FilmFrames * S(props.sub)})} />`,
+    ...ctx.acts.map(
+      (a) =>
+        `    <Composition id="${compIdForAct(a.act)}" lazyComponent={() => import('./act${a.act}')} durationInFrames={Act${a.act}Frames} ${dims} calculateMetadata={({props}) => ({durationInFrames: Act${a.act}Frames * S(props.sub)})} />`,
+    ),
+    `    <Composition id="${FILM_COMP}" lazyComponent={() => import('./film')} durationInFrames={FilmFrames} ${dims} calculateMetadata={({props}) => ({durationInFrames: FilmFrames * S(props.sub)})} />`,
+    ...contractNames.map(
+      (name) =>
+        `    <Composition id="Contract-${name}" lazyComponent={() => import('./rest-states').then((m) => ({default: m.Contract${name}}))} durationInFrames={1} ${dims} />`,
+    ),
     '  </>',
     ');',
     '',
   ].join('\n');
+}
+
+/**
+ * Whether a module, and everything it imports from the film and the kit, builds: null, or its first errors with file
+ * and line. Packages are left out (the lockfile pins them). A file that fails here would fail the whole bundle.
+ */
+export async function buildError(ctx, file) {
+  const {esbuildOptions} = await import('./load_act.mjs');
+  try {
+    await build({...esbuildOptions(ctx), entryPoints: [file], write: false, packages: 'external', outdir: path.join(slateDir(ctx.dir), '.precheck'), banner: {}, metafile: false});
+    return null;
+  } catch (e) {
+    const errors = e?.errors ?? [];
+    if (!errors.length) return String(e?.message ?? e).split('\n')[0];
+    return errors
+      .slice(0, 3)
+      .map((x) => (x.location ? `${path.relative(ctx.dir, path.resolve(ctx.dir, x.location.file))}:${x.location.line}:${x.location.column}: ${x.text}` : x.text))
+      .join('; ');
+  }
+}
+
+/**
+ * Refuse a composition that can't render because an act doesn't build: Act<N> when act N is broken, Film when any act
+ * is. `info` is ensureEntry()'s result.
+ */
+export function refuseBroken(info, comp) {
+  const broken = info?.broken ?? [];
+  if (!broken.length) return;
+  const m = /^Act(\d+)$/.exec(String(comp));
+  const hit = m ? broken.filter((b) => b.act === Number(m[1])) : comp === FILM_COMP ? broken : [];
+  if (!hit.length) return;
+  throw refused(
+    `${comp} can't render: ${hit.map((b) => `act ${b.act} doesn't build (${b.error})`).join('; ')}.`,
+    `Fix it (\`slate check ${hit[0].act}\` names the file and line); every other act still renders meanwhile.`,
+    {broken: hit},
+  );
 }
 
 /** The compiler options every Slate type check uses (the films' tsconfig, plus the engine's module paths). */
@@ -403,10 +562,12 @@ export function compilerOptions(kitPath = KIT_DIR, filmData = './.slate/film-dat
 }
 
 function tsconfigSource() {
-  const cfg = {compilerOptions: compilerOptions(), include: ['scenes', '.slate']};
+  // .slate/public holds links to the film's captures and plates (thousands of frames): never walk it for sources
+  const cfg = {compilerOptions: compilerOptions(), include: ['scenes', '.slate'], exclude: ['.slate/public']};
   return [
     `// ${GENERATED_NOTE}`,
-    `// Type checks run from this folder against the engine at ${ENGINE_DIR}.`,
+    `// Type checks run from this folder against the engine at ${ENGINE_DIR}:`,
+    `//   node ${path.join(NODE_MODULES, 'typescript', 'bin', 'tsc')} -p tsconfig.json`,
     JSON.stringify(cfg, null, 1),
     '',
   ].join('\n');
@@ -436,14 +597,19 @@ export async function ensureEntry(ctx, {brandPath = null} = {}) {
   const warnings = [];
   for (const a of ctx.acts) {
     const idx = sceneIndex(ctx.dir, a.act);
-    if (!idx) continue;
-    if (!hasDefaultExport(fs.readFileSync(idx, 'utf8'))) {
+    if (!idx) {
+      const note = missingIndexNote(ctx.dir, a.act);
+      if (!note.startsWith('no ')) warnings.push(`${note}: act ${a.act} renders as a placeholder until it has one`);
+      continue;
+    }
+    const exportName = await actExport(idx, a.act);
+    if (!exportName) {
       throw usage(
-        `${path.relative(ctx.dir, idx)} has no default export.`,
-        "Export the act's component as default: export default function Act(props: SceneProps) {…}",
+        `${path.relative(ctx.dir, idx)} exports no component: neither a default export nor Act${a.act}.`,
+        `Export the act's component as default (export default function Act${a.act}(props: SceneProps) {…}) or as Act${a.act}.`,
       );
     }
-    scenes.set(a.act, idx);
+    scenes.set(a.act, {file: idx, exportName});
   }
   const scenesDir = path.join(ctx.dir, 'scenes');
   if (fs.existsSync(scenesDir)) {
@@ -452,42 +618,92 @@ export async function ensureEntry(ctx, {brandPath = null} = {}) {
       if (m && !ctx.acts.some((a) => a.act === Number(m[1]))) warnings.push(`scenes/${name} has no act ${m[1]} in timing/shots.json; it isn't registered.`);
     }
   }
+  const {brand, brandDir} = readBrand(brandPath);
+  const changed = [];
+  const write = (file, text) => {
+    if (writeIfChanged(file, text)) changed.push(path.relative(ctx.dir, file));
+  };
+  // '@film/data' first: the build checks below resolve it.
+  write(filmDataFile(ctx.dir), filmDataSource(ctx, filmDataFile(ctx.dir), {brand, brandDir}));
+  // An act whose module doesn't build (a half-written file) gets a stand-in, so it can't take the bundle down for
+  // every other act; renders refuse it by name.
+  const broken = [];
+  for (const [act, scene] of scenes) {
+    const error = await buildError(ctx, scene.file);
+    if (error) {
+      broken.push({act, error});
+      warnings.push(`act ${act} doesn't build (${error}): it's left out of the bundle until it does; every other act still renders`);
+    }
+  }
+  const brokenOf = new Map(broken.map((b) => [b.act, b.error]));
   let contractNames = [];
+  let contractsError = null;
   const cm = contractsModule(ctx.dir);
   if (cm) {
-    contractNames = (await moduleExports(cm)).filter((n) => /^[A-Z][A-Za-z0-9]*$/.test(n));
+    contractsError = await buildError(ctx, cm);
+    if (contractsError) {
+      warnings.push(`${path.relative(ctx.dir, cm)} doesn't build (${contractsError}): no rest-state stills until it does`);
+    } else {
+      contractNames = (await moduleExports(cm)).filter((n) => /^[A-Z][A-Za-z0-9]*$/.test(n));
+    }
   }
-  const {brand, brandDir} = readBrand(brandPath);
   const google = kitPresent() ? await googleFamilies(brand) : [];
   for (const g of google) {
     if (!g.module) warnings.push(`the brand's ${g.family} comes from Google Fonts, but @remotion/google-fonts has no ${g.family}; the font gate will fail until the pack names a Google family it has`);
   }
   const kitPlaceholder = Boolean(kitEntry());
+  const needsKitPlaceholder = kitPlaceholder && ctx.acts.some((a) => !scenes.has(a.act));
   const files = {
     entry: path.join(sdir, 'entry.tsx'),
     root: path.join(sdir, 'Root.tsx'),
+    film: path.join(sdir, 'film.tsx'),
     film_data: filmDataFile(ctx.dir),
     placeholder: path.join(sdir, 'placeholder.tsx'),
+    broken: path.join(sdir, 'broken.tsx'),
     label: path.join(sdir, 'label.tsx'),
     tsconfig: path.join(ctx.dir, 'tsconfig.json'),
     gitignore: path.join(sdir, '.gitignore'),
   };
-  const contents = {
-    entry: entrySource(google),
-    root: rootSource(ctx, scenes, contractNames, {kitPlaceholder}),
-    film_data: filmDataSource(ctx, files.film_data, {brand, brandDir}),
-    placeholder: PLACEHOLDER_TSX,
-    label: LABEL_TSX,
-    tsconfig: tsconfigSource(),
-    gitignore: '# Generated by the engine; rewritten on every run.\n*\n',
+  const bind = (a, local) => bindScene(ctx, a, local, {scene: scenes.get(a.act), broken: brokenOf.get(a.act), kitPlaceholder});
+  write(files.entry, entrySource(google));
+  write(files.root, rootSource(ctx, contractNames));
+  write(files.film, filmModuleSource(ctx, ctx.acts.map((a) => bind(a, `Act${a.act}Scene`))));
+  write(files.placeholder, PLACEHOLDER_TSX);
+  write(files.broken, BROKEN_TSX);
+  write(files.label, LABEL_TSX);
+  write(files.tsconfig, tsconfigSource());
+  write(files.gitignore, '# Generated by the engine; rewritten on every run.\n*\n');
+  // Optional modules: written when something uses them, removed when nothing does (a stale one would still be
+  // type-checked by the film's tsconfig).
+  const optional = {
+    'kit-placeholder.tsx': needsKitPlaceholder ? KIT_PLACEHOLDER_TSX : null,
+    'rest-states.tsx': contractNames.length ? restStatesSource(ctx, contractNames) : null,
   };
-  const changed = [];
-  for (const [key, file] of Object.entries(files)) {
-    if (writeIfChanged(file, contents[key])) changed.push(path.relative(ctx.dir, file));
+  for (const [name, text] of Object.entries(optional)) {
+    const f = path.join(sdir, name);
+    if (text !== null) {
+      write(f, text);
+      files[name.replace(/\.tsx$/, '').replace('-', '_')] = f;
+    } else if (fs.existsSync(f)) {
+      fs.rmSync(f);
+      changed.push(path.relative(ctx.dir, f));
+    }
   }
+  const wanted = new Set();
   for (const a of ctx.acts) {
-    const f = path.join(sdir, `tsconfig.act${a.act}.json`);
-    if (writeIfChanged(f, actTsconfigSource(a.act))) changed.push(path.relative(ctx.dir, f));
+    const actFile = path.join(sdir, `act${a.act}.tsx`);
+    const tsFile = path.join(sdir, `tsconfig.act${a.act}.json`);
+    wanted.add(path.basename(actFile)).add(path.basename(tsFile));
+    write(actFile, actModuleSource(a, bind(a, 'Scene')));
+    write(tsFile, actTsconfigSource(a.act));
+    files[`act${a.act}`] = actFile;
+  }
+  // an act that left timing/shots.json takes its generated modules with it
+  for (const name of fs.readdirSync(sdir)) {
+    if (/^(act\d+\.tsx|tsconfig\.act\d+\.json)$/.test(name) && !wanted.has(name)) {
+      fs.rmSync(path.join(sdir, name));
+      changed.push(path.relative(ctx.dir, path.join(sdir, name)));
+    }
   }
   return {
     dir: sdir,
@@ -498,10 +714,14 @@ export async function ensureEntry(ctx, {brandPath = null} = {}) {
     acts: ctx.acts.map((a) => ({
       act: a.act,
       comp: compIdForAct(a.act),
-      scene: scenes.has(a.act) ? path.relative(ctx.dir, scenes.get(a.act)) : null,
+      scene: scenes.has(a.act) ? path.relative(ctx.dir, scenes.get(a.act).file) : null,
+      ...(scenes.has(a.act) && scenes.get(a.act).exportName !== 'default' ? {export: scenes.get(a.act).exportName} : {}),
+      ...(brokenOf.has(a.act) ? {broken: brokenOf.get(a.act)} : {}),
       frame_in: a.frameIn,
       frames: a.frames,
     })),
+    broken,
+    ...(contractsError ? {contracts_error: contractsError} : {}),
     compositions: [...ctx.acts.map((a) => compIdForAct(a.act)), FILM_COMP, ...contractNames.map((n) => `Contract-${n}`)],
     contracts: contractNames,
     kit: {present: kitPresent(), dir: KIT_DIR, placeholder: kitPlaceholder},

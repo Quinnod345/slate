@@ -38,8 +38,22 @@ export type ShotsFile = {
 export type VoCue = {shot: string; at: number; file?: string; gain?: number; fade_in?: number; fade_out?: number; [key: string]: unknown};
 export type VoCuesFile = {cues: VoCue[]; [key: string]: unknown};
 
-/** timing/vo_words.json: every shot's read, word by word. */
-export type VoWordsFile = {shots: Record<string, {take?: string; line?: string; words: Word[]; [key: string]: unknown}>; [key: string]: unknown};
+/**
+ * One word of a script line, lined up with the read by Python (slate.timing.words.resolve_tokens): its text and match
+ * key, which occurrence of that key it is in the line, and its take-relative span. `exact` is false when the read
+ * doesn't account for it (the span is then an estimate between its heard neighbours).
+ */
+export type VoToken = {t: string; key: string; occ: number; start: number; end: number; exact: boolean; i?: number; j?: number; [key: string]: unknown};
+
+/** timing/vo_words.json: every shot's read, word by word, and its script's words lined up with them (`tokens`). */
+export type VoWordsFile = {shots: Record<string, {take?: string; line?: string; words: Word[]; tokens?: VoToken[]; [key: string]: unknown}>; [key: string]: unknown};
+
+/**
+ * How the film's language turns a word into a match key (slate.timing.spoken's table, written by the engine as
+ * .slate/lang.json): the symbols a key keeps, the symbols a token keeps at its edges, the marks that make a number
+ * negative, and the longest run of heard words one written token can be said as.
+ */
+export type LangRules = {lang?: string; keep?: string; strip_keep?: string; negative_marks?: string; max_run?: number};
 
 /** film.json, the parts the picture needs. fps and size come from here and nowhere else. */
 export type FilmInfo = {
@@ -69,6 +83,8 @@ export type FilmData = {
   captions?: unknown;
   /** token -> the ways it is said, each a list of words: {"64": [["sixty-four"]], "&": [["and"]]} */
   spoken?: Record<string, string[][]>;
+  /** the language's word-matching rules (see LangRules) */
+  lang?: LangRules;
   /** the brand pack (brand.json) with its logo SVGs inlined as text */
   brand?: BrandPack;
   /** the act this entry was generated for, when it was generated for one */
