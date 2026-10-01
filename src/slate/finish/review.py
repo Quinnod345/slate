@@ -23,6 +23,14 @@ Where it goes (`--to`, or [finish.review] to):
   approve. Nothing posts without their yes.
 
 Nothing is sent from tests or replay runs, and `--dry-run` prints what would be sent.
+
+Until the final mix exists, the packet's cuts play the voice alone, placed on its cues, and say so (a silent cut only
+when there's no voice either).
+
+A proposed mix is reviewed against the current picture with `slate review --audio <mix>` (the films' review_cuts.sh
+gained AUDIO= for this): a phone cut and a half-size cut of the same picture with that mix as the sound, in
+review/proposals/<mix>-<its hash>-<the picture's>/ with a short review.md, copied to Downloads for your own films.
+The film's own mix, packet and version are untouched.
 """
 
 from __future__ import annotations
@@ -38,6 +46,10 @@ from slate.finish.film import Film
 
 PUBLISHING = "not approved for publishing"
 DESTINATIONS = ("downloads", "imessage")
+PROPOSALS = "review/proposals"
+SOUND_WORDS = {"final mix": "the final mix", "voice only": "the voice alone, each take placed on its cue (there's no "
+               "final mix yet)", "silent": "silent (there's no final mix and no voice yet)",
+               "the master's own": "the master's own mix", "proposed mix": "a proposed mix"}
 
 
 def _previous(film: Film, n: int) -> tuple[int | None, dict | None]:
@@ -138,6 +150,8 @@ def markdown(film: Film, rec: dict) -> str:
              f"{rec['film']['seconds']:.1f} s, {rec['film']['width']}×{rec['film']['height']}, "
              f"{rec['film']['fps']} fps. "
              f"{PUBLISHING.capitalize()}.", "",
+             f"The sound is {SOUND_WORDS.get(rec['source'].get('sound') or '', rec['source'].get('sound') or 'unknown')}.",
+             "",
              f"- Phone cut: `{files['phone_cut']['file']}` (timecode and shot id under the picture)"]
     for s in files["contact_sheets"]:
         lines.append(f"- Contact sheet: `{s['file']}` ({s['tiles']} frames, one every {rec['sheet']['step_s']} s)")
@@ -152,6 +166,100 @@ def markdown(film: Film, rec: dict) -> str:
               "    slate notes add \"the card lands late\" --at 00:00:12:05", "",
               "Then `slate notes plan` shows the targeted fixes (perfect, don't replace).", ""]
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# A proposed mix against the current picture
+
+
+def _slug(text: str) -> str:
+    import re  # noqa: PLC0415
+
+    return re.sub(r"[^A-Za-z0-9._-]+", "-", text).strip("-")[:40] or "mix"
+
+
+def proposal_plan(film_dir: Path, mix: str | Path) -> dict:
+    """Where `slate review --audio <mix>` would put its cuts, and from what (--dry-run; nothing is made)."""
+    film = Film(Path(film_dir))
+    src = cuts.with_audio(film, Path(mix))
+    sha = jsonio.sha256(src.audio)
+    fp = film.fingerprint()
+    name = f"{_slug(src.audio.stem)}-{sha[:8]}-{fp[:8]}"
+    folder = film.path(PROPOSALS) / name
+    return {"film": film.id, "dry_run": True, "folder": film.rel(folder), "exists": (folder / "proposal.json").is_file(),
+            "picture": src.describe(film), "mix": {"file": film.rel(src.audio), "sha256": sha},
+            "version": versions.resolve(film, start=False)["version"]}
+
+
+def proposal(film_dir: Path, mix: str | Path, *, rebuild: bool = False) -> dict:
+    """Review cuts of the current picture with a proposed mix as the sound (`slate review --audio <mix>`): a phone cut
+    with the timecode burned in and a half-size cut, in review/proposals/<name>/ with proposal.json and review.md. The
+    mix must run the picture's length (within a frame). The film's own mix, packet and version don't change."""
+    film = Film(Path(film_dir))
+    media.require()
+    src = cuts.with_audio(film, Path(mix))
+    sha = jsonio.sha256(src.audio)
+    fp = film.fingerprint()
+    n = versions.resolve(film, start=False)["version"]
+    name = f"{_slug(src.audio.stem)}-{sha[:8]}-{fp[:8]}"
+    d = film.path(PROPOSALS) / name
+    rec_path = d / "proposal.json"
+    existing = jsonio.read(rec_path, default=None) if rec_path.is_file() else None
+    if isinstance(existing, dict) and not rebuild:
+        return {"proposal": rec_path, "built": False, "record": existing, "folder": d}
+    d.mkdir(parents=True, exist_ok=True)
+    log.info(f"review: a proposed mix ({src.audio.name}) over v{n}'s picture ({src.kind})")
+    phone = cuts.phone_cut(film, d / f"{film.id}_v{n}_{name}_phone.mp4", source=src, burn=True,
+                           right=f"v{n} {src.audio.stem[:18]}")
+    half = cuts.review_half(film, d / f"{film.id}_v{n}_{name}_review_half.mp4", source=src)
+    record = {
+        "generated": "do not edit by hand: slate review --audio",
+        "schema": 1,
+        "film": {"id": film.id, "title": film.title, "fps": film.rate, "width": film.size[0],
+                 "height": film.size[1], "frames": film.total_frames, "seconds": round(film.seconds, 3)},
+        "version": n,
+        "made_at": gates.now_iso(),
+        "mix": {"file": film.rel(src.audio), "sha256": sha, "bytes": src.audio.stat().st_size,
+                "film_mix": film.rel(film.mix()) if film.mix() else None},
+        "picture": src.describe(film),
+        "picture_fingerprint": fp,
+        "files": {"phone_cut": {**_file_entry(d, Path(phone["file"])), "frames": phone["frames"],
+                                "size": [phone["width"], phone["height"]], "burnin": phone.get("burnin")},
+                  "review_cut": {**_file_entry(d, Path(half["file"])), "frames": half["frames"],
+                                 "size": [half["width"], half["height"]]},
+                  "review_md": "review.md"},
+        "publishing": PUBLISHING,
+        "note": "A proposed mix over the current picture: the film's own mix, packet and version are unchanged.",
+    }
+    lines = [f"# {film.title}, v{n}: a proposed mix", "",
+             f"The picture is v{n}'s, from the {src.kind}; the sound is `{record['mix']['file']}` "
+             f"(sha256 {sha[:12]}…), not the film's own mix"
+             + (f" (`{record['mix']['film_mix']}`)" if record["mix"]["film_mix"] else "") + ". "
+             f"{PUBLISHING.capitalize()}.", "",
+             f"- Phone cut: `{record['files']['phone_cut']['file']}` (timecode and shot id under the picture)",
+             f"- Half-size cut: `{record['files']['review_cut']['file']}`", "",
+             "Notes on the mix, with the timecode from the bar under the picture:", "",
+             '    slate notes add "the score crowds the line" --at 00:00:12:05 --stage sound', ""]
+    (d / "review.md").write_text("\n".join(lines), encoding="utf-8")
+    jsonio.write_atomic(rec_path, record)
+    return {"proposal": rec_path, "built": True, "record": record, "folder": d}
+
+
+def proposal_to_downloads(film_dir: Path, res: dict, *, dry_run: bool = False) -> dict:
+    """Copy a proposal's cuts and review.md into a new folder in Downloads (nothing there is ever replaced)."""
+    film = Film(Path(film_dir))
+    d, rec = Path(res["folder"]), res["record"]
+    files = [d / rec["files"]["phone_cut"]["file"], d / rec["files"]["review_cut"]["file"], d / "review.md"]
+    dest = media.free_name(settings.downloads_dir(), f"{film.id} v{rec['version']} mix {Path(rec['mix']['file']).stem}")
+    if dry_run:
+        return {"destination": "downloads", "folder": str(dest), "files": [str(f) for f in files], "sent": False,
+                "dry_run": True, "why": "not copied: dry run"}
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.mkdir(parents=False)
+    for f in files:
+        shutil.copy2(f, dest / f.name)
+    return {"destination": "downloads", "folder": str(dest), "files": [f.name for f in files], "sent": True,
+            "dry_run": False, "why": "copied"}
 
 
 # ---------------------------------------------------------------------------------------------------------------

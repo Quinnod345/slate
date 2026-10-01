@@ -136,13 +136,15 @@ def test_pace_stats_and_the_scene_join():
 
 def test_whisper_missing_is_unchecked_not_a_crash(slate_home, monkeypatch, tmp_path):
     monkeypatch.delenv("SLATE_FAKE_VENDORS", raising=False)
-    from slate import procs
     from slate.errors import MissingPrerequisite
+    from slate.timing import align
 
-    def no_whisper(tool, hint=None):
+    def no_whisper(*, required=True):
+        # the one seam every stage finds Whisper through (SLATE_WHISPER, slate.toml, then PATH): a Mac with Whisper
+        # installed must still see the missing case, and the real CLI never runs here
         raise MissingPrerequisite("whisper isn't installed or isn't on PATH.", hint="Install openai-whisper.")
 
-    monkeypatch.setattr(procs, "require", no_whisper)
+    monkeypatch.setattr(align, "whisper_exe", no_whisper)
     audio = tmp_path / "a.wav"
     audio.write_bytes(b"")
     result, data = transcript.run(audio, {"sha256": "0" * 64, "duration_s": 1.0}, tmp_path, language="en", source="mix")

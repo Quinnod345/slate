@@ -82,9 +82,13 @@ def cmd_submit(args: argparse.Namespace) -> int:
     job = store.load(job_id)
     out = {"id": job_id, "state": job["state"], "priority": job["priority"], "runner": served, "log": job["log"],
            "poll": f"slate job status {job_id}"}
+    runner_note = {"running": "a runner is already serving the queue",
+                   "started": "started a detached one-shot runner (the launchd agent isn't loaded)",
+                   "waiting": "waiting for the launchd runner: one started inside the OpenClaw gateway would go "
+                              "through its egress proxy, which turns the vendors away (the owner loads it with "
+                              "`slate jobs agent install` in their own Terminal)"}
     human = [f"Queued {job_id} ({job['kind']}, {job['priority']} priority).",
-             "  runner: " + ("a runner is already serving the queue" if served == "running"
-                             else "started a detached one-shot runner (the launchd agent isn't loaded)"),
+             "  runner: " + runner_note.get(served, served),
              f"  poll:   slate job status {job_id}", f"  log:    slate job log {job_id}"]
     if job.get("priority_requested"):
         human.insert(1, f"  (asked for {job['priority_requested']}; a job never outranks its film's mode)")

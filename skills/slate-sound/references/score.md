@@ -33,6 +33,9 @@ Compose runs through the ledger (estimated and budget-checked before the first c
   in and out at a take's edges regardless of the plan.
 - **An exact moment must be a part boundary on the word's time**, not a section inside a take.
 - **The score never plays the effects' materials** (they go in its negative styles), so the two never blur together.
+- **Never name an artist, songwriter, song or label** in a plan's styles or prompts, never ask the music to sound like
+  one, and no lyrics. The outputs aren't exclusive, and some industries are excluded by the vendor's terms (the front
+  door's licences reference has the terms).
 - **Leave room for the narrator** in the style, and let the score yield to a pad under a character's motif.
 
 ## Directions: sound/score/directions.json
@@ -56,6 +59,10 @@ The one hand-edited file in the score's folder. It says where the music does som
 - **Ends**: `handover` (the next part's join) or `stop` (stops dead just before the next landing: a held breath,
   recorded as a planned stop).
 - **Planned stops** always carry a `why`; the gap check treats anything else as a hole.
+- **Big moments land together**: a bloom with `"together": true`, or a moment inside a part
+  (`"moments": [{"event": "...", "why": "..."}]`), holds its breath (an 80 ms fade into a short silence) and comes back
+  exactly on the hit, 3 dB over its own level and settling over 2 s. It re-cuts the music already there; nothing new is
+  composed.
 
 ## Musical choices that worked
 
@@ -86,7 +93,11 @@ The one hand-edited file in the score's folder. It says where the music does som
   close a hole cascades into the next seams.
 - **The gap check**: no half-second window of the music under −60 dBFS outside the planned stops, predicted at assembly
   and measured again after the mix (the score's own QA misses holes under about 1.5 s and the last second).
-- The end holds and is silent on the film's final frame.
+- **Act joins breathe, never sag**: a join between acts may dip at most 7 dB, for at most 0.25 s, with no 100 ms step
+  over 7 dB; the assembly fails a join past that.
+- The end holds and is silent on the film's final frame. The final chord holds, and the score fades into the film's
+  silent last second (the brand's balance `end_silent: "always"`, the films' rule and the default). A brand that sets
+  `"plan"` leaves the ending to the plan, and the music then plays to the last frame.
 
 ## Level and licence
 

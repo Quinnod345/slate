@@ -30,6 +30,8 @@ is [the glitch catalogue](glitch-catalogue.md).
   each other read as cards seen through cards.
 - **Return an object by carrying it back** (rising from below), not by fading it up from depth: a fade read as a ghost.
 - **Carried elements leave with their page**; nothing lingers half-cropped at the frame edge into the next section.
+- **A sheet's edge shadow fades out as the edge reaches the frame's border**, so the shadow band never vanishes in one
+  frame.
 - **Deal new cards in** rather than leaving an empty frame between screens, and keep content visible during a morph.
 
 ## Morphs and overlaps
@@ -44,6 +46,7 @@ is [the glitch catalogue](glitch-catalogue.md).
 - **When an element lifts off a chart**, its attached parts (area fill, head marker) go with it or fade gradually;
   removing them all on the hand-off frame changed 23,654 pixels in one frame.
 - **Draw merged segments as one continuous path** so no seams show.
+- **When a layer splits in two along a line**, overlap the halves by about 2 px so no seam shows.
 
 ## Depth and stacking
 

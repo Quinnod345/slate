@@ -93,6 +93,9 @@ Among the takes that pass, the pick is the clearest feeling with the fullest voi
 current take: retagging it is a job for the owner's ear, not another round. Replayed stand-ins (tests, demos) are never
 picked. `ranking.md` shows every take's gates.
 
+Pooling more untagged reads (new baseline seeds, more lines) shifts the calibration a little and can flip a near-edge
+verdict: after a recalibration, re-run every approved and proposed take through the gates.
+
 ## ABC: listen
 
 For one line: A is the film's current take, then the best passing candidates (one per tag family first), each

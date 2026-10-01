@@ -31,6 +31,11 @@ Generalized from the films' `pipeline/tools/hf_api.py`, with every lesson it lea
 - **Replay.** With `SLATE_FAKE_VENDORS=1` every call is answered from `slate.replay`: a recorded fixture, or a faker
   that quotes from registry.json and returns a flat test frame (image models) or a tiny test clip (video models).
   Nothing reaches the network and nothing is spent; everything a fake touches is marked `replay`.
+- **The OpenClaw gateway.** Its egress proxy doesn't let api.higgsfield.ai through, so inside it no live call is tried:
+  the command queues itself for Slate's launchd job runner (outside the gateway) or refuses with the next step
+  (`slate.vendors.egress`). A proxy's 403 at the tunnel anywhere is a MissingPrerequisite naming the owner's egress
+  allowlist and the queue route; a submit that died there never reached Higgsfield, so it's never counted as
+  maybe-billed.
 
 Docs: https://docs.higgsfield.ai/docs/llms.txt (lifecycle, polling, uploads, billing and retention).
 """
@@ -51,6 +56,7 @@ from typing import Any, Callable
 
 from slate import config, jsonio, ledger, log, replay, secrets
 from slate.errors import Busy, MissingPrerequisite, SlateError, TryLater, UsageError
+from slate.vendors import egress
 
 PROVIDER = "higgsfield"
 LANE = "cloud-api"
@@ -227,6 +233,9 @@ class Client:
     def _url(self, path: str) -> str:
         return f"{self.base}/{path.lstrip('/')}"
 
+    def _host(self) -> str:
+        return urllib.parse.urlparse(self.base).netloc or egress.HOSTS[PROVIDER]
+
     def _send(self, op: str, method: str, path: str, *, body: Any = None, auth: bool = True,
               replay_request: dict | None = None, headers: dict | None = None) -> tuple[int, dict]:
         """One request. In replay mode (and no injected transport) the answer comes from slate.replay."""
@@ -242,9 +251,17 @@ class Client:
                     self._submits += 1
                     request = {**request, "submit": self._submits}
             return 200, replay.respond(PROVIDER, op, request)
+        if self._transport is None:
+            egress.route(PROVIDER, host=self._host(), op=op)  # inside the OpenClaw gateway: queue or refuse, never try
         transport = self._transport or http_transport
         sent_headers = {**(self._auth() if auth else {}), **(headers or {})}
-        status, _, raw = transport(method, self._url(path), headers=sent_headers, json_body=body)
+        try:
+            status, _, raw = transport(method, self._url(path), headers=sent_headers, json_body=body)
+        except SlateError as exc:  # never reached Higgsfield: a proxy's 403 at the tunnel says why, and what to do
+            blocked = egress.from_error(PROVIDER, self._host(), exc, op=op)
+            if blocked is not None:
+                raise blocked from None
+            raise
         answer = _json_or_detail(raw)
         if replay.recording() and op in ("estimate", "submit", "status", "cancel") and 200 <= status < 300:
             replay.record(PROVIDER, replay.request_key(PROVIDER, op, replay_request or {"path": path, "body": body}),
@@ -278,7 +295,12 @@ class Client:
             return {"ok": False, "status": "no_key", "http": None, "lane": LANE,
                     "summary": "No Higgsfield Cloud API key on this Mac.", "hint": exc.hint}
         try:
+            if self._transport is None:
+                egress.route(PROVIDER, host=self._host(), op="probe", queue=False)  # a probe reports, never queues
             status, _ = self._send("probe", "GET", f"requests/{PROBE_REQUEST_ID}/status")
+        except egress.EgressBlocked as exc:  # the gateway's egress proxy: say so, with both ways round it
+            return {"ok": False, "status": "unreachable", "http": None, "lane": LANE, "summary": exc.message,
+                    "hint": exc.hint, "egress": dict(exc.details)}
         except SlateError as exc:
             return {"ok": False, "status": "unreachable", "http": None, "lane": LANE,
                     "summary": f"Couldn't reach {urllib.parse.urlparse(self.base).netloc}: {exc.message}"}
@@ -318,6 +340,8 @@ class Client:
         row before this returns, so whatever waits next can die without the spend being lost or repeated.
         """
         _check_model_path(path)
+        if not self.fake and self._transport is None:
+            egress.route(PROVIDER, host=self._host(), op="submit")  # the gateway: before any row is begun or adopted
         request_key = key or f"generate-{os.urandom(8).hex()}"
         idem = idempotency_key(request_key) if idempotent else None
         adopted = self._abandoned_row(request_key)
@@ -343,7 +367,7 @@ class Client:
         row = adopted["id"] if adopted is not None else ledger.begin(
             est, film=film, mode=mode, approval_id=approval_id, rework=rework, note=note or f"higgsfield {path}",
             key=request_key)
-        status, answer = self._post_submit(path, body, row=row, est=est, idem=idem)
+        status, answer = self._post_submit(path, body, row=row, est=est, idem=idem, fresh_row=adopted is None)
         request_id = str(answer["request_id"])
         ledger.request(row, request_id)
         return {"request_id": request_id, "status": answer.get("status", "queued"), "ledger_row": row,
@@ -351,9 +375,11 @@ class Client:
                 "request_key": request_key, "resumed": adopted is not None}
 
     def _post_submit(self, path: str, body: dict, *, row: str, est: ledger.Estimate,
-                     idem: str | None) -> tuple[int, dict]:
+                     idem: str | None, fresh_row: bool = True) -> tuple[int, dict]:
         """POST the submit: with an Idempotency-Key, resend the same key and body when the answer was lost; without
-        one, exactly once. Closes the ledger row itself on anything but a request id."""
+        one, exactly once. Closes the ledger row itself on anything but a request id. A row this call took over from
+        an earlier run (`fresh_row` False) stays open when a proxy stops this attempt at the tunnel: this attempt never
+        reached Higgsfield, but the earlier one may have."""
         headers = {IDEMPOTENCY_HEADER: idem} if idem else {}
         tries = SUBMIT_TRIES if idem else 1
         delay = 2.0
@@ -365,6 +391,13 @@ class Client:
             try:
                 status, answer = self._send("submit", "POST", path, body=body, headers=headers,
                                             replay_request={"path": path, "body": body})
+            except egress.EgressBlocked as exc:  # stopped at the proxy's tunnel: it never reached Higgsfield
+                if fresh_row and attempts == 1:
+                    ledger.finish(row, status="failed", actual=0.0,
+                                  result={"error": exc.message[:300], "egress_proxy": True, "lane": LANE,
+                                          "idempotency_key": idem, "tries": attempts,
+                                          "counted": "nothing: the request never left this Mac's proxy"})
+                raise
             except SlateError as exc:  # no answer at all: the job may exist, and bill
                 lost = exc
                 status, answer = 0, {}
@@ -496,7 +529,16 @@ class Client:
             return str(slot["public_url"])
         put_headers = dict(slot.get("upload_headers") or {"Content-Type": ctype})
         transport = self._transport or http_transport
-        put_status, _, _ = transport("PUT", str(slot["upload_url"]), headers=put_headers, data=file.read_bytes())
+        upload_host = urllib.parse.urlparse(str(slot["upload_url"])).netloc
+        if self._transport is None:
+            egress.route(PROVIDER, host=upload_host, op="upload")
+        try:
+            put_status, _, _ = transport("PUT", str(slot["upload_url"]), headers=put_headers, data=file.read_bytes())
+        except SlateError as exc:
+            blocked = egress.from_error(PROVIDER, upload_host, exc, op="upload")
+            if blocked is not None:
+                raise blocked from None
+            raise
         if put_status not in (200, 201, 204):
             raise HiggsfieldError(f"The upload of {file.name} failed (HTTP {put_status}); its URL wasn't used.",
                                   status=put_status)
@@ -513,10 +555,20 @@ class Client:
         dest.mkdir(parents=True, exist_ok=True)
         if url.startswith(REPLAY_SCHEME):
             return fake_media(url, dest, stem)
+        import urllib.error  # noqa: PLC0415
+
         from slate import http  # noqa: PLC0415
 
         ext = os.path.splitext(urllib.parse.urlparse(url).path)[1] or ".bin"
-        return http.download(url, dest / f"{stem}{ext}")
+        media_host = urllib.parse.urlparse(url).netloc
+        egress.route(PROVIDER, host=media_host, op="download")
+        try:
+            return http.download(url, dest / f"{stem}{ext}")
+        except (urllib.error.URLError, OSError, SlateError) as exc:  # a proxy's 403 at the tunnel: say so
+            blocked = egress.from_error(PROVIDER, media_host, exc, op="download")
+            if blocked is not None:
+                raise blocked from None
+            raise
 
     def generate(self, path: str, body: dict, *, out_dir: str | os.PathLike, stem: str, film: Any = None,
                  mode: str = "supervised", approval_id: str | None = None, note: str | None = None,

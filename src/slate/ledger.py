@@ -18,7 +18,9 @@ Budgets, enforced here whatever film.json says:
 - per film: its "budget" in film.json, or its format's default budget when it has none (hard stop at the budget; 1.5×
   only for explicitly marked rework). A person's yes raises it: `slate budget film --raise`, recorded here;
 - per month and mode: `DATA/budget.json` (autonomous films default to 20,000 ElevenLabs credits and $0 of Higgsfield a
-  month). A film.json that says "autonomous" is always held to the autonomous caps, whatever mode a caller passes;
+  month). A film that says "autonomous", or that Slate's own record says was made autonomous
+  (`slate.state.autonomy`, DATA/film_modes.jsonl), is always held to the autonomous caps, whatever mode a caller passes
+  and whatever its film.json now says;
 - autonomous Higgsfield generations need an approval id (the person's yes) on every call, and each yes covers one call;
 - autonomous ElevenLabs spend goes through Oneiro's own capped key, so a vendor-side quota backs Slate's cap.
 
@@ -372,24 +374,50 @@ def budget_config() -> dict:
     return merged
 
 
-def _film_info(film: Any) -> tuple[str | None, dict]:
+def _film_ref(film: Any) -> tuple[str | None, dict, Path | None]:
+    """(film id, film.json, film folder) for a film folder, id or film.json dict (a dict has no folder)."""
     if film is None:
-        return None, {}
+        return None, {}, None
     if isinstance(film, dict):
-        return film.get("id"), film
-    fj = jsonio.read(paths.film_dir(film) / "film.json")
-    return fj.get("id"), fj
+        return film.get("id"), film, None
+    folder = paths.film_dir(film)
+    fj = jsonio.read(folder / "film.json")
+    return fj.get("id"), fj, folder
 
 
-def effective_mode(mode: str | None, film_json: dict | None = None) -> str:
-    """The mode spend is judged in. A film that says autonomous is always autonomous, whatever the caller passes."""
+def _film_info(film: Any) -> tuple[str | None, dict]:
+    film_id, fj, _folder = _film_ref(film)
+    return film_id, fj
+
+
+def _made_autonomous(film_json: dict | None, film_dir: Path | None) -> bool:
+    """Does Slate's own record (outside the film folder) hold this film autonomous? (slate.state.autonomy)"""
+    if not film_json and film_dir is None:
+        return False
+    try:
+        from slate.state import autonomy  # noqa: PLC0415 (state imports the ledger; lazy keeps both cheap)
+    except ImportError:
+        return False
+    return autonomy.is_locked(film_dir, film_json or None)
+
+
+def effective_mode(mode: str | None, film_json: dict | None = None, *, film_dir: Path | str | None = None) -> str:
+    """The mode spend is judged in. A film that says autonomous, or that Slate's own record says was made autonomous,
+    is always autonomous: whatever the caller passes and whatever film.json says now. Only a person at their own
+    Terminal changes that record (`slate film set mode …`)."""
     film_mode = (film_json or {}).get("mode")
-    if film_mode == "autonomous" or mode == "autonomous":
+    if film_mode == "autonomous" or mode == "autonomous" or _made_autonomous(film_json, film_dir):
         return "autonomous"
     chosen = mode or film_mode or "supervised"
     if chosen not in MODES:
         raise UsageError(f"Unknown mode {chosen!r}; one of {', '.join(MODES)}.")
     return chosen
+
+
+def film_mode(film: Any, mode: str | None = None) -> str:
+    """`effective_mode` for a film folder, id or film.json dict: what a vendor client spends in for that film."""
+    _film_id, fj, folder = _film_ref(film)
+    return effective_mode(mode, fj, film_dir=folder)
 
 
 def _amount(value: Any) -> float | None:
@@ -516,11 +544,11 @@ def raises(film_id: str | None = None, provider: str | None = None, *, _events_l
 
 def film_limits(film: Any, *, _events_list: list[dict] | None = None) -> dict:
     """Per provider: the base budget, approved raises, the budget (base + raises) and what's spent so far."""
-    film_id, fj = _film_info(film)
+    film_id, fj, folder = _film_ref(film)
     events = _events_list if _events_list is not None else _events()
     folded = _fold(events)
     base = film_budget(fj)
-    out: dict[str, Any] = {"film": film_id, "mode": effective_mode(None, fj), "providers": {}}
+    out: dict[str, Any] = {"film": film_id, "mode": effective_mode(None, fj, film_dir=folder), "providers": {}}
     for p in PROVIDERS:
         raised = sum(float(e.get("amount") or 0) for e in raises(film_id, p, _events_list=events)) if film_id else 0.0
         amount = base.get(p)
@@ -535,13 +563,13 @@ def film_limits(film: Any, *, _events_list: list[dict] | None = None) -> dict:
     return out
 
 
-def rework_factor(film_json: dict | None = None, cfg: dict | None = None) -> float:
+def rework_factor(film_json: dict | None = None, cfg: dict | None = None, *, film_dir: Path | str | None = None) -> float:
     """How far past its budget a film may go for rework (1.5× by default). A supervised film's own film.json may set
     it; an autonomous film's can only tighten it, never loosen it."""
     base = float((cfg or budget_config()).get("rework_factor", 1.5))
     own = ((film_json or {}).get("budget") or {}).get("rework_factor")
     if isinstance(own, (int, float)) and not isinstance(own, bool) and own >= 1:
-        if effective_mode(None, film_json) == "autonomous":
+        if effective_mode(None, film_json, film_dir=film_dir) == "autonomous":
             return min(base, float(own))
         return float(own)
     return base
@@ -581,8 +609,8 @@ def check_budget(est: Estimate, *, film: Any = None, mode: str = "supervised", a
         return  # replay spends nothing
     cfg = budget_config()
     fam = family(est.provider)
-    film_id, fj = _film_info(film)
-    mode = effective_mode(mode, fj)
+    film_id, fj, folder = _film_ref(film)
+    mode = effective_mode(mode, fj, film_dir=folder)
     events = _events()
     folded = _fold(events)
     if mode == "autonomous" and fj.get("brand") and brand_approved(fj["brand"]) is False:
@@ -616,10 +644,11 @@ def check_budget(est: Estimate, *, film: Any = None, mode: str = "supervised", a
                 details={"estimate": est.to_dict(), "cap": cap, "used": used, "mode": mode},
             )
     if film_id:
-        limits = film_limits(fj if fj else film, _events_list=events)["providers"].get(fam) or {}
+        limits = film_limits(folder if folder is not None else (fj if fj else film),
+                             _events_list=events)["providers"].get(fam) or {}
         budget = limits.get("budget")
         if budget is not None:
-            factor = rework_factor(fj, cfg) if rework else 1.0
+            factor = rework_factor(fj, cfg, film_dir=folder) if rework else 1.0
             used = limits.get("spent", 0.0)
             if used + est.amount > budget * factor + 1e-9:
                 if mode == "autonomous":
@@ -660,11 +689,12 @@ def begin(est: Estimate, *, film: Any = None, mode: str = "supervised", approval
     `key` is a stable id for the request (slate.replay.request_key, say): a restarted job finds its own in-flight row
     by it and polls that request instead of paying again.
     """
-    film_id, fj = _film_info(film)
-    mode_used = effective_mode(mode, fj) if mode in MODES else mode
+    film_id, fj, folder = _film_ref(film)
+    mode_used = effective_mode(mode, fj, film_dir=folder) if mode in MODES else mode
     with _locked():
         if check:
-            check_budget(est, film=fj if fj else film, mode=mode, approval_id=approval_id, rework=rework)
+            check_budget(est, film=folder if folder is not None else (fj if fj else film), mode=mode,
+                         approval_id=approval_id, rework=rework)
         rid = f"sp_{uuid.uuid4().hex[:12]}"
         _append({"event": "begin", "id": rid, "at": _now(), "provider": est.provider, "op": est.op,
                  "film": film_id, "mode": mode_used, "estimate": est.to_dict(), "approval_id": approval_id,
@@ -745,7 +775,10 @@ def out_of_balance(provider: str, detail: str | None = None) -> SpendRefused:
 
 
 def person_at_terminal() -> tuple[bool, str]:
-    """(True, "") only for a person typing in their own Terminal: no agent around, and stdin is a real TTY."""
+    """(True, "") only for a person typing in their own Terminal: no agent around, and stdin is a real TTY.
+
+    The one guard for what only a person may do: change a monthly cap (`slate budget set`), take a film out of
+    autonomous mode (slate.state.autonomy), and start the After Effects finish of an autonomous film they approved."""
     from slate import procs  # noqa: PLC0415
 
     ctx = procs.agent_context()
@@ -801,13 +834,17 @@ def set_cap(mode: str, provider: str, cap: float | None, *, approval_required: b
 def raise_film_budget(film: Any, provider: str, amount: float, *, approved_by: str, note: str | None = None) -> dict:
     """Record a person's yes to spend past a supervised film's budget. Refused for autonomous films: their cap is the
     monthly budget file, which only a person changes."""
-    film_id, fj = _film_info(film)
+    film_id, fj, folder = _film_ref(film)
     if not film_id:
         raise UsageError("That film has no id in its film.json, so a raise can't be recorded against it.")
-    mode = effective_mode(None, fj)
+    mode = effective_mode(None, fj, film_dir=folder)
     if mode == "autonomous":
+        held = "" if fj.get("mode") == "autonomous" else (
+            f" (its film.json says {fj.get('mode')}, but Slate's own record holds it autonomous until a person changes "
+            "that in their Terminal)")
         raise SpendRefused(
-            f"Film {film_id} is autonomous: its spend is capped by the monthly budget file, never by a per-film raise.",
+            f"Film {film_id} is autonomous{held}: its spend is capped by the monthly budget file, never by a per-film "
+            "raise.",
             hint="The film parks and asks. A person can change the autonomous cap in Terminal with `slate budget set`.",
             details={"film": film_id, "mode": mode},
         )

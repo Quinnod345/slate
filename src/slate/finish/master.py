@@ -10,7 +10,11 @@ person, because AE has to be open for the first and closed for the second:
    and always restored, exact frame counts, the mix muxed once, never -shortest).
 
 A project built from older renders or an older mix is rebuilt first (step 1 again), and `--rebuild` forces that.
-Autonomous films never reach AE (Adobe's terms bar operations a person didn't start), whatever flags are passed.
+Autonomous films never reach AE on their own (Adobe's terms bar operations a person didn't start), whatever flags are
+passed. A film is autonomous when its film.json says so or when Slate's own record says it was made autonomous
+(slate.state.autonomy), whatever film.json says now. Such a film has one AE path, its owner's own finish: once the owner
+has approved its held master (a final_cut approval of those exact bytes), `slate master --ae --go` typed by a person at
+their own Terminal (never an agent, never a queued job) runs the two steps above.
 
 **ffmpeg** (autonomous and draft films; a supervised film on request, as an interim master). The act renders are
 joined in film order (stream copy when they're all the same ProRes, which is exact; otherwise encoded to ProRes 422
@@ -43,18 +47,56 @@ PSLT = ("Autonomous films never use After Effects: Adobe's terms bar operations 
         "mastered with ffmpeg and held for you; you can start its AE finish yourself once you approve it.")
 
 
+def _autonomy():
+    """slate.state.autonomy (Slate's own record of each film's mode), or None without the state module."""
+    try:
+        from slate.state import autonomy  # noqa: PLC0415 - finish works without film state installed
+    except ImportError:
+        return None
+    return autonomy
+
+
+def film_mode(film: Film) -> str:
+    """The mode the film is mastered in: autonomous whenever Slate's own record says it was made autonomous, whatever
+    film.json says now; otherwise film.json's."""
+    own = film.mode
+    autonomy = _autonomy()
+    if autonomy is None or own == "autonomous":
+        return own
+    data = getattr(film, "data", None)
+    if autonomy.is_locked(getattr(film, "dir", None), data if isinstance(data, dict) else None):
+        return "autonomous"
+    return own
+
+
+def _held_open(film: Film):
+    """The owner's own AE finish held open for its steps (slate.state.autonomy.ae_finish), or a no-op context."""
+    import contextlib  # noqa: PLC0415
+
+    autonomy = _autonomy()
+    return autonomy.ae_finish(film.dir) if autonomy is not None else contextlib.nullcontext()
+
+
 # ---------------------------------------------------------------------------------------------------------------
 # Which method
 
 
 def choose(film: Film, *, ae: bool = False, ffmpeg: bool = False) -> tuple[str, str]:
-    """(method, why) for this film's mode and the flags given. Refuses what the mode forbids."""
+    """(method, why) for this film's mode and the flags given. Refuses what the mode forbids.
+
+    An autonomous film (by film.json or by Slate's own record) is mastered with ffmpeg; `--ae` is its owner's own
+    finish and goes ahead only when slate.state.autonomy.ae_finish_check says so: a person at their own Terminal, after
+    a final-cut approval of its held master. Anything else is refused with what's missing."""
     if ae and ffmpeg:
         raise UsageError("Pick one: --ae or --ffmpeg.")
-    mode = film.mode
+    mode = film_mode(film)
     if mode == "autonomous":
         if ae:
-            raise Refused(PSLT, hint="slate master (ffmpeg) masters it and holds it for the owner.")
+            autonomy = _autonomy()
+            if autonomy is None:
+                raise Refused(PSLT, hint="slate master (ffmpeg) masters it and holds it for the owner.")
+            verdict = autonomy.ae_finish_check(film.dir)  # raises Refused naming what's missing
+            return "ae", verdict["why"]
         return "ffmpeg", "autonomous films are mastered with ffmpeg and held for the owner"
     if mode == "draft":
         if ae:
@@ -95,7 +137,8 @@ def run(film_dir: Path, *, method: str = "auto", go: bool = False, rebuild: bool
         raise UsageError(f"Unknown master method {method!r}; ae, ffmpeg or auto.")
     chosen, why = choose(film, ae=method == "ae", ffmpeg=method == "ffmpeg")
     if chosen == "ae":
-        return _run_ae(film, go=go, rebuild=rebuild, silent=silent, why=why)
+        with _held_open(film):  # an autonomous film's AE steps run only inside its owner's own finish
+            return _run_ae(film, go=go, rebuild=rebuild, silent=silent, why=why, force=force, approval=approval)
     return _run_ffmpeg(film, silent=silent, force=force, approval=approval, why=why)
 
 
@@ -103,7 +146,7 @@ def plan(film_dir: Path, *, method: str = "auto", go: bool = False, rebuild: boo
          silent: bool = False) -> dict:
     """What `slate master` would do now, without doing it (--dry-run)."""
     film = Film(Path(film_dir))
-    out: dict = {"film": film.id, "mode": film.mode, "version": film.version(), "dry_run": True}
+    out: dict = {"film": film.id, "mode": film_mode(film), "version": film.version(), "dry_run": True}
     try:
         chosen, why = choose(film, ae=method == "ae", ffmpeg=method == "ffmpeg")
     except SlateError as exc:
@@ -253,7 +296,8 @@ def _run_ffmpeg(film: Film, *, silent: bool, force: bool, approval: str | None, 
 # After Effects
 
 
-def _run_ae(film: Film, *, go: bool, rebuild: bool, silent: bool, why: str) -> dict:
+def _run_ae(film: Film, *, go: bool, rebuild: bool, silent: bool, why: str, force: bool = False,
+            approval: str | None = None) -> dict:
     deps.ae_person_start(go, "The After Effects finish", film.dir, "ae_finish")
     renders = film.act_renders()
     mix = film.mix()
@@ -278,12 +322,15 @@ def _run_ae(film: Film, *, go: bool, rebuild: bool, silent: bool, why: str) -> d
                   "inputs": film.master_inputs_now(), "built_at": gates.now_iso(), "why": reason,
                   "audit": gates.summarize(audit)}
         jsonio.write_atomic(film.path(AE_FINISH_RECORD), record)
-        return {"film": film.id, "version": film.version(), "mode": film.mode, "method": "ae", "why": why,
+        return {"film": film.id, "version": film.version(), "mode": film_mode(film), "method": "ae", "why": why,
                 "status": "project_built", "aep": film.rel(aep), "audit": [r.to_dict() for r in audit],
                 "audit_status": gates.overall(audit), "passed": False,
                 "next": "Save your work in After Effects and quit it, then run `slate master --ae --go` again to "
                         "render the masters."}
     deps.ae_require_closed("rendering the masters")
+    for rel in master_paths(film).values():  # aerender writes over these names: approved bytes need force and a yes
+        if film.path(rel).exists():
+            deps.guard_regenerate(film.dir, rel, force=force, approval_id=approval)
     log.info("master: rendering the masters with aerender")
     with deps.hold("ae", owner=owner, timeout=float(cfg.get("lock_timeout_s") or 0)):
         res = deps.ae_masters(film.dir, silent=silent)
@@ -300,9 +347,36 @@ def _run_ae(film: Film, *, go: bool, rebuild: bool, silent: bool, why: str) -> d
 # Record and gates
 
 
+def _finish_gate(film: Film, method: str, mode: str) -> gates.GateResult:
+    """master.finish: was the master made the way the film's mode says? checks.master_finish reads film.json's mode;
+    here the mode is the one Slate judges the film in (its own record wins over a film.json edit), and an autonomous
+    film's AE master passes only as its owner's own finish (ae_finish held open, after the held master's approval)."""
+    if mode == film.mode and not (mode == "autonomous" and method == "ae"):
+        return checks.master_finish(film, method)
+    engine = gates.engine("slate finish", None)
+    inputs = film.ctx.inputs(["film.json"])
+    details = {"stage": "master", "mode": mode, "film_json_mode": film.mode, "method": method,
+               "rule": "ffmpeg, held for the owner (After Effects only as the owner's own finish)"}
+    if mode == "autonomous":
+        autonomy = _autonomy()
+        if method == "ae":
+            if autonomy is not None and autonomy.finishing(film.dir, "ae_finish"):
+                return gates.GateResult.pass_(
+                    "master.finish", "finished in After Effects as the owner's own finish (started at their Terminal "
+                    "after they approved its held master); held again for their approval of this exact file",
+                    engine=engine, inputs=inputs, details=details)
+            return gates.GateResult.fail("master.finish", "autonomous films are mastered with ffmpeg, not ae",
+                                         engine=engine, inputs=inputs, details=details)
+        note = "" if film.mode == "autonomous" else (
+            f" (film.json says {film.mode}, but Slate's own record holds this film autonomous)")
+        return gates.GateResult.pass_("master.finish", "mastered with ffmpeg; held for the owner's approval of this "
+                                      f"exact file{note}", engine=engine, inputs=inputs, details=details)
+    return checks.master_finish(film, method)
+
+
 def _record_and_gate(film: Film, *, method: str, why: str, masters: list[dict], renders: list[dict],
                      mix: Path | None, aep: Path | None = None) -> dict:
-    mode = film.mode
+    mode = film_mode(film)
     held = mode in ("autonomous", "draft")
     record = {
         "generated": f"do not edit by hand: {COMMAND}",
@@ -333,7 +407,7 @@ def _record_and_gate(film: Film, *, method: str, why: str, masters: list[dict], 
         for m in masters:
             if m["kind"] == "h264":
                 results.append(checks.master_psnr(fresh, m["path"], render_paths, gate="master.psnr_h264"))
-    results.append(checks.master_finish(fresh, method))
+    results.append(_finish_gate(fresh, method, mode))
     gates.write_report(film.dir, [r for r in results if r.gate != "psnr"])
     audit = deps.ae_audit_last(film.dir, aep) if method == "ae" else []
     everything = results + list(audit)

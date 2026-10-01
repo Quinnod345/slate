@@ -16,7 +16,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from slate import jsonio
+from slate import jsonio, procs
 from slate.sound import audio, checks, gap, measure, mix, verify, vo
 from slate.sound.effects.palette import STARTING_PALETTE
 from slate.sound.film import load
@@ -188,25 +188,56 @@ def test_as_p3_film_mix_when_it_is_delivered(filmroot):
 # ---------------------------------------------------------------------------------------------------------------
 # The whole mix, rerun from a film's inputs (heavy)
 
+# Each film's delivery mix and the inputs it was made from (sound/tools/final_mix.py in the films): the voice and effect
+# stems the effects engine rendered, the composed score, and the record it wrote. B and C are the v2 sound (an effects
+# ceiling at -7 dBTP and the linked limiter). A is checked twice: from build/audio/film_sound_stems, its v1 layout (no
+# effects ceiling, no linked limiter; that mix is archived with its record, since build/audio now carries A's v2 sound),
+# and as delivered, from build/audio_v2/film_v2_stems with the repaired score (build/audio/final_mix.json is a copy of
+# build/audio_v2's). B and C land within tolerance on Slate's own voice limiter. A's voice has more for a limiter to
+# do, and Slate's gain-curve limiter takes about 0.15 dB more gain on it than the films' limiter (ffmpeg's alimiter at
+# 4x), right on the gain's tolerance; with the films' own limiter (mix_arrays keeps it for exactly this) A lands within
+# 0.07 LU on every stem.
+HEAVY = {
+    "C": {"stems": "build/C/audio/film_v2_stems", "score": "sound/music/C/score_C.wav", "record": "build/C/audio",
+          "limiter": "slate"},
+    "B": {"stems": "build/B/audio/film_v2_stems", "score": "sound/music/B/score_B.wav", "record": "build/B/audio",
+          "limiter": "slate"},
+    "A": {"stems": "build/audio/film_sound_stems", "score": "sound/music/score_film.wav",
+          "record": "build/renders.nosync/archive_A_draft-2.4/audio_v1", "limiter": "ffmpeg"},
+    "A-delivered": {"stems": "build/audio_v2/film_v2_stems", "score": "sound/music/score_film_v2.wav",
+                    "record": "build/audio", "limiter": "ffmpeg"},
+}
 
-@pytest.mark.skipif(not os.environ.get("SLATE_GOLDEN_HEAVY"), reason="a whole-film mix: set SLATE_GOLDEN_HEAVY=1")
-def test_c_mixes_again_from_its_own_inputs(filmroot):
-    d = filmroot / FILMS["C"]
+
+def _mixes_again(filmroot, film):
+    """A film's whole mix, rerun from its own inputs with the films' settings (15 LU under the voice, ducked 4 dB; the
+    record's effects ceiling and, when it has one, the linked limiter; no high-pass, as final_mix.py ran), must land
+    on the record it delivered within these tolerances: the voice 0.1 LU, the gain 0.15 dB, the loudness 0.1 LU, the
+    true peak 0.25 dB, each delivery stem 0.15 LU, and the stems summing to the mix to a 24-bit step."""
+    spec = HEAVY[film]
+    d = filmroot / spec["record"]
+    if not (d / "final_mix.json").exists() or not (filmroot / spec["stems"]).is_dir():
+        pytest.skip(f"{film}'s mix or its inputs aren't on this machine")
+    if spec["limiter"] == "ffmpeg" and not procs.which("ffmpeg"):
+        pytest.skip("the films' limiter runs through ffmpeg, which isn't installed")
     rec = json.loads((d / "final_mix.json").read_text())
     n = rec["samples"]
-    ins = d / "film_v2_stems"
+    ins = filmroot / spec["stems"]
     vo_stem = audio.load(ins / "vo.wav", SR, n)
-    stems = {r: audio.load(ins / f"{r}.wav", SR, n) for r in ("ui", "fx", "verb", "amb")}
-    score = audio.load(filmroot / "sound/music/C/score_C.wav", SR, n)
-    res = mix.mix_arrays(vo_stem, stems, score, SR, targets=rec["target"], under_lu=15.0, duck_db=4.0,
-                         effects_ceiling_dbtp=rec["effects_ceiling_dbtp"], linked_limit=True)
+    stems = {r: audio.load(ins / f"{r}.wav", SR, n) for r in ("ui", "fx", "verb", "amb") if (ins / f"{r}.wav").exists()}
+    score = audio.load(filmroot / spec["score"], SR, n)
+    res = mix.mix_arrays(vo_stem, stems, score, SR, targets=rec["target"], under_lu=-float(rec["music_vs_voice_lu"]),
+                         duck_db=float(rec["duck_db"]), effects_ceiling_dbtp=rec.get("effects_ceiling_dbtp"),
+                         linked_limit="linked_limiter" in rec, highpass_hz=None, limiter=spec["limiter"])
     del vo_stem, stems, score
     ours = res["report"]
     assert abs(ours["voice_lufs_pre"] - rec["voice_lufs_pre"]) <= 0.1
     assert abs(ours["gain_db"] - rec["gain_db"]) <= 0.15
     assert abs(ours["final_lufs"] - rec["final_lufs"]) <= 0.1
     assert abs(ours["final_true_peak_dbtp"] - rec["final_true_peak_dbtp"]) <= 0.25
-    assert ours["dialogue_limited"] == rec["dialogue_limited"] and ours["effects_limited"] == rec["effects_limited"]
+    assert ours["dialogue_limited"] == rec["dialogue_limited"]
+    if "effects_limited" in rec:
+        assert ours["effects_limited"] == rec["effects_limited"]
     for k in mix.DELIVERY:
         theirs = audio.read_wav(d / "stems" / f"{k}.wav")[0]
         if not np.any(theirs):
@@ -214,4 +245,24 @@ def test_c_mixes_again_from_its_own_inputs(filmroot):
             continue
         a, b = measure.integrated(res["final"][k], SR), measure.integrated(theirs, SR)
         assert abs(a - b) <= 0.15, (k, a, b)
+        del theirs
     assert mix.quantized_sum_error(res["final"], res["mix"]) <= 1e-6
+    return ours
+
+
+@pytest.mark.skipif(not os.environ.get("SLATE_GOLDEN_HEAVY"), reason="a whole-film mix: set SLATE_GOLDEN_HEAVY=1")
+def test_c_mixes_again_from_its_own_inputs(filmroot):
+    _mixes_again(filmroot, "C")
+
+
+@pytest.mark.skipif(not os.environ.get("SLATE_GOLDEN_HEAVY"), reason="a whole-film mix: set SLATE_GOLDEN_HEAVY=1")
+def test_b_mixes_again_from_its_own_inputs(filmroot):
+    """B is the longest (442 s): its linked limiter took up to 1.03 dB off, and the rerun does the same."""
+    ours = _mixes_again(filmroot, "B")
+    assert ours["linked_limiter"] is not None
+
+
+@pytest.mark.skipif(not os.environ.get("SLATE_GOLDEN_HEAVY"), reason="a whole-film mix: set SLATE_GOLDEN_HEAVY=1")
+@pytest.mark.parametrize("film", ["A", "A-delivered"])
+def test_a_mixes_again_from_its_own_inputs(filmroot, film):
+    _mixes_again(filmroot, film)

@@ -116,6 +116,7 @@
     "on": {"type": "string", "description": "the background it's drawn for (a token or role)"},
     "clear_space": {"type": ["number", "string", "null"]},
     "marks": {"type": "array", "items": {"type": "string"}, "description": "® ™ and the like, per the guidelines"},
+    "colourways": {"type": "object", "additionalProperties": {"type": "string"}, "description": "the mark in each colourway a film needs (ink and white at least): {ink|white|mono: the name of another logo in this pack, or an SVG relative to the pack}; the kit's LogoBuild and LogoSting draw the one for their ground, so builders never recolour a mark"},
     "notes": {"$ref": "#/$defs/text"}
    },
    "additionalProperties": false
@@ -243,7 +244,11 @@
      "contact": {"$ref": "#/$defs/text"}, "decides": {"$ref": "#/$defs/strings"}, "note": {"$ref": "#/$defs/text"}
     }, "additionalProperties": false}], "description": "the named person who rules on claims for this brand; for a brand the owner doesn't own, a person at that organisation"},
     "approved_claims": {"type": "array", "items": {"$ref": "#/$defs/claim"}},
-    "banned_words": {"type": "array", "items": {"anyOf": [{"type": "string"}, {"type": "object"}]}},
+    "banned_words": {"type": "array", "items": {"anyOf": [{"type": "string"}, {"type": "object", "properties": {
+     "word": {"type": "string"}, "forms": {"type": "array", "items": {"type": "string"}, "description": "its inflections: a banned \"verified\" is also \"verifies\", \"verifying\", \"verification\""},
+     "instead": {"type": ["string", "null"], "description": "the approved substitute a failure names (\"trusted\")"}
+    }, "description": "a banned word with its forms and its substitute; every gate matches every form"}]}},
+    "self_commentary": {"type": "boolean", "default": true, "description": "false: graphics never caption themselves (\"Illustration\", \"Example\"), and the script and banned-words gates ban those captions on screen; true (the default) allows them"},
     "never_claim": {"type": "array", "items": {"anyOf": [{"type": "string"}, {"type": "object"}]}, "description": "what the film never says or shows: owner rulings, things not built, retracted words"},
     "sample_data": {"description": "the one set of sample numbers films show (always labelled as sample data)"},
     "rulings": {"type": "array", "items": {"type": "object"}, "description": "conflicts and the authority's rulings: {question, ruling, by, at, source}"},

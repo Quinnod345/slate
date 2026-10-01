@@ -120,6 +120,12 @@ gates: `slate emit-events --dry-run` and the hand-in check (`slate check N`) rea
 `exception` for a deliberate break a person signs off. `slate qa motion` holds each class to its own speed limits, and
 a carry may use the kit's `even` curve without the brand naming it.
 
+**A shot in a Remotion act.** A shot that says `engine: web` is a page of its own, `scenes/shots/<SHOT>/web/`, written
+the same way: it draws the act's time and is only asked for its shot's frames. `slate render` draws the act in
+Remotion, renders the shot over exactly its frames here (`scene` is the shot's folder, `trace: false`), and splices it
+in with proof; `slate check` hands the page in like a web act's. The rules, and what isn't built, are in
+`../README.md` (Per-shot engines).
+
 **A derived film** (`slate variant`) reuses its parent's captures and plates by reference: the page still reads them at
 `/_slate/film/captures/…` and `/_slate/film/plates/…`, served from the parent's folders (`.slate/refs.json`).
 

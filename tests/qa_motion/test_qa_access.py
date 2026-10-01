@@ -446,7 +446,9 @@ def test_access_gate_on_a_film_with_flashing_picture(slate_home, monkeypatch, no
     register_render(film, 1, "renders/act1", 0, 60)
     r = A.evaluate(film)
     checks = {c["check"]: c["status"] for c in r.details["checks"]}
-    assert checks == {"flashes": "FAIL", "contrast": "PASS"}  # no voice, not 9:16: captions and zones don't apply
+    # no voice, not 9:16: captions and platform zones don't apply; title-safe and type size apply to every film, and
+    # this run has no OCR to find the text with, so they're unchecked (never passed)
+    assert checks == {"flashes": "FAIL", "contrast": "PASS", "title_safe": "UNCHECKED", "type_size": "UNCHECKED"}
     assert r.status == "FAIL" and "flashes up to 5 times a second" in r.summary
     only = A.evaluate(film, only=["contrast"])
     checks = {c["check"]: c["status"] for c in only.details["checks"]}

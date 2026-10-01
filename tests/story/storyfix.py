@@ -45,7 +45,7 @@ SCRIPT = {
          "shots": [
              {"id": "S01", "vo": "", "on_screen": "", "picture": "Steam over a dark oven.", "dur": 2.0,
               "events": [{"id": "steam", "t": 0.4, "land": "settle:0.5"}]},
-             {"id": "S02", "vo": "Every morning at six, the ovens wake up.", "on_screen": "Open from 6 am",
+             {"id": "S02", "vo": "Every morning at six, the ovens wake up.", "on_screen": "Opens at 6",
               "picture": "Loaves slide in.", "claims": ["hours"], "hold": 0.5,
               "events": [{"id": "door", "word": "ovens", "land": "swift:0.5"}]}]},
         {"name": "Act 2 · The loaf", "job": "The payoff",

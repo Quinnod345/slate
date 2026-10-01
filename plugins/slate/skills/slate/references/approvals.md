@@ -48,7 +48,9 @@ they like. Keep working on everything that doesn't depend on them. When they ans
 12. The final cut, and each re-delivery after corrections.
 
 An autonomy grant ("don't ping me, just decide") covers creative decisions. It never covers purchases, upgrades,
-licences or publishing.
+licences or publishing. Record every autonomy grant with its scope, in the owner's own words:
+`slate approve grant --scope "<their words>" --by <name>` (it takes no file). `slate status` lists the grants, so the
+next agent knows exactly what was handed over and what wasn't.
 
 ## Asking for a decision
 

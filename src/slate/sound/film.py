@@ -59,7 +59,17 @@ class Film:
 
     @property
     def mode(self) -> str:
-        return str(self.data.get("mode") or "supervised")
+        """The mode Slate judges the film in: its own record holds a film made autonomous autonomous, whatever
+        film.json says now (slate.state.autonomy.film_mode)."""
+        own = str(self.data.get("mode") or "supervised")
+        try:
+            from slate.state import autonomy  # noqa: PLC0415 - sound works without film state installed
+        except ImportError:
+            return own
+        try:
+            return autonomy.film_mode(self.dir, self.data)
+        except Exception:  # noqa: BLE001 - an unreadable record never makes a film less strict than its film.json
+            return own
 
     def path(self, rel: str | Path) -> Path:
         """Where this film's own file is (what the sound stages write). Reads of reused files go through source()."""

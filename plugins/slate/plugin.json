@@ -10,5 +10,13 @@
  "homepage": "https://github.com/Quinnod345/slate",
  "repository": "https://github.com/Quinnod345/slate",
  "license": "Proprietary",
- "keywords": ["video", "film", "motion-design", "voice", "sound-design", "remotion", "after-effects"]
+ "keywords": [
+  "video",
+  "film",
+  "motion-design",
+  "voice",
+  "sound-design",
+  "remotion",
+  "after-effects"
+ ]
 }

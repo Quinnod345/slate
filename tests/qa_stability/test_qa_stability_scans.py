@@ -56,6 +56,26 @@ def test_a_number_recentring_wobbles(helpers):
     assert all(e["gap"] == 2 for e in wobbles)
 
 
+def test_a_shaking_part_is_flagged_as_shake_with_its_frames_tiles_and_severity(helpers):
+    """The jitter pass every act render gets (L-qa-D033): a part shaking back and forth by about a pixel while the
+    rest of the frame holds still is `shake`, reported at its own frames and tiles with a severity in px."""
+    still = helpers.textured((320, 180), seed=11)
+    x, y, w, h = 120, 60, 90, 60
+    frames = []
+    for i in range(30):
+        f = still.copy()
+        if 10 <= i < 20:
+            f[y:y + h, x:x + w] = ndi.shift(still, (0, 0.6 if i % 2 else -0.6), order=3, mode="nearest")[y:y + h,
+                                                                                                         x:x + w]
+        frames.append(f)
+    shakes = [e for e in S.scan_motion(np.stack(frames).astype(np.float32)) if e["class"] == "shake"]
+    assert shakes
+    assert {e["local"] for e in shakes} <= set(range(10, 21))
+    tile = S.TILE_PX
+    assert all(x - tile <= e["region"][0] <= x + w and y - tile <= e["region"][1] <= y + h for e in shakes)
+    assert all(0.3 <= e["severity"] <= 1.5 and e["reversals"] >= 3 for e in shakes)
+
+
 def test_pieces_give_exactly_the_events_of_one_pass():
     frames, _ = S.inject_faults(S.made_up_still((320, 180)))
     one = S.scan_motion(frames, segment=1000)

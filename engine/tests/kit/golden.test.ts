@@ -10,7 +10,8 @@ import {findBrowser} from '../../remotion/kit/node/stills.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const engine = path.resolve(here, '../..');
-const browser = process.env.SLATE_SKIP_GOLDEN === '1' ? null : findBrowser();
+const found = findBrowser();
+const browser = process.env.SLATE_SKIP_GOLDEN === '1' ? null : found;
 
 describe('golden stills', () => {
   it.skipIf(!browser)(
@@ -38,7 +39,7 @@ describe('golden stills', () => {
   );
 
   it('says why when it can’t run here', () => {
-    if (browser) return;
+    if (found) return; // a browser is here (perhaps skipped on purpose): nothing to explain
     expect(findBrowser('/nowhere/chrome')).toBeNull();
   });
 });

@@ -196,7 +196,7 @@ def _wav(path, seconds: float, rate: int = 16000) -> None:
 
 STORY = {"title": "Planner", "version": "draft-1", "language": "en", "acts": [
     {"name": "Act 1", "job": "the problem", "shots": [
-        {"id": "S01", "vo": "Plans take too long.", "on_screen": "Plans stall", "picture": "A desk.", "hold": 3.0},
+        {"id": "S01", "vo": "Plans take too long.", "on_screen": "Too long", "picture": "A desk.", "hold": 3.0},
         {"id": "S02", "vo": "Teams wait for answers.", "on_screen": "Teams wait", "picture": "A queue.", "hold": 3.0}]},
     {"name": "Act 2", "job": "the turn", "shots": [
         {"id": "S03", "vo": "Now they plan together.", "on_screen": "Plan together", "picture": "A room.", "hold": 3.0}]},

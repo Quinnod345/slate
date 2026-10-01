@@ -75,6 +75,8 @@ class Target:
     first: int
     last: int
     out: str  # film-relative when inside the film, otherwise absolute
+    # a shot drawn by another engine than its act's (slate.render.shot_engines): its scene folder, film-relative
+    scene: str | None = None
 
     @property
     def frames(self) -> int:

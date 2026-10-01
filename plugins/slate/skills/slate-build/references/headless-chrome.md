@@ -16,6 +16,11 @@ renderer. Build around them from the start.
   type.
 - **Text snaps to whole pixels** under slow motion (remotion-gotchas.md): move with transforms and the kit's raster
   hints.
+- **Centre a lockup** (a mark beside a word, a title block) on its visible extents and the type's cap height, aligned
+  on the baseline, never on its layout box: the box carries ascender and descender space the eye doesn't see.
+- **SVG text under a changing transform needs `text-rendering: geometricPrecision`.** Otherwise each render tab lays it
+  out at a different scale, and the motion-blur samples, which come from different tabs, double it (a resting seal
+  differed by 13 levels from frame to frame).
 - **Fonts**: headless Chrome can't see fonts installed locally from a web font kit. Load every face explicitly through
   the brand's font plan (Google Fonts by family, a kit URL, or an installed face the renderer can reach); the font gate
   fails the render when a face is missing rather than letting a fallback slip through.

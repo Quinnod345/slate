@@ -38,6 +38,9 @@ Reuse surfaces already matched to the product rather than redrawing them. See [k
 - Scenes import only `@slate/kit`, `@film/data` and packages, never a relative path out of the film.
 - Every beat comes from the voice's words through lookups that never throw (a miss is estimated and recorded, and must
   be empty at hand-in). Moves register with `defineMotion`, sound beats with `defineEvent`.
+- **Tell the motion gate what moves**: a move whose name doesn't say it gives its `class` (rig, ui, carry or whip), and
+  an exempt move gives `exempt` (`reading_sweep` or `steady`) with its `reason`. Long carries and camera drifts can use
+  the kit's `even` curve. The rules are slate-motion's (eases.md).
 
 The pattern, file by file, with a worked act: [act scaffolds](references/act-scaffolds.md).
 
@@ -53,7 +56,8 @@ the brand's empty ground. See [contracts](references/contracts.md).
 Every beat that lands exports as a visual event: shot, id, time, **kind** (tap, type, land, snap, count, draw, data,
 page, stamp, whoosh, swell, character, impact), **size** (s, m, l) and a plain note. The sound is designed from this
 list, one sound family per kind, so every beat must say what it is. An act with no beats says so explicitly, with a
-reason. See [events](references/events.md).
+reason. **`t` is always the beat**, never the start: a sustained motion also gives its span (`start` and `dur`,
+together), a draw or a count ends on its beat, and a whoosh or a swell peaks on it. See [events](references/events.md).
 
 ## 5. Hand in
 
@@ -65,8 +69,9 @@ slate timing misses             # word lookups that fell back to an estimate: mu
 
 `slate check <N>` runs, as gates: the type check from the film folder; the act module loading in Node without throwing;
 an empty word-miss list; what the kit had to assume; the brand's banned words in the act's strings; the events file
-matching the act; and the contracts at its boundaries, bit-identical and held. Only PASS counts. The full hand-in
-checklist, and how to check your work with stills and previews: [hand-in](references/hand-in.md).
+matching the act; and the contracts at its boundaries, bit-identical and held. A web act hands in through the open web
+renderer the same way, plus its page loading and drawing, no network, and its fonts. Only PASS counts. The full
+hand-in checklist, and how to check your work with stills and previews: [hand-in](references/hand-in.md).
 
 Builders make stills and half-scale previews only, in their own scratch folder. Finals render centrally, one at a time
 (slate-finish).
@@ -94,10 +99,11 @@ and end with the hand-in checklist. See [builder briefs](references/builder-brie
 A brand whose look needs what the browser does best (GSAP timelines, three.js and React Three Fiber, live DOM) can build
 an act as a **web scene** instead: a local page that draws its act at any time t, rendered frame by frame with the same
 motion blur, clock, events and gates (`look.engine: "web"` in the brand pack makes it the default for new acts).
-`slate engine scaffold --act <N>` starts one; `slate render --act <N> --engine web` renders it. The page can't reach the
-network, its clock is frozen to the frame, and its fonts must pass the font gate. Everything else (beats keyed to words,
-events, contracts, hand-in) is the same as a kit act. The page contract and its traps are in the engine's own
-`engine/web/README.md`.
+`slate engine scaffold --act <N>` starts one from the neutral template (`--engine web` for a brand whose look doesn't
+pick it; `--force` to replace a scene that's there); `slate render --act <N> --engine web` renders it. The page can't
+reach the network, its clock is frozen to the frame, and its fonts must pass the font gate. Everything else (beats keyed
+to words, events, contracts, hand-in with `slate check <N>`) is the same as a kit act. The page contract and its traps
+are in the engine's own `engine/web/README.md`; its hand-in gates are in [hand-in](references/hand-in.md).
 
 ## 9. Building in After Effects
 

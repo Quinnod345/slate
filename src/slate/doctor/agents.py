@@ -291,6 +291,119 @@ def _mcp_openclaw(env: Env) -> dict:
     return R.green(rid, "Slate's MCP server is registered with OpenClaw.", group=G)
 
 
+def _launch(spec: dict) -> tuple[str, list[str]] | None:
+    """(command, args) a registration launches, from Claude Code's, Codex's or OpenClaw's shape; None for a hosted
+    (URL) server."""
+    t = spec.get("transport") if isinstance(spec.get("transport"), dict) else spec
+    cmd = t.get("command")
+    if not isinstance(cmd, str) or not cmd:
+        return None
+    args = [str(a) for a in t.get("args") or [] if isinstance(a, (str, int, float))]
+    return cmd, args
+
+
+def _runs(proc_cmd: str, launch: tuple[str, list[str]]) -> bool:
+    """Is this process that registration running? Its program (by name) and its arguments, exactly, at the end of its
+    command line. Slate's own shim execs `python -m slate`, so it's matched by that too."""
+    cmd, args = launch
+    words = proc_cmd.split()
+    if not words:
+        return False
+    if args and words[-len(args):] != args:
+        return False
+    head = words[: len(words) - len(args)] if args else words
+    if os.path.basename(cmd) in {os.path.basename(w) for w in head}:
+        return True
+    return os.path.basename(cmd) == MCP_NAME and head[-2:] == ["-m", "slate"]
+
+
+def check_mcp_single(env: Env, ctx: Ctx) -> list[dict]:
+    """One copy of each MCP server per client (L-agents-001): two copies of one plugin under one client ran every
+    create twice and left duplicates. Copies under different clients (two Claude Code sessions) are normal."""
+    rid = "agents.mcp.single-instance"
+    servers: list[tuple[str, str, tuple[str, list[str]]]] = []
+    for _scope, name, spec in clients.claude_all_servers(env):
+        launch = _launch(spec)
+        if launch:
+            servers.append(("Claude Code", name, launch))
+    for label, found in (("Codex", clients.codex_servers(env) if env.which("codex") else None),
+                         ("OpenClaw", clients.openclaw_servers(env))):
+        for name, spec in (found or {}).items():
+            launch = _launch(spec)
+            if launch:
+                servers.append((label, name, launch))
+    procs = env.processes()
+    if procs is None:
+        return [R.yellow(rid, "Couldn't list the running processes, so duplicate MCP servers can't be checked.",
+                         "Run `slate doctor` again; `ps` normally answers at once.", group=G)]
+    groups: dict[tuple[str, int], set[int]] = {}
+    for p in procs:
+        for _label, name, launch in servers:
+            if _runs(p["command"], launch):
+                groups.setdefault((name, p["ppid"]), set()).add(p["pid"])
+                break
+    twice = {k: v for k, v in groups.items() if len(v) >= 2}
+    running = sum(len(v) for v in groups.values())
+    if twice:
+        rows = []
+        for (name, parent), pids in sorted(twice.items()):
+            rows.append(R.red(f"{rid}.{name}", f"{len(pids)} copies of the {name} MCP server run under one client "
+                                                f"(process {parent}): every create it makes would run "
+                                                f"{'twice' if len(pids) == 2 else f'{len(pids)} times'}.",
+                              "Quit and reopen that client. If two copies start again, the server is registered twice "
+                              "(compare `claude mcp list`, `codex mcp list` and `openclaw mcp list`): remove one "
+                              "registration with that agent's own command. Slate never edits another agent's config.",
+                              group=G, details={"server": name, "client_pid": parent, "copies": len(pids)}))
+        return rows
+    return [R.green(rid, f"Every MCP server runs once per client ({running} running across "
+                         f"{len({k[1] for k in groups})} client{'s' if len({k[1] for k in groups}) != 1 else ''}).",
+                    group=G, details={"registered": len(servers), "running": running})]
+
+
+#: The oldest Claude Code Slate's plugin is built for (skills, MCP servers and the marketplace in one plugin). Stated
+#: once here; the plugin's README says the same.
+MIN_CLAUDE_CODE = "2.1.0"
+
+
+def _vtuple(v: str | None) -> tuple[int, ...] | None:
+    m = re.search(r"(\d+(?:\.\d+)+)", v or "")
+    return tuple(int(x) for x in m.group(1).split(".")) if m else None
+
+
+def check_claude_version(env: Env, ctx: Ctx) -> list[dict]:
+    """Both Claude Code builds on this Mac against the minimum Slate's plugin needs: the terminal's (`claude
+    --version`) and the one the desktop app keeps for itself. They differ, and either can lag."""
+    rid = "agents.claude-code-version"
+    need = _vtuple(MIN_CLAUDE_CODE)
+    builds: dict[str, str | None] = {}
+    claude = env.which("claude")
+    if claude:
+        ran = env.run([claude, "--version"], timeout=30)
+        builds["terminal"] = (re.search(r"(\d+(?:\.\d+)+)", ran.stdout).group(1)
+                              if ran.ok and re.search(r"(\d+(?:\.\d+)+)", ran.stdout) else None)
+    desktop = env.claude_desktop_versions()
+    if desktop:
+        builds["desktop app"] = desktop[-1]
+    if not builds:
+        return [R.green(rid, "Claude Code isn't on this Mac, so there's no version to check.", group=G)]
+    details = {"minimum": MIN_CLAUDE_CODE, **{k.replace(" ", "_"): v for k, v in builds.items()}}
+    unknown = [k for k, v in builds.items() if v is None]
+    old = [f"{k} {v}" for k, v in builds.items() if v is not None and _vtuple(v) < need]
+    shown = ", ".join(f"{v} ({k})" for k, v in builds.items() if v)
+    if old:
+        return [R.yellow(rid, f"Claude Code is older than {MIN_CLAUDE_CODE}, the minimum Slate's plugin needs: "
+                              f"{', '.join(old)}.",
+                         "Update it: `claude update` in your own Terminal for the terminal build; the desktop app "
+                         "updates its own build when the app updates (Claude > Check for Updates).", group=G,
+                         details=details)]
+    if unknown:
+        return [R.yellow(rid, f"Couldn't read the {', '.join(unknown)} build's version (`claude --version` didn't "
+                              f"answer); the minimum Slate's plugin needs is {MIN_CLAUDE_CODE}.",
+                         "Run `claude --version` yourself to see why.", group=G, details=details)]
+    return [R.green(rid, f"Claude Code {shown}: at or above {MIN_CLAUDE_CODE}, the minimum Slate's plugin needs.",
+                    group=G, details=details)]
+
+
 def _elevenlabs_local(env: Env) -> dict:
     """ElevenLabs' old local MCP package is archived and carries an outbound-call tool: flag it wherever it's set up."""
     rid = "agents.mcp.elevenlabs-local"

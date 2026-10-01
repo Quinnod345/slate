@@ -12,12 +12,16 @@ picture means a brighter sound, not a louder file). Each panel shows:
   last word's movement, a clean ending, sibilance and edge, and what Whisper heard.
 
 Drawn with numpy and Pillow only (its own built-in font, neutral greys and a colour-blind-safe accent set; no brand
-colours or fonts). Proxies, not ears: the sheet shows what to listen for.
+colours or fonts). Pillow's built-in font has no minus sign, en or em dash, arrow or "at least" sign, so every piece of
+text goes through `drawable()` on its way to the page: a character the font can't draw becomes the plain text that
+says the same thing ("-", "->", ">="), never the font's empty box. Proxies, not ears: the sheet shows what to listen
+for.
 """
 
 from __future__ import annotations
 
 import math
+import unicodedata
 from pathlib import Path
 from typing import Any
 
@@ -46,6 +50,66 @@ def font(size: int) -> ImageFont.ImageFont:
 
 
 F_TITLE, F_HEAD, F_BODY, F_SMALL = font(24), font(17), font(14), font(12)
+
+# What a character the font can't draw is written as instead: the plain text a reader takes the same way.
+PLAIN = {"\u2212": "-", "\u2010": "-", "\u2011": "-", "\u2012": "-", "\u2013": "-", "\u2014": "-", "\u2015": "-",
+         "\u2026": "...", "\u2192": "->", "\u2190": "<-", "\u2194": "<->", "\u2265": ">=", "\u2264": "<=",
+         "\u2260": "!=", "\u2248": "~", "\u00b1": "+/-", "\u00d7": "x", "\u00b5": "u", "\u03bc": "u", "\u2018": "'",
+         "\u2019": "'", "\u201c": '"', "\u201d": '"', "\u00b7": "-", "\u2022": "-", "\u00a0": " ", "\u2009": " ",
+         "\u202f": " ", "\u00bd": "1/2", "\u00bc": "1/4", "\u00be": "3/4", "\u00b0": " deg"}
+_MISSING = "\ue000"  # a private-use character: every font draws its missing-glyph box for it
+_GLYPHS: dict[tuple[int, str], bool] = {}
+
+
+def _mask(fnt: Any, ch: str) -> tuple:
+    m = fnt.getmask(ch)
+    return m.size, bytes(m)
+
+
+def has_glyph(fnt: Any, ch: str) -> bool:
+    """True when the font draws `ch` as itself rather than as its missing-glyph box (measured: the character's mask
+    against a private-use character's, which no font has)."""
+    if ch in "\n\r\t" or ch == " ":
+        return True
+    key = (id(fnt), ch)
+    if key not in _GLYPHS:
+        try:
+            _GLYPHS[key] = _mask(fnt, ch) != _mask(fnt, _MISSING)
+        except Exception:  # noqa: BLE001 - a font that can't even measure the character can't draw it
+            _GLYPHS[key] = False
+    return _GLYPHS[key]
+
+
+def drawable(text: Any, fnt: Any) -> str:
+    """`text` as the font can draw it: each character it lacks becomes its plain-text equivalent (a minus sign or a
+    dash becomes "-", an ellipsis "...", an arrow "->"), an accented letter its base letter, and anything else "?",
+    so a chart never shows the font's empty box where a character should be."""
+    out = []
+    for ch in str(text):
+        if has_glyph(fnt, ch):
+            out.append(ch)
+            continue
+        alt = PLAIN.get(ch)
+        if alt is None:
+            alt = "".join(c for c in unicodedata.normalize("NFKD", ch) if not unicodedata.combining(c))
+        out.append(alt if alt and all(has_glyph(fnt, c) for c in alt) else "?")
+    return "".join(out)
+
+
+class Draw(ImageDraw.ImageDraw):
+    """ImageDraw whose text is always drawable in the font it's set in (see drawable()); measuring agrees with
+    drawing, so layouts that wrap by width still fit."""
+
+    def text(self, xy, text, fill=None, font=None, *args, **kwargs):  # noqa: D102 - ImageDraw's own
+        return super().text(xy, drawable(text, font or self.getfont()), fill, font, *args, **kwargs)
+
+    def textlength(self, text, font=None, *args, **kwargs):  # noqa: D102 - ImageDraw's own
+        return super().textlength(drawable(text, font or self.getfont()), font, *args, **kwargs)
+
+
+def draw(img: Image.Image) -> Draw:
+    """A drawing surface for a voice chart (every chart in slate.voice draws through this)."""
+    return Draw(img)
 
 
 def colormap(v: np.ndarray) -> np.ndarray:
@@ -231,7 +295,7 @@ def ab_sheet(entries: list[dict], out: str | Path, *, title: str, headline: str 
     px_s = min(220.0, 1400.0 / max(max_dur, 1e-3))
     width = LEFT + int(max_dur * px_s) + PAD + RIGHT_COL
     block_h = 26 + SPEC_H + 2 + WORD_H + F0_H + 4 + LV_H + 10
-    meas = ImageDraw.Draw(Image.new("RGB", (1, 1)))
+    meas = draw(Image.new("RGB", (1, 1)))
     tw = width - LEFT - 24
     title_l = wrap(meas, title, F_TITLE, tw)
     head_l = wrap(meas, headline, F_BODY, tw) if headline else []
@@ -242,7 +306,7 @@ def ab_sheet(entries: list[dict], out: str | Path, *, title: str, headline: str 
     rows_h = max(len(measurement_rows(e.get("measures") or {}, e.get("vs"))) for e in entries) * 19 + 60
     height = header_h + len(entries) * (max(block_h, rows_h) + 16) + 40
     img = Image.new("RGB", (width, height), PAGE)
-    d = ImageDraw.Draw(img)
+    d = draw(img)
     y = 20
     for s in title_l:
         d.text((LEFT, y), s, fill=INK, font=F_TITLE)
@@ -313,7 +377,7 @@ def contour_chart(entries: list[tuple[str, str, list[tuple[float, float]], dict 
     [(ms, hz)], contour)]."""
     W, H, L, R, T, B = 1100, 560, 80, 340, 70, 60
     img = Image.new("RGB", (W, H), PAGE)
-    d = ImageDraw.Draw(img)
+    d = draw(img)
     d.text((L, 20), title, fill=INK, font=F_TITLE)
     x0, x1, y0, y1 = L, W - R, T, H - B
     d.rectangle([x0, y0, x1, y1], outline=HAIR, fill=CARD)

@@ -402,3 +402,216 @@ def test_every_sound_gate_names_its_stage(sound_film):
     assert {r.details["stage"] for r in results} == {"sound"}
     status = pytest.importorskip("slate.state.status")
     assert {status._gate_stage(r) for r in results} == {"sound"}  # noqa: SLF001
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# The voice limiter (L-sound-022), the key (L-sound-060), timbre (L-sound-078), brightness against the reference
+# (L-sound-D017), the sonic logo's bookend (L-sound-S023) and Whisper on the mix (L-sound-S019)
+
+
+def test_the_voice_limiter_gate_fails_a_hot_take_and_passes_the_normal_one(slate_home):
+    H.brand(slate_home["brands"])
+    hot, calm = H.film(slate_home["films"], "hot", plosives=True), H.film(slate_home["films"], "calm")
+    for fd in (hot, calm):
+        mix.run(fd)
+    r = _by_name(verify.run(hot, ["sound.voice_limiter"]))["sound.voice_limiter"]
+    assert r.status == "FAIL" and "of the speech" in r.summary and r.details["share"] >= 0.05
+    r = _by_name(verify.run(calm, ["sound.voice_limiter"]))["sound.voice_limiter"]
+    assert r.status == "PASS" and r.details["share"] == 0.0
+    rep = jsonio.read(calm / "sound/mix/final_mix.json")
+    rep.pop("voice_limiter")  # a mix made before the measure existed
+    jsonio.write_atomic(calm / "sound/mix/final_mix.json", rep)
+    r = _by_name(verify.run(calm, ["sound.voice_limiter"]))["sound.voice_limiter"]
+    assert r.status == "UNCHECKED" and "mix again" in r.summary
+
+
+A4, C5, D5, E5, F5, G5 = 440.0, 523.25, 587.33, 659.26, 698.46, 783.99
+
+
+def _pitched_stem(fd, role, pitches, start=1.0, step=0.9):
+    x = np.zeros((14 * SR, 2))
+    for i, p in enumerate(pitches):
+        y = _note(i, p, -6.0, dur=0.5)
+        k = int((start + step * i) * SR)
+        x[k:k + len(y)] += y
+    audio.write_wav(fd / f"sound/stems/{role}.wav", x, SR)
+
+
+def test_the_key_gate_fails_a_note_off_the_pentatonic(sound_film):
+    """The brand is in A minor: its pentatonic is A, C, D, E and G. An F in the UI stem is off it."""
+    _pitched_stem(sound_film, "ui", [A4, C5, D5, E5, F5, G5])
+    mix.run(sound_film)
+    r = _by_name(verify.run(sound_film, ["sound.key"]))["sound.key"]
+    assert r.status == "FAIL" and "F5" in r.summary and r.details["off_key"][0]["stem"] == "ui"
+    assert r.details["stems"]["ui"]["notes"] == 6
+
+
+def test_the_key_gate_passes_the_pentatonic_and_asks_about_one_note_played_over_and_over(sound_film):
+    _pitched_stem(sound_film, "ui", [A4, C5, D5, E5, G5, A4])
+    mix.run(sound_film)
+    r = _by_name(verify.run(sound_film, ["sound.key"]))["sound.key"]
+    assert r.status == "PASS" and "on A minor's pentatonic" in r.summary
+    _pitched_stem(sound_film, "tonal", [A4, E5, A4, E5, A4, E5, A4, E5, C5, G5], step=0.8)
+    mix.run(sound_film)
+    r = _by_name(verify.run(sound_film, ["sound.key"]))["sound.key"]
+    assert r.status == "REVIEW" and "80% of 10 notes on A4 and E5" in r.summary
+
+
+def _bell(f0=800.0, secs=2.0):
+    t = np.arange(int(secs * SR)) / SR
+    y = sum(a * np.sin(2 * np.pi * f0 * r * t) * np.exp(-t / d)
+            for r, a, d in ((1, 1.0, 1.5), (2.76, 0.6, 1.2), (5.4, 0.4, 0.8), (8.93, 0.25, 0.5)))
+    y = 0.3 * y * (1 - np.exp(-t / 0.001))
+    return np.stack([y, y], 1)
+
+
+def test_the_timbre_gate_fails_a_bell_and_passes_a_wood_click(sound_film):
+    """No chimes: a bell's partials ring on past 300 ms, bright and not one note's harmonics. A wood click is over in
+    a tenth of a second, its energy low."""
+    x = np.zeros((14 * SR, 2))
+    for t in (2.0, 6.0, 10.0):
+        y = H.wood_hit(int(t), pitch=500.0)
+        x[int(t * SR):int(t * SR) + len(y)] += y
+    audio.write_wav(sound_film / "sound/stems/ui.wav", x, SR)
+    mix.run(sound_film)
+    r = _by_name(verify.run(sound_film, ["sound.timbre"]))["sound.timbre"]
+    assert r.status == "PASS" and r.details["stems"]["ui"]["hits"] == 3
+    assert r.details["stems"]["ui"]["median_centroid_hz"] < 1500
+    bell = np.zeros((14 * SR, 2))
+    bell[4 * SR:4 * SR + 2 * SR] += _bell()
+    audio.write_wav(sound_film / "sound/stems/tonal.wav", bell, SR)
+    mix.run(sound_film)
+    r = _by_name(verify.run(sound_film, ["sound.timbre"]))["sound.timbre"]
+    assert r.status == "FAIL" and "tonal hit at" in " ".join(r.evidence)
+    tonal = r.details["stems"]["tonal"]
+    assert tonal["chime_tails"] and tonal["metallic"]
+
+
+def test_effects_brighter_than_the_reference_wait_for_a_person(slate_home, sound_film):
+    """Moving from chimes to pads, notes and wood took the films' effects from 583 to 382 Hz (and from 3.7% to 1.2%
+    of their energy above 2 kHz): an effects stem more than 25% brighter than the brand's approved reference is a
+    person's call."""
+    x = np.zeros((14 * SR, 2))
+    for i, t in enumerate(np.arange(1.0, 13.0, 1.5)):
+        y = H.wood_hit(i, pitch=2600.0)
+        x[int(t * SR):int(t * SR) + len(y)] += y * 0.3
+    audio.write_wav(sound_film / "sound/stems/ui.wav", x, SR)
+    mix.run(sound_film)
+    rep = jsonio.read(sound_film / "sound/mix/final_mix.json")
+    _approve_reference(slate_home["brands"], {"ui": rep["levels_vs_voice_lu"]["ui"]})
+    brand = slate_home["brands"] / "testbrand" / "brand.json"
+    data = json.loads(brand.read_text())
+    data["sound"]["reference_brightness"] = {"centroid_hz": 382.0, "above_2k_share": 0.012}
+    brand.write_text(json.dumps(data, indent=1))
+    r = _by_name(verify.run(sound_film, ["sound.reference"]))["sound.reference"]
+    assert r.status == "REVIEW" and "brighter than it" in r.summary and r.details["brightness"]["brighter"]
+    data["sound"]["reference_brightness"] = {"centroid_hz": r.details["brightness"]["film"]["centroid_hz"],
+                                             "above_2k_share": r.details["brightness"]["film"]["above_2k_share"]}
+    brand.write_text(json.dumps(data, indent=1))
+    r = _by_name(verify.run(sound_film, ["sound.reference"]))["sound.reference"]
+    assert r.status == "PASS" and "within 25%" in r.summary
+
+
+def test_the_reference_brightness_is_measured_on_the_stems_beside_it(slate_home, sound_film):
+    mix.run(sound_film)
+    d = slate_home["brands"] / "testbrand"
+    ref = audio.write_wav(d / "proof_mix.wav", H.pad(4.0), SR)
+    stems = d / "proof_stems"
+    audio.write_wav(stems / "vo.wav", H.speech(4.0, 1)[0], SR)
+    ui = np.zeros((4 * SR, 2))
+    ui[SR:SR + int(0.25 * SR)] += H.wood_hit(1, pitch=400.0)
+    audio.write_wav(stems / "ui.wav", ui, SR)
+    from slate.sound.film import load as load_film
+
+    b, why = verify.reference_brightness(load_film(sound_film), {"file": str(ref)})
+    assert why == "measured on proof_stems" and b["centroid_hz"] < 1000 and b["above_2k_share"] < 0.05
+
+
+def test_the_sonic_logo_closing_the_film_as_it_opened_is_a_bookend_not_a_repeat(sound_film):
+    mix.run(sound_film)
+    logo = _write(sound_film, "sound/cues/logo.wav", _note(1, 659.26, 0.0, dur=0.8))
+    tap = _write(sound_film, "sound/cues/tap.wav", H.wood_hit(3))
+    other = _write(sound_film, "sound/cues/tap2.wav", H.wood_hit(4))
+    cues = [{"id": "logo_in", "kind": "logo", "sound": "the mark", "stem": "tonal", "t": 0.5, "beat": 0.5,
+             "anchor": "onset", "sonic_logo": True, "file": logo},
+            {"id": "t1", "kind": "tap", "sound": "wood block", "stem": "ui", "t": 5.0, "beat": 5.0, "anchor": "onset",
+             "file": tap},
+            {"id": "t2", "kind": "tap", "sound": "wood block", "stem": "ui", "t": 7.0, "beat": 7.0, "anchor": "onset",
+             "file": other},
+            {"id": "logo_out", "kind": "logo", "sound": "the mark", "stem": "tonal", "t": 12.5, "beat": 12.5,
+             "anchor": "onset", "sonic_logo": True, "file": logo}]
+    _sheet(sound_film, cues)
+    r = _by_name(verify.run(sound_film, ["sound.repeats"]))["sound.repeats"]
+    assert r.status == "PASS" and "deliberate bookend" in r.summary
+    assert r.details["intentional"][0]["t"] == 12.5 and r.details["intentional"][0]["after_t"] == 0.5
+    cues[2]["file"] = tap  # the same tap twice in a row still fails
+    _sheet(sound_film, cues)
+    r = _by_name(verify.run(sound_film, ["sound.repeats"]))["sound.repeats"]
+    assert r.status == "FAIL" and len(r.details["identical_repeats"]) == 1 and len(r.details["intentional"]) == 1
+    for c in (cues[0], cues[3]):  # the same pair without the logo's mark: a repeat like any other
+        c.pop("sonic_logo")
+        c["kind"] = "impact"
+    cues[2]["file"] = other
+    _sheet(sound_film, cues)
+    assert _by_name(verify.run(sound_film, ["sound.repeats"]))["sound.repeats"].status == "FAIL"
+
+
+def _heard_fixture(film_dir, words):
+    """Record what Whisper 'heard' in this exact mix (a replay fixture keyed by the mix's own hash)."""
+    from slate import replay
+    from slate.voice import align as voice_align
+
+    sha = jsonio.sha256(film_dir / "sound/mix/final_mix.wav")
+    key = f"mix-{sha[:16]}-{voice_align.whisper_model(None)}"
+    text = "".join(f" {w}" for w, *_ in words)
+    replay.record("whisper", key, {"text": text, "language": "en", "segments": [{"text": text, "words": [
+        {"word": f" {w}", "start": s, "end": e, "probability": p} for w, s, e, p in words]}]})
+
+
+def test_mix_words_sets_aside_a_word_heard_over_the_music_and_fails_one_in_the_voice(sound_film, monkeypatch, tmp_path):
+    """Whisper invents words after speech ends (one film's mix came back "...where you stand. you"). A word heard
+    where the voice isn't sounding, or that Whisper is less than 20% sure of, is listed as heard over the music; an
+    extra word in the voice, or a script word not heard, fails."""
+    monkeypatch.setenv("SLATE_FIXTURES", str(tmp_path / "fixtures"))
+    from slate.sound.film import load as load_film, words_for
+
+    mix.run(sound_film)
+    placed = [(w, round(s, 3), round(e, 3), 0.9) for w, s, e in words_for(load_film(sound_film))]
+    _heard_fixture(sound_film, placed + [("you", 13.75, 13.9, 0.8)])
+    r = _by_name(verify.run(sound_film, ["sound.mix_words"]))["sound.mix_words"]
+    assert r.status == "PASS" and "heard over the music" in r.summary and r.details["over_music"][0]["word"] == "you"
+    assert r.details["heard"]["recorded"] is True and "stand-in" not in r.summary
+    w, s, e, _p = placed[5]
+    _heard_fixture(sound_film, placed[:6] + [("so", s + 0.02, s + 0.08, 0.5)] + placed[6:])
+    r = _by_name(verify.run(sound_film, ["sound.mix_words"]))["sound.mix_words"]
+    assert r.status == "FAIL" and "an extra 'so'" in r.summary
+    _heard_fixture(sound_film, placed[:6] + [("so", s + 0.02, s + 0.08, 0.1)] + placed[6:])  # barely sure: the music
+    assert _by_name(verify.run(sound_film, ["sound.mix_words"]))["sound.mix_words"].status == "PASS"
+    _heard_fixture(sound_film, placed[:3] + placed[4:])
+    r = _by_name(verify.run(sound_film, ["sound.mix_words"]))["sound.mix_words"]
+    assert r.status == "FAIL" and "not heard" in r.summary
+
+
+def test_mix_words_never_passes_a_real_voice_on_a_stand_in_hearing(sound_film, monkeypatch, tmp_path):
+    monkeypatch.setenv("SLATE_FIXTURES", str(tmp_path / "fixtures"))
+    mix.run(sound_film)
+    r = _by_name(verify.run(sound_film, ["sound.mix_words"]))["sound.mix_words"]
+    assert r.status == "PASS" and "stand-in" in r.summary  # the fixture film's voice is a stand-in itself
+    doc = jsonio.read(sound_film / "timing/vo_words.json")
+    for entry in doc["shots"].values():
+        entry["aligner"] = {"engine": "whisper", "model": "turbo", "version": "20250625", "replay": False}
+    jsonio.write_atomic(sound_film / "timing/vo_words.json", doc)
+    r = _by_name(verify.run(sound_film, ["sound.mix_words"]))["sound.mix_words"]
+    assert r.status == "UNCHECKED" and "--live" in r.evidence[0]
+
+
+def test_mix_words_reads_numbers_percent_and_the_brands_spellings_as_a_listener_would():
+    from slate.sound import hear
+
+    lines = [{"shot": "S01", "line": "Twenty-five hundred teams, 30% faster with Demo Studio.", "start": 0.0, "end": 4.0}]
+    heard = [{"word": w, "start": 0.3 * i, "end": 0.3 * i + 0.25, "probability": 0.9}
+             for i, w in enumerate(["2,500", "team's,", "30", "percent", "faster", "with", "Demo", "Studios."])]
+    res = hear.compare(lines, heard, lambda t: True, names={"Demo Studio": ["Demo Studios"]})
+    assert res["errors"] == [] and res["per_shot"]["S01"]["wer"] == 0.0
+    res = hear.compare(lines, heard, lambda t: True)  # without the brand's spelling, it's a misheard word
+    assert [e["what"] for e in res["errors"]] == ["misheard"]

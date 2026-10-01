@@ -51,6 +51,9 @@ KINDS: dict[str, dict[str, Any]] = {
     "score_take": {"sitting": "packet", "blocking": False, "locks": True, "about": "a score take"},
     "spend": {"sitting": None, "blocking": False, "locks": False,
               "about": "a person's yes to spend on this path again (e.g. regenerating a locked asset)"},
+    "grant": {"sitting": None, "blocking": False, "locks": False,
+              "about": "an autonomy grant: what the owner lets an agent decide on its own, in their words (never "
+                       "purchases, upgrades, licences or publishing)"},
 }
 PREPRODUCTION = ("checklist", "claims", "script", "voice_shortlist", "look_test")
 # Other modules qualify an approval with what it's for ("plate-take:S05", "generation:S05"); the part before the colon
@@ -196,6 +199,53 @@ def _release_hold(film_dir: Path, rec: dict) -> None:
         if str(q.get("source") or "").startswith(HOLD_SOURCE):
             answer(film_dir, q["id"], by=rec["approved_by"],
                    text=f"Approved the final cut: {rec['path']} (sha256 {str(rec['sha256'])[:12]}, {rec['id']}).")
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Autonomy grants
+
+
+# An autonomy grant is the owner letting an agent decide something on its own ("creative decisions on act 3"), in their
+# words. It isn't a sitting and never blocks, but it's recorded like every approval: the SHA-256 of exactly those words,
+# kept in brief/grants/gN.txt, so an edit to them shows. Its kind is "grant": recorded, never a sitting, never blocking.
+# (Grants recorded before the kind existed were filed as "other"; grants() reads them by what they are, "grant".)
+GRANT = "grant"
+GRANTS_DIR = "brief/grants"
+
+
+def grant(film_dir: Path, *, scope: str, approved_by: str, note: str | None = None) -> dict:
+    """Record an autonomy grant with its scope in the owner's words. Returns the approval record (its note is the
+    scope, verbatim)."""
+    film_dir = Path(film_dir)
+    words = (scope or "").strip()
+    if not words:
+        raise UsageError("A grant needs its scope, in the owner's words (--scope \"…\").",
+                         hint='For example: slate approve grant --scope "creative decisions on act 3" --by NAME')
+    if not (approved_by or "").strip():
+        raise UsageError("A grant needs the person who gave it (--by NAME).")
+    folder = film_dir / GRANTS_DIR
+    folder.mkdir(parents=True, exist_ok=True)
+    with _util.state_lock(film_dir):
+        taken = [int(p.stem[1:]) for p in folder.glob("g*.txt") if p.stem[1:].isdigit()]
+        rel = f"{GRANTS_DIR}/g{1 + max(taken, default=0)}.txt"
+        jsonio.write_text_atomic(film_dir / rel, words + "\n")
+    return record(film_dir, what=GRANT, path=rel, approved_by=approved_by,
+                  note=words if not (note or "").strip() else f"{words} ({note.strip()})")
+
+
+def grants(film_dir: Path) -> list[dict]:
+    """Every autonomy grant on this film, oldest first: {id, scope, by, at, path, standing} (standing is False when the
+    words on file no longer match what was granted)."""
+    out = []
+    for rec in load(film_dir)["approvals"]:
+        if str(rec.get("what") or "").split(":", 1)[0] != GRANT:
+            continue
+        p = Path(film_dir) / rec["path"]
+        scope = p.read_text(encoding="utf-8").strip() if p.is_file() else (rec.get("note") or "")
+        out.append({"id": rec["id"], "scope": scope, "by": rec.get("approved_by"), "at": rec.get("at"),
+                    "path": rec["path"], "standing": bool(check(film_dir, rec["what"], rec["path"])["approved"]),
+                    "recorded_by": rec.get("recorded_by")})
+    return out
 
 
 def is_global(what: str) -> bool:
@@ -350,7 +400,7 @@ def covered_by_brand(film_dir: Path) -> dict[str, str]:
     out = {}
     if deps.brand_reference_approved(pack, "look_motion"):
         out["look_test"] = "the brand's look and motion reference is approved (no look test needed)"
-    if fj.get("mode") == "autonomous":
+    if film.mode_of(film_dir) == "autonomous":
         if deps.brand_reference_approved(pack, "truth"):
             out["claims"] = "autonomous films use only the brand's approved claims"
         if deps.brand_reference_approved(pack, "voice"):

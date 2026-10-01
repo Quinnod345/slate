@@ -11,12 +11,17 @@ it (replay-aware, like every vendor call):
 A live call needs CA certificates to verify against. The python.org build Slate's environment was made from ships with
 none, so slate.http fills an empty store from SSL_CERT_FILE or macOS's own bundle (/etc/ssl/cert.pem); the TLS row
 names the file that really supplied them, and turns red only when no store can verify anything.
+
+Inside the OpenClaw gateway, a vendor that can't be reached is its egress proxy keeping the host out, not the network:
+those rows say so and name both fixes (slate.doctor.egress). And a `.env` file in a film folder or the checkout is
+yellow: the ElevenLabs CLI loads one from whatever folder it runs in, so keys belong in the Keychain instead.
 """
 
 from __future__ import annotations
 
+from slate.doctor import egress
 from slate.doctor import rows as R
-from slate.doctor.common import Ctx
+from slate.doctor.common import Ctx, tilde
 from slate.doctor.env import Env
 
 G = "keys"
@@ -36,7 +41,8 @@ def _is_tls(text: str) -> bool:
     return "certificate_verify_failed" in low or "certificate verify failed" in low or "ssl:" in low
 
 
-def _vendor_error(rid: str, vendor: str, exc: Exception, connect: str) -> dict:
+def _vendor_error(rid: str, vendor: str, exc: Exception, connect: str, env: Env | None = None,
+                  ctx: Ctx | None = None) -> dict:
     from slate.secrets import redact  # noqa: PLC0415
 
     if isinstance(exc, ImportError):
@@ -51,12 +57,39 @@ def _vendor_error(rid: str, vendor: str, exc: Exception, connect: str) -> dict:
     if _is_tls(message):
         return R.red(rid, f"Python couldn't verify {vendor}'s certificate, so the free check never reached it: "
                           f"{message[:160]}", TLS_FIX, group=G)
+    routed, hint = egress.from_route(exc)
+    if env is not None and ctx is not None and (routed or egress.applies(env, ctx, message)):
+        summary, fix = egress.explain(vendor, text=message, runner=egress.runner_loaded(env), hint=hint)
+        return R.yellow(rid, summary, fix, group=G, details={"egress_proxy": True, "error": message[:200]})
     return R.yellow(rid, f"Couldn't reach {vendor} for the free check: {message[:200]}",
                     "Check the network, then run `slate doctor` again.", group=G)
 
 
 def check_keys(env: Env, ctx: Ctx) -> list[dict]:
-    return [*_elevenlabs(env, ctx), _oneiro(env, ctx), _higgsfield(env, ctx), _tls(env, ctx)]
+    return [*_elevenlabs(env, ctx), _oneiro(env, ctx), _higgsfield(env, ctx), _tls(env, ctx), _dotenv(env, ctx)]
+
+
+def _dotenv(env: Env, ctx: Ctx) -> dict:
+    """A `.env` file in a film folder or the checkout: the ElevenLabs CLI auto-loads one from its working folder."""
+    rid = "keys.dotenv"
+    found: list[str] = []
+    repo = env.repo()
+    if env.exists(repo / ".env"):
+        found.append(tilde(env, repo / ".env"))
+    films = env.films_dir()
+    for name in env.listdir(films):
+        p = films / name / ".env"
+        if env.exists(p):
+            found.append(tilde(env, p))
+    if not found:
+        return R.green(rid, "No .env files in Slate's checkout or the film folders (keys live in the Keychain).",
+                       group=G)
+    return R.yellow(rid, f"{len(found)} .env file{'s' if len(found) != 1 else ''} where Slate works: "
+                         f"{', '.join(found[:4])}" + (" …" if len(found) > 4 else "") + ". The ElevenLabs CLI loads a "
+                         ".env from whatever folder it runs in, so a key in one can be picked up (and spent) "
+                         "without Slate's ledger. Slate never reads it.",
+                    "Keep keys in the Keychain (`slate connect elevenlabs`, in your own Terminal), then delete the .env "
+                    "file yourself. New film folders ignore .env in git.", group=G, details={"files": found})
 
 
 def _elevenlabs(env: Env, ctx: Ctx) -> list[dict]:
@@ -76,7 +109,7 @@ def _eleven_plan(env: Env, ctx: Ctx) -> dict:
     try:
         sub = env.eleven_subscription()
     except Exception as exc:  # noqa: BLE001 - every failure becomes a readable row
-        return _vendor_error(rid, "ElevenLabs", exc, "slate connect elevenlabs")
+        return _vendor_error(rid, "ElevenLabs", exc, "slate connect elevenlabs", env, ctx)
     tier = sub.get("tier")
     replayed = bool(sub.get("replay"))
     rank, tiers = env.eleven_tier_rank(tier)
@@ -130,7 +163,7 @@ def _higgsfield(env: Env, ctx: Ctx) -> dict:
     try:
         probe = env.higgsfield_probe()
     except Exception as exc:  # noqa: BLE001
-        return _vendor_error(rid, "Higgsfield", exc, connect)
+        return _vendor_error(rid, "Higgsfield", exc, connect, env, ctx)
     status = probe.get("status")
     http = probe.get("http")
     replayed = bool(probe.get("replay"))
@@ -150,6 +183,10 @@ def _higgsfield(env: Env, ctx: Ctx) -> dict:
     if status == "unreachable" and _is_tls(summary):
         return R.red(rid, f"Python couldn't verify Higgsfield's certificate, so the probe never reached it: {summary}",
                      TLS_FIX, group=G, details=details)
+    routed, hint = egress.from_route(probe)
+    if status == "unreachable" and (routed or egress.applies(env, ctx, summary)):
+        text, fix = egress.explain("Higgsfield", text=summary, runner=egress.runner_loaded(env), hint=hint)
+        return R.yellow(rid, text, fix, group=G, details={**details, "egress_proxy": True})
     if status == "unreachable":
         return R.yellow(rid, f"Couldn't reach Higgsfield for the zero-cost probe: {summary}",
                         "Check the network, then run `slate doctor` again.", group=G, details=details)

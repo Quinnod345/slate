@@ -439,7 +439,48 @@ def test_check_without_a_ledger_is_a_missing_prerequisite(repo, monkeypatch):
     assert code == 3 and "no knowledge ledger" in err
 
 
+# ------------------------------------------------------------------------------------------------ GAPS.md
+def test_gaps_md_groups_each_change_once_lists_pending_and_the_appendix():
+    ledger = good_ledger()
+    change = "src/slate/demo.py: hold numbers 2 s"
+    ledger["lessons"] += [
+        _lesson("L-demo-005", {"type": "gap", "module": "qa (read time)", "change": change}),
+        _lesson("L-demo-006", {"type": "gap", "module": "qa", "change": change}),
+        _lesson("L-demo-007", {"type": "gap", "module": "sound", "change": "src/slate/demo.py: a guard"}),
+        _lesson("L-demo-008", {"type": "pending", "module": "sound (after proof 3)", "file": "src/slate/x.py",
+                               "symbol": "render", "what": "one shared hall", "note": "waits for proof 3"}),
+    ]
+    ledger["lessons"][0]["destination"]["note"] = "Held in code; the gate isn't built (see the GAPS.md appendix)."
+    text = knowledge.gaps_markdown(ledger)
+    assert "3 gaps (2 changes) and 1 pending, across 2 modules" in text
+    assert "## qa (2 lessons, 1 change)" in text and text.count(change) == 1
+    assert "- **L-demo-005, L-demo-006**: src/slate/demo.py: hold numbers 2 s." in text
+    assert "### sound (1 lesson)" in text
+    assert "- **L-demo-008** (src/slate/x.py::render): One shared hall. Waits for proof 3." in text
+    assert "- **L-demo-001**: Held in code; the gate isn't built." in text
+    assert knowledge.gaps_markdown(good_ledger()).count("## ") == 0  # nothing open, nothing partly covered
+
+
+def test_the_gaps_command_writes_the_file(repo, monkeypatch):
+    monkeypatch.setattr(knowledge.paths, "REPO", repo)
+    ledger = good_ledger()
+    ledger["lessons"].append(_lesson("L-demo-005", {"type": "gap", "module": "qa", "change": "a change"}))
+    _write(repo, "knowledge/lessons.json", json.dumps(ledger))
+    code, out, _ = cli.run_cli(["knowledge", "gaps", "--json"])
+    assert code == 0 and json.loads(out)["gaps"] == 1 and "- **L-demo-005**: A change." in json.loads(out)["markdown"]
+    assert not (repo / "knowledge" / "GAPS.md").exists()
+    code, out, _ = cli.run_cli(["knowledge", "gaps", "--write", "--json"])
+    assert code == 0 and (repo / "knowledge" / "GAPS.md").read_text() == knowledge.gaps_markdown(ledger)
+
+
 # ------------------------------------------------------------------------------------------------ the real ledger
+def test_the_real_gaps_md_is_the_ledgers():
+    """knowledge/GAPS.md is generated from the ledger (`slate knowledge gaps --write`); a hand edit, or a ledger
+    change without it, fails here."""
+    real = knowledge.paths.REPO / knowledge.GAPS
+    assert real.read_text(encoding="utf-8") == knowledge.gaps_markdown(knowledge.load()), \
+        "knowledge/GAPS.md is stale: run `slate knowledge gaps --write`"
+
 def test_the_real_check_gives_a_well_formed_report():
     """`slate knowledge check` on this checkout, without --run-tests. It may report gaps (the integrator closes them
     from knowledge/GAPS.md), so this checks the report's shape and that nothing crashed, not that it passes."""
@@ -459,7 +500,9 @@ def test_the_real_check_gives_a_well_formed_report():
     assert harvested and len(harvested) == len(set(harvested))
     assert counts["harvested"] == len(harvested) and counts["lessons"] + counts["merged"] == counts["harvested"]
     assert sum(counts["by_type"].values()) == counts["lessons"]
-    assert [h["date"] for h in counts["harvests"]] == ["2026-09-30", "2026-10-01"]
+    assert [(h["date"], h.get("label")) for h in counts["harvests"]] == [
+        ("2026-09-30", None), ("2026-10-01", None), ("2026-10-01", "addendum")]
+    assert {f for h in counts["harvests"] for f in h["files"]} == set(knowledge.HARVEST)
     assert counts["next_harvest"] == "once films B and C and the p3 sound are approved"
     assert (code == 0) == (doc["status"] == "PASS")
     gaps = next(g for g in doc["gates"] if g["gate"] == "knowledge.gaps")

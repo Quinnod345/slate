@@ -57,7 +57,8 @@ def test_emit_events_then_check_passes_every_gate(film):
     assert code == 0, err
     assert out["summary"]["status"] == "PASS"
     assert {g["gate"] for g in out["gates"]} == {f"handin.act1.{n}" for n in
-                                                  ("typecheck", "module", "word_misses", "banned_words", "events", "contracts")}
+                                                  ("typecheck", "module", "word_misses", "banned_words", "never_claim",
+                                                   "literals", "events", "margins", "contracts")}
     report = gates.load_report(film)
     assert report["handin.act1.events"].status == "PASS"
     # the brand pack reached the check: its one banned word was looked for

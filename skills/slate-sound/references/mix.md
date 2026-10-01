@@ -55,11 +55,24 @@ starting balance (the films' approved mix). A palette that names its `families` 
 | `texture_air` | the textures' 2–6 kHz at least 20 dB under the voice's own |
 | `accents_over_score` | accents and impacts clear the score by 3 dB in their own loudest band, over their loudest 120 ms |
 | `levels` | each family's range against the voice: integrated, hit by hit and inside words (the score: −28 to −17 LU integrated, −19 at most inside words) |
-| `stops` | how silences are read: the fade that counts as part of a planned stop (20 dB under the music's median, up to 2 s), whether the score's own rests count as planned (`score_rests`), the gap floor (−60 dBFS over 0.5 s), and whether the film may open or end in silence (`open_silent`, `end_silent`: only when the plan says so) |
+| `stops` | how silences are read: the fade that counts as part of a planned stop (20 dB under the music's median, up to 2 s), whether the score's own rests count as planned (`score_rests`), the gap floor (−60 dBFS over 0.5 s), and whether the film opens or ends in silence (`open_silent`: only when the plan says so; `end_silent`: `"always"`, a silent last second whatever the plan, the films' rule and the default, or `"plan"`) |
 | `approved_spans` | stretches the owner approved by ear (`{"from", "to"}` in film seconds): a word under the clarity rule there is listed as approved, not failed |
 
 `slate sound balance --words` prints every word's clarity, so a level change can be judged word by word before the
 next mix.
+
+**An approved span stays as approved.** A span the owner approved as a clip (the palette balance's `approved_spans`,
+naming the approved file and its window) is checked against that clip every time: family by family, ride by ride and by
+the score's level (`sound.balance.approved_spans`).
+
+**Hear what the rides did.** `slate mix --listen [N]` writes a listening file of the N hardest-ridden accents, each from
+2.5 s before its hit to 3 s after, as mixed before and now, over the film's own picture (black with the same labels when
+no master is on the machine). It reads the rides the mix's guards record (sound/mix/rides.json), so until those guards
+run it says what it needs.
+
+**A voice change moves the balance.** A voice polish, or any change to approved narration, changes the speech band the
+balance measures (the first film's polish gave up about 0.8 dB of 1–5 kHz). Re-run the balance gates and re-solve the
+mix's rides; a span pinned to rides approved before the polish can't keep them.
 
 ## Effect stems and their manifest
 

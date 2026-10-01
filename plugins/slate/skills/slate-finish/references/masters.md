@@ -7,8 +7,10 @@ A master is the film as delivered: the act renders joined, with the final mix, a
 | Supervised | After Effects: an editable project built from the film's data, and aerender masters (ProRes 422 HQ and H.264) | the owner, with `slate master --ae --go` |
 | Autonomous, draft | ffmpeg: the act renders joined by stream copy, with the mix | Slate, with `slate master --ffmpeg`; the film is then held for the owner |
 
-The owner can start the AE finish for an autonomous film when they approve it. The AE route in detail:
-[AE finish](ae-finish.md).
+The owner can start the AE finish for an autonomous film themselves, once they approve it: a final-cut approval of
+the held master (`slate approve final_cut <master> --by NAME`), then `slate master --ae --go` in their own Terminal. It
+never runs as a queued job or with `--detach`, and an agent can't start it: Slate judges the film by its own record of
+the mode it was made in, whatever film.json says. The AE route in detail: [AE finish](ae-finish.md).
 
 ## The checks every master passes
 

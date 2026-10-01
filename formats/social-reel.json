@@ -37,9 +37,11 @@
  "generation": "rarely",
  "engines": ["remotion", "web"],
  "autonomous_default": true,
+ "end_hold_s": 1.5,
  "notes": [
   "The autonomous default (plan §7): an autonomous film that names no format is a 15-45 second 9:16 reel.",
   "A reel made from scratch runs at 30 fps. A reel derived from a 16:9 film keeps its parent's clock, so every reused timing stays frame-exact.",
-  "A social channel, so it can take the fast route: fewer motion-blur samples and an ffmpeg master."
+  "A social channel, so it can take the fast route: fewer motion-blur samples and an ffmpeg master.",
+  "The end is a tenth of the reel (its structure's end beat): 1.5 s at the shortest, 15 s, so the last 1.5 s hold perfectly still (qa's end_hold); the films' 3 s end card is for longer films."
  ]
 }

@@ -116,6 +116,11 @@ def _mix(args: argparse.Namespace) -> int:
     from slate.sound import mix  # noqa: PLC0415
     from slate.sound.film import load  # noqa: PLC0415
 
+    if getattr(args, "listen", None):
+        rec = mix.listening_file(film(args), n=int(args.listen))
+        log.result(rec, f"{rec['file']}: {len(rec['excerpts'])} excerpt(s) of the {rec['rides_heard']} hardest-ridden "
+                        "accent(s), each as mixed before its ride and now, over " + str(rec["picture"]))
+        return 0
     if getattr(args, "dry_run", False):
         p = mix.plan(load(film(args)), score=args.score, no_score=args.no_score)
         log.result({"dry_run": True, **p}, f"Would mix {p['film']}: {p['voice_cues']} voice cue(s), score "
@@ -258,6 +263,9 @@ def register(sub) -> None:
                                 "and score alone.")
     p.add_argument("--score", default=None, help="mix this score instead of sound/score/score.wav")
     p.add_argument("--no-score", dest="no_score", action="store_true", help="mix without a score")
+    p.add_argument("--listen", nargs="?", const=9, type=int, metavar="N",
+                   help="don't mix: write the listening file of the N (default 9) hardest-ridden accents, each as mixed "
+                        "before its ride and now, from sound/mix/rides.json")
     p.add_argument("--calibrate", action="store_true",
                    help="trim each effect stem to its palette level against the voice, and report the trims")
     p.add_argument("--under", type=float, default=None, help="music LU under the voice (default: the palette's, 18.5)")

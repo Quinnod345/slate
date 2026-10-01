@@ -42,6 +42,10 @@ When the owner approves something and adds notes:
    that nothing outside the checklist changed.
 4. A note that seems to need a new approach gets a question first. Research only fixes a named flaw.
 
+**Testing a voice change** (a polish, a re-voice, a new tag): test it on the clip the owner knows best, with every mix
+setting pinned to that clip's approved build. Prove the pin first by rebuilding the approved mix sample for sample, then
+change only the voice, so whatever the owner hears is the voice change and nothing else.
+
 ## Versions
 
 - Versions are numbered. Each approval records the SHA-256 of what was approved.

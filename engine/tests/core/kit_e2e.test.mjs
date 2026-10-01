@@ -126,7 +126,7 @@ describe.skipIf(!kitCore)('a kit-built act, end to end through the engine', () =
   it('passes the hand-in check: types, module, word misses, kit problems, banned words, events, contracts', () => {
     const r = call('check', {act: 1, banned_words: ['guaranteed', 'risk-free']});
     const byName = Object.fromEntries(r.gates.map((g) => [g.gate.split('.').slice(2).join('.'), g]));
-    expect(Object.keys(byName)).toEqual(['typecheck', 'module', 'word_misses', 'kit_problems', 'banned_words', 'events', 'contracts']);
+    expect(Object.keys(byName)).toEqual(['typecheck', 'module', 'word_misses', 'kit_problems', 'banned_words', 'literals', 'events', 'margins', 'contracts']);
     expect(r.passed, JSON.stringify(r.gates.filter((g) => g.status !== 'PASS'), null, 1)).toBe(true);
     expect(byName.module.summary).toMatch(/with the kit/);
     expect(byName.word_misses.summary).toBe('every word the act looks up was found in the timings');
@@ -166,7 +166,7 @@ describe.skipIf(!kitCore)('a kit-built act, end to end through the engine', () =
     expect(emitted.acts[0]).toMatchObject({act: 2, engine: 'web', events: 1});
     const r = call('check', {act: 2, banned_words: ['guaranteed', 'risk-free'], gl: 'swangle'});
     const byName = Object.fromEntries(r.gates.map((g) => [g.gate.split('.').slice(2).join('.'), g]));
-    expect(Object.keys(byName).sort()).toEqual(['banned_words', 'contracts', 'events', 'fonts', 'kit_problems', 'network', 'page', 'typecheck', 'word_misses']);
+    expect(Object.keys(byName).sort()).toEqual(['banned_words', 'contracts', 'events', 'fonts', 'kit_problems', 'literals', 'network', 'page', 'typecheck', 'word_misses']);
     expect(r.passed, JSON.stringify(r.gates.filter((g) => g.status !== 'PASS'), null, 1)).toBe(true);
     expect(byName.events.summary).toBe('1 beats, valid and current with the page');
     expect(byName.banned_words.summary).toMatch(/none of the brand's 2 banned words in \d+ on-screen strings/);

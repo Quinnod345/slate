@@ -5,13 +5,16 @@ are checked Slate treats that as the rule:
 
 - every command that drives AE or aerender needs `--go`, which means "I, a person, am starting this now";
 - a film in autonomous mode never touches AE, whatever flags are passed. Its masters come from ffmpeg and it is held
-  for the person, who can start the AE finish once they approve it;
+  for the person. The one exception is the owner's own finish: once they approve the held master (the final cut), they
+  can run `slate master --ae --go` themselves, at their own Terminal (slate.state.autonomy.ae_finish holds that open
+  for exactly its steps; an agent, a queued job or any other AE command still gets a no);
 - when a step needs AE closed (masters, preference edits), Slate stops with exit 5 and asks the person to save and
   quit. It never quits AE itself and never discards changes.
 
-Autonomous mode is recognised three ways, strongest first: `slate.state.modes.check` when the state module provides
-it, the film's own `film.json` "mode", and `SLATE_MODE=autonomous` in the environment (for AE commands that aren't
-tied to one film, run from inside an autonomous pursuit).
+Autonomous mode is recognised four ways, strongest first: `slate.state.modes.check` when the state module provides
+it, Slate's own record of the film's mode (DATA/film_modes.jsonl: a film made autonomous stays autonomous whatever its
+film.json now says), the film's own `film.json` "mode", and `SLATE_MODE=autonomous` in the environment (for AE
+commands that aren't tied to one film, run from inside an autonomous pursuit).
 """
 
 from __future__ import annotations
@@ -26,19 +29,39 @@ from slate.errors import Busy, Refused, SlateError, SpendRefused
 SAVE_AND_QUIT = "save your work in After Effects and quit it, then run this again"
 GO_HINT = "Add --go when you (a person) want After Effects to start. An agent passes --go only on your say-so."
 PSLT = ("Autonomous films never use After Effects: Adobe's enterprise terms (PSLT §1.2) bar operations a person "
-        "didn't start. The film is mastered with ffmpeg and held for you; start its AE finish yourself once you "
-        "approve it (switch the film to supervised, then run the AE step with --go).")
+        "didn't start. The film is mastered with ffmpeg and held for you. Once you approve its held master (the final "
+        "cut), you can start its AE finish yourself, in your own Terminal: slate master --ae --go (not as a queued "
+        "job).")
+
+
+def _autonomy():
+    """slate.state.autonomy (Slate's own record of each film's mode), or None when the state module isn't there."""
+    try:
+        from slate.state import autonomy  # noqa: PLC0415 - optional dependency, built in parallel
+    except ImportError:
+        return None
+    return autonomy if hasattr(autonomy, "is_locked") else None
 
 
 def film_mode(film_dir: Path | str | None) -> str | None:
-    """The film's mode from film.json ("supervised", "express", "draft", "autonomous"), or None without a film."""
+    """The film's mode ("supervised", "express", "draft", "autonomous"), or None without a film. "autonomous" whenever
+    Slate's own record says the film was made autonomous, whatever film.json says now; otherwise film.json's."""
     if not film_dir:
         return None
     fj = jsonio.read(Path(film_dir) / "film.json", default=None)
     if not isinstance(fj, dict):
         return None
+    autonomy = _autonomy()
+    if autonomy is not None and autonomy.is_locked(film_dir, fj):
+        return "autonomous"
     mode = fj.get("mode")
     return str(mode) if mode else None
+
+
+def _owner_finishing(film_dir: Path, action: str) -> bool:
+    """Inside the owner's own AE finish of this film (slate.state.autonomy.ae_finish), for one of its steps?"""
+    autonomy = _autonomy()
+    return bool(autonomy is not None and autonomy.finishing(film_dir, action))
 
 
 def _state_modes_check(film_dir: Path, action: str) -> None:
@@ -75,13 +98,15 @@ def _state_modes_check(film_dir: Path, action: str) -> None:
 
 
 def refuse_autonomous(film_dir: Path | str | None = None, action: str = "ae") -> None:
-    """Raise Refused when the film (or the calling pursuit) is autonomous. Never lets AE near an autonomous film."""
+    """Raise Refused when the film (or the calling pursuit) is autonomous. Never lets AE near an autonomous film, with
+    one exception: the owner's own finish of it (`slate master --ae --go` at their Terminal, after they approved the
+    held master), which slate.finish.master holds open through slate.state.autonomy.ae_finish."""
     if os.environ.get("SLATE_MODE", "").strip().lower() == "autonomous":
         raise Refused("This is an autonomous run, and autonomous runs never use After Effects.", hint=PSLT)
     if film_dir:
         film_dir = Path(film_dir)
         _state_modes_check(film_dir, action)
-        if (film_mode(film_dir) or "").lower() == "autonomous":
+        if (film_mode(film_dir) or "").lower() == "autonomous" and not _owner_finishing(film_dir, action):
             raise Refused(f"Film {film_dir.name} is in autonomous mode, and autonomous films never use After Effects.",
                           hint=PSLT)
 

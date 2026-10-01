@@ -586,6 +586,26 @@ export function actTsconfigSource(act) {
   return JSON.stringify({extends: '../tsconfig.json', include: [`../scenes/act${act}`, './film-data.ts']}, null, 1) + '\n';
 }
 
+/**
+ * Shots drawn by another engine than their act's: a web page of their own at scenes/shots/<SHOT>/web/index.html (the
+ * render module's slate.render.shot_engines holds the rules: the shot says `engine: web`, its act is a Remotion act).
+ * [{shot, engine, dir, index}], sorted by shot.
+ */
+export function shotScenes(filmDir) {
+  const root = path.join(filmDir, 'scenes', 'shots');
+  if (!fs.existsSync(root)) return [];
+  return fs
+    .readdirSync(root, {withFileTypes: true})
+    .filter((d) => d.isDirectory() && fs.existsSync(path.join(root, d.name, 'web', 'index.html')))
+    .map((d) => ({shot: d.name, engine: 'web', dir: path.join(root, d.name, 'web'), index: path.join(root, d.name, 'web', 'index.html')}))
+    .sort((a, b) => a.shot.localeCompare(b.shot));
+}
+
+/** A tsconfig that checks one shot's own scene (its page's scripts), as an act's does for the act. */
+export function shotTsconfigSource(shot) {
+  return JSON.stringify({extends: '../tsconfig.json', include: [`../scenes/shots/${shot}`, './film-data.ts']}, null, 1) + '\n';
+}
+
 function readBrand(brandPath) {
   if (!brandPath) return {brand: null, brandDir: null};
   const file = fs.statSync(brandPath, {throwIfNoEntry: false})?.isDirectory() ? path.join(brandPath, 'brand.json') : brandPath;
@@ -706,9 +726,14 @@ export async function ensureEntry(ctx, {brandPath = null} = {}) {
     write(tsFile, actTsconfigSource(a.act));
     files[`act${a.act}`] = actFile;
   }
-  // an act that left timing/shots.json takes its generated modules with it
+  for (const sc of shotScenes(ctx.dir)) {
+    const tsFile = path.join(sdir, `tsconfig.shot-${sc.shot}.json`);
+    wanted.add(path.basename(tsFile));
+    write(tsFile, shotTsconfigSource(sc.shot));
+  }
+  // an act that left timing/shots.json takes its generated modules with it (and a shot scene that went, its tsconfig)
   for (const name of fs.readdirSync(sdir)) {
-    if (/^(act\d+\.tsx|tsconfig\.act\d+\.json)$/.test(name) && !wanted.has(name)) {
+    if (/^(act\d+\.tsx|tsconfig\.act\d+\.json|tsconfig\.shot-.+\.json)$/.test(name) && !wanted.has(name)) {
       fs.rmSync(path.join(sdir, name));
       changed.push(path.relative(ctx.dir, path.join(sdir, name)));
     }

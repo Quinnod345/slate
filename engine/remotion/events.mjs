@@ -25,8 +25,8 @@ import path from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {ENGINE_DIR, EngineError, log, missing, readJson, refused, usage, writeJsonAtomic} from './lib/common.mjs';
 import {actOf, realFile} from './lib/film.mjs';
-import {ensureEntry, missingIndexNote, sceneIndex} from './entry.mjs';
-import {declarations, loadAct} from './load_act.mjs';
+import {ensureEntry, missingIndexNote, sceneIndex, shotScenes} from './entry.mjs';
+import {actMarginList, declarations, loadAct, rigLint} from './load_act.mjs';
 
 /** An act built for the open web renderer: scenes/act<N>/web/index.html (and no Remotion module). */
 export function webScene(filmDir, act) {
@@ -313,7 +313,36 @@ const byTimeThenId = (x, y) => x.t - y.t || String(x.id).localeCompare(String(y.
  * `problems` block emit-events and fail the check; a structural error (the module doesn't build, events() throws)
  * throws instead.
  */
-export async function computeEvents(ctx, act, loaded = null, {captures = null} = {}) {
+/** The act's web shots (scenes/shots/<SHOT>/web), each with its shot record from timing/shots.json. */
+export function actShotScenes(ctx, act) {
+  const a = actOf(ctx, act);
+  const shots = new Map((ctx.shots?.shots ?? []).filter((s) => Number(s.act) === a.act).map((s) => [String(s.id), s]));
+  return shotScenes(ctx.dir)
+    .filter((sc) => shots.has(sc.shot))
+    .map((sc) => ({...sc, shotRecord: shots.get(sc.shot)}));
+}
+
+/** Whether a film time lies in a shot (half a frame of slack either side, the act's own rule). */
+function shotHolds(ctx, shot, t) {
+  if (typeof t !== 'number' || !Number.isFinite(t)) return false;
+  const fps = ctx.fps.value;
+  return t >= (shot.frame_in - 0.5) / fps && t <= (shot.frame_out + 0.5) / fps;
+}
+
+/** A web shot's page, read in a dry run (nothing written): {beats, problems, gates, misses, error}. */
+export async function webShotPage(ctx, act, sc, args = {}, extra = {}) {
+  const none = {byAct: new Map(), strays: [], notes: [], files: []};
+  try {
+    const out = await emitWebAct(ctx, act, args, none, {dryRun: true, extra: {scene: sc.dir, trace: false, ...extra}});
+    const page = out.find((x) => Number(x.act) === Number(act)) ?? {};
+    return {beats: Array.isArray(page.beats) ? page.beats : [], problems: (page.problems ?? []).filter((p) => !/^beat \d+/.test(p)), gates: page.gates ?? [], misses: page.misses ?? [], declared_misses: page.declared_misses, scene_problems: page.scene_problems ?? [], error: null, page};
+  } catch (e) {
+    if (!(e instanceof EngineError)) throw e;
+    return {beats: [], problems: [], gates: [], misses: [], error: e.message.split('\n')[0], failure: e};
+  }
+}
+
+export async function computeEvents(ctx, act, loaded = null, {captures = null, args = {}} = {}) {
   const mod = loaded ?? (await loadAct(ctx, act));
   if (mod.missing) {
     throw usage(`Act ${act} isn't built yet (${missingIndexNote(ctx.dir, act)}).`, 'A placeholder act has no beats to emit; build the act first.');
@@ -343,11 +372,27 @@ export async function computeEvents(ctx, act, loaded = null, {captures = null} =
   if (misses.length) {
     problems.push(`${misses.length} word lookup${misses.length > 1 ? 's' : ''} fell back to an estimate (${misses.slice(0, 5).join(', ')}${misses.length > 5 ? '…' : ''}): the beats would land on guessed times`);
   }
+  // After a re-voice a beat the picture depends on can overrun another: nothing is written while a timing margin the act
+  // records is negative or the rig lint finds anything (L-timing-D039; `slate check` lists them all).
+  const broken = (await actMarginList(mod)).filter((m) => !(Number.isFinite(m.slack) && m.slack >= 0));
+  for (const m of broken) problems.push(`a timing margin is broken: ${m.name} (${Number.isFinite(m.slack) ? `${m.slack.toFixed(3)} s` : 'not a number'})`);
+  for (const f of rigLint(mod).findings) problems.push(`the rig lint: ${f}`);
   const caps = captures ?? captureBeats(ctx);
   const fromCaptures = caps.byAct.get(Number(act)) ?? [];
   for (const s of caps.strays) problems.push(`a capture tap no act holds: ${s}`);
   notes.push(...caps.notes);
-  const all = [...(Array.isArray(events) ? events : []), ...(Array.isArray(fromKit) ? fromKit : []), ...fromCaptures];
+  // the act's shots drawn in the open web renderer: their pages' beats, each inside its own shot
+  const fromShots = [];
+  for (const sc of actShotScenes(ctx, act)) {
+    const page = await webShotPage(ctx, act, sc, args);
+    if (page.error) problems.push(`shot ${sc.shot} (a web shot): its page didn't open: ${page.error}`);
+    for (const p of page.problems) problems.push(`shot ${sc.shot} (a web shot): ${p}`);
+    for (const e of page.beats) {
+      if (!shotHolds(ctx, sc.shotRecord, e.t)) problems.push(`shot ${sc.shot} (a web shot): its beat ${e.id ?? '(no id)'} at ${typeof e.t === 'number' ? `${e.t.toFixed(3)} s` : String(e.t)} isn't inside ${sc.shot}`);
+      else fromShots.push({...e, shot: e.shot ?? sc.shot});
+    }
+  }
+  const all = [...(Array.isArray(events) ? events : []), ...(Array.isArray(fromKit) ? fromKit : []), ...fromCaptures, ...fromShots];
   const extra = {problems, notes, misses, loaded: mod, captures: {beats: fromCaptures.length, files: caps.files}};
   const silent = decl.silent;
   if (silent !== undefined && silent !== null && silent !== false) {
@@ -386,9 +431,72 @@ export function writeMotion(ctx, act, loaded, {dryRun = false} = {}) {
   return {written: true, file: path.relative(ctx.dir, file), entries: m.rows.length};
 }
 
+// ---------------------------------------------------------------- what changed since the last emit
+
+/**
+ * Where an act's change report goes: timing/visual_events/changes/act<N>.json. A subfolder, because everything that
+ * reads the beats lists timing/visual_events/act*.json (QA's events and schema gates, the score planner, the sync check),
+ * and a report named act<N>.changes.json beside them would be read as an act's beats.
+ */
+export const changesFile = (ctx, act) => path.join(ctx.dir, 'timing', 'visual_events', 'changes', `act${act}.json`);
+
+/**
+ * What changed between an act's previous events and its new ones, by id (L-timing-D028): beats that moved (with
+ * frames), were added or removed, changed kind or size, or had their note reworded, and whether the act went silent or
+ * came back. Sound reads it to know what moved. `prev` and `next` are events files' contents (a list or {silent}).
+ */
+export function eventChanges(prev, next, fps) {
+  const list = (x) => (Array.isArray(x) ? x : []);
+  const silent = (x) => Boolean(x && !Array.isArray(x) && x.silent);
+  const frame = (t) => (typeof t === 'number' && Number.isFinite(t) ? Math.round(t * fps) : null);
+  const before = new Map(list(prev).filter((e) => e && e.id).map((e) => [e.id, e]));
+  const after = new Map(list(next).filter((e) => e && e.id).map((e) => [e.id, e]));
+  const out = {first: prev === null || prev === undefined, moved: [], added: [], removed: [], kind_changed: [], size_changed: [], reworded: [], spans_changed: []};
+  if (silent(prev) !== silent(next) && !out.first) out.silent = {was: silent(prev), now: silent(next), reason: silent(next) ? next.reason : null};
+  for (const [id, e] of after) {
+    const p = before.get(id);
+    if (!p) {
+      out.added.push({id, t: e.t, frame: frame(e.t), kind: e.kind, shot: e.shot});
+      continue;
+    }
+    if (Math.abs((e.t ?? 0) - (p.t ?? 0)) > 1e-6) out.moved.push({id, from_t: p.t, to_t: e.t, from_frame: frame(p.t), to_frame: frame(e.t), frames: frame(e.t) - frame(p.t)});
+    if (e.kind !== p.kind) out.kind_changed.push({id, from: p.kind, to: e.kind});
+    if (e.size !== p.size) out.size_changed.push({id, from: p.size, to: e.size});
+    if ((e.note ?? '') !== (p.note ?? '')) out.reworded.push({id, from: p.note, to: e.note});
+    if ((e.start ?? null) !== (p.start ?? null) || (e.dur ?? null) !== (p.dur ?? null)) out.spans_changed.push({id, from: {start: p.start ?? null, dur: p.dur ?? null}, to: {start: e.start ?? null, dur: e.dur ?? null}});
+  }
+  for (const [id, p] of before) if (!after.has(id)) out.removed.push({id, t: p.t, frame: frame(p.t), kind: p.kind, shot: p.shot});
+  const n = out.moved.length + out.added.length + out.removed.length + out.kind_changed.length + out.size_changed.length + out.reworded.length + out.spans_changed.length + (out.silent ? 1 : 0);
+  out.unchanged = !out.first && n === 0;
+  out.summary = out.first
+    ? `first emit: ${out.added.length} beat${out.added.length === 1 ? '' : 's'}`
+    : out.unchanged
+      ? 'no beat changed'
+      : [
+          out.moved.length && `${out.moved.length} moved`,
+          out.added.length && `${out.added.length} added`,
+          out.removed.length && `${out.removed.length} removed`,
+          out.kind_changed.length && `${out.kind_changed.length} changed kind`,
+          out.size_changed.length && `${out.size_changed.length} changed size`,
+          out.reworded.length && `${out.reworded.length} reworded`,
+          out.spans_changed.length && `${out.spans_changed.length} changed span`,
+          out.silent && (out.silent.now ? 'went silent' : 'has beats again'),
+        ]
+          .filter(Boolean)
+          .join(', ');
+  return out;
+}
+
+/** Write an act's change report (timing/visual_events/changes/act<N>.json; see changesFile). */
+export function writeChanges(ctx, act, changes) {
+  const file = changesFile(ctx, act);
+  writeJsonAtomic(file, {generated: GENERATED, act, at: new Date().toISOString(), ...changes});
+  return path.relative(ctx.dir, file);
+}
+
 /** emit-events for one act: compute, check, write (or, in a dry run, say what would be written), report. */
-export async function emitAct(ctx, act, {dryRun = false, captures = null} = {}) {
-  const res = await computeEvents(ctx, act, null, {captures});
+export async function emitAct(ctx, act, {dryRun = false, captures = null, args = {}} = {}) {
+  const res = await computeEvents(ctx, act, null, {captures, args});
   const file = eventsFile(ctx, act);
   const rel = path.relative(ctx.dir, file);
   if (res.problems.length && !dryRun) {
@@ -399,6 +507,10 @@ export async function emitAct(ctx, act, {dryRun = false, captures = null} = {}) 
       {problems: res.problems, misses: res.misses},
     );
   }
+  // what the new beats change against the ones they replace, reported before the file is replaced
+  const previous = fs.existsSync(file) ? readJson(file) : null;
+  const next = res.silent ? {silent: true, reason: res.reason} : res.events;
+  const changes = eventChanges(previous, next, ctx.fps.value);
   let summary;
   if (res.silent) {
     summary = {act, file: rel, silent: true, reason: res.reason, events: 0};
@@ -409,6 +521,8 @@ export async function emitAct(ctx, act, {dryRun = false, captures = null} = {}) 
     summary = {act, file: rel, silent: false, events: res.events.length, kinds, span_s: res.events.length ? [res.events[0].t, res.events.at(-1).t] : null};
     if (!dryRun) writeJsonAtomic(file, res.events);
   }
+  summary.changes = changes;
+  if (!dryRun) summary.changes_file = writeChanges(ctx, act, changes);
   if (res.captures.beats) summary.capture_beats = res.captures.beats;
   if (res.captures.files.length) summary.captures = res.captures;
   if (res.notes.length) summary.notes = res.notes;
@@ -438,11 +552,20 @@ export async function emitEvents(ctx, args) {
   for (const act of acts) {
     if (webScene(ctx.dir, act)) {
       // a web act's beats are read from its page: the open web renderer opens it (and writes nothing in a dry run)
-      results.push(...(await emitWebAct(ctx, act, args, captures, {dryRun})));
+      const file = eventsFile(ctx, act);
+      const previous = fs.existsSync(file) ? readJson(file) : null;
+      const out = await emitWebAct(ctx, act, args, captures, {dryRun});
+      for (const a of out) {
+        if (Number(a.act) !== Number(act)) continue;
+        const next = dryRun ? (Array.isArray(a.beats) ? a.beats : {silent: true, reason: a.beats?.reason ?? a.reason}) : fs.existsSync(file) ? readJson(file) : null;
+        a.changes = eventChanges(previous, next, ctx.fps.value);
+        if (!dryRun) a.changes_file = writeChanges(ctx, act, a.changes);
+      }
+      results.push(...out);
       continue;
     }
     try {
-      results.push(await emitAct(ctx, act, {dryRun, captures}));
+      results.push(await emitAct(ctx, act, {dryRun, captures, args}));
     } catch (e) {
       // With every act asked for, an unbuilt placeholder act is skipped; any other failure stops the run.
       if (args.act === undefined && e instanceof EngineError && e.kind === 'usage' && /isn't built yet/.test(e.message)) {

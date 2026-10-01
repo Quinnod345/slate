@@ -2,7 +2,10 @@
 
 Ported from the films' `voice_script.py` and `voice_c.py`:
 - each line is read with the previous and next lines' plain words as `previous_text` / `next_text`, so the reads
-  flow as one narration (tags stay on their own line);
+  flow as one narration (tags stay on their own line), and with the request ids of its neighbours' takes
+  (`previous_request_ids` / `next_request_ids`: up to three each side, only takes voiced live in the last two hours,
+  which the API stitches to; they take priority over the text). The ids go out once the ElevenLabs client sends them,
+  and every take records the ids it was stitched to;
 - the best format the plan allows (lossless PCM 48 kHz on Pro or higher), with the fallback recorded;
 - a take never overwrites another: `voice/takes/<shot>/t01.wav`, `t02.wav`… each with a take JSON (text sent,
   model, voice id, settings, seed, format, request ids, billed characters);
@@ -14,6 +17,8 @@ Ported from the films' `voice_script.py` and `voice_c.py`:
 
 from __future__ import annotations
 
+import datetime as _dt
+import inspect
 from pathlib import Path
 
 from slate import config, jsonio, ledger, log
@@ -106,6 +111,54 @@ def seed_for_take(vf: VoiceFilm, shot: str, override: int | None) -> int:
     return int(pin(vf.dir, f"seed.{shot}", vf.seed_for(shot), source="slate voice tts (first take)"))
 
 
+STITCH_MAX = 3  # request ids the API takes on each side
+STITCH_MAX_AGE_S = 2 * 3600  # a neighbour's request id stitches only while it's under two hours old
+
+
+def _age_s(created_at: str | None, at: _dt.datetime) -> float | None:
+    try:
+        made = _dt.datetime.fromisoformat(str(created_at).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    if made.tzinfo is None:
+        made = made.replace(tzinfo=_dt.timezone.utc)
+    return (at - made).total_seconds()
+
+
+def neighbour_request_ids(vf: VoiceFilm, shot: str, *, at: _dt.datetime | None = None) -> tuple[list[str], list[str]]:
+    """(previous_request_ids, next_request_ids) for a line: the request ids of the selected takes of up to three lines
+    before it and three after, in film order, when each take was voiced live (not replayed, not a comp or a swap) less
+    than two hours ago. ElevenLabs stitches a read to its neighbours by these, ahead of their text (L-voice-042)."""
+    at = at or _dt.datetime.now(_dt.timezone.utc)
+    ln = vf.line(shot)
+
+    def ok(other: str) -> str | None:
+        sel = vf.selected(other)
+        if not sel:
+            return None
+        try:
+            data = vf.take_json(other, sel[0])
+        except Exception:  # noqa: BLE001 - a take without its record has nothing to stitch to
+            return None
+        stages = data.get("stages") or {}
+        age = _age_s(data.get("created_at"), at)
+        if data.get("replay") or "comp" in stages or "swap" in stages or not data.get("request_id"):
+            return None
+        return str(data["request_id"]) if age is not None and 0 <= age < STITCH_MAX_AGE_S else None
+
+    before = [ok(x.shot) for x in vf.lines[max(0, ln.index - STITCH_MAX):ln.index]]
+    after = [ok(x.shot) for x in vf.lines[ln.index + 1:ln.index + 1 + STITCH_MAX]]
+    return [r for r in before if r], [r for r in after if r]
+
+
+def _sends_request_ids(client) -> bool:
+    try:
+        params = inspect.signature(client.tts).parameters
+    except (TypeError, ValueError):
+        return False
+    return "previous_request_ids" in params and "next_request_ids" in params
+
+
 def fit_of(vf: VoiceFilm, shot: str, seconds: float) -> dict:
     """Does a read of `seconds` fit its shot? (starts `lead` in, ends at least `tail` before the cut)"""
     shot_s = vf.shot_seconds(shot)
@@ -192,17 +245,24 @@ def voice(film_dir: str | Path, *, only: str | list[str] | None = None, force: b
         wav = vf.take_dir(ln.shot) / f"{take}.wav"
         prev, nxt = vf.neighbours(ln.shot)
         line_seed = seed_for_take(vf, ln.shot, seed)
+        prev_ids, next_ids = neighbour_request_ids(vf, ln.shot)
+        stitch = {"previous_request_ids": prev_ids, "next_request_ids": next_ids,
+                  "sent": bool(prev_ids or next_ids) and _sends_request_ids(client)}
+        extra = {"previous_request_ids": prev_ids or None, "next_request_ids": next_ids or None} \
+            if stitch["sent"] else {}
+        if (prev_ids or next_ids) and not stitch["sent"]:
+            stitch["why_not"] = "this Slate's ElevenLabs client doesn't send request ids yet: the neighbours' text did"
         res = client.tts(voice_id=voice_id, text=sent[ln.shot], model_id=use["model"],
                          voice_settings=use.get("settings") or {}, seed=line_seed, previous_text=prev, next_text=nxt,
                          output_format=fmt.get("format"), out=wav, language_code=None,
                          note=f"{vf.id} {ln.shot} {take}" + (f" (re-voice, approval {approval_id})"
-                                                              if ln.shot in unlock else ""))
+                                                              if ln.shot in unlock else ""), **extra)
         fit = fit_of(vf, ln.shot, float(res["seconds"]))
         data = {
             "generated": "do not edit by hand: slate voice tts",
             "shot": ln.shot, "take": take, "film": vf.id, "brand": prof.get("brand"), "mode": vf.mode,
             "text": ln.text, "sent": sent[ln.shot], "tags": tags_mod.tags_in(sent[ln.shot]),
-            "previous_text": prev, "next_text": nxt,
+            "previous_text": prev, "next_text": nxt, "stitch": stitch,
             "model": res["model"], "voice_id": voice_id, "voice_name": prof.get("voice_name"),
             "voice_source": prof.get("source"), "voice_settings": use.get("settings") or {}, "seed": line_seed,
             "format": res["format"], "format_wanted": fmt.get("wanted"), "format_reason": fmt.get("reason"),

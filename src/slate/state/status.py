@@ -222,6 +222,9 @@ class _Ctx:
             self.gates_by_stage.setdefault(_gate_stage(r), []).append(r)
         self.derivation = self.fj.get("derivation") or None
         self.created = str(self.fj.get("created_at") or "")
+        from slate.state import autonomy  # noqa: PLC0415
+
+        self.mode = autonomy.film_mode(self.film_dir, self.fj)  # Slate's record wins over a film.json edit
 
     def explain(self, rel: str) -> dict:
         return lock.explain(self.film_dir, rel, hasher=self.hasher, _memo=self.memo)
@@ -449,7 +452,7 @@ def _next(ctx: _Ctx, stages: dict[str, dict], sit: dict, parked: list[dict], rev
             if s.get("blocking") and s.get("pending"):
                 what = s["pending"][0]
                 label = "pre-production sitting" if name == "preproduction" else "final-cut sitting"
-                if name == "final_cut" and ctx.fj.get("mode") == "autonomous":
+                if name == "final_cut" and ctx.mode == "autonomous":
                     label = "held for a person (final-cut sitting)"
                 return {"command": f"slate approve {what} <path> --by NAME", "who": "person", "available": True,
                         "stage": None, "sitting": name,
@@ -477,7 +480,7 @@ def _next(ctx: _Ctx, stages: dict[str, dict], sit: dict, parked: list[dict], rev
             return {"command": "slate film ask --request \"<the request, verbatim>\" --source NAME", "who": "agent",
                     "available": True, "stage": step, "why": text}
         return {"command": _cmd(argv), "who": "agent", "available": available, "stage": step, "why": text}
-    mode = ctx.fj.get("mode")
+    mode = ctx.mode
     if mode == "draft":
         why = "every stage is done for a draft (drafts are never delivered as final)."
     else:
@@ -490,7 +493,7 @@ def _next(ctx: _Ctx, stages: dict[str, dict], sit: dict, parked: list[dict], rev
 def compute(film_dir: Path) -> dict:
     """Where the film stands: per-stage states, sittings, locks, questions, the open revision and the next command."""
     film_dir = Path(film_dir)
-    from slate.state import park  # noqa: PLC0415
+    from slate.state import autonomy, park  # noqa: PLC0415
 
     park.sync_qa(film_dir)
     ctx = _Ctx(film_dir)
@@ -504,11 +507,14 @@ def compute(film_dir: Path) -> dict:
         frozen_ids = lock.frozen_shot_ids(film_dir)
         fj = ctx.fj
         der = fj.get("derivation") or None
+        mode_lock = autonomy.describe(film_dir)
         result = {
             "film": fj.get("id"),
             "title": fj.get("title"),
             "dir": str(film_dir.resolve()),
-            "mode": fj.get("mode"),
+            "mode": ctx.mode,
+            "mode_lock": mode_lock,
+            "grants": approvals.grants(film_dir),
             "format": fj.get("format"),
             "brand": fj.get("brand"),
             "language": fj.get("language"),
@@ -553,6 +559,17 @@ def format_human(st: dict) -> str:
         d = st.get("derivation") or {}
         head.append(f"         derived from {st['parent']['id']} ({'+'.join(d.get('kinds') or [])}); "
                     f"{d.get('reused') or 0} parent files reused by reference")
+    lock_info = st.get("mode_lock") or {}
+    if lock_info.get("locked"):
+        since = str(lock_info.get("since") or "")[:10]
+        head.append(f"         autonomous on Slate's own record since {since}: only a person at their own Terminal "
+                    "changes that")
+        if lock_info.get("mismatch"):
+            head.append(f"         ⚠ film.json says {lock_info.get('film_json')}, but Slate treats this film as "
+                        "autonomous. Put it back: slate film set mode autonomous")
+        if lock_info.get("refused_changes"):
+            head.append(f"         {lock_info['refused_changes']} attempt(s) to change its mode were refused "
+                        "(they weren't typed by a person at a Terminal)")
     lines = head + [""]
     for q in st["parked"]:
         lines.append(f"PARKED   {q['id']}: {q['text']}")
@@ -586,6 +603,9 @@ def format_human(st: dict) -> str:
                  + (f" · CHANGED ON DISK: {', '.join(locks['tampered'][:3])}" if locks["tampered"] else ""))
     asks = st["asks"]
     lines.append(f"{'asks':<15} {asks['total']} in the checklist, {asks['counts']['done']} done")
+    for g in st.get("grants") or []:
+        lines.append(f"{'grant':<15} {g['id']}: “{g['scope']}” (by {g['by']}, {str(g.get('at') or '')[:10]})"
+                     + ("" if g.get("standing") else " ⚠ its words changed since it was granted"))
     if st.get("questions"):
         lines.append(f"{'questions':<15} " + "; ".join(f"{q['id']}: {q['text']}" for q in st["questions"][:3]))
     if st.get("revision"):

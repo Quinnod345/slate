@@ -152,11 +152,17 @@ export type CardProps = {
   /** pass !poseMoving(poseFn, t) for a card that moves (see the raster notes above) */
   atRest?: boolean;
   persp?: number;
+  /**
+   * A back face, so the card can turn past 90° and show a face rather than a missing edge: `true` (the card's own
+   * face colour), a colour, or {face, children}. It sits at the far side of the edge slices, turned to face the other
+   * way, and each face hides its own back (L-kit-052).
+   */
+  back?: true | string | {face?: string; children?: React.ReactNode};
   children?: React.ReactNode;
 };
 
 /** A card: paper with thickness in a papery look, a flat surface otherwise. Children are laid out in card px. */
-export function Card({w, h, pose, dark = false, radius, layers, face, shadow, pages = [], border, atRest = true, persp, children}: CardProps) {
+export function Card({w, h, pose, dark = false, radius, layers, face, shadow, pages = [], border, atRest = true, persp, back, children}: CardProps) {
   const look = useLook();
   const {short, long} = useFrameSize();
   const pal = usePaper(dark);
@@ -216,10 +222,26 @@ export function Card({w, h, pose, dark = false, radius, layers, face, shadow, pa
           overflow: 'hidden',
           background: face ?? pal.card,
           boxShadow: [n === 0 ? sh : undefined, hairline ? `inset 0 0 0 ${bw}px ${pal.cardBorder}` : undefined].filter(Boolean).join(', ') || undefined,
+          backfaceVisibility: back ? 'hidden' : undefined,
         }}
       >
         {children}
       </div>
+      {back && (
+        <div
+          style={{
+            ...box,
+            ...leaf,
+            overflow: 'hidden',
+            background: (typeof back === 'string' ? back : typeof back === 'object' ? back.face : undefined) ?? face ?? pal.card,
+            boxShadow: hairline ? `inset 0 0 0 ${bw}px ${pal.cardBorder}` : undefined,
+            transform: `translateZ(${-(n + 1) * gap}px) rotateY(180deg)`,
+            backfaceVisibility: 'hidden',
+          }}
+        >
+          {typeof back === 'object' ? back.children : null}
+        </div>
+      )}
     </div>
   );
 }

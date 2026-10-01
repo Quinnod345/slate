@@ -11,7 +11,10 @@ end of its entrance), not from its first frame.
 - **Lines the voice also says:** on screen at least as long as the voice takes to say them, and never gone before the
   voice finishes them.
 - **Density:** at most 12 on-screen words per shot; body text at least 28 px at a 1080-line frame; on-screen text about
-  40% of what the voice says in the shot, or less.
+  40% of what the voice says in the shot, or less. Text smaller than body size is only for labels of three words or
+  fewer (meta times, dates, column heads, the sample-data label).
+- **Judge type size by its measured cap height at full resolution**, not by the font size in code: 42 px names
+  measured 26 px capitals.
 
 A cross-check for supers: a slow reader at about 200 words a minute should be able to read it twice (hold at least
 max(1.2 s, words × 0.3 s × 2)). When the two disagree, take the longer hold. Captions have their own rule: at most 17

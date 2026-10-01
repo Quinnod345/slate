@@ -16,7 +16,12 @@
               longest token keep their own timing (the law: anything past the scale is a drift or time-based).
 - staggers    a staggered group spreads no wider than the brand's caps, steps on whole frames, and staggers only on
               eases the brand lets stagger. A declared reading sweep is time-based, not a stagger.
-- entrances   entrances start from at least 85% scale: nothing scales from zero.
+- entrances   entrances start from at least 85% scale: nothing scales from zero. A hero line (trace `role: hero`)
+              never enters on opacity alone: it also moves at least 16 px at 1080p (scaled to the film) or unmasks.
+              Opacity-only is fine for secondary labels.
+- settled     type never writes on while the camera travels: a text entrance (a write-on, type arriving; trace
+              `role` or `text`) may not overlap a carry (the camera or a page) moving faster than 2 px a frame at
+              1080p. The camera travels, comes to rest, and only then does the next station speak.
 - speed       peak speed and acceleration by what moves (SPEED_CLASSES), at 1080p: a rig part 30 px/frame and
               8 px/frame² (the plan's law), a UI element 60 and 16, a page, card or camera carry 170 and 45; a
               whip past the carry limits goes to a person. Scaled to the film's size.
@@ -87,6 +92,8 @@ LAW: dict[str, Any] = {
     "crest_travel_per_short_side": 0.5278,
     "crest_window": (0.2, 0.8),  # "at the crest": the fastest frame sits in the middle of the flight, not at an end
     "entrance_min_scale": 0.85,  # nothing scales from zero: entrances start from at least 85% of their size
+    "hero_travel_per_short_side": 2 / 135,  # a hero line moves at least 16 px at 1080p as it enters (or unmasks)
+    "settled_speed_per_short_side": 1 / 540,  # type arrives only once a carry is under 2 px a frame at 1080p
     "loop_min_period_frames": 16,  # a full swing takes at least 16 frames …
     "loop_max_hz": 1.9,  # … and never goes faster than 1.9 Hz, so at 60 fps the floor is 32 frames, not 16
     "ease_tolerance": 0.015,  # samples may stray 1.5% of their travel from the named curve (engines round)
@@ -676,6 +683,8 @@ class Move:
     fitted: str | None = None  # the brand ease a measured move follows, when one does
     fit_best: str | None = None  # the closest brand ease, and how far off it is (a fraction of the travel)
     fit_dev: float | None = None
+    role: str | None = None  # what a text element is (hero, body, label…): the optional trace key `role`
+    text: str | None = None  # the words a text element shows: the optional trace key `text` (read time reads it)
 
     @property
     def ease_used(self) -> str | None:
@@ -780,7 +789,9 @@ def move_from(e: dict, act: int, index: int, offset: float = 0.0, file: str | No
                 exception=str(e["exception"]).strip() if isinstance(e.get("exception"), str) and
                 str(e["exception"]).strip() else None,
                 size=_size(e.get("size") if e.get("size") is not None else e.get("size_px")), file=file,
-                cls=cls, exempt=exempt, exempt_reason=reason.strip() if reason else None)
+                cls=cls, exempt=exempt, exempt_reason=reason.strip() if reason else None,
+                role=str(e["role"]).strip().lower() if isinstance(e.get("role"), str) and e["role"].strip() else None,
+                text=str(e["text"]) if isinstance(e.get("text"), str) and e["text"].strip() else None)
 
 
 #: The ease an engine writes when it measured a move instead of naming its curve (an AE act sampled in AE, where the
@@ -1602,14 +1613,70 @@ def check_staggers(data: MotionData, ctx=None):
                     fail_summary=lambda fs: f"{_plural(len(fs), 'stagger problem')}: {fs[0].text}")
 
 
+#: Roles that mark a traced element as type (the kit's type roles), for the hero and settled checks.
+TEXT_ROLES = frozenset({"hero", "statement", "h1", "h2", "body", "small", "eyebrow", "mono", "numeral", "caption",
+                        "label", "text", "type", "headline", "title"})
+HERO_ROLES = frozenset({"hero"})
+_UNMASK_WORDS = ("mask", "clip", "reveal", "wipe", "inset")
+_WRITE_WORDS = ("write", "writeon", "typed", "typing", "chars", "letters", "words")
+
+
+def _element_moves(data: MotionData) -> dict[tuple[int, str], list[Move]]:
+    out: dict[tuple[int, str], list[Move]] = {}
+    for m in data.moves:
+        out.setdefault((m.act, m.id), []).append(m)
+    return out
+
+
+def _travel(moves: list[Move], f0: float, f1: float, law: Law | None) -> float:
+    """How far an element's position moves (px) between frames f0 and f1, from its positional moves."""
+    np = _np()
+    series = position_series(moves, law)
+    if series is None:
+        return 0.0
+    grid, pos = series
+    inside = (grid >= f0 - 1e-9) & (grid <= f1 + 1e-9)
+    if not inside.any():
+        return 0.0
+    k0 = int(np.argmax(inside))
+    return float(np.linalg.norm(pos[inside] - pos[k0], axis=1).max())
+
+
+def _hero_findings(data: MotionData) -> tuple[list[Finding], int]:
+    """Hero lines entering on opacity alone (L-motion-D048): (findings, hero entrances checked)."""
+    if not data.size:
+        return [], 0  # the 16 px can't be scaled to a frame of unknown size (the trace check says so)
+    need = LAW["hero_travel_per_short_side"] * min(data.size)
+    findings, checked = [], 0
+    for (_act, _id), moves in _element_moves(data).items():
+        if not any(m.role in HERO_ROLES for m in moves):
+            continue
+        for m in moves:
+            if not (m.entrance and m.kind == "opacity"):
+                continue
+            checked += 1
+            unmask = any(mm.changes and any(w in _key(mm.prop) for w in _UNMASK_WORDS)
+                         and mm.frame_in <= m.frame_out and mm.frame_out >= m.frame_in for mm in moves)
+            moved = _travel([mm for mm in moves if mm.kind in POSITIONAL], m.frame_in, m.frame_out, data.law)
+            if unmask or moved >= need - 1e-6:
+                continue
+            findings.append(Finding("entrances", m, f"is a hero line entering on opacity alone (it moves "
+                                    f"{_fmt(moved)} px): a hero line also moves at least {_fmt(need)} px "
+                                    "(16 px at 1080p) or unmasks as it enters", moved))
+    return findings, checked
+
+
 def check_entrances(data: MotionData, ctx=None):
     np = _np()
     entries = [m for m in data.moves if m.entrance and m.kind == "scale"]
-    if not entries:
+    heroes, hero_checked = _hero_findings(data)
+    if not entries and not hero_checked:
         return None
     floor = LAW["entrance_min_scale"]
     fails: list[Finding] = []
     reviews: list[Finding] = []
+    for f in heroes:
+        _route(f, fails, reviews)
     lowest = math.inf
     for m in entries:
         if m.end is None:
@@ -1633,12 +1700,71 @@ def check_entrances(data: MotionData, ctx=None):
                 text = (f"enters from {low * 100:.0f}% of its size; entrances start from at least {floor * 100:.0f}% "
                         "(nothing scales from zero)")
             _route(Finding("entrances", m, text, low, person=m.measured), fails, reviews)
-    return _verdict("entrances", data, fails, reviews, checked=len(entries), ctx=ctx,
-                    extra={"lowest": None if lowest == math.inf else round(lowest, 4)},
-                    pass_summary=f"every scaled entrance starts from at least {floor * 100:.0f}% of its size"
-                                 f"{_coverage(data)}",
-                    fail_summary=lambda fs: f"{_plural(len(fs), 'entrance')} {_verb(fs, 'starts', 'start')} below "
-                                            f"{floor * 100:.0f}% scale: "
+    parts = []
+    if entries:
+        parts.append(f"every scaled entrance starts from at least {floor * 100:.0f}% of its size")
+    if hero_checked:
+        parts.append(f"every hero line moves or unmasks as it enters ({_plural(hero_checked, 'hero entrance')})")
+
+    def fail_summary(fs: list[Finding]) -> str:
+        f = fs[0]
+        if "hero line" in f.text:
+            return f"{_plural(len(fs), 'entrance')} on opacity alone: {f.move.label} {f.text}"
+        return (f"{_plural(len(fs), 'entrance')} {_verb(fs, 'starts', 'start')} below {floor * 100:.0f}% scale: "
+                f"{f.move.label} {f.text}")
+
+    return _verdict("entrances", data, fails, reviews, checked=len(entries) + hero_checked, ctx=ctx,
+                    extra={"lowest": None if lowest == math.inf else round(lowest, 4), "hero_entrances": hero_checked},
+                    pass_summary=" and ".join(parts) + _coverage(data), fail_summary=fail_summary)
+
+
+def is_text(m: Move) -> bool:
+    """Is a traced move an element of type (a write-on, a line arriving)? Its role, its words, or its property say."""
+    return bool(m.role in TEXT_ROLES or m.text or any(w in _key(m.prop) for w in _WRITE_WORDS))
+
+
+def check_settled(data: MotionData, ctx=None):
+    """No text entrance while a carry (the camera, a page) moves faster than 2 px a frame at 1080p (L-motion-D140)."""
+    np = _np()
+    arrivals = [m for m in data.moves if m.entrance and is_text(m) and m.frame_out > m.frame_in]
+    if not arrivals:
+        return None
+    if not data.size:
+        return _sub("settled", "UNCHECKED", "film.json has no width and height, so the 2 px a frame can't be scaled")
+    limit = LAW["settled_speed_per_short_side"] * min(data.size)
+    carries = []
+    for (act, ident), moves in _element_moves(data).items():
+        pos = [m for m in moves if m.kind in POSITIONAL]
+        if not pos or not any(element_class(m)[0] == "carry" for m in pos):
+            continue
+        series = position_series(pos, data.law)
+        if series is None:
+            continue
+        grid, p = series
+        _v, speed, _a = _motion_of(grid, p)
+        carries.append((act, ident, grid, speed))
+    fails: list[Finding] = []
+    reviews: list[Finding] = []
+    for m in arrivals:
+        for act, ident, grid, speed in carries:
+            if act != m.act or ident == m.id:  # type carried with its own page arrives with it: that's one move
+                continue
+            # speed[k] is the move from grid[k] to grid[k+1]: the frames of the arrival's span
+            k = (grid[:-1] >= m.frame_in - 1e-9) & (grid[:-1] < m.frame_out - 1e-9)
+            fast = np.flatnonzero(k & (speed > limit + 1e-9))
+            if not len(fast):
+                continue
+            worst = float(speed[fast].max())
+            first, last = int(grid[fast[0]]), int(grid[fast[-1]] + 1)
+            _route(Finding("settled", m, f"arrives while the {ident} carry still travels {_fmt(worst)} px/frame "
+                           f"(frames {first}–{last}; it must be under {_fmt(limit)} px/frame, 2 px at 1080p): land "
+                           "type only once the camera has all but stopped", worst), fails, reviews)
+            break
+    return _verdict("settled", data, fails, reviews, checked=len(arrivals), ctx=ctx,
+                    extra={"limit_px_per_frame": round(limit, 3), "carries": len(carries)},
+                    pass_summary=f"every text entrance waits for the carries to settle "
+                                 f"({_plural(len(arrivals), 'text entrance')}){_coverage(data)}",
+                    fail_summary=lambda fs: f"{_plural(len(fs), 'text entrance')} during a carry: "
                                             f"{fs[0].move.label} {fs[0].text}")
 
 
@@ -2043,6 +2169,7 @@ CHECKS: dict[str, Callable] = {
     "durations": check_durations,
     "staggers": check_staggers,
     "entrances": check_entrances,
+    "settled": check_settled,
     "speed": check_speed,
     "loops": check_loops,
     "symmetry": check_symmetry,

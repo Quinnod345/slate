@@ -82,6 +82,8 @@ Frame counts below are at about 30 fps and speeds at a 1080-line frame; scale bo
   takes at least 16 frames (under about 2 Hz).
 - **At most one overshoot per gesture**, and only in the one gesture that needs it (a wave's small dip).
 - **Nothing loops except a breath**, with a cycle of at least 44 frames. No idle loop.
+- **A loop that turns** (a thinking loop that turns the mark as it breathes) turns exactly one symmetry step per cycle,
+  so every cycle ends on the rest mark. Never turn it linearly and round to rest afterwards.
 - Why: blur length follows speed, so a wobble at f Hz makes the blur pulse at 2f, and flicker sensitivity peaks near
   8 Hz. Material 3 fires even its bounciest spring once per transition and its effects springs never overshoot; Apple
   defaults to no bounce and advises against sustained oscillation. Stacked out-of-phase loops read as swimming.
@@ -116,6 +118,8 @@ Frame counts below are at about 30 fps and speeds at a 1080-line frame; scale bo
 - **Two sheets, fixed for good**, in the brand's paint order. Membership is never re-sorted, so a turn never pops a
   layer. (Overlapping parts drawn one at a time can't have a consistent order round a ring.)
 - **Opacity** on the whole mark or a whole sheet, never on a single part.
+- **A fade finishes while the parts are still clear of their overlap.** A fade on part of the mark is done by the time
+  its parts could touch: when a group is fully opaque, it's far past the point where parts meet.
 - **Paper mode**: one shadow and one paper edge per sheet (a drop shadow on the sheet's group shadows the union), never
   one per part.
 - **2D only**: no 3D transforms on parts. To tilt the character, render it flat into one layer and tilt the layer.
@@ -177,7 +181,8 @@ Frame counts below are at about 30 fps and speeds at a 1080-line frame; scale bo
    except that nothing runs during a hold, and only a lean or a hold while parts are away.
 3. Never two gestures on the same channel at once.
 4. Every act starts and ends with the character calm: the brand mark exactly, turned to a multiple of its symmetry
-   angle.
+   angle. At a contract frame the mark rests at exactly its rest turn, not an equivalent multiple of its symmetry
+   angle: at 90 degrees the picture matches but the pixels don't, and a bit-identical contract fails.
 5. A builder's own moves of the character (placing it, resizing it for a gesture) are part of its motion: the rig's
    curve and its speed limits apply.
 
@@ -187,12 +192,41 @@ Frame counts below are at about 30 fps and speeds at a 1080-line frame; scale bo
   See it made, let it turn to you, step back, then name it.
 - Resize it into its full-choreography size before a gesture that needs it (enlarging over about 20 frames before a
   wave).
+- **Staging is separate from gestures.** For a close-up, the mark's scale inside its disc and its offset from the
+  disc's centre are staging (`MarkCharacter`'s `markScale` and `markOffset`, in disc diameters), and they come back to
+  1 and 0 on the rig's curve as the camera pulls back. They never change a gesture: the track draws the same pose,
+  scaled and moved with the mark.
 - Never show the character twice in one frame (a second copy as a chat avatar splits it).
 - Check a flight's path against the marks it passes, and choose the part and placement that clear them.
 - Place it where its later UI will open into empty space, not over content.
+- **Every point the character uses** (its position, a lean's target, where parts are sent) is in the coordinate space
+  of the layer it's drawn in: screen pixels in a full-frame layer, world pixels inside a camera, card pixels inside a
+  card.
+- **Carry it between surfaces on its own curve in screen space**, whatever the camera does. Each carry ends no earlier
+  than any camera move it overlaps (a carry that ended first kinked the character's velocity at about 8 px a frame
+  squared), and lands on a fixed target, never a moving point.
 - Its sounds are soft felt notes (its motif), a small wood tick and soft pads, never chimes (slate-sound).
 
-## 16. Acceptance tests
+## 16. Sending parts away
+
+Sending parts off the ring, to point at something or gather round a group, is the one deliberate break in the ring's
+symmetry (section 5), so it has rules of its own:
+
+- **Which part goes**: the part whose spoke points closest to the target at lift-off; ties go clockwise. The rest hold
+  still and the ring keeps the gap.
+- **Its path**: an arc that bulges away from the centre, a quadratic curve whose control point is the chord's midpoint
+  pushed outward by min(0.12 × chord, 80 px). Size and colour change by flight progress, never by distance, and the
+  part never spins.
+- **Several parts to several targets**: sort the targets by angle around the centre and rotate the assignment to the
+  least total angle error, so no two paths cross. The longest chord sets the flight length for all of them.
+- **A ring opening around a group of targets** moves its centre on an arc and grows to an ellipse, each part at its own
+  slot angle so order and orientation are kept, then holds perfectly still until it goes home.
+- **One flight at a time**: a flight never lifts off before the previous one has seated.
+- **Size a flight from its on-screen chord**, the camera's scale included: under a close camera, a flight sized in its
+  own layer moves faster on screen. Keep a floor so a signature flight stays unhurried, and never shorter than
+  max(16, chord ÷ 19) frames (section 7).
+
+## 17. Acceptance tests
 
 1. **Determinism**: any frame rendered on its own is bit-identical to the same frame rendered in sequence.
 2. **Calm**: at rest the frame after every gesture ends, and at both ends of every act.
@@ -213,5 +247,8 @@ Frame counts below are at about 30 fps and speeds at a 1080-line frame; scale bo
 `MarkCharacter` (the disc with the motif in it) and `MotifMark` draw the rig; `gesture(meaning, {t | frame})` makes
 track entries from the vocabulary; `motifBeats()` lists the character's sound events (kind `character`, one per note);
 `motifLint()` lists anything the combination rules forbid (an empty list is a clean track); `registerMotifTrace()`
-records the rig for `slate qa motion`, which checks symmetry and the speed limits; `isCalm()` checks rest. The research
-behind each rule is in [sources](sources.md).
+records the rig for `slate qa motion`, which checks symmetry and the speed limits; `isCalm()` checks rest. At hand-in
+`slate check` runs the acceptance tests it can measure on every registered mark (the character gate: the rig lint, calm
+at both ends and after every gesture, still between gestures, the split point, the clear circle in every clip), and the
+kit's gesture sheet (`Kit-Gestures`, and `Kit-Gestures-Quarter` at quarter speed) is the sheet a person reviews by eye.
+The research behind each rule is in [sources](sources.md).

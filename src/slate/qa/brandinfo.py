@@ -88,6 +88,40 @@ def banned_words(pack: dict) -> list[str] | None:
     return [str(w) for w in (truth.get("banned_words") or []) if str(w).strip()]
 
 
+def banned_entries(pack: dict) -> list[dict] | None:
+    """The banned list with each entry's inflections and approved substitute ({word, forms, instead}); None when the
+    pack doesn't state a list. Every gate matches every form, and a failure names the substitute."""
+    from slate.qa import textmatch  # noqa: PLC0415
+
+    mod = _pack_module()
+    if mod is not None and hasattr(mod, "banned_entries"):
+        try:
+            got = mod.banned_entries(pack)
+            if got is not None:
+                return [e for e in (textmatch.banned_entry(x) for x in got) if e]
+        except Exception:  # noqa: BLE001 - fall back to reading the key
+            pass
+    truth = _truth(pack)
+    if not isinstance(truth.get("banned_words"), list):
+        return None
+    return [e for e in (textmatch.banned_entry(x) for x in truth["banned_words"]) if e]
+
+
+# Captions a graphic uses to comment on itself. A brand that forbids self-commentary (truth.self_commentary: false)
+# has these banned on screen; its voice may still say the words.
+SELF_COMMENTARY = (
+    {"word": "Illustration", "forms": ["Illustrations", "Illustrative", "For illustration only"], "instead": None},
+    {"word": "Example", "forms": ["Examples", "For example only"], "instead": None},
+)
+
+
+def self_commentary(pack: dict) -> bool:
+    """Does the brand allow graphics to comment on themselves ("Illustration", "Example")? True unless the pack's
+    truth says `self_commentary: false` (one film tagged a frame "Illustration" against its own website's rule)."""
+    value = _truth(pack).get("self_commentary")
+    return value is not False
+
+
 def approved_claims(pack: dict) -> list[dict]:
     mod = _pack_module()
     if mod is not None and hasattr(mod, "approved_claims"):

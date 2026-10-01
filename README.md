@@ -112,9 +112,22 @@ see MCP servers.
   gateway's PATH lacks `~/.local/bin`.
 - **Claude chats:** the knowledge-only skill, uploaded from `plugins/slate/claude-ai/`, and the desktop extension.
 - **Everyone else:** the plugin in `plugins/slate`, from this repository's marketplace
-  (`/plugin marketplace add Quinnod345/slate`, then `/plugin install slate@slate`).
+  (`/plugin marketplace add Quinnod345/slate`, then `/plugin install slate@slate`). Turn on auto-update for Slate's
+  marketplace (`/plugin`, Marketplaces): it's off by default for third-party marketplaces, and without it you won't get
+  fixes. The plugin also brings ElevenLabs' and Higgsfield's hosted connectors, which sign in with OAuth.
 
-`slate skills build` generates each client's extras from `skills/`; CI fails when a generated copy drifts.
+`slate skills build` generates each client's extras from `skills/`, and the whole plugin folder with them (its
+manifests, MCP configs and README); CI fails when a generated copy drifts, and runs the clients' own validators
+(`claude plugin validate --strict`, `skills-ref validate`) wherever they're installed.
+
+## Permissions for unattended runs
+
+An agent that stops to ask before each command stalls an unattended run. Allow Slate's own commands in each agent's
+permissions: `slate` itself, `ffmpeg`, `ffprobe`, `whisper`, and from the checkout Slate's Python
+(`.venv/bin/python`) and the engine's command line (`node engine/cli.mjs`). The exact rules for Claude Code's settings
+and for Codex's rules, with the connector tools Slate denies, are in `plugins/slate/README.md` (written by
+`slate skills build` from the same list). aerender isn't on it on purpose: After Effects work starts only on a person's
+go, and Slate runs aerender itself when they give it.
 
 ## Spend is explicit
 
@@ -159,7 +172,7 @@ Slate never opens a web browser. It's enforced in code, not left to good intenti
 | Engine installs, job queue, ledger, budgets, caches, logs | `~/Library/Application Support/Slate/` | `SLATE_DATA` |
 | Real brand packs (company packs stay on your own Mac) | `~/code/slate-brands/` | `SLATE_BRANDS` |
 | API keys | Your login Keychain, or the environment | `slate connect` |
-| The plugin, with generated skill copies and knowledge-only zips | `plugins/slate/` | `slate skills build` |
+| The plugin: manifests, MCP configs, README, skill copies and knowledge-only zips, all generated | `plugins/slate/` | `slate skills build` |
 | The desktop extension's source | `mcpb/` (packed into `dist/`) | `slate mcpb build` |
 
 A film's folder holds everything it knows: `film.json` (format, clock, brand, budget, pins), `film.lock.json` (what

@@ -27,10 +27,39 @@ def norm_word(word: str) -> str:
 
 
 # ---------------------------------------------------------------------------------------------- banned words
-def banned_pattern(words: list[str]) -> re.Pattern | None:
-    """One case-insensitive, whole-word pattern for a banned list (a phrase matches across any whitespace)."""
+def banned_entry(item) -> dict | None:
+    """One banned-list entry as {word, forms, instead}. A plain string is a word with no other forms; an object names
+    its word (`word` or `text`), its inflections (`forms`: "verifies", "verifying", "verification") and the approved
+    substitute (`instead`: a banned "verified" becomes "trusted")."""
+    if isinstance(item, dict):
+        word = str(item.get("word") or item.get("text") or "").strip()
+        forms = [str(f).strip() for f in item.get("forms") or [] if str(f).strip()]
+        instead = item.get("instead")
+        instead = str(instead).strip() if isinstance(instead, str) and instead.strip() else None
+    else:
+        word, forms, instead = str(item or "").strip(), [], None
+    if not word:
+        return None
+    return {"word": word, "forms": [f for f in dict.fromkeys(forms) if f.lower() != word.lower()], "instead": instead}
+
+
+def banned_forms(words) -> dict[str, dict]:
+    """{every form, lower case: its entry} for a banned list (strings or entries)."""
+    out: dict[str, dict] = {}
+    for item in words or []:
+        e = banned_entry(item)
+        if e is None:
+            continue
+        for form in (e["word"], *e["forms"]):
+            out.setdefault(" ".join(form.lower().split()), e)
+    return out
+
+
+def banned_pattern(words) -> re.Pattern | None:
+    """One case-insensitive, whole-word pattern for a banned list, every form of every entry (a phrase matches across
+    any whitespace)."""
     parts = []
-    for w in sorted({str(w).strip() for w in words if str(w).strip()}, key=len, reverse=True):
+    for w in sorted(banned_forms(words), key=len, reverse=True):
         parts.append(r"\s+".join(re.escape(tok) for tok in w.split()))
     if not parts:
         return None
@@ -41,6 +70,19 @@ def find_banned(text: str, pattern: re.Pattern | None) -> list[str]:
     if pattern is None or not text:
         return []
     return [m.group(0) for m in pattern.finditer(str(text))]
+
+
+def name_hit(hit: str, forms: dict[str, dict]) -> str:
+    """A hit as a failure names it: the word found, the banned word it's a form of, and the approved substitute."""
+    e = forms.get(" ".join(hit.lower().split()))
+    if e is None:
+        return repr(hit)
+    text = repr(hit)
+    if e["word"].lower() != " ".join(hit.lower().split()):
+        text += f" (a form of {e['word']!r})"
+    if e.get("instead"):
+        text += f" (say {e['instead']!r} instead)"
+    return text
 
 
 # ---------------------------------------------------------------------------------------------- read time

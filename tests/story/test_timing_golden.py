@@ -277,9 +277,29 @@ def test_script_gates_agree_with_film_as_automated_checks(filmroot):
               "acts": [{"name": a["name"], "shots": [{k: v for k, v in s.items() if k != "source"} for s in a["shots"]]}
                        for a in sb["acts"]]}
     got = {r.gate: r for r in check_script(script, brand=brand, fmt={}, film={"targets": {"runtime_s": 360.65}})}
-    for gate in ("script.pace", "script.read_time", "script.banned_words", "script.runtime", "script.on_screen"):
+    for gate in ("script.pace", "script.read_time", "script.banned_words", "script.runtime"):
         assert got[gate].status == "PASS", (gate, got[gate].evidence[:3])
     assert "+0.5%" in got["script.runtime"].summary  # A's STORYBOARD.md: 6:02.5, +0.5% against the original
+    _only_the_ratio_is_new(script, got, brand=brand, film={"targets": {"runtime_s": 360.65}})
+
+
+def _only_the_ratio_is_new(script: dict, got: dict, **kw) -> None:
+    """The films' storyboards predate the 40% gate (L-story-030), and a few of their shots carry more than 40% of the
+    voice on screen without the voice saying it: a hero line over another line (A's S12), a product's own screen (its
+    loading state, C's chat), an end card. Those are the gate's only findings (the 12-word cap holds everywhere), and
+    each passes once it's declared for what it is, as the gate's evidence says to."""
+    on = got["script.on_screen"]
+    if on.status == "PASS":
+        return
+    over = [e for e in on.evidence if "(keywords, not transcripts)" in e]
+    assert on.status == "FAIL" and over and not [e for e in on.evidence if "(at most " in e], on.evidence[:4]
+    flagged = {e.split(":", 1)[0] for e in over}
+    for a in script["acts"]:
+        for sh in a["shots"]:
+            if sh["id"] in flagged:
+                sh["reading"] = {"labels": True, "reason": "the picture's own words, as delivered"}
+    again = {r.gate: r for r in check_script(script, fmt={}, **kw)}
+    assert again["script.on_screen"].status == "PASS", again["script.on_screen"].evidence[:3]
 
 
 def test_script_gates_agree_with_film_cs_generator_checks(filmroot):
@@ -291,8 +311,9 @@ def test_script_gates_agree_with_film_cs_generator_checks(filmroot):
               "acts": [{"name": a["name"], "shots": [{k: v for k, v in s.items() if k != "source"} for s in a["shots"]]}
                        for a in sb["acts"]]}
     got = {r.gate: r for r in check_script(script, brand={"truth": {"banned_words": words}}, fmt={}, film={})}
-    for gate in ("script.pace", "script.banned_words", "script.on_screen", "script.vo_dashes", "script.first_line"):
+    for gate in ("script.pace", "script.banned_words", "script.vo_dashes", "script.first_line"):
         assert got[gate].status == "PASS", (gate, got[gate].evidence[:3])
+    _only_the_ratio_is_new(script, got, brand={"truth": {"banned_words": words}}, film={})
 
 
 # --- the delivered files fit Slate's schemas ------------------------------------------------------------------------------------

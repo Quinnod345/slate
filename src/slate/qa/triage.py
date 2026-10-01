@@ -5,7 +5,8 @@ everything that isn't PASS: what failed, what went stale, what couldn't be check
 person. Gates that have never run count as unchecked: nothing unchecked is ever reported as passed.
 
 It also triages the glitch scan. Flags within ±3 frames of a planned beat are the film's own moves (film B had 1,442
-flags, mostly smooth fast moves); they're listed as skipped, grouped by act, so the open ones stand out. The render
+flags, mostly smooth fast moves); they're listed as skipped, grouped by act, and the motion and fades block matching
+explains are counted, so the open ones stand out. The render
 stability scan gets the same per act: open flags by class, how many the planned beats, the reference render and the
 baseline took out, and the strips to look at.
 """
@@ -52,7 +53,11 @@ def _glitch_summary(film_dir: Path) -> dict | None:
         return None
     skipped = data.get("skipped_near_beats") or []
     by_act = Counter(str(f.get("act")) for f in skipped)
+    explained = data.get("explained_by") or {}
+    blanks = data.get("blanks") or {}
     return {"flags": data.get("flags", 0), "skipped_near_beats": len(skipped), "skipped_by_act": dict(by_act),
+            "explained_motion": int(explained.get("motion") or 0), "explained_fade": int(explained.get("fade") or 0),
+            "blank_runs": int(blanks.get("found") or 0),
             "open": [{"ref": f"glitch:{i.get('key')}", "what": i.get("what")} for i in data.get("open") or []][:50],
             "open_count": len(data.get("open") or []), "accepted": len(data.get("accepted") or []),
             "missing_acts": data.get("missing_acts") or []}
@@ -140,7 +145,9 @@ def format_report(rep: dict) -> str:
     if g:
         acts = ", ".join(f"act {a}: {n}" for a, n in sorted(g["skipped_by_act"].items())) or "none"
         lines += ["", f"Glitch triage: {g['flags']} flags; {g['skipped_near_beats']} within ±3 frames of a planned beat "
-                      f"(skipped; {acts}); {g['accepted']} accepted; {g['open_count']} open"]
+                      f"(skipped; {acts}); {g.get('explained_motion', 0)} motion and {g.get('explained_fade', 0)} "
+                      f"fades explained by block matching; {g['accepted']} accepted; {g['open_count']} open"
+                      + (f"; {g['blank_runs']} blank run(s) found" if g.get("blank_runs") else "")]
         for it in g["open"][:15]:
             lines.append(f"  [{it['ref']}] {it['what']}")
     s = rep.get("stability")

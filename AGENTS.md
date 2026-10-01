@@ -57,7 +57,8 @@ These hold for every change and every test. Most are enforced in code; the rest 
 - Read dynamic paths at call time (`paths.data()`, `paths.films()`), never with `from slate.paths import DATA`: they
   follow `SLATE_DATA`, `SLATE_FILMS` and `SLATE_BRANDS`.
 - A new MCP tool wraps a command that already exists; the command line is the contract. The allowlist lives in
-  `src/slate/mcp/policy.py`.
+  `src/slate/mcp/policy.py`: quick stages in `RUN`, anything long in `JOBS` (it becomes a job), a person's decisions
+  in neither. A step chosen by a positional (`slate voice tags pick`) is a stage's `action`.
 
 ## Running things
 
@@ -87,8 +88,9 @@ SLATE_TEST_INTEGRATION=1 .venv/bin/python -m pytest tests/integration -q -p no:c
 .venv/bin/python -m slate skills build --check
 .venv/bin/python -m slate mcpb build --check
 
-# every lesson mapped to where it lives (the knowledge ledger)
+# every lesson mapped to where it lives (the knowledge ledger); after re-mapping lessons, regenerate GAPS.md
 .venv/bin/python -m slate knowledge check
+.venv/bin/python -m slate knowledge gaps --write
 ```
 
 Tests stay fast and offline: anything that runs a real model, a long render, a real install or the network goes
@@ -112,9 +114,16 @@ The ten skills live in `skills/<name>/`: `SKILL.md` plus `references/`, in the o
 - Frontmatter is spec-only (`name`, `description`, `license`, `compatibility`, `metadata`, `allowed-tools`); the name
   matches the folder; the description stays under 1,024 characters; SKILL.md stays under 500 lines, with depth in
   `references/`, linked by relative paths.
-- After editing a skill, run `slate skills build`. It regenerates the plugin's copies (`plugins/slate/skills/`, with
-  Codex sidecars), OpenClaw's entries and the knowledge-only zips for Claude chats. Never edit those by hand; CI runs
-  `slate skills build --check` and fails when they drift.
+- After editing a skill, run `slate skills build`. It regenerates the whole plugin folder: the skill copies
+  (`plugins/slate/skills/`, with Codex sidecars), OpenClaw's entries, the knowledge-only zips for Claude chats, and the
+  plugin's own manifests, MCP configs, README and LICENSE (their source is `src/slate/skills_build.py`). Never edit
+  anything in `plugins/slate` by hand; CI runs `slate skills build --check` and fails when it drifts, and the check
+  runs `claude plugin validate --strict` and `skills-ref validate` wherever they're installed.
+- The build also holds the clients' limits: no media in a skill (fonts, sound banks, LUTs, audio, video), each
+  listing under Claude Code's 1,536-character cut, the whole skill list inside Codex's 8,000-character budget (it's
+  near it, so keep descriptions tight), and the plugin under claude.ai's 200 MB and 5,000 files.
+- A rule every film needs goes in the skill's SKILL.md; anything narrower goes in the reference for that work. Cite
+  commands exactly: the skills tests hold every cited stage, step and `--flag` to the live CLI.
 - `slate guide <topic>` prints a skill's reference files, so an agent without skills reads the same text.
 
 ## Git

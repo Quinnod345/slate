@@ -12,6 +12,11 @@
 `check` returns quietly-ish (a dict) when an action may go ahead and raises `Refused` (exit 1) or `SpendRefused`
 (exit 4) when it may not, with the reason and the next step. A parked film refuses production actions until a person
 answers.
+
+A film's mode here is the one Slate judges it in (`slate.state.autonomy.film_mode`): a film made autonomous stays
+autonomous whatever its film.json says, until a person at their own Terminal changes it. The one After Effects path such
+a film has is its owner's own finish (`slate master --ae --go` from their Terminal, after they approved its held
+master), which `check` lets through while `autonomy.ae_finish` holds it open.
 """
 
 from __future__ import annotations
@@ -142,11 +147,11 @@ def check(film_dir: Path, action: str, **ctx: Any) -> dict:
     """May `action` happen in this film now? Returns {allowed: True, mode, action, notes} or raises Refused /
     SpendRefused with the reason. Context: what= (approve), approval_id= (generate, spend), estimate= (spend),
     claim= (claim), results= (review), path= (publish), owner_verified= (voice_clone)."""
-    from slate.state import approvals  # noqa: PLC0415
+    from slate.state import approvals, autonomy  # noqa: PLC0415
 
     film_dir = Path(film_dir)
     fj = _film(film_dir)
-    mode = str(fj.get("mode") or "supervised")
+    mode = autonomy.film_mode(film_dir, fj)
     rules = settings(mode)
     notes: list[str] = []
     act = str(action or "").strip().lower()
@@ -158,9 +163,16 @@ def check(film_dir: Path, action: str, **ctx: Any) -> dict:
                       details={"question": q})
     if act in AE_ACTIONS:
         if not rules["after_effects"]:
-            raise Refused("Autonomous films never touch After Effects (its terms bar operations a person didn't "
-                          "start). They're mastered with ffmpeg and held.",
-                          hint="Once a person approves the held film, they can start its AE finish themselves.")
+            if autonomy.finishing(film_dir, act):
+                notes.append("the owner's own After Effects finish, started from their Terminal after they approved "
+                             "the held master")
+                return {"allowed": True, "mode": mode, "action": act, "notes": notes}
+            held = "" if fj.get("mode") == mode else (
+                f" This film's film.json says {fj.get('mode')}, but Slate's own record holds it autonomous.")
+            raise Refused(f"Autonomous films never touch After Effects (its terms bar operations a person didn't "
+                          f"start). They're mastered with ffmpeg and held.{held}",
+                          hint="Once the owner approves the held master (the final cut), they can start its AE finish "
+                               f"themselves, in their own Terminal: {autonomy.FINISH_COMMAND} (not as a queued job)")
         if mode == "draft" and act in ("ae_master", "ae_finish"):
             raise Refused("Draft films are mastered with ffmpeg; the AE finish is for films a person supervises.",
                           hint="slate master --ffmpeg")
@@ -254,9 +266,11 @@ def _norm(text: str) -> str:
 def check_claims(film_dir: Path, claims: Iterable[str], *, and_park: bool = True) -> list[str]:
     """The claims that aren't on the brand's approved list. In an autonomous film, any such claim parks the film with
     one question listing them (other modes leave claims to the script's source gate)."""
+    from slate.state import autonomy  # noqa: PLC0415
+
     fj = _film(film_dir)
     claims = [c for c in claims if str(c or "").strip()]
-    if fj.get("mode") != "autonomous" or not claims:
+    if autonomy.film_mode(film_dir, fj) != "autonomous" or not claims:
         return []
     pack = deps.brand_load(fj["brand"])
     approved = {_norm(c.get("text") or c.get("claim") or "") for c in deps.brand_approved_claims(pack)}
@@ -270,8 +284,10 @@ def check_claims(film_dir: Path, claims: Iterable[str], *, and_park: bool = True
 
 def park_on_review(film_dir: Path, results: Iterable[Any]) -> list[dict]:
     """Autonomous films park on every REVIEW verdict, with its evidence. Other modes leave REVIEW to the sitting."""
+    from slate.state import autonomy  # noqa: PLC0415
+
     fj = _film(film_dir)
-    if fj.get("mode") != "autonomous":
+    if autonomy.film_mode(film_dir, fj) != "autonomous":
         return []
     out = []
     for r in results:

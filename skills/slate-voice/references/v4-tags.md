@@ -104,3 +104,7 @@ How each measure is read: [measuring a read](measuring-reads.md).
 
 Tags work with the voice's stored settings (stability about 0.5). Neighbouring lines go in as plain words, never tagged
 (directing.md).
+
+Passing the next line as context can make a short final word read as a continuation (it rises). Dropping the
+next-line context (a tag-loop candidate's `no_next`) lets it fall, though with no tag the model may run the words
+together and lose the beat.

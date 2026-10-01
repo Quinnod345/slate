@@ -1,10 +1,38 @@
 // Charts at film scale: a distribution curve, bars, a line, a radar and a ring. Every number comes from props (real
 // values only: a chart in a film is a claim), every colour from the brand's tokens, and every draw is a 0 → 1 the
 // scene drives on the brand's eases: a stroke that draws on, bars that grow, a curve that rises from its axis.
+//
+// Rules the films learned, kept as defaults:
+// - the accent line is the look's line weight (useLine), so an act's own line matches the chart it hands to;
+// - a drawn-on stroke isn't drawn at all while its progress is 0: a zero-length dash with round caps still paints a dot;
+// - a dot or marker on a drawing line grows in over the tenth of the draw before the line reaches it, never popping on
+//   at its threshold;
+// - an axis's labels each land on their own word (`op` per label) and read at body size.
 import React, {useId} from 'react';
 import {alpha, mix} from './core/color';
 import {clamp01, lerp} from './core/spline';
-import {useAppPx, useTokens, useType} from './context';
+import {useAppPx, useLine, useTokens, useType} from './context';
+
+/**
+ * How grown a marker on a drawing line is (0 → 1) when the line has drawn `drawn` of its length and reaches the marker
+ * at `at` (both shares of the line's length): it grows in over the `span` of the draw before the line reaches it (over
+ * the first `span` for a marker the line starts at), so it's absent until then and whole when the line arrives. A
+ * marker that switched on at its threshold popped at 98% (L-kit-D143). Scale its radius and opacity by this.
+ */
+export function dotGrowth(drawn: number, at: number, span = 0.1): number {
+  const end = Math.max(at, span);
+  // whole exactly when the line arrives (no float shortfall), absent until its tenth begins
+  if (drawn >= end - 1e-9) return 1;
+  return clamp01((drawn - (end - span)) / span);
+}
+
+/** Where a line through `pts` reaches each point, as a share of its length (a dash runs along a path's length, not x). */
+export function lineArrivals(pts: readonly (readonly [number, number])[]): number[] {
+  const cum = [0];
+  for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+  const total = cum[cum.length - 1];
+  return cum.map((c, i) => (total > 0 ? c / total : pts.length > 1 ? i / (pts.length - 1) : 1));
+}
 
 // -------------------------------------------------------------------------------------------------- distributions
 /** Error function (Abramowitz and Stegun 7.1.26, |error| < 1.5e-7). */
@@ -37,15 +65,15 @@ export const pathOf = (pts: readonly (readonly [number, number])[]): string => p
 
 /**
  * A distribution curve. `drawn` 0 → 1 draws the stroke left to right, `rise` 0 → 1 lifts it from the flat axis,
- * `fill` 0 → 1 fades its area in. The line keeps the brand's accent; its weight is a prop (heavy while drawing, a
- * hairline once it settles, if the brand's app draws it that way).
+ * `fill` 0 → 1 fades its area in. The line keeps the brand's accent; its weight is the look's line (useLine) unless a
+ * scene gives one (heavy while drawing, a hairline once it settles, if the brand's app draws it that way).
  */
 export function DistributionCurve({dist, w, h, drawn = 1, rise = 1, weight, fill = 1, color}: {dist: Normal; w: number; h: number; drawn?: number; rise?: number; weight?: number; fill?: number; color?: string}) {
   const t = useTokens();
-  const a = useAppPx();
+  const line = useLine();
   const id = `dist${useId().replace(/[^a-zA-Z0-9]/g, '')}`;
   const c = color ?? t.color.line;
-  const sw = weight ?? a(1.5);
+  const sw = weight ?? line;
   const pts = curvePoints(dist, w, h).map(([x, y]) => [x, lerp(h, y, clamp01(rise))] as [number, number]);
   const d = pathOf(pts);
   return (
@@ -59,8 +87,9 @@ export function DistributionCurve({dist, w, h, drawn = 1, rise = 1, weight, fill
           <rect x={-sw} y={-h} width={(w + 2 * sw) * clamp01(drawn)} height={3 * h} />
         </clipPath>
       </defs>
-      {fill > 0 && <path d={`${d}L${w},${h}L0,${h}Z`} fill={`url(#${id}-f)`} opacity={clamp01(fill)} clipPath={`url(#${id}-c)`} />}
-      <path d={d} fill="none" stroke={c} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" pathLength={1} strokeDasharray={`${clamp01(drawn)} 2`} />
+      {fill > 0 && clamp01(drawn) > 0 && <path d={`${d}L${w},${h}L0,${h}Z`} fill={`url(#${id}-f)`} opacity={clamp01(fill)} clipPath={`url(#${id}-c)`} />}
+      {/* nothing at zero length: a zero-length dash with round caps still paints a dot (L-kit-D133) */}
+      {clamp01(drawn) > 0 && <path d={d} fill="none" stroke={c} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" pathLength={1} strokeDasharray={`${clamp01(drawn)} 2`} />}
     </svg>
   );
 }
@@ -83,19 +112,28 @@ export function CurveMarker({dist, w, h, value, label, op = 1}: {dist: Normal; w
   );
 }
 
-/** An axis under a chart: a hairline and labels at given positions (fractions of the width). */
-export function Axis({w, labels = [], op = 1}: {w: number; labels?: {at: number; text: string}[]; op?: number}) {
+/**
+ * An axis under a chart: a hairline and labels at given positions (fractions of the width). Each label can land on its
+ * own word: `op` (0 → 1) per label, so a scene stages them one by one. Labels are set in the body role by default,
+ * which reads at 28 px or more on 1080 lines; an axis that drew every label at once at 22 to 24 px made a film redraw
+ * it by hand (L-kit-D103).
+ */
+export function Axis({w, labels = [], op = 1, role = 'body'}: {w: number; labels?: {at: number; text: string; op?: number}[]; op?: number; role?: string}) {
   const t = useTokens();
   const a = useAppPx();
-  const s = useType('small', t.color.ink3);
+  const s = useType(role, t.color.ink3);
   return (
-    <div style={{position: 'relative', width: w, height: a(24), opacity: op}}>
+    <div style={{position: 'relative', width: w, height: a(8) + s.fontSize * s.lineHeight, opacity: op < 1 ? clamp01(op) : undefined}}>
       <div style={{position: 'absolute', left: 0, top: 0, width: w, height: a(1), background: t.color.hairline}} />
-      {labels.map((l, i) => (
-        <div key={i} style={{...s, position: 'absolute', left: l.at * w, top: a(8), transform: l.at <= 0 ? undefined : l.at >= 1 ? 'translateX(-100%)' : 'translateX(-50%)', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap'}}>
-          {l.text}
-        </div>
-      ))}
+      {labels.map((l, i) => {
+        const lo = clamp01(l.op ?? 1);
+        if (lo <= 0) return null;
+        return (
+          <div key={i} style={{...s, position: 'absolute', left: l.at * w, top: a(8), transform: l.at <= 0 ? undefined : l.at >= 1 ? 'translateX(-100%)' : 'translateX(-50%)', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', opacity: lo < 1 ? lo : undefined}}>
+            {l.text}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -123,20 +161,33 @@ export function BarChart({values, w, h, max, grow = 1, gap = 0.28, color, highli
 
 
 // ---------------------------------------------------------------------------------------------------------- line
-/** A line through values (evenly spaced), drawn left to right with `drawn` 0 → 1. */
+/**
+ * A line through values (evenly spaced), drawn left to right with `drawn` 0 → 1, in the look's line weight. With `dots`
+ * each point gets a dot that grows in (radius and opacity from 0) over the tenth of the draw before the line reaches it
+ * (dotGrowth), so none pops on at its threshold; the last one is the marker at the line's end.
+ */
 export function LineChart({values, w, h, min, max, drawn = 1, weight, color, dots = false}: {values: number[]; w: number; h: number; min?: number; max?: number; drawn?: number; weight?: number; color?: string; dots?: boolean}) {
   const t = useTokens();
   const a = useAppPx();
+  const line = useLine();
   const lo = min ?? Math.min(...values);
   const hi = max ?? Math.max(...values);
   const span = hi - lo || 1;
   const pts = values.map((v, i) => [values.length > 1 ? (i / (values.length - 1)) * w : w / 2, h - ((v - lo) / span) * h] as [number, number]);
   const c = color ?? t.color.line;
   const d = clamp01(drawn);
+  const sw = weight ?? line;
+  const reach = lineArrivals(pts);
   return (
     <svg width={w} height={h} style={{display: 'block', overflow: 'visible'}}>
-      <path d={pathOf(pts)} fill="none" stroke={c} strokeWidth={weight ?? a(1.5)} strokeLinecap="round" strokeLinejoin="round" pathLength={1} strokeDasharray={`${d} 2`} />
-      {dots && pts.map(([x, y], i) => (i / Math.max(1, pts.length - 1) <= d + 1e-9 ? <circle key={i} cx={x} cy={y} r={a(3)} fill={t.color.surface} stroke={c} strokeWidth={a(1.5)} /> : null))}
+      {/* nothing at zero length: a zero-length dash with round caps still paints a dot (L-kit-D133) */}
+      {d > 0 && <path d={pathOf(pts)} fill="none" stroke={c} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" pathLength={1} strokeDasharray={`${d} 2`} />}
+      {dots &&
+        pts.map(([x, y], i) => {
+          const g = dotGrowth(d, reach[i]);
+          if (g <= 0) return null;
+          return <circle key={i} cx={x} cy={y} r={a(3) * g} fill={t.color.surface} stroke={c} strokeWidth={sw * g} opacity={g < 1 ? g : undefined} />;
+        })}
     </svg>
   );
 }
@@ -196,7 +247,7 @@ export function RingChart({size, value, weight, color, track = true, children}: 
     <div style={{position: 'relative', width: size, height: size}}>
       <svg width={size} height={size} style={{position: 'absolute', left: 0, top: 0, transform: 'rotate(-90deg)'}}>
         {track && <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={t.color.gray[1] ?? t.color.hairline} strokeWidth={sw} />}
-        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={color ?? t.color.accent} strokeWidth={sw} strokeLinecap="round" pathLength={1} strokeDasharray={`${clamp01(value)} 2`} />
+        {clamp01(value) > 0 && <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={color ?? t.color.accent} strokeWidth={sw} strokeLinecap="round" pathLength={1} strokeDasharray={`${clamp01(value)} 2`} />}
       </svg>
       <div style={{position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center'}}>{children}</div>
     </div>

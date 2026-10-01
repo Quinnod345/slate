@@ -14,10 +14,15 @@ looks jittery and shaky. The kit's answer changes no design, timing, layout or s
   the kit's mover hint; `PerChar`, `PerWord` and `Arrive` do this for you.
 - **Any other layer that scales by more than about 5%**: `key={rasterKey(scale)}` and `motionHint(moving)`.
 - **Move with transforms, not `left`/`top`/`width`**, whenever something moves slowly or settles.
+- **A box that grows or settles slowly is sized by a transform too**: a tile growing out of a line, a fill rising to its
+  level, a segment, an axis, ticks, dividers, drop lines, row backgrounds through a fold, an edge shadow. Lay it out at a
+  whole-pixel size and draw it to its exact place and size with `translate` and `scale`, counter-scaling its content so
+  type keeps its size. Laid out by height or width, such a box settled a pixel at a time (a 15% tile and its number
+  stepped −1.1, −1.0, −1.0 px as they came to rest).
 - **Every raster switch can tick the text up to half a pixel.** Don't switch a hint on or off in place on something
   visible and still; a layer whose last rebuild falls just before it settles can keep one raster through its rest.
   Prefer a few percent of softness to a visible jump.
-- **Keys must be unique among siblings**: two siblings sharing a raster key were drawn wrong (a label appeared twice).
+- **Keys must be named and unique among siblings** (Determinism, below).
 - **A half-scale, one-sample preview hides this.** One act was approved from such a preview, and its 16-sample final
   shook: type stepped a pixel at a time under a slow push. Before a final, render short 16-sample windows of the risky
   moves (slow pushes, the tails of long eases, text rising on its own) through the real render path, and check them at
@@ -37,6 +42,8 @@ looks jittery and shaky. The kit's answer changes no design, timing, layout or s
 - **Declare the stacking explicitly**: a back-to-front list of layers per scene, each its own context.
 - **Opacity or a filter on a 3D group flattens it**, and a translucent card shows its thickness layers through its face:
   put opacity and blur on leaves, and fade a card as one flat sheet (the kit's `FadeCard`).
+- **3D planes that meet edge to edge crack along the seam** and shimmer in camera moves: run every plane about 3 px
+  past its shared edges.
 
 ## UI belongs to its card
 
@@ -48,13 +55,20 @@ at a fixed position: a floating button was once left behind on the bare page whe
 - **Remove geometry that's never meant to be seen**: a block hidden under a flat sheet only ever showed as a panel
   popping in when the sheet lifted, and it hid the sheet's own shadow.
 - **Zero-length dashed lines still render a dot.**
+- **Mount every component before its first animated frame and hide it until then**: a row mounted partway through a
+  draw starts mid-move (a dash popped in at 45% of its length).
 
 ## Determinism
 
 - The GPU renderer isn't bit-exact run to run (about one level): call a frame "changed" only when it differs from both
   of two baseline renders. Software GL is bit-exact.
+- **Every rebuild key** (a raster or tilt key that remounts a layer) **is named and unique among its siblings**: two
+  siblings sharing one were drawn wrong, one label shown twice.
 - A lookup that throws at module load breaks every composition in the bundle; the kit's never do.
 - A half-written act can break the bundle for everyone: the hand-in check's type check and module load catch it.
+- **To find which frames a change can affect without a browser**, render the act's scene components to static markup
+  for every frame, before and after (react-dom/server's static renderer), diff the markup, then pixel-compare only the
+  frames whose markup changed.
 
 ## Load
 

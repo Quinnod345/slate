@@ -102,8 +102,42 @@ def test_install_plan_is_pinned_and_changes_nothing(monkeypatch):
     calls = []
     res = bridge.install(runner=lambda *a, **k: calls.append(a))
     assert res["ran"] is False and calls == []
-    assert res["plan"]["install"] == ["npm", "install", "--global", f"{bridge.PACKAGE}@{PIN}"]
-    assert res["plan"]["register"]["codex"] == ["fnf-after-effects", "install-codex"]
+    # the package's own install scripts never run (L-packaging-D004); then its doctor and config, then registration
+    assert res["plan"]["install"] == ["npm", "install", "--global", "--ignore-scripts", f"{bridge.PACKAGE}@{PIN}"]
+    assert res["plan"]["verify"] == ["fnf-after-effects", "doctor"]
+    assert res["plan"]["config"] == ["fnf-after-effects", "config"]
+    codex = res["plan"]["register"]["codex"]
+    assert codex[:4] == ["codex", "mcp", "add", bridge.SERVER_NAME] and codex[-1].endswith("dist/index.js")
+
+
+def test_every_registration_keeps_eval_off_and_the_categories_limited():
+    """The bridge is registered with arbitrary eval off and its operations limited to the categories Slate's scenes
+    use, in each agent's own spelling (L-ae-025); the switch names are the pinned version's (dist/policy.js)."""
+    plan = bridge.install_plan()
+    assert plan["policy"] == {"AE_MCP_ENABLE_EVAL": "0", "AE_MCP_ALLOW_CATEGORIES": ",".join(bridge.SCENE_CATEGORIES)}
+    for flag, argv in (("-e", plan["register"]["claude-code"]), ("--env", plan["register"]["codex"]),
+                       ("--env", plan["register"]["openclaw"])):
+        pairs = [argv[i + 1] for i, a in enumerate(argv) if a == flag]
+        assert "AE_MCP_ENABLE_EVAL=0" in pairs, argv
+        assert f"AE_MCP_ALLOW_CATEGORIES={','.join(bridge.SCENE_CATEGORIES)}" in pairs, argv
+    # never the categories that run arbitrary code, menu commands or touch AE's preferences
+    assert not {"eval", "command", "pref"} & set(bridge.SCENE_CATEGORIES)
+    # and everything the acceptance run asks for is allowed
+    ops = bridge.acceptance_script()["ops"][0]["expect"]["operations"]
+    assert {o.split(".")[0] for o in ops} <= set(bridge.SCENE_CATEGORIES)
+    assert any("trust boundary" in n and "0700" in n for n in plan["notes"])
+
+
+def test_each_call_waits_a_little_longer_than_the_bridge_itself(tmp_path):
+    """60 s by default, 120 s to render a frame, 10 minutes to import, each with a margin on Slate's side, so a long
+    import is never cut off here and left in an unknown state (L-ae-023); `timeout` still overrides every call."""
+    d = _pkg(tmp_path)
+    s = bridge.BridgeSession(d)
+    assert s.timeout_for("ae_do") == 60 + bridge.READ_MARGIN_S
+    assert s.timeout_for("ae_render_frame") == 120 + bridge.READ_MARGIN_S
+    assert s.timeout_for("ae_project_import_json") == 600 + bridge.READ_MARGIN_S
+    assert s.timeout_for("ae_import_footage") == 600 + bridge.READ_MARGIN_S
+    assert bridge.BridgeSession(d, timeout=30).timeout_for("ae_project_import_json") == 30
 
 
 def test_install_with_yes_runs_npm_and_checks_the_pin(tmp_path, monkeypatch):
@@ -287,6 +321,15 @@ def test_the_bridge_server_gets_no_keys(monkeypatch, tmp_path):
     env = bridge.BridgeSession(d)._env()
     assert env["BROWSER"] == "none" and env["AE_MCP_READONLY"] == "1"
     assert "ELEVENLABS_API_KEY" not in env and "HF_KEY" not in env
+
+
+def test_the_environment_never_turns_eval_on_or_widens_the_categories(monkeypatch, tmp_path):
+    d = _pkg(tmp_path)
+    monkeypatch.setenv("AE_MCP_ENABLE_EVAL", "1")
+    monkeypatch.setenv("AE_MCP_ALLOW_CATEGORIES", "eval,command,pref")
+    env = bridge.BridgeSession(d)._env()
+    assert env["AE_MCP_ENABLE_EVAL"] == "0"
+    assert env["AE_MCP_ALLOW_CATEGORIES"] == ",".join(bridge.SCENE_CATEGORIES)
 
 
 def test_openclaw_registers_the_bridge_with_mcp_add():

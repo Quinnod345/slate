@@ -7,6 +7,7 @@ import argparse
 import json
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 
 from slate import gates, jsonio
@@ -18,11 +19,16 @@ WORD_STARTS = [0.4, 0.8, 1.2, 1.6, 2.0, 2.4, 2.8, 3.2]
 
 def _film(mix_film, helpers, *, score_db: float = -50.0, bright: bool = False, effects=None, families: bool = False,
           accent_amp: float | None = None, air_amp: float | None = None, starts=WORD_STARTS, **kw):
+    """A balanced film that ends the films' way, in a silent last second: its music stops there, a planned stop."""
+    kw.setdefault("seconds", 4.6)
     f = mix_film(**kw)
     words = helpers.words_at(starts)
     f.words(words)
     voice = helpers.speech(f.n, words)
     music = helpers.pad(f.n, level_db=score_db, bright=bright)
+    music[f.n - helpers.SR:] = 0.0
+    helpers.write_json(f.path / "sound" / "score" / "score.json", {"planned_stops": [
+        {"from": round(f.seconds - 1.0, 3), "to": f.seconds, "why": "the film ends in silence"}]})
     fam = {}
     hits = []
     if accent_amp is not None:
@@ -187,11 +193,12 @@ def test_the_gates_take_verifys_context(mix_film, helpers):
 
 
 def test_the_score_is_the_music_less_the_tonal_effects(mix_film, helpers):
-    f = mix_film()
+    f = mix_film(seconds=4.6)  # made as _film makes the plain one below, ending in a silent last second
     words = helpers.words_at(WORD_STARTS)
     f.words(words)
     voice = helpers.speech(f.n, words)
     music = helpers.pad(f.n, level_db=-50)
+    music[f.n - helpers.SR:] = 0.0
     tonal = helpers.place(f.n, helpers.wood(pitch=440.0, amp=0.2, dur=0.4), 2.1)
     f.mix(dialogue=voice, music=music, tonal=tonal)
     B.run(f.path, write=False)
@@ -208,18 +215,26 @@ def test_the_score_is_the_music_less_the_tonal_effects(mix_film, helpers):
 
 
 @pytest.mark.parametrize("case, expect", [("opening-held", "PASS"), ("opening-broken", "FAIL"), ("ending-broken", "FAIL"),
-                                          ("hole-in-mix", "FAIL"), ("rest-in-score", "PASS")])
+                                          ("hole-in-mix", "FAIL"), ("rest-in-score", "PASS"), ("ending-sounds", "FAIL"),
+                                          ("ending-left-to-the-plan", "PASS")])
 def test_planned_stops_gate(mix_film, helpers, case, expect):
+    """The films' rule (L-sound-S022): a silent last second always, and nothing before 0.5 s only when the plan opens
+    out of silence. A brand can leave the ending to its plan (end_silent "plan")."""
     sr = helpers.SR
     starts = [0.8, 1.2, 1.6, 2.0, 2.4]
-    f = mix_film(film_id=f"stops-{case}")
+    plan_only = {"balance": {"stops": {"end_silent": "plan"}}} if case == "ending-left-to-the-plan" else None
+    f = mix_film(film_id=f"stops-{case}", palette=plan_only)
     words = helpers.words_at(starts)
     f.words(words)
     voice = helpers.speech(f.n, words)
     music = helpers.pad(f.n, level_db=-40)
+    ending = {"from": round(f.seconds - 1.0, 3), "to": f.seconds, "why": "the film ends in silence"}
     stops = []
+    if case not in ("ending-broken", "ending-sounds", "ending-left-to-the-plan"):
+        music[f.n - sr:] = 0.0  # a silent last second, planned
+        stops = [ending]
     if case.startswith("opening"):
-        stops = [{"from": 0.0, "to": 0.6, "why": "the film opens out of silence"}]
+        stops = [{"from": 0.0, "to": 0.6, "why": "the film opens out of silence"}, ending]
         if case == "opening-held":
             music[: int(0.6 * sr)] = 0.0
     if case == "ending-broken":
@@ -231,23 +246,25 @@ def test_planned_stops_gate(mix_film, helpers, case, expect):
         music = score.copy()
     f.score(score, stops=stops)
     if case == "hole-in-mix":  # a hole the mix made (over a second): the score itself plays on there
-        music[int(2.4 * sr):int(3.6 * sr)] = 0.0
+        music[int(1.0 * sr):int(2.2 * sr)] = 0.0
     f.mix(dialogue=voice, music=music)
     r = B.gate_planned_stops(f.path)
     assert r.status == expect, (r.summary, r.details["checks"])
     checks = {c["check"]: c["status"] for c in r.details["checks"]}
     if case.startswith("opening"):
         assert checks["opening"] == expect
-    if case == "ending-broken":
-        assert checks["ending"] == "FAIL"
+    if case in ("ending-broken", "ending-sounds"):
+        assert checks["ending"] == "FAIL"  # the music sounds in the last second (ending-sounds: no stop planned at all)
+    if case == "ending-left-to-the-plan":
+        assert "ending" not in checks  # the brand leaves its ending to the plan, and this plan doesn't end in a stop
     if case == "hole-in-mix":
-        assert checks["gap"] == "FAIL" and "opening" not in checks and "ending" not in checks
+        assert checks["gap"] == "FAIL" and "opening" not in checks and checks["ending"] == "PASS"
     if case == "rest-in-score":
         assert r.details["score_rests"] and r.details["score_rests"][0]["from"] == 2.6
 
 
 def test_a_film_without_music_has_no_gaps_but_a_planned_score_must_sound(mix_film, helpers):
-    f = mix_film()
+    f = mix_film(seconds=4.6)  # the voice ends before the film's silent last second
     words = helpers.words_at(WORD_STARTS)
     f.words(words)
     f.mix(dialogue=helpers.speech(f.n, words))
@@ -287,3 +304,100 @@ def test_no_company_material_or_assumed_clock_in_the_new_code():
         text = f.read_text()
         assert not banned.search(text), f"{f} names company material"
         assert not literals.search(text), f"{f} assumes a frame size or rate"
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Approved spans (L-sound-S031): the film keeps what the owner approved in a clip
+
+
+def _clip_of(f, out, *, accents_db: float = 0.0, ride_db: float | None = None):
+    """An approved clip of the film's whole span: its family stems as mixed (the accents moved by accents_db) and the
+    rides the clip was approved with."""
+    from slate.sound import audio
+
+    d = out / "sound" / "mix"
+    for p in sorted((f.path / "sound" / "mix" / "family_stems").glob("*.wav")):
+        x, _ = audio.read_wav(p)
+        if p.stem == "accents":
+            x = x * 10 ** (accents_db / 20)
+        audio.write_wav(d / "family_stems" / p.name, x, 48000, 24)
+    if ride_db is not None:
+        jsonio.write_atomic(d / "rides.json", {"rides": [{"hit": "tick", "t": 1.25, "end": 1.37, "family": "accents",
+                                                          "depth_db": ride_db}]})
+    return out
+
+
+def test_an_approved_span_is_kept_as_approved_and_a_ride_that_moved_fails(mix_film, helpers, tmp_path):
+    span = {"from": 0.0, "to": 4.6, "why": "the owner approved this clip"}
+    f = _film(mix_film, helpers, families=True, accent_amp=0.2,
+              palette={"balance": {"approved_spans": [{**span, "clip": str(tmp_path / "clip_same")}]}})
+    f.rides({"rides": [{"hit": "tick", "t": 1.25, "end": 1.37, "family": "accents", "depth_db": -2.0}]})
+    _clip_of(f, tmp_path / "clip_same", ride_db=-2.0)
+    r = B.gate_approved_spans(f.path)
+    assert r.status == "PASS", (r.summary, r.evidence)
+    assert r.details["spans"][0]["rides"] == [{"hit": "tick", "clip_db": -2.0, "film_db": -2.0, "diff_db": 0.0}]
+    # the clip the owner approved rode that accent harder (and its accents sat 6 dB lower): the film no longer matches
+    g = _film(mix_film, helpers, families=True, accent_amp=0.2,
+              palette={"balance": {"approved_spans": [{**span, "clip": str(tmp_path / "clip_rode")}]}})
+    g.rides({"rides": [{"hit": "tick", "t": 1.25, "end": 1.37, "family": "accents", "depth_db": -2.0}]})
+    _clip_of(g, tmp_path / "clip_rode", accents_db=-6.0, ride_db=-8.0)
+    r = B.gate_approved_spans(g.path)
+    assert r.status == "FAIL"
+    text = " ".join(r.evidence)
+    assert "the ride on tick: -2.0 dB in the film against -8.0 in the approved clip" in text
+    assert "accents" in text and "approved clip" in text
+
+
+def test_an_approved_span_without_its_clip_is_unchecked_and_no_spans_pass(mix_film, helpers, tmp_path):
+    f = _film(mix_film, helpers, palette={"balance": {"approved_spans": [{"from": 0.5, "to": 2.5}]}})
+    r = B.gate_approved_spans(f.path)
+    assert r.status == "UNCHECKED" and "names no approved clip" in r.summary
+    assert B.gate_approved_spans(_film(mix_film, helpers).path).summary == "no approved spans in this film's palette"
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# The listening file of the hardest-ridden accents (L-sound-S030)
+
+
+def test_the_listening_file_plays_each_ridden_accent_as_mixed_before_and_now(mix_film, helpers):
+    """Each excerpt plays twice: the mix plus exactly what that hit's ride took off (nothing else), then the mix as it
+    is. Black with labels here, where the film has no master."""
+    from slate import procs
+    from slate.sound import audio, listen
+
+    if not procs.which("ffmpeg"):
+        pytest.skip("the listening file is made with ffmpeg")
+    f = _film(mix_film, helpers, families=True, accent_amp=0.2)
+    f.rides({"rides": [{"hit": "tick", "t": 1.25, "end": 1.37, "family": "accents", "depth_db": -7.5,
+                        "half_depth": True}]})
+    rec = listen.ridden_accents(f.path, size=(320, 180))
+    assert rec["rides_heard"] == 1 and len(rec["excerpts"]) == 1 and rec["picture"].startswith("black")
+    ex = rec["excerpts"][0]
+    assert ex["from"] == 0.0 and ex["to"] == pytest.approx(4.37) and ex["deepest_ride_db"] == -7.5
+    parts = f.path / "sound/mix/listen/parts"
+    before, _ = audio.read_wav(parts / "01_before.wav")
+    now, _ = audio.read_wav(parts / "01_now.wav")
+    acc, _ = audio.read_wav(f.path / "sound/mix/family_stems/accents.wav", 0, len(now))
+    added = before - now
+    a, b = int(1.25 * helpers.SR), int(1.37 * helpers.SR)
+    assert np.allclose(added[a:b], acc[a:b] * (10 ** (7.5 / 20) - 1), atol=2e-6)  # the ride undone on that hit...
+    assert np.max(np.abs(added[:a])) < 2e-6 and np.max(np.abs(added[b:])) < 2e-6  # ...and nowhere else
+    mp4 = f.path / rec["file"]
+    from slate.finish import media
+
+    assert mp4.is_file() and media.has_audio(mp4)
+    assert abs(media.stream_durations(mp4)["video"] - 2 * 4.37) < 0.2
+
+
+def test_the_listening_file_says_what_it_needs(mix_film, helpers):
+    from slate.cli import run_cli
+    from slate.sound import listen
+
+    f = _film(mix_film, helpers, families=False)
+    with pytest.raises(MissingPrerequisite, match="Nothing was ridden"):
+        listen.ridden_accents(f.path)
+    f.rides({"rides": [{"hit": "tick", "t": 1.25, "end": 1.37, "family": "accents", "depth_db": -6.0}]})
+    with pytest.raises(MissingPrerequisite, match="family stem"):
+        listen.ridden_accents(f.path)
+    code, _out, err = run_cli(["mix", "--listen", "--film", str(f.path)])
+    assert code == 3 and "family stem" in err

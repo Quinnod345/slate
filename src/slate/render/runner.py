@@ -11,14 +11,18 @@ For each act (or range):
 2. each chunk is kept if it's already good (right frame count, recorded hash, same settings) or rendered, counted and
    recorded; a chunk that fails is tried again once;
 3. the chunks are joined and the join is proven (joins.py); a render that fails its proof replaces nothing;
-4. a whole act is registered (which locks the timeline) and then moved into place; a patch is spliced into the
+4. a whole act that replaces a registered render proves itself first (install_checks.py): the stability report
+   against the act's accepted baseline, and, for a rendering-only change, the static-frame regression against the
+   render it replaces; a FAIL keeps the new render aside (renders/actN.rejected.mov, with a strip) and installs nothing;
+5. a whole act is registered (which locks the timeline) and then moved into place; a patch is spliced into the
    registered act render with proof (splice.py); a range goes to the file you named;
-5. the chunks and the bundle are removed.
+6. the chunks and the bundle are removed.
 """
 
 from __future__ import annotations
 
 import contextlib
+import dataclasses
 import os
 import shutil
 from pathlib import Path
@@ -26,7 +30,7 @@ from pathlib import Path
 from slate import errors, gates, jsonio, log
 from slate.errors import Busy, MissingPrerequisite, Refused, SlateError, SpendRefused, UsageError
 from slate.render import chunks as chunks_mod
-from slate.render import clean, deps, engines, joins, media, registry, splice
+from slate.render import clean, deps, engines, install_checks, joins, media, registry, shot_engines, splice
 from slate.render.plan import CHUNK_EXT, Plan, Target, acts_from_shots, build, ceil_gb, render_settings, segments
 
 
@@ -77,6 +81,29 @@ def _patch_defaults(film_dir: Path, shots: dict, act: int | None, frames, engine
     return engine, samples
 
 
+def _shot_patch_engine(film_dir: Path, shots: dict, act: int | None, frames, engine: str | None) -> tuple[str | None, dict]:
+    """A patch inside a shot drawn by another engine than its act's renders in that shot's engine (and from its scene);
+    a patch across such a shot's edge is refused (the seam between engines is a cut). Returns (engine, {act: segment})
+    for the patch's targets that lie in such a shot."""
+    if frames is None or act is None:
+        return engine, {}
+    reg = _registered(film_dir)
+    a = next((x for x in acts_from_shots(shots) if x.index == act), None)
+    if a is None:
+        return engine, {}
+    base = (reg.get(act) or {}).get("engine") or shot_engines.act_engine(film_dir, act) or "remotion"
+    if base == "ae":
+        return engine, {}
+    segs = shot_engines.segments(film_dir, shots, act, a.frame_in, base)
+    seg = shot_engines.segment_for(segs, int(frames[0]), int(frames[1]))
+    if seg is None:
+        return engine, {}
+    if engine is not None and engine != seg.engine:
+        raise Refused(f"Act {act} frames {frames[0]}–{frames[1]} are shot {seg.shot}, drawn in {seg.engine}; a patch "
+                      f"there renders in {seg.engine}.", hint=f"Leave --engine off, or pass --engine {seg.engine}.")
+    return seg.engine, {act: seg}
+
+
 def prepare(film_dir: Path, *, act: int | None = None, frames: tuple[int, int] | None = None,
             engine: str | None = "remotion", samples: int | None = None, out: str | Path | None = None,
             draft: bool = False, detach: bool = False) -> tuple[dict, Plan]:
@@ -84,9 +111,20 @@ def prepare(film_dir: Path, *, act: int | None = None, frames: tuple[int, int] |
     film_dir = Path(film_dir).resolve()
     film = deps.load_film(film_dir)
     shots = deps.load_shots(film_dir)
+    shot_engine, in_shot = _shot_patch_engine(film_dir, shots, act, frames, None if engine == "remotion" and frames
+                                              else engine)
+    if in_shot:
+        engine = shot_engine
     engine, samples = _patch_defaults(film_dir, shots, act, frames, engine, samples)
+    if in_shot and samples is None:
+        entry = _registered(film_dir).get(act) or {}
+        samples = entry.get("samples")
     p = build(film_dir, film, shots, act=act, frames=frames, engine=engine, samples=samples, draft=draft, out=out,
               detach=detach, registered=_registered(film_dir))
+    for t in p.targets:
+        seg = in_shot.get(t.act.index)
+        if seg is not None and t.kind == "patch":
+            t.scene = seg.to_dict(film_dir)["scene"]
     return film, p
 
 
@@ -104,7 +142,7 @@ def check_patch(film_dir: Path, p: Plan, t: Target) -> dict:
         raise Refused(f"Act {n} moved since it was rendered (registered {entry['frames']}, timing now "
                       f"{[t.act.frame_in, t.act.frame_out]}), so a patch would land on the wrong frames.",
                       hint=f"Render the whole act again: slate render --act {n}")
-    if entry["engine"] != p.engine:
+    if entry["engine"] != p.engine and not t.scene:
         raise Refused(f"Act {n} was rendered with {entry['engine']}; a patch has to come from the same engine.",
                       hint=f"Add --engine {entry['engine']}, or render the whole act with {p.engine}.")
     if entry.get("samples") != p.samples:
@@ -289,10 +327,63 @@ def _put_in_place_and_register(film_dir: Path, joined: Path, final: Path, entry:
         return {"method": None, "files": [], "warning": exc.message}
 
 
-def _render_target(film_dir: Path, p: Plan, t: Target, eng: engines.Engine, ws: chunks_mod.Workspace,
-                   m: media.Media) -> dict:
+def _install_checks(film_dir: Path, p: Plan, t: Target, eng: engines.Engine, joined: Path, final: Path,
+                    m: media.Media, ws: chunks_mod.Workspace, result: dict, content: str, *,
+                    accept_change: bool) -> None:
+    """Before a whole act replaces its registered render (install_checks.py). Refuses, keeping the new render aside as
+    actN.rejected and its chunks for an accepted re-run, when a check fails. A draft, an act's first render and a test
+    media backend skip them."""
+    prev = registry.find(film_dir, t.act.index)
+    if prev is None or p.draft or getattr(m, "name", "") != "ffmpeg":
+        return
+    old = _resolve(film_dir, prev["file"])
+    if not old.is_file():
+        return
+    rendering_only = (prev.get("content_hash") == content) if prev.get("content_hash") else None
+    chk = install_checks.check(film_dir, act=t.act.index, frame_in=t.act.frame_in, new=joined, old=old,
+                               rendering_only=rendering_only, accept_change=accept_change)
+    result["gates"] += chk["gates"]
+    if chk["notes"]:
+        result["install_notes"] = chk["notes"]
+    if not chk["refuse"]:
+        return
+    rejected = final.with_name(f"{final.stem}.rejected{final.suffix}")
+    os.replace(joined, rejected)
+    ws.write_plan("failed", problems=[chk["refuse"]])
+    strips = ", ".join(chk["strips"]) or "none could be made"
+    raise Refused(f"Act {t.act.index}'s new render wasn't installed: {chk['refuse']}. The registered render is "
+                  f"unchanged; the new one is at {splice.registry_path(film_dir, rejected)} (strips: {strips}).",
+                  hint=f"Look at the strip. Fix the cause and render again, or, if the change is meant, run "
+                       f"`slate render --act {t.act.index} --accept-change` (its chunks are kept, so nothing renders "
+                       "twice).",
+                  details={"result": result, "rejected": splice.registry_path(film_dir, rejected),
+                           "strips": chk["strips"]})
+
+
+def _rollout_preview(film_dir: Path, p: Plan, t: Target, eng: engines.Engine) -> dict:
+    """A roll-out's first step, before the full render is spent: the act at one sample against its reference in the
+    old mode (qa/stability/references.json), where the reference holds still. A FAIL stops here."""
+    refs = jsonio.read(film_dir / "qa" / "stability" / "references.json", default={}) or {}
+    explicit = (refs.get("acts") or {}).get(str(t.act.index)) or {}
+    reference = _resolve(film_dir, explicit["file"]) if explicit.get("file") else None
+    preview = film_dir / "renders" / "previews" / f"act{t.act.index}.rollout{CHUNK_EXT[eng.codec]}"
+    preview.parent.mkdir(parents=True, exist_ok=True)
+    if reference is None or not reference.is_file():
+        install_checks.rollout_preview(film_dir, act=t.act.index, preview=preview, reference=reference)  # refuses
+    log.info(f"act {t.act.index}: the roll-out's one-sample preview first, against {reference.name}")
+    eng.render(t.act.index, 0, t.act.frames - 1, preview, 1)
+    gate = install_checks.rollout_preview(film_dir, act=t.act.index, preview=preview, reference=reference)
+    if gate["status"] == "FAIL":
+        raise Refused(f"Act {t.act.index}'s roll-out stopped at its preview: {gate['summary']}. Nothing was rendered "
+                      "at full samples, and the registered render is unchanged.",
+                      hint=f"Look at {splice.registry_path(film_dir, preview)} against the reference; fix the "
+                           "rendering change, then roll out again.", details={"gate": gate})
+    return gate
+
+
+def _render_chunks(eng: engines.Engine, ws: chunks_mod.Workspace, t: Target, p: Plan, m: media.Media) -> tuple[list, list]:
+    """Every chunk of a target that isn't already good, rendered (and tried again once). Returns (kept, rendered)."""
     tries = max(1, int(render_settings().get("chunk_tries", 2)))
-    ws.write_plan("running")
     kept, rendered = [], []
     for c in ws.chunks:
         keep, why = ws.check(c, m)
@@ -304,6 +395,50 @@ def _render_target(film_dir: Path, p: Plan, t: Target, eng: engines.Engine, ws: 
         log.info(f"act {t.act.index} chunk {c.index + 1}/{len(ws.chunks)}: frames {c.first}–{c.last}")
         _render_chunk(eng, ws, c, t, p, m, tries)
         rendered.append(c.index)
+    return kept, rendered
+
+
+def _splice_shots(film_dir: Path, film: dict, p: Plan, t: Target, joined: Path, m: media.Media, *, go: bool,
+                  fresh: bool) -> list[dict]:
+    """The act's shots drawn by another engine (slate.render.shot_engines), each rendered over exactly its shot's
+    frames at the act's sample count and spliced into the new act render with the splice's proof, before the act is
+    checked and installed. Returns one record per shot, with its splice gate."""
+    segs = shot_engines.segments(film_dir, deps.load_shots(film_dir), t.act.index, t.act.frame_in, p.engine)
+    done: list[dict] = []
+    for seg in segs:
+        eng = engines.get(seg.engine, film_dir, film, go=go, scene=seg.scene)
+        eng.preflight()
+        pt = Target("patch", t.act, seg.first, seg.last,
+                    f"renders/patches/act{t.act.index}_{seg.shot}_{seg.first:05d}-{seg.last:05d}{'.mov'}",
+                    scene=seg.to_dict(film_dir)["scene"])
+        p2 = dataclasses.replace(p, engine=seg.engine, targets=[pt])
+        ws = chunks_mod.Workspace(film_dir, pt, _settings(p2, pt, eng), p.chunk_frames, CHUNK_EXT[eng.codec])
+        if fresh:
+            ws.remove()
+        ws.write_plan("running", options=_options(p, Target("act", t.act, t.first, t.last, t.out)))
+        log.info(f"act {t.act.index}: shot {seg.shot} in {seg.engine}, frames {seg.first}–{seg.last}")
+        with contextlib.ExitStack() as stack:
+            stack.callback(eng.close)
+            eng.open()
+            _render_chunks(eng, ws, pt, p2, m)
+        patch = _resolve(film_dir, pt.out)
+        patch.parent.mkdir(parents=True, exist_ok=True)
+        proof = joins.assemble(ws.chunks, patch, codec=eng.codec, media=m)
+        if proof["status"] != "PASS":
+            raise Refused(f"Shot {seg.shot}'s {seg.engine} render didn't prove itself: " + "; ".join(proof["problems"]),
+                          hint="Its chunks are kept; `slate render --act N` tries again.")
+        spliced = splice.splice(film_dir, joined, patch, seg.first, seg.last)
+        done.append({**seg.to_dict(film_dir), "patch_sha256": spliced["patch_sha256"], "gate": spliced["gate"]})
+        patch.unlink(missing_ok=True)
+        ws.write_plan("done")
+        ws.remove()
+    return done
+
+
+def _render_target(film_dir: Path, p: Plan, t: Target, eng: engines.Engine, ws: chunks_mod.Workspace,
+                   m: media.Media, *, accept_change: bool = False, go: bool = False, fresh: bool = False) -> dict:
+    ws.write_plan("running")
+    kept, rendered = _render_chunks(eng, ws, t, p, m)
     ws.write_plan("joining")
 
     final = _resolve(film_dir, t.out)
@@ -338,9 +473,20 @@ def _render_target(film_dir: Path, p: Plan, t: Target, eng: engines.Engine, ws: 
         sha = jsonio.sha256(joined)
         result["sha256"] = sha
         if t.kind == "act":
+            # the act's shots in another engine go in first, so the act is checked and registered whole
+            shots_done = _splice_shots(film_dir, eng.film, p, t, joined, m, go=go, fresh=fresh) \
+                if p.engine != "ae" else []
+            if shots_done:
+                result["gates"] += [d.pop("gate") for d in shots_done]
+                result["shot_engines"] = shots_done
+                sha = jsonio.sha256(joined)
+                result["sha256"] = sha
+            content = install_checks.content_hash(film_dir, eng.film)
+            _install_checks(film_dir, p, t, eng, joined, final, m, ws, result, content, accept_change=accept_change)
             entry = {"act": t.act.index, "engine": p.engine, "file": t.out, "frames": t.film_frames,
                      "samples": p.samples, "sha256": sha, "made_at": gates.now_iso(),
                      "bundle_hash": eng.bundle_hash or eng.sources(), "source_hash": eng.sources(),
+                     "content_hash": content, **({"shot_engines": shots_done} if shots_done else {}),
                      "shots": t.act.shots, "width": p.width, "height": p.height, "fps_num": p.fps_num,
                      "fps_den": p.fps_den, "codec": "prores_422hq", "draft": p.draft,
                      "proof": {k: proof[k] for k in ("status", "method", "frames", "chunks")},
@@ -434,10 +580,17 @@ def _execute_whole_acts(film_dir: Path, p: Plan, eng: engines.Engine, *, in_queu
 
 
 def execute(film_dir: Path, film: dict, p: Plan, *, go: bool = False, fresh: bool = False,
-            in_queue: bool = False) -> dict:
-    """Render a plan in this process."""
+            in_queue: bool = False, accept_change: bool = False, rollout: bool = False) -> dict:
+    """Render a plan in this process. `accept_change` lets a rendering-only change that changed the picture replace the
+    registered render (recorded as accepted); `rollout` renders each act's one-sample preview against its reference
+    first."""
     film_dir = Path(film_dir).resolve()
-    eng = engines.get(p.engine, film_dir, film, go=go)
+    # a patch inside a shot drawn by another engine renders from that shot's own scene
+    scenes = {t.scene for t in p.targets}
+    scene = _resolve(film_dir, next(iter(scenes))) if len(scenes) == 1 and None not in scenes else None
+    if len(scenes) > 1:
+        raise UsageError("These ranges lie in different engines' shots: render each on its own.")
+    eng = engines.get(p.engine, film_dir, film, go=go, scene=scene)
     eng.preflight()
     media.require_toolchain()
     if getattr(eng, "whole_acts_only", False):
@@ -470,9 +623,13 @@ def execute(film_dir: Path, film: dict, p: Plan, *, go: bool = False, fresh: boo
             workspaces.append(ws)
         for t, ws in zip(p.targets, workspaces):
             label = f"act {t.act.index}" + ("" if t.kind == "act" else f" frames {t.first}–{t.last}")
+            preview = _rollout_preview(film_dir, p, t, eng) if rollout and t.kind == "act" else None
             log.info(f"{label}: {t.frames} frames, {p.samples or 'AE'} samples, {len(ws.chunks)} chunk(s), "
                      f"{p.engine}")
-            results.append(_render_target(film_dir, p, t, eng, ws, m))
+            res = _render_target(film_dir, p, t, eng, ws, m, accept_change=accept_change, go=go, fresh=fresh)
+            if preview is not None:
+                res["gates"].insert(0, preview)
+            results.append(res)
     all_gates = [g for r in results for g in r.pop("gates", [])]
     return {"ok": True, "ran": "queue" if in_queue else "here", "film": str(film_dir), "engine": p.engine,
             "samples": p.samples, "draft": p.draft, "renders": results, "gates": all_gates,
@@ -482,14 +639,15 @@ def execute(film_dir: Path, film: dict, p: Plan, *, go: bool = False, fresh: boo
 def run(film_dir: Path, *, act: int | None = None, frames: tuple[int, int] | None = None,
         engine: str | None = "remotion", samples: int | None = None, out: str | Path | None = None,
         draft: bool = False, go: bool = False, fresh: bool = False, resume: bool = False,
-        in_queue: bool = False) -> dict:
+        in_queue: bool = False, accept_change: bool = False, rollout: bool = False) -> dict:
     """Render in this process. See the package docstring; `engine=None` means the registered render's engine for a
     patch, otherwise remotion."""
     film_dir = Path(film_dir).resolve()
     if resume:
         return resume_run(film_dir, act=act, go=go, in_queue=in_queue)
     film, p = prepare(film_dir, act=act, frames=frames, engine=engine, samples=samples, out=out, draft=draft)
-    return execute(film_dir, film, p, go=go, fresh=fresh, in_queue=in_queue)
+    return execute(film_dir, film, p, go=go, fresh=fresh, in_queue=in_queue, accept_change=accept_change,
+                   rollout=rollout)
 
 
 def resume_run(film_dir: Path, *, act: int | None = None, go: bool = False, in_queue: bool = False) -> dict:
@@ -521,7 +679,7 @@ def resume_run(film_dir: Path, *, act: int | None = None, go: bool = False, in_q
 
 
 def job_argv(film_dir: Path, p: Plan, *, act: int | None, frames, out, go: bool, fresh: bool,
-             resume: bool) -> list[str]:
+             resume: bool, accept_change: bool = False, rollout: bool = False) -> list[str]:
     """The `slate` command the queue runs (its words after `slate`): exactly this plan, rendered in the job's own
     process. Spelled out from the plan, never this process's argv, which is wrong under the MCP server."""
     argv = ["render", "--film", str(film_dir), "--json", "--in-queue", "--engine", p.engine]
@@ -541,6 +699,10 @@ def job_argv(film_dir: Path, p: Plan, *, act: int | None, frames, out, go: bool,
         argv.append("--go")
     if fresh:
         argv.append("--fresh")
+    if accept_change:
+        argv.append("--accept-change")
+    if rollout:
+        argv.append("--rollout")
     return argv
 
 
@@ -562,7 +724,7 @@ def submit(film_dir: Path, film: dict, p: Plan, argv: list[str]) -> str:
     The queue holds the render slot (and After Effects, for an AE render) and the disk reservation for the job; inside
     the job, slate.ae's lock uses the job's own `ae` slot instead of waiting on itself.
     """
-    priority = "autonomous" if film.get("mode") == "autonomous" else "supervised"
+    priority = "autonomous" if engines._judged_mode(film_dir, film) == "autonomous" else "supervised"
     resources = ("render", "ae") if p.engine == "ae" else ("render",)
     return deps.detach("render", argv, film=str(film_dir), resources=resources, priority=priority,
                        disk_gb=ceil_gb(p.disk_gb))

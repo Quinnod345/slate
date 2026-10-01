@@ -31,6 +31,9 @@ SUPERVISOR_EXIT_S = 15.0  # after its command stops, a supervisor on a busy Mac 
 
 
 def _resolve_film(film) -> tuple[str | None, Path | None, str | None]:
+    """(film id, folder, mode). The mode is the one Slate judges the film in: a film made autonomous stays autonomous
+    on Slate's own record whatever its film.json says now (slate.state.autonomy), so its jobs keep autonomous priority
+    and never get After Effects."""
     if film is None:
         return None, None, None
     film_dir = paths.film_dir(film)
@@ -38,7 +41,27 @@ def _resolve_film(film) -> tuple[str | None, Path | None, str | None]:
 
     fj = jsonio.read(film_dir / "film.json", default={}) or {}
     mode = fj.get("mode") if fj.get("mode") in model.PRIORITIES else None
+    try:
+        from slate.state import autonomy  # noqa: PLC0415 (state is optional for the queue)
+    except ImportError:
+        autonomy = None
+    if autonomy is not None and autonomy.is_locked(film_dir, fj):
+        mode = "autonomous"
     return fj.get("id") or film_dir.name, film_dir, mode
+
+
+# Job resources that call a vendor, and the host each one reaches.
+VENDOR_RESOURCES = {"elevenlabs_tts": "elevenlabs", "elevenlabs_music": "elevenlabs", "higgsfield": "higgsfield"}
+
+
+def _gateway() -> bool:
+    """Is this process inside the OpenClaw gateway (and not a queued job)? There, Slate's vendor work belongs to the
+    launchd runner, outside the gateway's egress proxy."""
+    try:
+        from slate.vendors import egress  # noqa: PLC0415
+    except ImportError:
+        return False
+    return egress.gateway_context() is not None
 
 
 def _live() -> bool:
@@ -65,9 +88,10 @@ def submit(kind: str, argv: list[str], *, film=None, resources: Iterable[str] = 
     wanted = model.check_resources(resources)
     if "ae" in wanted and "autonomous" in (effective, film_mode):
         raise Refused(
-            "Autonomous films never use After Effects: Adobe's terms bar operations a person didn't start.",
-            hint="Master autonomous films with ffmpeg (slate master --ffmpeg). A person can start the AE finish after "
-                 "approving the film.",
+            "Autonomous films never use After Effects: Adobe's terms bar operations a person didn't start, and a queued "
+            "job is never a person.",
+            hint="Master autonomous films with ffmpeg (slate master --ffmpeg). Once the owner approves the held master, "
+                 "they start its AE finish themselves in their own Terminal: slate master --ae --go (not --detach).",
         )
     workdir = Path(cwd).expanduser().resolve() if cwd else (film_dir or Path.cwd().resolve())
     if not workdir.is_dir():
@@ -87,9 +111,15 @@ def submit(kind: str, argv: list[str], *, film=None, resources: Iterable[str] = 
 
 def ensure_runner() -> str:
     """Make sure something serves the queue: "running" if a runner (or the launchd agent) already is, "started" if
-    this started a detached one-shot runner."""
+    this started a detached one-shot runner, "waiting" if the queue waits for the launchd runner instead.
+
+    Inside the OpenClaw gateway a one-shot runner would inherit the gateway's egress proxy, which turns the vendors
+    away, so it isn't started there while a queued job holds a vendor's slot: those wait for the launchd runner
+    (`slate jobs agent install`, the owner's yes), which runs outside the gateway."""
     if runner.runner_alive():
         return "running"
+    if _gateway() and any(set(j.get("resources") or ()) & set(VENDOR_RESOURCES) for j in store.by_state("queued")):
+        return "waiting"
     log_file = paths.logs_dir() / "jobs" / "runner.log"
     pid = procs.spawn_detached([sys.executable, "-m", "slate", "jobs", "serve", "--once"], log_path=log_file,
                                cwd=str(paths.data()) if paths.data().is_dir() else None)
@@ -139,10 +169,86 @@ def wait(job_id: str, timeout: float | None = None, poll: float = 0.5) -> dict:
         time.sleep(poll)
 
 
+def _flag_value(argv: list[str], name: str) -> str | None:
+    for i, word in enumerate(argv):
+        if word == name and i + 1 < len(argv):
+            return argv[i + 1]
+        if word.startswith(name + "="):
+            return word.split("=", 1)[1]
+    return None
+
+
+def generation_target(job: dict) -> tuple[Path, str] | None:
+    """(film folder, shot) when the job is a generation (`slate gen run --detach`), else None."""
+    argv = [str(a) for a in job.get("argv") or []]
+    is_gen = job.get("kind") == "generation" or any(argv[i:i + 2] == ["gen", "run"] for i in range(len(argv)))
+    if not is_gen:
+        return None
+    shot = _flag_value(argv, "--shot")
+    film = _flag_value(argv, "--film") or job.get("film_dir")
+    if not shot or not film:
+        return None
+    return Path(film).expanduser(), shot
+
+
+def cancel_vendor_requests(job: dict) -> list[dict]:
+    """Stopping a command doesn't stop what it asked a vendor for: a generation job's queued Higgsfield requests are
+    cancelled at Higgsfield (slate.gen.run.cancel for the shot's live takes), so they're never billed. Best effort:
+    anything it can't cancel is returned with the reason, and the stop goes ahead either way."""
+    target = generation_target(job)
+    if target is None:
+        return []
+    film_dir, shot = target
+    try:
+        import importlib  # noqa: PLC0415
+
+        gen_run = importlib.import_module("slate.gen.run")
+        out = gen_run.cancel(film_dir, shot_id=shot)
+    except UsageError:
+        return []  # the shot has no generation record yet: nothing was sent, so nothing can bill
+    except Exception as exc:  # noqa: BLE001 - the job still stops; say what couldn't be cancelled
+        from slate import log  # noqa: PLC0415
+
+        log.warn(f"{job.get('id')}: couldn't cancel {shot}'s requests at the vendor ({type(exc).__name__}: {exc}); "
+                 f"check them with `slate gen takes --shot {shot}`")
+        return [{"shot": shot, "canceled": False, "error": f"{type(exc).__name__}: {exc}"[:300]}]
+    return list(out.get("results") or [])
+
+
+def _note_vendor_cancel(job_id: str, results: list[dict]) -> None:
+    """Write what the vendor cancel did into the job's history (its record has no other place for it)."""
+    if not results:
+        return
+    done = [str(r.get("take") or r.get("request_id") or "?") for r in results if r.get("canceled")]
+    left = [f"{r.get('take') or r.get('shot') or '?'} ({r.get('error') or r.get('summary') or 'not cancelled'})"
+            for r in results if not r.get("canceled")]
+    detail = (f"cancelled at the vendor before the stop: {', '.join(done) or 'none'}"
+              + (f"; not cancelled: {'; '.join(left)}" if left else ""))
+    with store.update(job_id) as job:
+        model.note_event(job, "vendor-cancel", detail[:500])
+
+
 def cancel(job_id: str, *, grace: float | None = None) -> None:
     """Cancel a job: a queued one never starts; a running one gets SIGTERM on its process group, then SIGKILL after
-    the grace period. Cancelling a finished job does nothing."""
+    the grace period. Cancelling a finished job does nothing.
+
+    A generation job's requests are cancelled at the vendor first (and once more after the stop, for one sent in
+    between): stopping the wait never cancels the request, and a queued Higgsfield request left alone runs and bills."""
     by = procs.agent_context() or "a person"
+    before = store.load(job_id)
+    if before.get("state") in model.FINISHED:
+        return
+    ran = before.get("state") == "running" or int(before.get("attempts") or 0) > 0  # only a run can have sent one
+    if ran:
+        _note_vendor_cancel(job_id, cancel_vendor_requests(before))
+    try:
+        _stop(job_id, by=by, grace=grace)
+    finally:
+        if before.get("state") == "running":
+            _note_vendor_cancel(job_id, [r for r in cancel_vendor_requests(before) if r.get("canceled")])
+
+
+def _stop(job_id: str, *, by: str, grace: float | None) -> None:
     with store.update(job_id) as job:
         state = job.get("state")
         if state in model.FINISHED:

@@ -28,7 +28,7 @@ describe('check: a clean act', () => {
     expect(r.passed, JSON.stringify(r.gates, null, 1)).toBe(true);
     expect(r.status).toBe('PASS');
     const g = byGate(r);
-    expect(Object.keys(g)).toEqual(['typecheck', 'module', 'word_misses', 'banned_words', 'events', 'contracts']);
+    expect(Object.keys(g)).toEqual(['typecheck', 'module', 'word_misses', 'banned_words', 'literals', 'events', 'margins', 'contracts']);
     for (const gate of r.gates) {
       expect(Object.keys(gate).sort()).toEqual(['checked_at', 'details', 'engine', 'evidence', 'gate', 'inputs', 'status', 'summary']);
       expect(gate.gate).toMatch(/^handin\.act1\./);
@@ -58,7 +58,7 @@ describe('check: failures', () => {
     const g = byGate(check(dir, 1, {banned_words: ['steady', 'Crosses the', 'slides']})).banned_words;
     expect(g.status).toBe('FAIL');
     expect(g.evidence).toEqual([
-      'scenes/act1/index.tsx:37: "Steady" (steady)',
+      'scenes/act1/index.tsx:40: "Steady" (steady)',
       'timing/shots.json S02 on_screen: "crosses the frame" (Crosses the)',
     ]);
     // "slides" is only in an event's note, which the sound engine reads and nobody sees

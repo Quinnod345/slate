@@ -38,6 +38,8 @@ class FakeEnv(Env):
         self.tmp = tmp
         self.home.mkdir(parents=True, exist_ok=True)
         self.repo_dir = tmp / "repo"
+        # render-stability conformance: never run, and the engine kit's bench isn't built (today's real state)
+        self.stability: dict | Exception = {"record": None, "bench": False, "spec_sha256": None}
         self.calls: list[list[str]] = []
         self.lookups: list[str] = []
         self.sys, self.rel, self.mac, self.host_arch = "Darwin", "24.0.0", "27.0", "arm64"
@@ -101,6 +103,7 @@ class FakeEnv(Env):
             ("higgsfield", "account", "status", "--json"): Ran(0, json.dumps(
                 {"credits": 50.0, "email": "person@example.test", "subscription_plan_type": "free"})),
             ("osascript", "-e"): Ran(0, "26.5.0\n"),
+            ("claude", "--version"): Ran(0, "2.1.282 (Claude Code)\n"),
         }
         self.secrets = {"elevenlabs": "keychain", "higgsfield": "env", "elevenlabs_oneiro": "keychain"}
         self.stored: list[str] = []
@@ -153,6 +156,13 @@ class FakeEnv(Env):
                                               {"LSHandlerURLScheme": "http",
                                                "LSHandlerRoleAll": "company.thebrowser.dia"}]}
         self.free_bytes = 500 * 10**9
+        # running processes ({pid, ppid, command}) and After Effects' window titles, for the duplicate-server and
+        # launch-dialog rows (one Slate server per client, and AE closed, by default)
+        self.process_list: list[dict] | None = [
+            {"pid": 501, "ppid": 500, "command": f"{local_bin / 'slate'} mcp"},
+            {"pid": 601, "ppid": 600, "command": f"{local_bin / 'slate'} mcp"}]
+        self.ae_window_titles: list[str] | None = []
+        self.ae_window_error: str | None = None
         self.sizes[str(self.home / ".cache" / "whisper" / "large-v3-turbo.pt")] = 1_617_941_637
         self._setup_files()
         for k, v in over.items():
@@ -183,6 +193,8 @@ class FakeEnv(Env):
             "higgsfield-use-after-effects": {"type": "stdio", "command": "/opt/homebrew/bin/node",
                                              "args": [f"{BRIDGE_DIR}/dist/index.js"], "env": {}},
         }}), encoding="utf-8")
+        desktop = self.home / "Library" / "Application Support" / "Claude" / "claude-code" / "2.1.284" / "claude.app"
+        desktop.mkdir(parents=True, exist_ok=True)
         (self.home / ".config" / "higgsfield").mkdir(parents=True, exist_ok=True)
         (self.home / ".config" / "higgsfield" / "credentials.json").write_text("{}", encoding="utf-8")
         eng = self.engine_folder
@@ -367,6 +379,11 @@ class FakeEnv(Env):
     def ae_bridge_pin(self):
         return "0.1.3"
 
+    def stability_conformance(self):
+        if isinstance(self.stability, Exception):
+            raise self.stability
+        return dict(self.stability)
+
     def ae_smoke_last(self):
         if isinstance(self.smoke, Exception):
             raise self.smoke
@@ -416,6 +433,16 @@ class FakeEnv(Env):
 
     def ocr_requirements(self):
         return ["ocrmac>=1.0"]
+
+    def processes(self):
+        return None if self.process_list is None else [dict(p) for p in self.process_list]
+
+    def ae_windows(self):
+        if not self.ae_is_running:
+            return {"running": False, "windows": [], "error": None}
+        if self.ae_window_titles is None:
+            return {"running": True, "windows": None, "error": self.ae_window_error or "not allowed assistive access"}
+        return {"running": True, "windows": list(self.ae_window_titles), "error": None}
 
     def mcp_stdio_check(self):
         if isinstance(self.mcp_check, Exception):

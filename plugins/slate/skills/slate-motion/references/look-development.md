@@ -51,6 +51,8 @@ the After Effects bridge's looks by name when a look calls for AE.
 - **Depth comes from a soft cast shadow that follows an element's height**, never a glow; the element keeps its colour
   and weight.
 - **No radial light or edge shading on flat brand fields**: a soft light on a flat disc read as a glow.
+- **In a paper look, a flat colour field that fills the frame** (a disc grown to fill it, a colour section) gets the
+  look's paper grain and a soft paper edge, so it reads as paper rather than a flat screen fill; never a radial light.
 - A signature motif keeps one colour through the film and changes form only at designed moments.
 
 ## Settling open questions

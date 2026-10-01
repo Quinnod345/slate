@@ -329,6 +329,52 @@ def lowpass(x: np.ndarray, hz: float, sr: int, order: int = 2) -> np.ndarray:
     return signal.sosfiltfilt(sos, x, axis=0)
 
 
-def highpass(x: np.ndarray, hz: float, sr: int, order: int = 2) -> np.ndarray:
+def highpass(x: np.ndarray, hz: float, sr: int, order: int = 2, *, zero_phase: bool = False) -> np.ndarray:
+    """A Butterworth high-pass. zero_phase runs it forwards and back (sosfiltfilt), so nothing in the signal moves in
+    time: what the mix's 25 Hz cut needs, since every hit keeps its anchor."""
     sos = signal.butter(order, hz, "highpass", fs=sr, output="sos")
-    return signal.sosfilt(sos, x, axis=0)
+    return signal.sosfiltfilt(sos, x, axis=0) if zero_phase else signal.sosfilt(sos, x, axis=0)
+
+
+def keep_silence(y: np.ndarray, x: np.ndarray, sr: int, *, min_s: float = 0.01) -> np.ndarray:
+    """y (a filtered x) with x's digital silences put back: a zero-phase filter rings a little either side of a sound,
+    and silence has to stay silence (a film's silent last second, the gaps between takes). Runs of exact zeros in x of
+    at least min_s are zeroed in y; everything else is y as filtered. In place, and returned."""
+    x2 = x if x.ndim == 2 else x[:, None]
+    zero = ~np.any(x2 != 0.0, axis=1)
+    if not zero.any():
+        return y
+    edges = np.diff(np.concatenate([[0], zero.astype(np.int8), [0]]))
+    starts, ends = np.flatnonzero(edges == 1), np.flatnonzero(edges == -1)
+    k = max(1, int(round(min_s * sr)))
+    for a, b in zip(starts, ends):
+        if b - a >= k:
+            y[a:b] = 0.0
+    return y
+
+
+def limiter_touch(voice: np.ndarray, gain: np.ndarray, sr: int, *, within_db: float = 30.0,
+                  touch_db: float = 0.01) -> dict:
+    """How much of the speech a voice-only limiter touched: the share of the voice's speaking milliseconds (its 10 ms
+    level within within_db of its loud level, the 95th percentile) where the limiter's gain sat under unity by more
+    than touch_db. The films' rule: a voice limiter that touches 5% of the speech or more is shaping the read, not
+    catching its plosives."""
+    voice = np.asarray(voice, dtype=np.float64)
+    if voice.ndim == 1:
+        voice = voice[:, None]
+    hop = max(1, sr // 1000)
+    m = min(len(voice), len(gain)) // hop
+    if m == 0:
+        return {"speech_ms": 0, "touched_ms": 0, "share": 0.0, "max_reduction_db": 0.0}
+    p = (voice[:m * hop] ** 2).mean(axis=1).reshape(m, hop).mean(axis=1)
+    lv = 10 * np.log10(np.maximum(np.convolve(p, np.ones(10) / 10, mode="same"), 1e-20))
+    live = lv > -70
+    if not live.any():
+        return {"speech_ms": 0, "touched_ms": 0, "share": 0.0, "max_reduction_db": 0.0}
+    speech = lv >= float(np.percentile(lv[live], 95)) - within_db
+    g = np.asarray(gain, dtype=np.float64)[:m * hop].reshape(m, hop).min(axis=1)
+    touched = speech & (g < 10 ** (-touch_db / 20))
+    worst = min(1.0, float(np.min(gain))) if len(gain) else 1.0
+    return {"speech_ms": int(speech.sum()), "touched_ms": int(touched.sum()),
+            "share": round(float(touched.sum()) / max(1, int(speech.sum())), 4),
+            "max_reduction_db": round(abs(20 * math.log10(max(worst, 1e-12))), 2)}

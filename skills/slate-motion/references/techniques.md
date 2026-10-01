@@ -25,6 +25,9 @@ everywhere.
 - **Reveal a field of elements with a mask morph, not particles**: every element sits on its grid, appears from at
   least 85% scale as the mask clears it, and only elements wholly inside the final shape exist, so nothing is left
   half-faded at rest.
+- **The mask morph** itself is a matte that expands on the entrance ease to reveal the next state, with the renderer's
+  motion blur on its fastest frames. In After Effects that's a track matte with a wider shutter over those frames (the
+  films used 270 degrees over the fastest six).
 - **Words can exist before they're seen**: a blind deboss in the ground (shade on the upper edges, a lit lower edge, no
   ink) that inks in letter by letter as the voice says the word.
 - **Show the world as many quiet peers**, nearest ring first, with ours the only one in the accent colour; the peers
@@ -38,6 +41,16 @@ everywhere.
   returning the scene to normal.
 - **Stage an analogy as two parallel objects built alike** (header, number, curve, caption) side by side, joined by the
   signature line across both.
+
+## Paper techniques
+
+In a paper look, materials behave like the real thing:
+
+- **Ink behaves like ink**: broken by the paper's tooth, with uneven pad pressure and a soak after contact.
+- **A stamp** comes down out of focus, presses on the snap ease and lands its ink in the grain.
+- **A page turn** hinges each leaf at the spine and bends it as strips with graded shading. The leaf casts a shadow on
+  the pages beneath that thins as it nears upright and grows again on the other page, instead of jumping across the
+  spine.
 
 ## Per-character type
 

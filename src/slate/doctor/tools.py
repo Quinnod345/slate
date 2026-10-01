@@ -575,6 +575,12 @@ def _higgsfield_account(env: Env, ctx: Ctx, path: str) -> dict:
         text = ran.text.lower()
         if any(w in text for w in ("login", "log in", "sign in", "unauthor", "expired", "401", "token")):
             return R.yellow(rid, f"The higgsfield CLI's sign-in has expired or was refused. {why}", login, group=G)
+        from slate.doctor import egress  # noqa: PLC0415
+
+        if egress.applies(env, ctx, ran.text):
+            summary, fix = egress.explain("Higgsfield", text=ran.text, runner=egress.runner_loaded(env))
+            return R.yellow(rid, f"`higgsfield account status` didn't answer. {summary}", fix, group=G,
+                            details={"egress_proxy": True})
         return R.yellow(rid, f"`higgsfield account status` didn't answer: {first_line(redact(ran.text))}",
                         "Check the network, then run `slate doctor` again.", group=G)
     data: dict = {}

@@ -345,7 +345,7 @@ def test_the_real_skills_are_read_and_judged_without_crashing():
     names = [s.name for s in built.skills]
     assert names == sorted(names)
     for problem in built.problems:
-        assert problem.split(":", 1)[0] in names
+        assert problem.split(":", 1)[0] in [*names, "plugin"]  # a skill's own problem, or one about the whole plugin
     good = [s.name for s in built.skills if not s.problems]
     assert {f"claude-ai/{n}.zip" for n in good} <= set(built.files)
 
@@ -375,3 +375,161 @@ def test_generated_text_names_no_brand_and_no_personal_path(skills_src, build_ou
         with zipfile.ZipFile(io.BytesIO(path.read_bytes())) as zf:
             for name in zf.namelist():
                 assert "/Users/" not in zf.read(name).decode()
+
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# The plugin's own files are generated too
+
+
+def test_the_plugins_own_files_are_generated(skills_src, build_out):
+    from slate import __version__
+
+    sb.build(skills_src, build_out)
+    claude = json.loads((build_out / ".claude-plugin/plugin.json").read_text())
+    agent = json.loads((build_out / "plugin.json").read_text())
+    assert claude["name"] == agent["name"] == "slate" and claude["version"] == agent["version"] == __version__
+    assert "displayName" in claude and "$schema" in agent and "displayName" not in agent
+    assert json.loads((build_out / ".mcp.json").read_text()) == sb.mcp_servers("claude")
+    assert json.loads((build_out / "mcp.json").read_text()) == sb.mcp_servers("agent-plugins")
+    assert (build_out / "LICENSE").read_bytes() == (Path(sb.paths.REPO) / "LICENSE").read_bytes()
+    readme = (build_out / "README.md").read_text()
+    assert readme.startswith("# Slate plugin") and sb.GENERATED in readme
+    assert sb.check(skills_src, build_out)["clean"]
+
+
+def test_a_hand_edit_or_a_stray_file_in_the_plugin_is_drift(skills_src, build_out):
+    sb.build(skills_src, build_out)
+    (build_out / ".mcp.json").write_text('{"mcpServers": {}}\n')
+    (build_out / "bin").mkdir()
+    (build_out / "bin" / "slate").write_text("#!/bin/sh\n")  # claude.ai refuses a plugin with a top-level bin/
+    (build_out / "notes.txt").write_text("someone's notes\n")
+    report = sb.check(skills_src, build_out)
+    assert ".mcp.json" in report["changed"]
+    assert {"bin/slate", "notes.txt"} <= set(report["extra"])
+    rebuilt = sb.build(skills_src, build_out)
+    assert {"bin/slate", "notes.txt"} <= set(rebuilt["removed"]) and not (build_out / "bin").exists()
+    assert sb.check(skills_src, build_out)["clean"]
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# The clients' limits: listing cuts, Codex's skill-list budget, claude.ai's caps, no media
+
+
+def test_a_listing_past_claude_codes_cut_is_refused(tmp_path):
+    front = "name: x-one\ndescription: " + "d" * 1000 + "\nwhen_to_use: " + "w" * 600 + "\n"
+    problems = sb.load_skill(_skill(tmp_path, "x-one", front)).problems
+    assert any("Claude Code cuts a skill's listing at 1536" in p for p in problems), problems
+    assert any("when_to_use" in p and "only name, description" in p for p in problems)  # and it isn't a spec key
+    ok = sb.load_skill(_skill(tmp_path / "ok", "x-one", "name: x-one\ndescription: " + "d" * 1000 + "\n")).problems
+    assert ok == []
+
+
+def _many(root: Path, count: int, length: int) -> Path:
+    for i in range(count):
+        name = f"skill-{i:02d}"
+        _skill(root, name, f"name: {name}\ndescription: Use it for test {i}. " + "x" * length + "\n")
+    return root
+
+
+def test_an_over_long_skill_list_fails_codexs_budget(tmp_path, build_out):
+    src = _many(tmp_path / "src", 12, 700)
+    assert sb.codex_list_chars(sb.discover(src)) > sb.CODEX_LIST_BUDGET
+    report = sb.build(src, build_out)
+    assert any(p.startswith("plugin: the skill list comes to") and "8,000" in p for p in report["problems"])
+    assert report["written"] == [] and not (build_out / "skills").exists()
+
+
+def test_a_list_near_codexs_budget_builds_with_a_note(tmp_path, build_out):
+    src = _many(tmp_path / "src", 10, 690)
+    listed = sb.codex_list_chars(sb.discover(src))
+    assert sb.CODEX_LIST_NOTE * sb.CODEX_LIST_BUDGET <= listed <= sb.CODEX_LIST_BUDGET
+    report = sb.build(src, build_out)
+    assert report["problems"] == [] and report["written"]
+    assert any("of Codex's 8,000 characters" in n for n in report["notes"])
+
+
+def test_the_real_skill_list_fits_codexs_budget():
+    assert sb.codex_list_chars(sb.discover()) <= sb.CODEX_LIST_BUDGET
+
+
+@pytest.mark.parametrize("rel, kind", [("assets/brand.ttf", "a font"), ("assets/look.cube", "a LUT"),
+                                       ("instruments/felt.exs", "a sound bank"), ("sounds/click.wav", "audio")])
+def test_media_in_a_skill_is_refused(skills_src, build_out, rel, kind):
+    path = skills_src / "demo-craft" / rel
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"\x00\x01\x02")
+    report = sb.build(skills_src, build_out)
+    assert any(f"demo-craft: {rel} is {kind}" in p and "media stays out" in p for p in report["problems"])
+    assert report["written"] == []
+
+
+def test_the_plugin_stays_under_claude_ais_caps(skills_src, build_out, monkeypatch):
+    built = sb.render(skills_src)
+    count, size = len(built.files), sum(len(d) for d, _ in built.files.values())
+    assert built.problems == [] and count < sb.PLUGIN_MAX_FILES and size < sb.PLUGIN_MAX_BYTES
+    monkeypatch.setattr(sb, "PLUGIN_MAX_FILES", count - 1)
+    monkeypatch.setattr(sb, "PLUGIN_MAX_BYTES", size - 1)
+    report = sb.build(skills_src, build_out)
+    assert any(f"plugin: {count:,} files; claude.ai takes at most" in p for p in report["problems"])
+    assert any("MB; claude.ai takes at most" in p for p in report["problems"])
+    assert report["written"] == []
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# The clients' own validators, run by --check wherever they're installed
+
+
+def _stand_in(folder: Path, name: str, body: str) -> str:
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / name
+    path.write_text("#!/bin/sh\n" + body)
+    path.chmod(0o755)
+    return str(path)
+
+
+def test_check_runs_each_clients_validator_where_installed(skills_src, build_out, tmp_path, monkeypatch):
+    sb.build(skills_src, build_out)
+    seen = tmp_path / "seen.txt"
+    tools = {
+        "claude": _stand_in(tmp_path / "bin", "claude", f'echo "claude $*" >> "{seen}"\necho ok\n'),
+        "skills-ref": _stand_in(tmp_path / "bin", "skills-ref",
+                                f'echo "skills-ref $*" >> "{seen}"\n'
+                                'case "$2" in *demo-craft) echo "demo-craft: bad frontmatter" >&2; exit 1;; esac\n'),
+    }
+    monkeypatch.setattr(sb, "find_tool", lambda name: tools.get(name))
+    report = sb.check(skills_src, build_out, validators=True)
+    rows = {(r["validator"], Path(r["target"]).name): r for r in report["validators"]}
+    assert rows[("claude plugin validate --strict", build_out.name)]["ok"] is True
+    assert rows[("skills-ref validate", "demo-front")]["ok"] is True
+    assert rows[("skills-ref validate", "demo-craft")]["ok"] is False
+    assert "bad frontmatter" in rows[("skills-ref validate", "demo-craft")]["output"]
+    assert report["clean"] and report["valid"] is False
+    calls = seen.read_text().splitlines()
+    assert f"claude plugin validate --strict {build_out}" in calls
+    assert f"skills-ref validate {build_out}/skills/demo-front" in calls
+    code, out, _ = run_cli(["skills", "build", "--src", str(skills_src), "--out", str(build_out), "--check"])
+    assert code == 1 and "FAILED skills-ref validate (demo-craft)" in out and "passed claude plugin validate" in out
+    code, out, _ = run_cli(["skills", "build", "--src", str(skills_src), "--out", str(build_out), "--check",
+                            "--no-validate"])
+    assert code == 0 and "skills-ref" not in out
+
+
+def test_a_validator_that_isnt_installed_is_skipped_with_a_notice(skills_src, build_out):
+    sb.build(skills_src, build_out)
+    report = sb.check(skills_src, build_out, validators=True)
+    assert report["valid"] and all(r["status"] == "skipped" for r in report["validators"])
+    assert any("claude plugin validate --strict was skipped: `claude` isn't installed here" in n
+               for n in report["notes"])
+    assert any("skills-ref validate was skipped" in n for n in report["notes"])
+    code, out, _ = run_cli(["skills", "build", "--src", str(skills_src), "--out", str(build_out), "--check"])
+    assert code == 0 and "isn't installed here" in out
+
+
+def test_validators_never_judge_a_drifted_copy(skills_src, build_out, tmp_path, monkeypatch):
+    tools = {"claude": _stand_in(tmp_path / "bin", "claude", "exit 0\n")}
+    monkeypatch.setattr(sb, "find_tool", lambda name: tools.get(name))
+    report = sb.check(skills_src, build_out, validators=True)  # nothing built yet
+    assert not report["clean"]
+    [claude] = [r for r in report["validators"] if r["validator"].startswith("claude")]
+    assert claude["status"] == "skipped" and "drifted" in claude["why"]

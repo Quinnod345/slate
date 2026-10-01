@@ -46,6 +46,7 @@ const COMMANDS = {
   trace: "write one act's motion trace (timing/motion/actN.json) from the kit's motion registry, as the act is now",
   check: "an act's hand-in check, as gate results ({acts: [N, …]} checks several with one bundle; a web act's page through the web renderer)",
   'web-render': 'the open web renderer (engine/web/render.mjs): render, emit ({emit: true}, with dry_run to read without writing) or start a scene ({scaffold: true})',
+  golden: "the kit's golden stills, or ({film}) every approved act's frames rendered with this kit and compared with the approved render ({plan: true} lists them)",
 };
 
 let command = null;
@@ -237,6 +238,17 @@ const handlers = {
     if (!several && (args.act === undefined || args.act === null)) throw usage('Say which act to check ("act": N, or "acts": [N, …] for one run with one bundle).');
     const ctx = await film(args);
     return {film: ctx.id, ...(several ? await checkActs(ctx, args) : await checkAct(ctx, args))};
+  },
+  async golden(args) {
+    const {runApproved, runGolden} = await import('./remotion/kit/node/golden.mjs');
+    const keep = typeof args.keep === 'string' && args.keep ? path.resolve(CALLER_CWD, args.keep) : null;
+    if (args.film) {
+      const ctx = await film(args);
+      return {film: ctx.id, ...(await runApproved({film: ctx.dir, brandPath: args.brand_path ?? null, gl: args.gl ?? 'swangle', plan: Boolean(args.plan), keep}))};
+    }
+    const r = await runGolden({update: false, json: true, gl: args.gl ?? 'swangle', browser: args.browser ?? null, keep});
+    if (r.skipped) throw missing(r.reason, 'slate doctor --install sets up headless Chrome (it asks first).');
+    return r;
   },
   async 'web-render'(args) {
     const file = webModulePath();

@@ -9,7 +9,14 @@
   square), and the timing.
 - The kit parses the SVG (absolute paths, exact bounds, per-glyph boxes from the path bounds) and builds from it; the
   keystone's colour comes from the artwork.
+- **Every mark comes in each colourway a film needs, ink and white at least**, so builders never recolour a mark: a
+  sibling logo drawn for the inverse ground (`"mark-inverse"` with `"on": "inverse"`), or a logo's `colourways` naming
+  them (`{"ink": "mark", "white": "mark-inverse"}`). The kit's `LogoBuild` and `LogoSting` draw the one made for their
+  ground (`dark`), and `slate brand validate` asks for the missing one.
 - **Never rotate a mark that has a fixed orientation**, even in a portal zoom.
+- **A mark that stays on screen across sections of different grounds** (a corner logo over a light page and a dark
+  section) changes colourway exactly at each section's moving edge: draw it in both colourways, each clipped to its own
+  ground, so the split travels with the edge.
 - A logo you don't hold as a licensed asset (a partner's, a publisher's) is set as the name in type, never drawn.
 
 ## Motif marks

@@ -212,3 +212,47 @@ def test_a_derived_film_mixes_the_voice_it_reuses_from_its_parent(slate_home):
     assert rep["inputs"]["voice"]["cues"] == 4  # the parent's four takes, found through their references
     assert abs(measure.loudness(path)["integrated_lufs"] + 14.0) <= 0.5
     assert not (parent / "sound" / "mix").exists()  # nothing written into the parent
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Below 25 Hz (L-sound-044) and the voice limiter's touch (L-sound-022)
+
+
+def test_a_25_hz_high_pass_takes_out_subsonic_rumble_and_the_stems_still_sum(sound_film):
+    """The films' masters cut everything under 25 Hz before the loudness gain. Slate's mix does it on every part,
+    zero-phase (nothing moves), so a 10 Hz rumble under the score is gone and the stems still sum to the mix."""
+    film = load(sound_film)
+    n = film.n
+    vo_stem, _ = vo.render_stem(film)
+    t = np.arange(n) / SR
+    rumble = 0.2 * np.sin(2 * np.pi * 10.0 * t)
+    score = H.pad(14.0) + np.stack([rumble, rumble], 1)
+    targets = {"lufs": -14.0, "tol": 0.5, "true_peak": -1.0}
+
+    def at_10hz(x):
+        spec = np.abs(np.fft.rfft(x[:, 0]))
+        f = np.fft.rfftfreq(len(x), 1 / SR)
+        band = lambda lo, hi: float(np.sqrt(np.mean(spec[(f >= lo) & (f <= hi)] ** 2)))  # noqa: E731
+        return 20 * np.log10(band(9.0, 11.0) / band(140.0, 400.0))
+
+    kept = mix.mix_arrays(vo_stem, {}, score, SR, targets=targets, highpass_hz=None)
+    cut = mix.mix_arrays(vo_stem, {}, score, SR, targets=targets)
+    assert cut["report"]["highpass_hz"] == 25.0 and "highpass_hz" not in kept["report"]
+    assert at_10hz(cut["final"]["music"]) < at_10hz(kept["final"]["music"]) - 25  # the rumble is gone
+    assert mix.quantized_sum_error(cut["final"], cut["mix"]) <= 1e-6
+    # zero-phase: the voice is exactly where its cue put it (the cut moves nothing)
+    d = audio.mono(cut["final"]["dialogue"])
+    cue = vo.cues(film)[0]
+    lag, r = vo.find_take(d, vo.render_take(film, cue), int(round(vo.cue_time(film, cue) * SR)), 2400)
+    assert lag == 0 and r > 0.99
+
+
+def test_the_mix_records_how_much_speech_the_voice_limiter_touched(slate_home):
+    """A hot take (plosives in a third of its syllables) keeps the voice limiter busy; the normal fixture doesn't
+    touch it at all. The share goes in final_mix.json, where sound.voice_limiter reads it."""
+    H.brand(slate_home["brands"])
+    hot = jsonio.read(mix.run(H.film(slate_home["films"], "hot", plosives=True)).with_name("final_mix.json"))
+    calm = jsonio.read(mix.run(H.film(slate_home["films"], "calm")).with_name("final_mix.json"))
+    assert hot["dialogue_limited"] and hot["voice_limiter"]["share"] >= 0.05
+    assert hot["voice_limiter"]["touched_ms"] <= hot["voice_limiter"]["speech_ms"]
+    assert calm["voice_limiter"] == {**calm["voice_limiter"], "share": 0.0, "touched_ms": 0, "limited": False}

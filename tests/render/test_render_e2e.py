@@ -126,7 +126,8 @@ def test_slate_renders_hands_in_and_emits_a_kit_act_and_a_web_act(kit_film):
     assert code == 0, (out, err[-3000:])
     statuses = {g["gate"]: g["status"] for g in out["gates"]}
     assert set(statuses) == {f"handin.act2.{n}" for n in ("typecheck", "page", "word_misses", "kit_problems",
-                                                          "network", "fonts", "banned_words", "events", "contracts")}
+                                                          "network", "fonts", "banned_words", "never_claim", "literals",
+                                                          "events", "contracts")}
     assert set(statuses.values()) == {"PASS"}, statuses
     code, out, err = _slate("--film", str(film), "check", "all", cwd=film)
     assert code == 0, (out, err[-3000:])

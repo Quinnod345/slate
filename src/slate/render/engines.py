@@ -27,6 +27,20 @@ from slate.errors import Busy, MissingPrerequisite, Refused, SlateError
 from slate.render import deps
 from slate.render.plan import CHUNK_CODEC
 
+
+def _judged_mode(film_dir: Path | str | None, film: dict | None) -> str:
+    """The mode the film is judged in: Slate's own record (slate.state.autonomy.film_mode) holds a film made
+    autonomous autonomous, whatever its film.json says now. film.json's own mode without the state module."""
+    own = str((film or {}).get("mode") or "supervised")
+    try:
+        from slate.state import autonomy  # noqa: PLC0415 - render works without film state installed
+    except ImportError:
+        return own
+    try:
+        return autonomy.film_mode(film_dir, film)
+    except Exception:  # noqa: BLE001 - an unreadable record never makes a film less strict than its film.json
+        return own
+
 BUNDLE_TIMEOUT_S = 900
 STILLS_TIMEOUT_S = 900
 TRACE_TIMEOUT_S = 300
@@ -93,10 +107,12 @@ class Engine:
 
     name = ""
 
-    def __init__(self, film_dir: Path, film: dict, *, go: bool = False):
+    def __init__(self, film_dir: Path, film: dict, *, go: bool = False, scene: Path | None = None):
         self.film_dir = Path(film_dir)
         self.film = film
         self.go = go
+        # a shot drawn by this engine inside an act of another (slate.render.shot_engines): the scene folder it draws
+        self.scene = Path(scene) if scene else None
         self.bundle: str | None = None
         self.bundle_hash: str | None = None
         self._sources: str | None = None
@@ -198,9 +214,16 @@ class RemotionEngine(Engine):
 
 class WebEngine(Engine):
     """The open web renderer (engine/web, through the engine's `web-render`). It writes the act's motion trace while it
-    renders, so there's nothing to refresh afterwards."""
+    renders, so there's nothing to refresh afterwards. With `scene`, it draws one shot of a Remotion act from that
+    shot's own page (scenes/shots/<SHOT>/web), and leaves the act's motion trace alone."""
 
     name = "web"
+
+    def _args(self, act: int, first: int, last: int, out: Path, samples: int | None) -> dict:
+        args = super()._args(act, first, last, out, samples)
+        if self.scene is not None:
+            args.update(scene=str(self.scene), trace=False)
+        return args
 
     def render(self, act: int, first: int, last: int, out: Path, samples: int | None) -> dict:
         return deps.bridge_call("web-render", self._args(act, first, last, out, samples),
@@ -245,7 +268,7 @@ class AeEngine(Engine):
     whole_acts_only = True
 
     def rules(self) -> None:
-        if self.film.get("mode") == "autonomous":
+        if _judged_mode(self.film_dir, self.film) == "autonomous":
             raise Refused("This is an autonomous film, and autonomous films never touch After Effects: Adobe's terms "
                           "bar operations a person didn't start.",
                           hint="Render it with --engine remotion or --engine web. Once the film is approved, a person "
@@ -289,8 +312,8 @@ class AeEngine(Engine):
 ENGINES: dict[str, type[Engine]] = {"remotion": RemotionEngine, "web": WebEngine, "ae": AeEngine}
 
 
-def get(name: str, film_dir: Path, film: dict, *, go: bool = False) -> Engine:
-    return ENGINES[name](film_dir, film, go=go)
+def get(name: str, film_dir: Path, film: dict, *, go: bool = False, scene: Path | None = None) -> Engine:
+    return ENGINES[name](film_dir, film, go=go, scene=scene)
 
 
 def temp_roots() -> list[Path]:

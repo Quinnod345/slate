@@ -19,6 +19,13 @@ and check it.
     slate voice captions           SRT, WebVTT and timing/captions.json, timed to the words
     slate voice check              the voice gates (policy, direction, takes, words, tails, fit, inflection, polish)
     slate voice approve            record the person's approval of a take and lock it by hash
+    slate voice comp               a one-word pickup from another take of the line, no new read (no credits)
+    slate voice preview            the re-voiced narration on the film's timeline, next to the current one, before
+                                   anything is re-timed
+    slate voice swap               put the takes the owner approved by ear in, exactly as heard, and re-time the
+                                   film (prints the plan; --go does it)
+    slate voice trim               cut a leaked tail off a take's play length, in the silence before it (shows
+                                   the cuts; --go records them; the take's file is never touched)
 
 Paid calls go through the spend ledger and replay offline under SLATE_FAKE_VENDORS=1; --live spends.
 """
@@ -555,13 +562,67 @@ def cmd_approve(args) -> int:
     return 0
 
 
+def cmd_comp(args) -> int:
+    from slate.voice import comp  # noqa: PLC0415
+
+    res = comp.comp(_film(args), args.shot, word=args.word, donor=args.donor, base=args.base, force=args.force)
+    log.result(res, f"{res['shot']} {res['take']}: {res['base']['take']} to {res['base_cut_s']:.3f} s, then "
+                    f"{res['donor']['take']} from {res['donor_cut_s']:.3f} s (\"{res['word_text']}\" on, "
+                    f"{res['donor_gain_db']:+.2f} dB), {res['seconds']:.2f} s; no credits spent\nnext: {res['next']}")
+    return 0
+
+
+def cmd_preview(args) -> int:
+    from slate.voice import reel  # noqa: PLC0415
+
+    takes = dict(item.split("=", 1) for item in _csv(args.takes) or [] if "=" in item)
+    res = reel.preview(_film(args), takes=takes or None, name=args.name)
+    changed = [r for r in res["shots"] if abs(r.get("take_change_s") or 0.0) >= 0.001]
+    human = (f"current {res['seconds']['current']:.2f} s, proposed {res['seconds']['proposed']:.2f} s "
+             f"({res['change_s']:+.2f} s)\n" + "\n".join(f"  {r['shot']}: {r['take_change_s']:+.2f} s, now from "
+                                                       f"{r['start_proposed_s']:.2f} s" for r in changed)
+             + f"\nlisten: {res['files']['current']} then {res['files']['proposed']} (nothing re-timed)")
+    log.result(res, human)
+    return 0
+
+
+def cmd_swap(args) -> int:
+    from slate.voice import swap  # noqa: PLC0415
+
+    if not args.go:
+        res = swap.plan(_film(args), args.set)
+        lines = [f"{r['shot']}: {r['replaces'] or 'nothing'} -> {r['with']} ({r['stage']})"
+                 + ("" if r["heard_as_is"] else "  NOT the file that was heard (its hash differs)") for r in res["takes"]]
+        log.result(res, "\n".join(["The swap would, in order: " + "; ".join(res["steps"]) + ".", *lines,
+                                    f"Nothing is written without --go: {res['go']}"]))
+        return 0
+    res = swap.go(_film(args), args.set, by=args.by, reason=args.reason)
+    log.result(res, f"swapped in {', '.join(f'{k} {v}' for k, v in res['takes'].items())}; backup {res['backup']}; "
+                    f"log {res['log']}\nnext: {res['next']}")
+    return 0
+
+
+def cmd_trim(args) -> int:
+    from slate.voice import trim  # noqa: PLC0415
+
+    trim.check_args(args.go, args.force, args.by)
+    rows = trim.apply(_film(args), only=_csv(args.only), force=args.force, by=args.by, reason=args.reason) if args.go \
+        else trim.plan(_film(args), only=_csv(args.only))
+    lines = [f"{r['shot']}: " + (("trimmed: " if r.get("trimmed") else "would cut: ") + r["why"] if r["ok"] else r["why"])
+             for r in rows]
+    if not args.go and any(r["ok"] for r in rows):
+        lines.append("Nothing is recorded without --go (an approved take also needs --force --by NAME).")
+    log.result({"go": bool(args.go), "takes": rows}, "\n".join(lines))
+    return 0
+
+
 # ---------------------------------------------------------------------------------------------------------------
 # Registration
 
 
 def register(sub) -> None:
     stages = cli.add_group(sub, "voice", help="the voice stages: cast, design, tags, tts, clean, pace, polish, "
-                                              "align, analyze, captions, check",
+                                              "align, analyze, captions, check, approve, comp, preview, swap, trim",
                            description=__doc__)
 
     def add(name, handler, help, **kw):
@@ -710,6 +771,30 @@ def register(sub) -> None:
     p.add_argument("--take", help="the take to approve (default: the selected one)")
     p.add_argument("--by", required=True, help="who approved it")
     p.add_argument("--note")
+
+    p = add("comp", cmd_comp, "a one-word pickup: the approved take up to a word, another take from it (no credits)")
+    p.add_argument("shot")
+    p.add_argument("--word", type=int, required=True, help="the script word (1 = the first) the donor starts from")
+    p.add_argument("--from", dest="donor", required=True, help="the take that says that word better, e.g. t03")
+    p.add_argument("--base", help="the take kept up to the word (default: the selected one)")
+    p.add_argument("--force", action="store_true", help="the line's take is approved: comp anyway (the person's go)")
+
+    p = add("preview", cmd_preview, "the re-voiced narration on the film's timeline, next to the current one")
+    p.add_argument("--takes", help="shot=take pairs to preview (default: each line's selected take), e.g. S02=t03")
+    p.add_argument("--name", default="narration", help="the preview's file names under voice/preview/")
+
+    p = add("trim", cmd_trim, "cut a leaked tail off a take's play length, in the silence before it")
+    p.add_argument("--only", help="shots (comma-separated)")
+    p.add_argument("--go", action="store_true", help="record the cuts (without --go they're only shown)")
+    p.add_argument("--force", action="store_true", help="trim an approved take too (the person's go, with --by)")
+    p.add_argument("--by", help="who said so (needed with --force)")
+    p.add_argument("--reason", help="why (recorded with the trim)")
+
+    p = add("swap", cmd_swap, "put the takes the owner approved by ear in, exactly as heard, and re-time the film")
+    p.add_argument("set", help="the swap set: JSON naming each shot's file as heard and its sha256")
+    p.add_argument("--go", action="store_true", help="do it (without --go the plan is printed and nothing written)")
+    p.add_argument("--by", help="who approved the set (needed with --go)")
+    p.add_argument("--reason", help="why (recorded with the approval)")
 
 
 __all__ = ["register"]

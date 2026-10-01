@@ -438,3 +438,92 @@ def test_the_whole_score_chain_runs_from_the_cli_in_replay(sound_film):
     got = measure.loudness(sound_film / "sound/mix/final_mix.wav")
     assert abs(got["integrated_lufs"] + 14.0) <= 0.5 and got["true_peak_dbtp"] <= -1.0
     assert dsp.db(0.0) == 1.0
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Big moments together (L-sound-S026), the joins measured (L-sound-062), the silent last second (L-sound-S022)
+
+
+def _steady(secs, seed, note):
+    """Steady takes (a held tone whose 5 ms level doesn't ripple), so a rise is the assembler's own doing."""
+    t = np.arange(int(round(secs * SR))) / SR
+    f = 200.0 if "act1" in note else 400.0  # periods that fit a 5 ms window whole
+    y = 0.05 * np.sin(2 * np.pi * f * t + seed)
+    return np.stack([y, y], 1)
+
+
+def test_a_big_moment_holds_its_breath_and_comes_back_on_the_hit(sound_film, restore_client):
+    """The films' keystone: the score fades out over 80 ms into a short silence and comes back exactly on the hit,
+    3 dB over its own level and settling over 2 s, its steepest rise ending 20-30 ms after the hit."""
+    jsonio.write_atomic(sound_film / "sound/score/directions.json",
+                        {"parts": {"act2": {"join": "bloom", "landing_s": 8.4, "together": True}}})
+    p = plan.build(sound_film)
+    assert p["parts"][1]["together"] and p["parts"][1]["breath_s"] == 0.35
+    assert {"from": 8.05, "to": 8.4} in [{k: s[k] for k in ("from", "to")} for s in p["planned_stops"]]
+    _takes(sound_film, _steady)
+    compose.compose(sound_film)
+    rec = assemble.assemble(sound_film)
+    land = next(lv for lv in rec["landings"] if lv["part"] == "act2")
+    assert land["together"] and 20.0 <= land["steepest_rise_end_ms"] <= 30.0, land
+    score = H.read(sound_film / "sound/score/score.wav")
+    assert np.max(np.abs(score[int(8.06 * SR):int(8.399 * SR)])) == 0.0  # the breath is silence
+    assert _level(score, 7.80, 7.95) - _level(score, 8.040, 8.049) > 9.0  # the end of the 80 ms fade into it
+    lifted, settled = _level(score, 8.45, 8.55), _level(score, 10.6, 11.0)
+    assert 2.5 <= lifted - settled <= 3.1  # 3 dB over its own level on the hit, settled 2 s on
+
+
+def test_a_big_moment_inside_a_part_recuts_the_music_already_there(sound_film, restore_client):
+    jsonio.write_atomic(sound_film / "sound/score/directions.json",
+                        {"moments": [{"at": 5.0, "why": "the stress hit"}]})
+    p = plan.build(sound_film)
+    assert p["moments"][0]["t"] == 5.0 and any(s["from"] == 4.65 and s["to"] == 5.0 for s in p["planned_stops"])
+    _takes(sound_film, _steady)
+    compose.compose(sound_film)
+    rec = assemble.assemble(sound_film)
+    assert rec["pass"], assemble.describe(rec)
+    assert 20.0 <= rec["moments"][0]["steepest_rise_end_ms"] <= 30.0
+    score = H.read(sound_film / "sound/score/score.wav")
+    assert np.max(np.abs(score[int(4.66 * SR):int(4.999 * SR)])) == 0.0
+    assert _level(score, 5.05, 5.15) - _level(score, 7.2, 7.6) == pytest.approx(3.0, abs=0.4)
+
+
+def test_an_act_change_that_breathes_too_deep_for_too_long_fails_the_assembly(sound_film, restore_client):
+    """An act change breathes at most 7 dB, for a quarter second at most (the films' rule). This one dips 9 dB for
+    0.4 s across its crossfade."""
+    def maker(secs, seed, note):
+        y = H.pad(secs, seed=seed, notes=(146.83, 220.0, 293.66) if "act1" in note else (196.0, 246.94, 392.0))
+        a, b = (10.8, 11.2) if "act1" in note else (2.8, 3.2)  # film 7.8-8.2 s in each take's own time
+        y[int(a * SR):int(b * SR)] *= 10 ** (-9 / 20)
+        return y
+
+    plan.build(sound_film)
+    _takes(sound_film, maker)
+    compose.compose(sound_film)
+    rec = assemble.assemble(sound_film)
+    join = rec["joins"][0]
+    assert join["part"] == "act2" and join["judged"] and not join["ok"], join
+    assert join["dip_db"] > 7.0 and join["dip_s"] > 0.25
+    assert not rec["pass"] and "PAST THE LIMIT" in assemble.describe(rec)
+
+
+def test_a_clean_join_passes_and_the_score_ends_in_a_silent_last_second(sound_film, restore_client):
+    plan.build(sound_film)
+    _takes(sound_film, lambda secs, seed, note: H.pad(secs, seed=seed))
+    compose.compose(sound_film)
+    rec = assemble.assemble(sound_film)
+    assert rec["pass"] and rec["joins"][0]["ok"] and rec["joins"][0]["dip_db"] <= 3.0
+    assert rec["planned_stops"][-1] == {"from": 13.0, "to": 14.0, "why": "the film ends in silence: its last second, always"}
+    score = H.read(sound_film / "sound/score/score.wav")
+    assert np.max(np.abs(score[13 * SR:])) == 0.0 and _level(score, 11.0, 11.4) > _level(score, 2.0, 6.0) - 6.0
+
+
+def test_a_brand_that_leaves_its_ending_to_the_plan_keeps_the_music_to_the_last_frame(slate_home, restore_client):
+    H.brand(slate_home["brands"], palette={"balance": {"stops": {"end_silent": "plan"}}})
+    fd = H.film(slate_home["films"])
+    p = plan.build(fd)
+    assert not p["planned_stops"]
+    _takes(fd, lambda secs, seed, note: H.pad(secs, seed=seed))
+    compose.compose(fd)
+    assemble.assemble(fd)
+    score = H.read(fd / "sound/score/score.wav")
+    assert _level(score, 13.0, 13.5) > _level(score, 2.0, 6.0) - 12.0 and np.max(np.abs(score[-10:])) < 0.01

@@ -20,6 +20,16 @@ from slate import jsonio
 from slate.errors import MissingPrerequisite, UsageError
 from slate.finish import deps
 
+
+def judged_mode(film_dir: Path | None, data: dict | None) -> str:
+    """slate.state.autonomy.film_mode, or film.json's own mode without the state module."""
+    own = str((data or {}).get("mode") or "supervised")
+    try:
+        from slate.state import autonomy  # noqa: PLC0415 - finish works without film state installed
+    except ImportError:
+        return own
+    return autonomy.film_mode(film_dir, data if isinstance(data, dict) else None)
+
 MASTER_RECORD = "masters/master.json"
 NOTES_FILE = "review/notes.json"
 REVIEW_DIR = "review"
@@ -57,7 +67,10 @@ class Film:
 
     @property
     def mode(self) -> str:
-        return str(self.data.get("mode") or "supervised")
+        """The mode the film is judged in: autonomous whenever film.json or Slate's own record says it was made
+        autonomous (slate.state.autonomy, which only a person at their own Terminal changes), else film.json's. So an
+        edited film.json can't route an autonomous film's review, notes or delivery as a supervised one's."""
+        return judged_mode(self.dir, self.data)
 
     @property
     def brand(self) -> str | None:

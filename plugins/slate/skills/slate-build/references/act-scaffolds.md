@@ -69,6 +69,11 @@ export default function Act2({sub}: SceneProps) {
 - **Everything is a function of film time.** No state carried between frames, no timers, no randomness: the renderer
   draws each frame up to 16 times across the shutter, and every sample must agree.
 - **Use the brand's names** (`roleEase('entrance')`, the duration tokens), never literal curves or seconds.
+- **Say what moves** when the name doesn't: `defineMotion({..., class: 'carry'})` for a page, card or camera carried
+  across the frame (`rig`, `ui` and `whip` are the others), and `exempt: 'reading_sweep'` or `'steady'` with a `reason`
+  for a move whose constant speed is the point. A long carry or a camera drift can run on `ease: 'even'`, the kit's
+  curve that covers a third of the travel in each third of the time. The motion gate holds each class to its own speed
+  limits (slate-motion, eases.md).
 - **Gate each element's entrance on the first word it shows**, not a later one.
 - **Numbers are spoken words**: `word('S05', '2026')` finds "twenty twenty-six"; `word('S05', '&', 2)` finds the second
   "and".

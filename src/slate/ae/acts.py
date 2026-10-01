@@ -95,6 +95,73 @@ def ae_acts(film_dir: Path) -> list[int]:
     return sorted(out)
 
 
+def look_engine(pack: dict) -> str | None:
+    """The engine the brand's look builds scenes in (brand.json look.engine: remotion, web or ae), or None."""
+    look = pack.get("look") if isinstance(pack, dict) else None
+    engine = look.get("engine") if isinstance(look, dict) else None
+    return engine if engine in ("remotion", "web", "ae") else None
+
+
+def starter_scene(*, act: dict, shots: list[dict], width: int, height: int, palette: dict, fonts: dict,
+                  eases: dict) -> dict:
+    """A first scene for an act started in After Effects: the act's first on-screen line on the brand's page, rising in
+    on its first shot on the brand's own entrance ease, silent until the act gets its beats. Every name in it is the
+    brand's (a palette token, a type role, a named ease) or one the AE lane always knows, so it resolves as written."""
+    first = shots[0] if shots else {"id": act["shots"][0]}
+    text = next((str(s.get("on_screen")) for s in shots if s.get("on_screen")), "") or str(first["id"])
+    token = lambda *names: next((n for n in names if n in palette), None)  # noqa: E731
+    role = next((r for r in ("display", "headline", "heading", "sans", "body") if r in fonts), next(iter(fonts), None))
+    ease = next((e for e in ("enter", "entrance", "arrive", "in") if e in eases), "sine")
+    short = min(int(width), int(height))
+    layer: dict = {"id": "title", "type": "text", "text": text, "font_size": round(0.06 * short),
+                   "transform": {"position": [round(width / 2), round(height / 2)]}}
+    if role:
+        layer["font"] = role
+    if token("ink", "text"):
+        layer["color"] = token("ink", "text")
+    scene: dict = {"silent": "a starter scene: no beats yet (give an animation an event as the act is built)",
+                   "layers": [layer],
+                   "anims": [{"id": "title-in", "layer": "title", "prop": "opacity",
+                              "keys": [{"at": {"shot": first["id"], "t": 0.0}, "value": 0, "ease": ease},
+                                       {"at": {"shot": first["id"], "t": 0.5}, "value": 100}]}]}
+    if token("page", "paper", "background", "bg"):
+        scene["bg"] = token("page", "paper", "background", "bg")
+    return scene
+
+
+def scaffold(film_dir: str | os.PathLike, act: int, *, force: bool = False) -> dict:
+    """Start an act in After Effects: write scenes/ae/actN.json, a starter scene the AE lane builds (the act is
+    AE-built from then on). It resolves against the film's timing and the brand before it's written, so it never
+    starts broken. Refuses to replace a scene unless `force`. This is how the AE lane starts acts when the brand's look
+    builds in AE (`slate engine scaffold --act N` reads look.engine)."""
+    from slate.ae import spec as ae_spec  # noqa: PLC0415
+
+    film_dir = Path(film_dir)
+    path = scene_path(film_dir, act)
+    if path.exists() and not force:
+        raise Refused(f"Act {act} is already started in After Effects ({path.relative_to(film_dir)}).",
+                      hint="Edit it, or pass --force to start it again from the starter scene.")
+    film = ae_spec.load_film(film_dir)
+    shots_doc = ae_spec.load_shots(film_dir)
+    rows = [s for s in shots_doc.get("shots") or [] if int(s.get("act", -1)) == int(act)]
+    if not rows:
+        raise UsageError(f"Act {act} isn't in this film's timing/shots.json.")
+    brand, _warnings = ae_spec.brand_section(film)
+    width, height = int(film.get("width") or shots_doc.get("width")), int(film.get("height") or shots_doc.get("height"))
+    act_row = {"index": int(act), "shots": [s["id"] for s in rows], "frame_in": min(int(s["frame_in"]) for s in rows),
+               "frame_out": max(int(s["frame_out"]) for s in rows)}
+    scene = starter_scene(act=act_row, shots=rows, width=width, height=height, palette=brand["palette"],
+                          fonts=brand["fonts"], eases=brand["eases"])
+    num, den, fps = ae_spec._fps(film)  # noqa: SLF001 - the spec's own rate reader
+    timeline = jsonio.read(film_dir / "timing" / "timeline.json", default={}) or {}
+    resolve_scene(scene, act=act_row, shots={s["id"]: s for s in rows}, timeline=timeline, fps=fps,
+                  eases=brand["eases"], palette=brand["palette"], fonts=brand["fonts"], logos=brand["logos"],
+                  durations=brand["durations"], fps_num=num, fps_den=den)
+    jsonio.write_atomic(path, scene)
+    return {"act": int(act), "file": path.relative_to(film_dir).as_posix(), "layers": len(scene["layers"]),
+            "anims": len(scene["anims"]), "engine": "ae"}
+
+
 class _Ctx:
     """What resolving a scene needs: the act, shots, timeline, clock and the brand's law."""
 

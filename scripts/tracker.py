@@ -3,8 +3,10 @@
 
 Every point in the plan has an owner. Builders and reviewers write per-point statuses with evidence into
 docs/build_reports/<module>.build.json and <module>.review.json; later waves write docs/build_reports/<wave>.json in
-the same shape. A reviewer's verdict outranks the builder's, and a later report outranks an earlier one, so the tracker
-always shows the most recent, most checked claim. Nothing is marked done without evidence.
+the same shape. A reviewer's verdict outranks the builder's, and among the waves (a final critic's included) the later
+report outranks the earlier one: a wave that closes what a critic found, and the verifier who checks it after, have
+the last word on the points they report. So the tracker always shows the most recent, most checked claim. Nothing is
+marked done without evidence.
 
 usage: scripts/tracker.py [--fold] [--render] [--summary]
 """
@@ -22,7 +24,7 @@ POINTS = ROOT / "docs" / "plan_points.json"
 TRACKER = ROOT / "docs" / "PLAN_TRACKER.md"
 REPORTS = ROOT / "docs" / "build_reports"
 STATUSES = ("done", "partial", "needs-quinn", "later-wave", "open")
-RANK = {"build": 1, "review": 2, "wave": 3, "final": 4}
+RANK = {"build": 1, "review": 2, "wave": 3, "final": 3}  # a final critic is a wave: a later wave answers it
 
 
 def _load_points() -> list[dict]:

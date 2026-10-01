@@ -3,19 +3,21 @@
 // one). Sizes are fractions of each cell, colours are the brand's, and time is the sheet's own (seconds from frame 0).
 import React from 'react';
 import {AbsoluteFill} from 'remotion';
+import {brandPack} from './core/brand';
 import {contrast} from './core/color';
 import type {Cue} from './core/captions';
 import {BUILTIN, evalEase, type Ease} from './core/eases';
+import {fps, frameSize} from './core/film';
 import {fontPlan} from './core/fontplan';
-import {motifSpec} from './core/motif';
+import {GESTURE_KINDS, motifBeats, motifSpec, type GestureKind, type MotifLayout, type MotifTrack} from './core/motif';
 import {law, t90Of} from './core/motion';
 import {KIT_VERSION} from './core/version';
-import {useAppPx, useFilmTime, useFrameSize, useLook, useTokens, useType} from './context';
+import {KitProvider, useAppPx, useFilmFrame, useFilmTime, useFrameSize, useLook, useTokens, useType} from './context';
 import {Captions} from './captions';
 import {BarChart, CurveMarker, DistributionCurve, LineChart, RadarChart, RingChart} from './charts';
 import {KineticWords} from './kinetic';
-import {brandLogo, LogoBuild} from './logo';
-import {MarkCharacter, MotifMark} from './motif';
+import {brandLogo, fitLogoBuild, LogoBuild, logoPlan} from './logo';
+import {MarkCharacter, MEANINGS, MotifMark} from './motif';
 import {Card, Ground, P} from './paper';
 import {PerChar, CountUp} from './type';
 import {Button, Checkbox, Chip, Field, Pill, ProgressBlocks, StatusDisc} from './ui';
@@ -252,21 +254,31 @@ export function ChartsSection({w, h}: Cell) {
 export function LogoSection({w, h, t0 = 0.2}: Cell & {t0?: number}) {
   const tk = useTokens();
   const body = useType('small');
+  const eyebrow = useType('eyebrow');
   const logo = brandLogo();
+  // the label's own height (one line and its margin), so the build's room starts below it
+  const labelH = eyebrow.fontSize * (eyebrow.lineHeight + 0.8);
   return (
     <div style={{width: w, height: h, position: 'relative'}}>
       <Label>Logo build {logo ? `· ${logo.name}` : ''}</Label>
-      {logo ? <LogoCell w={w} h={h} t0={t0} /> : <div style={{...body, color: tk.color.ink3}}>This brand has no logo in its pack yet.</div>}
+      {logo ? <LogoCell w={w} h={h - labelH} top={labelH} t0={t0} /> : <div style={{...body, color: tk.color.ink3}}>This brand has no logo in its pack yet.</div>}
     </div>
   );
 }
 
-function LogoCell({w, h, t0}: Cell & {t0: number}) {
-  // the build draws in screen px: place it by the cell's own origin through a nested absolute frame
-  const ref = w * 0.8;
+/**
+ * The build in the room below the label, sized and placed so everything it draws fits (fitLogoBuild): the survey past
+ * the mark's edges, the keystone hanging before it drops, its echo. Sized by the cell's width alone, a square mark
+ * overflowed the cell and its hanging keystone was clipped at the cell's top (the demo pack at frame 45).
+ */
+function LogoCell({w, h, top, t0}: Cell & {top: number; t0: number}) {
+  const plan = logoPlan();
+  if (!plan) return null;
+  const fit = fitLogoBuild(plan, w, h);
+  // the build draws in screen px: place it by the room's own origin through a nested absolute frame
   return (
-    <div style={{position: 'absolute', left: w * 0.1, top: h * 0.3, width: ref, height: h * 0.5}}>
-      <LogoBuild t0={t0} x={0} y={0} w={ref} />
+    <div style={{position: 'absolute', left: 0, top, width: w, height: h}}>
+      <LogoBuild t0={t0} x={fit.x} y={fit.y} w={fit.w} />
     </div>
   );
 }
@@ -321,6 +333,200 @@ export function CaptionsSection({w, h}: Cell) {
   );
 }
 
+// --------------------------------------------------------------------------------------------------------- counting
+/**
+ * Counts mid-count, as the kit draws them (CountUp): a centred count from 0 in its own nines, a count whose suffix holds
+ * still at its box's right end, and a count followed by a word that never moves. Guides mark each box's centre and the
+ * word's left edge, so a re-centring count shows against them.
+ */
+export function CountSection({w, h, t0 = 0.1}: Cell & {t0?: number}) {
+  const tk = useTokens();
+  const mono = useType('mono');
+  const h2 = useType('h2');
+  const top = h * 0.14;
+  const row = (h - top) / 3;
+  const comma = (v: number) => Math.round(v).toLocaleString('en-US');
+  const caption = (text: string) => <div style={{...mono, position: 'absolute', left: 0, top: 0, letterSpacing: 0, textTransform: 'none'}}>{text}</div>;
+  const at = (i: number): React.CSSProperties => ({position: 'absolute', left: 0, top: top + i * row, width: w, height: row});
+  const numberTop = mono.fontSize * 2;
+  return (
+    <div style={{width: w, height: h, position: 'relative'}}>
+      <Label>Counting · the box holds still while the figures change</Label>
+      <div style={at(0)}>
+        {caption('centred, from 0: its own nines until it has the figures of 1200')}
+        <div style={{position: 'absolute', left: w / 2, top: numberTop, width: 1, height: row - numberTop, background: tk.color.hairline}} />
+        <div style={{position: 'absolute', left: 0, right: 0, top: numberTop, textAlign: 'center'}}>
+          <CountUp t0={t0} from={0} to={1200} duration={2.4} role="h1" />
+        </div>
+      </div>
+      <div style={at(1)}>
+        {caption('a suffix holds still at the right end of its box')}
+        <div style={{position: 'absolute', left: w * 0.1, top: numberTop}}>
+          <CountUp t0={t0} from={0} to={2500} duration={2.4} role="h1" format={(v) => `${comma(v)}+`} />
+        </div>
+      </div>
+      <div style={at(2)}>
+        {caption('followed: the word after it never moves')}
+        <div style={{position: 'absolute', left: w * 0.1, top: numberTop, display: 'flex', alignItems: 'baseline', gap: h2.fontSize * 0.3}}>
+          <CountUp t0={t0} from={0} to={64} duration={2.4} role="h1" followed />
+          <span style={{...h2, color: tk.color.ink2}}>% of every part</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ------------------------------------------------------------------------------------------------------- card turn
+/**
+ * Two-sided cards turned past 90°: each shows its back face (Card `back`) where a one-sided card showed its edge slices
+ * and nothing else. Drawn in the papery look, so the thickness is there to hide.
+ */
+export function CardTurnSection({w, h}: Cell) {
+  const tk = useTokens();
+  const a = useAppPx();
+  const mono = useType('mono');
+  const cw = Math.min(w * 0.26, h * 0.5);
+  const ch = cw * 0.62;
+  const turns = [35, 120, 160];
+  return (
+    <KitProvider look="paper-2.5d">
+      <div style={{width: w, height: h, position: 'relative'}}>
+        <Label>Cards turn past 90° · a back face, never a missing edge</Label>
+        {turns.map((ry, i) => (
+          <div key={ry} style={{position: 'absolute', left: (w * (i + 0.5)) / turns.length, top: h * 0.55, width: 0, height: 0, perspective: cw * 4}}>
+            <Card w={cw} h={ch} pose={P(0, 0, 0, 8, ry)} back={{face: tk.color.softAccent, children: <div style={{...mono, padding: a(12), color: tk.color.accentInk}}>back</div>}}>
+              <div style={{...mono, padding: a(12)}}>front</div>
+            </Card>
+            <div style={{...mono, position: 'absolute', left: -cw / 2, width: cw, top: ch * 0.75, textAlign: 'center'}}>{ry}°</div>
+          </div>
+        ))}
+      </div>
+    </KitProvider>
+  );
+}
+
+// -------------------------------------------------------------------------------------------------------- gestures
+/**
+ * The sizes the gesture sheet draws the character at, as shares of the frame's short side: the smallest and the largest
+ * a film used it (48 and 820 px on 1080 lines, so 2/45 and 41/54). On the film's own short side, each runs in the
+ * regime the film's would (full choreography, unison, or moving as a whole).
+ */
+export const GESTURE_SIZES = {small: 2 / 45, large: 41 / 54} as const;
+/** The gesture sheet's contact: every gesture lands at t = 1 s. */
+export const GESTURE_CONTACT_S = 1;
+/** Seconds the gesture sheet runs: the contact, the longest gesture, and a still second after. */
+export const GESTURE_SHEET_S = 4;
+
+/** Meanings in the brand's vocabulary that use a gesture (brand.motif.gestures, or the rig's defaults). */
+export function meaningsOf(kind: GestureKind): string[] {
+  const own = (brandPack().motif as {gestures?: Record<string, string[]>} | null | undefined)?.gestures;
+  const vocab = (own && Object.keys(own).length ? own : MEANINGS) as Record<string, string[]>;
+  return Object.entries(vocab)
+    .filter(([, kinds]) => kinds.includes(kind))
+    .map(([m]) => m);
+}
+
+/** One gesture's track for its cell, keyed so its contact lands on `C` (a whole film frame). */
+export function gestureCellTrack(kind: GestureKind, C: number, toward: {x: number; y: number}): MotifTrack {
+  switch (kind) {
+    case 'lean':
+      return [{kind: 'lean', frame: C, toward}];
+    case 'hold':
+      return [{kind: 'hold', frame: C, untilFrame: C + Math.round(0.8 * fps())}];
+    case 'breathe':
+      return [{kind: 'breathe', frame: C, cycles: 1}];
+    default:
+      return [{kind, frame: C} as MotifTrack[number]];
+  }
+}
+
+/** The geometry of a gesture sheet for the film's frame: disc sizes, cells and the sheet's own size, in px. */
+export function gestureSheetLayout() {
+  const film = frameSize();
+  const large = GESTURE_SIZES.large * film.short;
+  const small = GESTURE_SIZES.small * film.short;
+  const cols = 4;
+  const rows = Math.ceil(GESTURE_KINDS.length / cols);
+  const cellW = Math.round(large * 1.5);
+  const strip = Math.round(large * 0.2);
+  const cellH = Math.round(large * 1.5) + strip;
+  const head = Math.round(large * 0.16);
+  return {film, large, small, cols, rows, cellW, cellH, strip, head, width: cols * cellW, height: head + rows * cellH};
+}
+
+function GestureCell({kind, x, y, L}: {kind: GestureKind; x: number; y: number; L: ReturnType<typeof gestureSheetLayout>}) {
+  const tk = useTokens();
+  const mono = useType('mono');
+  const frame = useFilmFrame();
+  const C = Math.round(GESTURE_CONTACT_S * fps());
+  const lineH = mono.fontSize * mono.lineHeight;
+  const cx = x + L.cellW / 2;
+  const cy = y + lineH * 1.5 + (L.cellH - L.strip - lineH * 1.5) / 2;
+  const toward = {x: cx + L.cellW, y: cy};
+  const track = gestureCellTrack(kind, C, toward);
+  const big: MotifLayout = {x: cx, y: cy, size: L.large};
+  const tiny: MotifLayout = {x: x + L.cellW * 0.06 + L.small / 2, y: y + lineH * 2 + L.small / 2, size: L.small};
+  const spec = motifSpec().spec;
+  // the rig's sounds for this gesture, as the picture runs it at the large size
+  const beats = motifBeats(track, spec, {layout: () => ({...big, size: big.size * spec.markRatio}), short: L.film.short});
+  const meanings = meaningsOf(kind);
+  const total = GESTURE_SHEET_S * fps();
+  const sx = (f: number) => x + L.cellW * 0.06 + (L.cellW * 0.88 * f) / total;
+  const stripY = y + L.cellH - L.strip * 0.7;
+  const sounds = beats.length === 0 ? 'silent' : beats.length === 1 ? `1 sound, f${beats[0].frame}` : `${beats.length} sounds, f${beats[0].frame}–f${beats[beats.length - 1].frame}`;
+  return (
+    <>
+      <div style={{...mono, position: 'absolute', left: x + L.cellW * 0.06, top: y + lineH * 0.5, color: tk.color.ink2, whiteSpace: 'nowrap'}}>
+        {kind} · {meanings.length ? meanings.join(', ') : 'in no meaning of this brand'}
+      </div>
+      <MarkCharacter {...big} track={track} />
+      <MarkCharacter {...tiny} track={track} />
+      <div style={{position: 'absolute', left: sx(0), top: stripY, width: L.cellW * 0.88, height: 1, background: tk.color.hairline}} />
+      {beats.map((b) => (
+        <div key={`${b.frame}-${b.gesture}`} style={{position: 'absolute', left: sx(b.frame) - 1, top: stripY - L.strip * 0.18, width: 2, height: L.strip * 0.36, background: frame >= b.frame ? tk.color.accent : tk.color.ink3}} />
+      ))}
+      <div style={{position: 'absolute', left: sx(Math.min(frame, total)), top: stripY - L.strip * 0.3, width: 1, height: L.strip * 0.6, background: tk.color.ink}} />
+      <div style={{...mono, position: 'absolute', left: x + L.cellW * 0.06, top: stripY + L.strip * 0.36, color: tk.color.ink3, whiteSpace: 'nowrap'}}>
+        {sounds}
+      </div>
+    </>
+  );
+}
+
+/**
+ * The gesture sheet (L-kit-079, L-kit-D082): every gesture the rig draws in its own cell, keyed so its contact lands at
+ * t = 1 s, at the smallest and the largest size a film uses the character (48 and 820 px on 1080 lines, scaled to the
+ * film), with the rig's sounds (motifBeats) on a strip under each. Reviewed by eye before builders use the rig; it
+ * renders at full speed (Kit-Gestures) and at quarter speed (Kit-Gestures-Quarter). The sheet is bigger than the film's
+ * frame (the largest character needs the room), so everything on it is sized and run as on the film's own frame: the
+ * type, and the regime each size runs in.
+ */
+export function GestureSheet({speed = 1}: {speed?: number}) {
+  const L = gestureSheetLayout();
+  return (
+    <AbsoluteFill>
+      <Ground />
+      <KitProvider width={L.film.width} height={L.film.height}>
+        <GestureHeader L={L} speed={speed} />
+        {GESTURE_KINDS.map((kind, i) => (
+          <GestureCell key={kind} kind={kind} x={(i % L.cols) * L.cellW} y={L.head + Math.floor(i / L.cols) * L.cellH} L={L} />
+        ))}
+      </KitProvider>
+    </AbsoluteFill>
+  );
+}
+
+function GestureHeader({L, speed}: {L: ReturnType<typeof gestureSheetLayout>; speed: number}) {
+  const tk = useTokens();
+  const mono = useType('mono');
+  const t = useFilmTime();
+  return (
+    <div style={{...mono, position: 'absolute', left: L.cellW * 0.06, top: (L.head - mono.fontSize) / 2, color: tk.color.ink3, whiteSpace: 'nowrap'}}>
+      Gestures · contact at {GESTURE_CONTACT_S} s · {Math.round(L.small)} and {Math.round(L.large)} px on {L.film.short} lines · {speed === 1 ? 'full speed' : `${speed}× speed`} · t {t.toFixed(2)} s
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------------------------------------- the sheet
 const SECTIONS: {id: string; C: React.FC<Cell>}[] = [
   {id: 'palette', C: PaletteSection},
@@ -334,10 +540,16 @@ const SECTIONS: {id: string; C: React.FC<Cell>}[] = [
   {id: 'captions', C: CaptionsSection},
 ];
 
+/** Sections drawn on their own (golden stills and reviews), never on the one-frame sheet. */
+const EXTRA_SECTIONS: {id: string; C: React.FC<Cell>}[] = [
+  {id: 'count', C: CountSection},
+  {id: 'card-turn', C: CardTurnSection},
+];
+
 /** One section filling the frame (for a still of one component). */
 export function ReviewSection({id}: {id: string}) {
   const {width, height, short} = useFrameSize();
-  const s = SECTIONS.find((x) => x.id === id) ?? SECTIONS[0];
+  const s = [...SECTIONS, ...EXTRA_SECTIONS].find((x) => x.id === id) ?? SECTIONS[0];
   const pad = 0.06 * short;
   return (
     <AbsoluteFill>
@@ -383,3 +595,5 @@ export function KitReviewSheet({title}: {title?: string}) {
 }
 
 export const REVIEW_SECTIONS = SECTIONS.map((s) => s.id);
+/** Sections with a composition of their own but no place on the sheet. */
+export const EXTRA_REVIEW_SECTIONS = EXTRA_SECTIONS.map((s) => s.id);

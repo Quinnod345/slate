@@ -10,13 +10,21 @@ generated here, never written by hand:
 - `plugins/slate/claude-ai/<name>.zip`: the knowledge-only edition for regular Claude chats, uploaded to claude.ai.
   Its SKILL.md has every reference file inlined, because a chat has no Slate command line to open them with.
 - `plugins/slate/openclaw/entries.json`: the `skills.entries` and `mcp.servers` block to merge into OpenClaw's config.
+- The plugin's own files: its two manifests (`.claude-plugin/plugin.json` for Claude Code, `plugin.json` for Agent
+  Plugins), its two MCP configs (`.mcp.json`, `mcp.json`: Slate's own server plus the vendors' hosted connectors,
+  signed in with OAuth, never a key), its README and its LICENSE. So nothing in plugins/slate is ever edited by hand.
 
 `slate skills build --check` rebuilds everything in memory and compares it with what's on disk; CI runs it, so a
-skill edited without a rebuild fails the build instead of shipping a stale copy.
+skill edited without a rebuild fails the build instead of shipping a stale copy. The check then runs the clients' own
+validators on the built plugin where they're installed (`claude plugin validate --strict`, `skills-ref validate` on
+every skill), each skipped with a notice where it isn't, so CI runs them wherever it has them.
 
 The same pass enforces the authoring rules every client depends on: spec-only frontmatter (claude.ai rejects any other
-key), a name that matches its folder, a description under 1,024 characters, SKILL.md under 500 lines, working links to
-reference files, and no wording that only one agent understands (Claude-only tool names, client path placeholders).
+key), a name that matches its folder, a description under 1,024 characters (and with any when_to_use, under Claude
+Code's 1,536-character listing cut), the whole skill list inside Codex's budget (2% of its context, 8,000 characters),
+SKILL.md under 500 lines, working links to reference files, no media in a skill (fonts, sound banks, LUTs, audio,
+video), the plugin under claude.ai's caps (200 MB, 5,000 files), and no wording that only one agent understands
+(Claude-only tool names, client path placeholders).
 """
 
 from __future__ import annotations
@@ -26,6 +34,7 @@ import io
 import json
 import os
 import re
+import textwrap
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -46,9 +55,29 @@ MAX_DESCRIPTION = 1024
 MAX_COMPATIBILITY = 500
 MAX_SKILL_LINES = 500
 MAX_SHORT_DESCRIPTION = 120
+# Claude Code shows each skill's description plus its when_to_use, cut at this many characters.
+MAX_LISTING = 1536
+# Codex puts every skill's name, description and path in its context, within 2% of the context and at least this many
+# characters; a list past it loses skills. The build fails past it and notes when the list is within a tenth of it.
+CODEX_LIST_BUDGET = 8000
+CODEX_LIST_NOTE = 0.9
+# claude.ai's caps for one plugin (and its largest upload). Files outside the plugin folder are never copied, and Git
+# LFS files arrive as pointers, so media is fetched at run time instead of shipped.
+PLUGIN_MAX_BYTES = 200 * 1024 * 1024
+PLUGIN_MAX_FILES = 5000
+# Media never ships in a skill: brand fonts are licensed per brand and referenced by name, sound banks and sampled
+# instruments come from each machine's own install, and LUTs, audio and footage live with the films.
+MEDIA = {**dict.fromkeys((".ttf", ".otf", ".ttc", ".woff", ".woff2", ".eot", ".dfont"), "a font"),
+         **dict.fromkeys((".exs", ".sf2", ".sfz", ".nki", ".nkx", ".nkc"), "a sound bank"),
+         **dict.fromkeys((".cube", ".3dl", ".csp", ".lut", ".look", ".icc"), "a LUT or colour profile"),
+         **dict.fromkeys((".wav", ".aif", ".aiff", ".caf", ".mp3", ".m4a", ".flac", ".ogg", ".opus"), "audio"),
+         **dict.fromkeys((".mov", ".mp4", ".m4v", ".mkv", ".webm", ".avi", ".mxf", ".prores"), "video")}
 
 # The folders the build owns inside its output folder. Anything in them that the build didn't make is stale.
 MANAGED = ("skills", "claude-ai", "openclaw")
+# The plugin's own files, generated too. Anything else at the plugin's top level (a stray file, a `bin/` that claude.ai
+# would refuse) is stale as well.
+ROOT_FILES = ("README.md", "LICENSE", ".mcp.json", "mcp.json", "plugin.json", ".claude-plugin/plugin.json")
 
 # Wording that only one client understands. Skills are read by Claude Code, Codex and OpenClaw alike (plan §1:
 # "agent-neutral wording, with no Claude-only tool names"), so these fail the build.
@@ -341,6 +370,10 @@ def check_skill(skill: Skill) -> list[str]:
         problems.append("frontmatter has no description")
     elif len(description.strip()) > MAX_DESCRIPTION:
         problems.append(f"description is {len(description.strip())} characters; the limit is {MAX_DESCRIPTION}")
+    listing = listing_chars(meta)
+    if listing > MAX_LISTING:
+        problems.append(f"description and when_to_use come to {listing} characters; Claude Code cuts a skill's listing "
+                        f"at {MAX_LISTING}, so the rest would never be read")
     compat = meta.get("compatibility")
     if compat is not None and (not isinstance(compat, str) or len(compat) > MAX_COMPATIBILITY):
         problems.append(f"compatibility must be a string of at most {MAX_COMPATIBILITY} characters")
@@ -370,7 +403,27 @@ def check_skill(skill: Skill) -> list[str]:
     for ref in skill.references():
         if len(ref.parts) > 2:
             skill.notes.append(f"{ref} is nested; the spec keeps references one level deep")
+    for rel in skill.files():
+        kind = MEDIA.get(rel.suffix.lower())
+        if kind:
+            problems.append(f"{rel} is {kind}: media stays out of skills and the plugin (claude.ai caps a plugin at "
+                            "200 MB and 5,000 files, and fonts are licensed per brand); reference it by name and "
+                            "fetch it at run time")
     return problems
+
+
+def listing_chars(meta: dict) -> int:
+    """What Claude Code shows of a skill in its listing: the description plus any when_to_use."""
+    return sum(len(meta[k].strip()) for k in ("description", "when_to_use") if isinstance(meta.get(k), str))
+
+
+def codex_entry(skill: "Skill") -> str:
+    """One skill as Codex lists it in its context: name, description and where its file is."""
+    return f"- {skill.name}: {skill.description} (file: ~/.agents/skills/{skill.name}/SKILL.md)\n"
+
+
+def codex_list_chars(skills: Iterable["Skill"]) -> int:
+    return sum(len(codex_entry(s)) for s in skills)
 
 
 def _local_links(text: str) -> list[str]:
@@ -557,6 +610,212 @@ def openclaw_entries(skills: list[Skill]) -> dict:
     }
 
 
+# ---------------------------------------------------------------------------------------------------------------
+# The plugin's own files: manifests, MCP configs, README and LICENSE, generated like the rest
+
+PLUGIN_NAME = "slate"
+PLUGIN_DESCRIPTION = ("A film studio any agent can run: a brief becomes a finished, gated film. Ten skills for intake, "
+                      "story, motion, building, voice, sound, generation, finishing, QA and brand onboarding, plus "
+                      "Slate's MCP server over its command line and job queue. Needs Slate installed on the Mac first.")
+PLUGIN_AUTHOR = {"name": "Quinn O'Donnell", "url": "https://github.com/Quinnod345"}
+PLUGIN_REPO = "https://github.com/Quinnod345/slate"
+PLUGIN_KEYWORDS = ("video", "film", "motion-design", "voice", "sound-design", "remotion", "after-effects")
+AGENT_PLUGINS_SCHEMA = "https://agent-plugins.org/schemas/1.0.0"
+
+# Slate's own server: the command line over stdio, never opening a browser.
+SLATE_SERVER = {"command": "slate", "args": ["mcp"], "env": {"BROWSER": "none"}}
+# The vendors' hosted connectors (URLs checked 2026-10-01). Each signs in with OAuth in the person's own browser the
+# first time it's connected, so no key is ever written here. Generations made through them bypass Slate's ledger;
+# balance snapshots at a session's start and end catch them (slate ledger snapshot, then slate ledger reconcile).
+HOSTED_CONNECTORS: tuple[tuple[str, str, str, str], ...] = (
+    ("elevenlabs", "https://api.elevenlabs.io/v1/mcp", "ElevenLabs", "voices, music and its creative models"),
+    ("higgsfield", "https://mcp.higgsfield.ai/mcp", "Higgsfield", "image and video generation"),
+)
+
+# The commands an unattended run needs without a prompt, and what each is for. aerender is left out on purpose: After
+# Effects work starts only on a person's go, and Slate runs aerender itself when they give it.
+PERMISSIONS: tuple[tuple[tuple[str, ...], str], ...] = (
+    (("slate",), "every stage (Slate starts its own renders, mixes and After Effects steps)"),
+    (("ffmpeg",), "checking and cutting media by hand"),
+    (("ffprobe",), "reading a file's streams and length"),
+    (("whisper",), "word timings checked by hand"),
+    ((".venv/bin/python",), "Slate's own Python, from the checkout (its tests and tools)"),
+    (("node", "engine/cli.mjs"), "the engine's renders and checks run directly, from the checkout"),
+)
+
+
+def mcp_servers(dialect: str) -> dict:
+    """Slate's server and the hosted connectors in one client's dialect: "claude" (.mcp.json, remote servers typed
+    http) or "agent-plugins" (mcp.json, where the local server says it's stdio and a remote one is streamable-http)."""
+    local = json.loads(json.dumps(SLATE_SERVER))
+    if dialect == "claude":
+        servers = {PLUGIN_NAME: local}
+        servers.update({name: {"type": "http", "url": url} for name, url, _, _ in HOSTED_CONNECTORS})
+        return {"mcpServers": servers}
+    if dialect == "agent-plugins":
+        servers = {PLUGIN_NAME: {"type": "stdio", **local}}
+        servers.update({name: {"type": "streamable-http", "url": url} for name, url, _, _ in HOSTED_CONNECTORS})
+        return {"$schema": f"{AGENT_PLUGINS_SCHEMA}/mcp.schema.json", "mcpServers": servers}
+    raise ValueError(f"unknown MCP dialect {dialect!r}")
+
+
+def plugin_manifest(dialect: str) -> dict:
+    """The plugin's manifest: Claude Code's (.claude-plugin/plugin.json) or Agent Plugins' (plugin.json)."""
+    from slate import __version__  # noqa: PLC0415
+
+    body = {"version": __version__, "description": PLUGIN_DESCRIPTION, "author": dict(PLUGIN_AUTHOR),
+            "homepage": PLUGIN_REPO, "repository": PLUGIN_REPO, "license": "Proprietary",
+            "keywords": list(PLUGIN_KEYWORDS)}
+    if dialect == "claude":
+        return {"name": PLUGIN_NAME, "displayName": "Slate", **body}
+    if dialect == "agent-plugins":
+        return {"$schema": f"{AGENT_PLUGINS_SCHEMA}/plugin.schema.json", "name": PLUGIN_NAME, **body}
+    raise ValueError(f"unknown manifest dialect {dialect!r}")
+
+
+def permission_rules() -> dict:
+    """The recommended rules for an unattended run, per agent: what to allow, and the connector tools to deny."""
+    allow = [f"Bash({' '.join(words)} *)" for words, _ in PERMISSIONS]
+    allow.append(f"mcp__plugin_{PLUGIN_NAME}_{PLUGIN_NAME}")  # every tool of the plugin's own Slate server
+    deny = [f"mcp__plugin_{PLUGIN_NAME}_higgsfield__{tool}" for tool in _denied_connector_tools()]
+    codex = [f'prefix_rule(pattern={json.dumps(list(words))}, decision="allow")' for words, _ in PERMISSIONS]
+    return {"claude_code": {"permissions": {"allow": allow, "deny": deny}}, "codex": codex}
+
+
+def plugin_readme() -> str:
+    """The plugin's README, written from the same data as its manifests and MCP configs."""
+    rules = permission_rules()
+    settings = jsonio.dumps(rules["claude_code"]).rstrip("\n")
+    codex = "\n".join(rules["codex"])
+    from slate.doctor.agents import MIN_CLAUDE_CODE  # noqa: PLC0415 - stated once, in doctor's version row
+
+    commands = "\n".join(f"| `{' '.join(words)}` | {what} |" for words, what in PERMISSIONS)
+    connectors = "\n".join(f"- **{label}** (`{url}`): {what}." for _name, url, label, what in HOSTED_CONNECTORS)
+    denied = ", ".join(f"`{tool}`" for tool in _denied_connector_tools()) or "none"
+    never = textwrap.fill(f"- **Slate never calls some of Higgsfield's connector tools**: {denied}. They upload a "
+                          "person's skills and a profile, or publish to TikTok or a website. Deny them wherever an "
+                          "agent runs films on its own (the rules below do).", width=118, subsequent_indent="  ",
+                          break_on_hyphens=False, break_long_words=False)
+    return f"""# Slate plugin
+
+Slate is a film studio any agent can run: a brief becomes a finished, gated film, with story, voice, motion, sound, QA
+and delivery each checked by a machine before it counts as done. This plugin brings Slate's skills, its MCP server and
+the voice and generation vendors' hosted connectors to Claude Code (and to Codex, OpenClaw and other clients that read
+Agent Plugins). It's for people other than Slate's author, who links the skills from his checkout instead.
+
+Everything in this folder is written by `slate skills build` from Slate's repository
+({GENERATED}).
+
+## Before you install it
+
+The plugin is the front door, not the studio. Slate itself (its command line, render engine and job queue) runs on
+your Mac, so install it first, with one command in Terminal:
+
+```sh
+git clone {PLUGIN_REPO}.git ~/code/slate && ~/code/slate/install.sh
+```
+
+Then run `slate doctor` and fix anything it names. The plugin's MCP server runs `slate mcp`, so `slate` has to be on
+your PATH (the installer links it into `~/.local/bin`).
+
+It needs Claude Code {MIN_CLAUDE_CODE} or later, both the terminal build and the one the desktop app bundles (they
+update separately); `slate doctor` checks both.
+
+## Install
+
+In Claude Code:
+
+```
+/plugin marketplace add Quinnod345/slate
+/plugin install slate@slate
+```
+
+**Turn on auto-update for Slate's marketplace** (`/plugin`, Marketplaces): it's off by default for third-party
+marketplaces, and without it you won't get fixes.
+
+The repository is private for now, so your git credentials need access to it (`gh auth setup-git` once, if git asks).
+
+Codex and OpenClaw don't need the plugin: the installer above links Slate's skills where both read them and registers
+Slate's MCP server with each. Reading this repository as their plugin marketplace isn't confirmed yet (whether Codex
+takes a Claude-style marketplace's sources, and whether OpenClaw expands Claude's path placeholders in a bundle; this
+plugin uses none). Slate's repository records every client behaviour that's still unconfirmed, with the hands-on check
+that settles it, in `tests/packaging/client_behaviours.json`.
+
+## What's inside
+
+- `skills/`: Slate's skills, copied from the repository's `skills/` folder. Each copy carries a Codex sidecar
+  (`agents/openai.yaml`).
+- `.mcp.json` (Claude Code) and `mcp.json` (Agent Plugins): Slate's own server, which runs `slate mcp`, a thin server
+  over Slate's command line and job queue (long work such as renders, voicing, QA and delivery always runs as a
+  background job), and the vendors' hosted connectors (below).
+- `.claude-plugin/plugin.json` (Claude Code) and `plugin.json` (Agent Plugins): the two manifests over the same folder.
+- `claude-ai/`: knowledge-only editions of each skill, zipped for uploading to a regular Claude chat.
+- `openclaw/entries.json`: the skill and MCP entries for OpenClaw's config.
+
+There's no `bin/` folder on purpose: Claude's chat and Cowork refuse to install a plugin that has one. The `slate`
+command comes from the install above. There's no media either (fonts, sound banks, LUTs, audio, video): claude.ai caps
+a plugin at 200 MB and 5,000 files, and `slate skills build` refuses media in a skill.
+
+## The hosted connectors
+
+{connectors}
+
+Each signs in with OAuth in your own browser the first time you connect it (in Claude Code, `/mcp`; on claude.ai, the
+plugin's Connectors tab). No API key goes in any file here. They're for people working in a chat; Slate's own stages
+call the vendors' APIs with the keys you gave `slate connect`, through its ledger.
+
+- **Generations made through a connector bypass Slate's ledger.** A working session starts and ends with
+  `slate ledger snapshot --all --session <label>` (for Higgsfield, also
+  `slate ledger snapshot --provider higgsfield --balance <n> --session <label>` with the balance its connector shows),
+  then `slate ledger reconcile --session <label>`, so that spend is caught.
+{never}
+
+## Permissions for unattended runs
+
+An agent that stops to ask before each command stalls an unattended run. These are the commands Slate's agents run
+themselves:
+
+| Command | What it's for |
+|---|---|
+{commands}
+
+aerender isn't on the list on purpose: After Effects work starts only on a person's go, and Slate runs aerender itself
+when they give it.
+
+Claude Code, in `~/.claude/settings.json` (or a project's `.claude/settings.json`):
+
+```json
+{settings}
+```
+
+Codex, in a rules file such as `~/.codex/rules/slate.rules`:
+
+```
+{codex}
+```
+
+## Licence
+
+Slate is proprietary for now (see `LICENSE`). Using it needs Quinn O'Donnell's permission; access to the repository
+comes with that permission.
+"""
+
+
+def plugin_files() -> dict[str, tuple[bytes, bool]]:
+    """The plugin's own files, {path under the build folder: (bytes, executable)}."""
+    out = {
+        ".claude-plugin/plugin.json": (jsonio.dumps(plugin_manifest("claude")).encode(), False),
+        "plugin.json": (jsonio.dumps(plugin_manifest("agent-plugins")).encode(), False),
+        ".mcp.json": (jsonio.dumps(mcp_servers("claude")).encode(), False),
+        "mcp.json": (jsonio.dumps(mcp_servers("agent-plugins")).encode(), False),
+        "README.md": (plugin_readme().encode(), False),
+    }
+    licence = paths.REPO / "LICENSE"
+    if licence.is_file():
+        out["LICENSE"] = (licence.read_bytes(), False)
+    return out
+
+
 SKILLS_README = f"""# Generated skills: don't edit here
 
 Everything in this folder is written by `slate skills build` ({GENERATED}) from the skills in `skills/` at the root
@@ -608,7 +867,30 @@ def render(src: str | os.PathLike | None = None) -> Build:
         edition = knowledge_edition(skill).encode()
         files[f"claude-ai/{skill.name}.zip"] = (_zip({f"{skill.name}/SKILL.md": edition}), False)
     files["openclaw/entries.json"] = (jsonio.dumps(openclaw_entries(good)).encode(), False)
+    files.update(plugin_files())
+    problems += plugin_problems(skills, files, notes)
     return Build(files=files, skills=skills, problems=problems, notes=notes)
+
+
+def plugin_problems(skills: list[Skill], files: dict[str, tuple[bytes, bool]], notes: list[str]) -> list[str]:
+    """What the clients' limits say about the whole build: Codex's skill-list budget and claude.ai's plugin caps.
+    Problems name `plugin`, not a skill; a list near Codex's budget is a note."""
+    problems = []
+    listed = codex_list_chars(s for s in skills if s.description)
+    if listed > CODEX_LIST_BUDGET:
+        problems.append(f"plugin: the skill list comes to {listed:,} characters as Codex lists it (name, description "
+                        f"and path); Codex keeps it within {CODEX_LIST_BUDGET:,}, so skills past it would go missing. "
+                        "Tighten the descriptions")
+    elif listed >= CODEX_LIST_NOTE * CODEX_LIST_BUDGET:
+        notes.append(f"plugin: the skill list comes to {listed:,} of Codex's {CODEX_LIST_BUDGET:,} characters "
+                     f"({listed / CODEX_LIST_BUDGET:.0%}); keep new descriptions tight")
+    count, size = len(files), sum(len(data) for data, _ in files.values())
+    if count > PLUGIN_MAX_FILES:
+        problems.append(f"plugin: {count:,} files; claude.ai takes at most {PLUGIN_MAX_FILES:,} in a plugin")
+    if size > PLUGIN_MAX_BYTES:
+        problems.append(f"plugin: {size / 1024 / 1024:,.1f} MB; claude.ai takes at most "
+                        f"{PLUGIN_MAX_BYTES // 1024 // 1024} MB in a plugin")
+    return problems
 
 
 def default_out() -> Path:
@@ -621,10 +903,24 @@ def _guard_out(out: Path, src: Path) -> None:
         raise UsageError(f"The build folder {out} would overlap the skills themselves ({src}); pick another --out.")
 
 
+def _stray_dirs(out: Path) -> list[Path]:
+    """Top-level folders in the build folder that the build doesn't make (hidden ones other than the manifest's are
+    left alone)."""
+    if not out.is_dir():
+        return []
+    return sorted(p for p in out.iterdir() if p.is_dir() and p.name not in MANAGED and p.name != ".claude-plugin"
+                  and not p.name.startswith(".") and p.name not in _SKIP_NAMES)
+
+
 def _on_disk(out: Path) -> dict[str, tuple[bytes, bool]]:
+    """Every file the build owns in the build folder: its managed folders, the plugin's top-level files and anything
+    else at the top level (which is stale by definition)."""
     found: dict[str, tuple[bytes, bool]] = {}
-    for sub in MANAGED:
-        base = out / sub
+
+    def add(full: Path) -> None:
+        found[full.relative_to(out).as_posix()] = (full.read_bytes(), os.access(full, os.X_OK))
+
+    for base in [out / sub for sub in MANAGED] + _stray_dirs(out):
         if not base.is_dir():
             continue
         for root, dirs, names in os.walk(base):
@@ -632,8 +928,12 @@ def _on_disk(out: Path) -> dict[str, tuple[bytes, bool]]:
             for name in names:
                 if name == ".DS_Store":
                     continue
-                full = Path(root) / name
-                found[full.relative_to(out).as_posix()] = (full.read_bytes(), os.access(full, os.X_OK))
+                add(Path(root) / name)
+    for folder in (out, out / ".claude-plugin"):
+        if folder.is_dir():
+            for full in folder.iterdir():
+                if full.is_file() and full.name != ".DS_Store":
+                    add(full)
     return found
 
 
@@ -680,8 +980,10 @@ def build(src: str | os.PathLike | None = None, out: str | os.PathLike | None = 
         for rel in diff["extra"]:
             (target / rel).unlink()
             removed.append(rel)
-        for sub in MANAGED:
-            _prune_empty(target / sub)
+        for folder in [target / sub for sub in MANAGED] + _stray_dirs(target):
+            _prune_empty(folder)
+            if folder.name not in MANAGED and folder.is_dir() and not any(folder.iterdir()):
+                folder.rmdir()
     report.update(written=written, removed=removed)
     return report
 
@@ -696,9 +998,75 @@ def _prune_empty(folder: Path) -> None:
             here.rmdir()
 
 
-def check(src: str | os.PathLike | None = None, out: str | os.PathLike | None = None) -> dict:
-    """Rebuild in memory and compare with the build folder. `clean` is True only when nothing drifted."""
-    return build(src, out, write=False)
+def check(src: str | os.PathLike | None = None, out: str | os.PathLike | None = None, *,
+          validators: bool = False) -> dict:
+    """Rebuild in memory and compare with the build folder. `clean` is True only when nothing drifted.
+
+    With validators=True (what `slate skills build --check` does), a clean build folder is also run through each
+    client's own validator where it's installed; `valid` is False when one of them fails it."""
+    report = build(src, out, write=False)
+    if validators and not report["problems"]:
+        rows = validate(Path(report["out"]), report["skills"], ready=report["clean"])
+        report["validators"] = rows
+        report["valid"] = all(r["ok"] is not False for r in rows)
+        report["notes"] = report["notes"] + [f"{r['validator']} was skipped: {r['why']}" for r in rows
+                                             if r["status"] == "skipped"]
+    return report
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# The clients' own validators, run on the built plugin by `--check` wherever they're installed
+
+@dataclass(frozen=True)
+class Validator:
+    tool: str  # the command it needs
+    label: str  # how reports name it
+    per_skill: bool  # run once per skill folder, or once on the plugin
+
+    def argv(self, exe: str, target: Path) -> list[str]:
+        if self.per_skill:
+            return [exe, "validate", str(target)]
+        return [exe, "plugin", "validate", "--strict", str(target)]
+
+
+VALIDATORS = (Validator("claude", "claude plugin validate --strict", per_skill=False),
+              Validator("skills-ref", "skills-ref validate", per_skill=True))
+VALIDATOR_TIMEOUT_S = 120
+
+
+def find_tool(name: str) -> str | None:
+    """Where a validator's command is installed, or None (the tests replace this)."""
+    from slate import procs  # noqa: PLC0415
+
+    return procs.which(name)
+
+
+def validate(out: Path, skills: Iterable[str], *, ready: bool = True) -> list[dict]:
+    """Each client's validator on the built plugin: one row per run, {validator, target, status (ran or skipped), ok,
+    output or why}. A validator that isn't installed is skipped with the reason, and so is every one when the build
+    folder has drifted (`ready` False): it would judge a stale copy."""
+    from slate import procs  # noqa: PLC0415
+
+    rows: list[dict] = []
+    for v in VALIDATORS:
+        exe = find_tool(v.tool)
+        if not exe:
+            rows.append({"validator": v.label, "target": str(out), "status": "skipped", "ok": None,
+                         "why": f"`{v.tool}` isn't installed here"})
+            continue
+        if not ready:
+            rows.append({"validator": v.label, "target": str(out), "status": "skipped", "ok": None,
+                         "why": "the build folder has drifted from the skills; run `slate skills build` first"})
+            continue
+        for target in ([out / "skills" / name for name in skills] if v.per_skill else [out]):
+            try:
+                proc = procs.run(v.argv(exe, target), timeout=VALIDATOR_TIMEOUT_S)
+                ok, output = proc.returncode == 0, ((proc.stdout or "") + (proc.stderr or "")).strip()
+            except Exception as exc:  # noqa: BLE001 - a validator that can't run fails the check, with why
+                ok, output = False, f"couldn't run: {exc}"
+            rows.append({"validator": v.label, "target": str(target), "status": "ran", "ok": ok,
+                         "output": output[-2000:]})
+    return rows
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -733,7 +1101,7 @@ def installed(names: Iterable[str], roots: dict[str, Iterable[str | os.PathLike]
 def _human_build(report: dict, *, checking: bool) -> str:
     lines = []
     if report["problems"]:
-        lines.append("These skills break the authoring rules, so nothing was built:")
+        lines.append("These break the authoring rules or a client's limits, so nothing was built:")
         lines += [f"  - {p}" for p in report["problems"]]
         return "\n".join(lines)
     count = len(report["skills"])
@@ -748,6 +1116,12 @@ def _human_build(report: dict, *, checking: bool) -> str:
             lines += [f"  changed  {p}" for p in report["changed"]]
             lines += [f"  stale    {p}" for p in report["extra"]]
             lines.append("next: slate skills build")
+        for row in report.get("validators", []):
+            if row["status"] == "ran":
+                where = Path(row["target"]).name
+                lines.append(f"  {'passed' if row['ok'] else 'FAILED'} {row['validator']} ({where})")
+                if not row["ok"]:
+                    lines += [f"      {ln}" for ln in row["output"].splitlines()[-8:]]
     else:
         verb = "Would write" if report.get("dry_run") else "Wrote"
         lines.append(f"Built {count} skills into {report['out']}.")
@@ -762,7 +1136,10 @@ def _human_build(report: dict, *, checking: bool) -> str:
 def cmd_build(args: argparse.Namespace) -> int:
     dry = bool(cli.flag(args, "dry_run", False))
     checking = bool(args.check)
-    report = build(args.src, args.out, write=not (checking or dry))
+    if checking:
+        report = check(args.src, args.out, validators=not args.no_validate)
+    else:
+        report = build(args.src, args.out, write=not dry)
     if dry and not checking:
         report["dry_run"] = True
         report["written"] = report.get("missing", []) + report.get("changed", [])
@@ -770,7 +1147,7 @@ def cmd_build(args: argparse.Namespace) -> int:
     log.result(report, _human_build(report, checking=checking))
     if report["problems"]:
         return 1
-    if checking and not report["clean"]:
+    if checking and not (report["clean"] and report.get("valid", True)):
         return 1
     return 0
 
@@ -802,8 +1179,8 @@ def cmd_list(args: argparse.Namespace) -> int:
     return 1 if bad else 0
 
 
-EPILOG = """Exit codes: 0 ok, 1 a skill breaks an authoring rule or (with --check) a generated copy drifted,
-2 usage, 3 no skills folder."""
+EPILOG = """Exit codes: 0 ok, 1 a skill breaks an authoring rule or a client's limit, or (with --check) a generated
+copy drifted or a client's validator failed it, 2 usage, 3 no skills folder."""
 
 
 def register(sub) -> None:
@@ -816,7 +1193,11 @@ def register(sub) -> None:
                         "generate the plugin copies, Codex sidecars, OpenClaw entries and claude.ai zips",
                         description=__doc__, epilog=EPILOG)
     p.add_argument("--check", action="store_true",
-                   help="write nothing; exit 1 if a generated copy has drifted from the skills (CI runs this)")
+                   help="write nothing; exit 1 if a generated copy has drifted from the skills, or if a client's own "
+                        "validator (claude plugin validate --strict, skills-ref validate) fails it where installed "
+                        "(CI runs this)")
+    p.add_argument("--no-validate", action="store_true",
+                   help="with --check: skip the clients' validators (the drift check still runs)")
     p.add_argument("--src", metavar="DIR", help="the skills folder (default: skills/ in this checkout)")
     p.add_argument("--out", metavar="DIR", help="the build folder (default: plugins/slate in this checkout)")
     p = cli.add_command(group, "list", cmd_list, "the skills, whether each follows the rules, and where agents see them",
@@ -828,4 +1209,6 @@ def register(sub) -> None:
 
 __all__ = ["register", "discover", "load_skill", "parse_frontmatter", "check_skill", "render", "build", "check",
            "compare", "installed", "knowledge_edition", "codex_sidecar", "openclaw_entries", "Skill",
-           "FrontmatterError", "ALLOWED_KEYS"]
+           "FrontmatterError", "ALLOWED_KEYS", "plugin_files", "plugin_manifest", "mcp_servers", "plugin_readme",
+           "permission_rules", "plugin_problems", "validate", "VALIDATORS", "find_tool", "codex_list_chars",
+           "listing_chars", "HOSTED_CONNECTORS", "PERMISSIONS", "ROOT_FILES", "MEDIA"]

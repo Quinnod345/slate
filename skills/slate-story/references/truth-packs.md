@@ -32,6 +32,9 @@ claims just as the voice can.
 - The film's sample company, people and numbers come from one sample-data record, used everywhere.
 - The sample-data label appears on every frame that shows sample data, and only there (not on frames showing product
   facts).
+- The label sits in one corner for the whole film, a corner no character or UI element uses (when one does, move the
+  label once, film-wide), and it lives at the act's top level, fading in with the first sample data: inside a sub-layer
+  it goes missing for whole shots and then pops in. The kit's `CornerLabel` takes the corner.
 - When real content isn't available (assessment questions, customer records), abstract it (word-shaped bars, blurred
   rows) rather than inventing copy.
 - A quote from a sample persona is film copy built from a real source line and the voice's words, shown only inside a

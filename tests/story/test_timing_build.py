@@ -129,32 +129,70 @@ def test_a_read_that_does_not_fit_fails_the_reads_gate(voiced):
 # --- Whisper: invocation, replay fixtures, cache, the voice stage's alignments -----------------------------------------------
 
 def test_whisper_runs_with_the_films_settings(monkeypatch, tmp_path):
+    """timing's Whisper is the voice module's one runner (slate.voice.align.transcribe), run the way the films ran it."""
+    from slate.voice import align as voice_align
+
     seen = {}
 
     def fake_run(argv, **kw):
         seen["argv"] = [str(a) for a in argv]
+        seen["input"] = Path(seen["argv"][1]).resolve()  # the runner links each file in under a unique name
         out_dir = Path(seen["argv"][seen["argv"].index("--output_dir") + 1])
-        (out_dir / "S02.json").write_text(json.dumps({"text": " Hi.", "segments": [{"words": [
-            {"word": " Hi.", "start": 0.1, "end": 0.4}]}], "language": "en"}))
+        (out_dir / f"{Path(seen['argv'][1]).stem}.json").write_text(json.dumps({"text": " Hi.", "segments": [
+            {"words": [{"word": " Hi.", "start": 0.1, "end": 0.4}]}], "language": "en"}))
         return None
 
-    monkeypatch.setattr(aligner.procs, "require", lambda tool, hint=None: f"/opt/fake/bin/{tool}")
-    monkeypatch.setattr(aligner.procs, "run", fake_run)
-    got = REAL_RUN_WHISPER(tmp_path / "S02.wav", model="turbo", language="en")
+    take = tmp_path / "S02.wav"
+    take.write_bytes(b"RIFF")
+    monkeypatch.setattr(voice_align, "whisper_info", lambda: {"path": "/opt/fake/bin/whisper", "version": "1"})
+    monkeypatch.setattr(voice_align.procs, "run", fake_run)
+    got = REAL_RUN_WHISPER(take, model="turbo", language="en")
     argv = seen["argv"]
-    assert argv[:2] == ["/opt/fake/bin/whisper", str(tmp_path / "S02.wav")]
+    assert argv[0] == "/opt/fake/bin/whisper" and seen["input"] == take.resolve()
     for flag, value in (("--model", "turbo"), ("--language", "en"), ("--word_timestamps", "True"),
                         ("--output_format", "json"), ("--fp16", "False")):
         assert argv[argv.index(flag) + 1] == value
     assert got["segments"][0]["words"][0]["word"] == " Hi."
 
 
+def test_slate_whisper_names_the_cli_timing_hears_with(monkeypatch, tmp_path):
+    """NEEDS (after the voice polish port): SLATE_WHISPER names one Whisper for every stage. timing runs it through
+    slate.voice.align.transcribe, so a stand-in named there is the one timing hears with, whatever Homebrew has."""
+    import sys
+
+    fake = tmp_path / "bin" / "whisper-stand-in"
+    fake.parent.mkdir()
+    fake.write_text(f"""#!{sys.executable}
+import json, sys
+from pathlib import Path
+args = sys.argv[1:]
+out = Path(args[args.index("--output_dir") + 1])
+words = [{{"word": " Come", "start": 0.12, "end": 0.35}}, {{"word": " early.", "start": 0.41, "end": 0.9}}]
+(out / (Path(args[0]).stem + ".json")).write_text(json.dumps(
+    {{"text": " Come early.", "language": "en", "segments": [{{"id": 0, "words": words}}]}}))
+""")
+    fake.chmod(0o755)
+    monkeypatch.setenv("SLATE_WHISPER", str(fake))
+    take = tmp_path / "S04.wav"
+    take.write_bytes(b"RIFF")
+    assert aligner.whisper_exe() == str(fake)
+    got = REAL_RUN_WHISPER(take, model="turbo", language="en")
+    assert [w["word"] for w in got["segments"][0]["words"]] == [" Come", " early."]
+    monkeypatch.setenv("SLATE_WHISPER", str(tmp_path / "missing-whisper"))
+    assert aligner.whisper_exe(required=False) is None
+    with pytest.raises(Exception, match="SLATE_WHISPER"):
+        aligner.whisper_exe()
+
+
 def test_whisper_version_comes_from_the_homebrew_cellar_path(monkeypatch):
-    monkeypatch.setattr(aligner.procs, "which", lambda tool: "/opt/homebrew/bin/whisper")
-    monkeypatch.setattr(aligner.os.path, "realpath",
-                        lambda p: "/opt/homebrew/Cellar/openai-whisper/20250625_6/libexec/bin/whisper")
+    from slate.voice import align as voice_align
+
+    monkeypatch.setattr(voice_align.procs, "which", lambda tool: "/opt/homebrew/bin/whisper")
+    monkeypatch.setattr(voice_align.Path, "resolve",
+                        lambda self, strict=False: Path("/opt/homebrew/Cellar/openai-whisper/20250625_6/libexec/bin/whisper"))
+    monkeypatch.delenv("SLATE_WHISPER", raising=False)
     assert aligner.whisper_version() == "20250625_6"
-    monkeypatch.setattr(aligner.procs, "which", lambda tool: None)
+    monkeypatch.setattr(voice_align.procs, "which", lambda tool: None)
     assert aligner.whisper_version() == "not installed"
 
 

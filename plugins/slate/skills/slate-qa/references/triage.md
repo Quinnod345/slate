@@ -17,7 +17,10 @@ Known false-positive classes, to recognize (and then accept with a reason, not i
 - periodic strokes moving about half their pitch (double letters, repeated digits);
 - deliberate hard edges;
 - a UI state cut under motion blur, which renders as one mixed frame (the shutter's samples straddle the cut): expected;
-- a one-off renderer flake that doesn't reproduce on a re-render.
+- a one-off renderer flake that doesn't reproduce on a re-render;
+- any crisp edge moving faster than about 4 px a frame, and any zoom faster than about 0.5% a frame. On a clean act
+  every glitch flag sits inside a scheduled move, which the stability report's motion triage confirms
+  (`slate qa stability`, stability.md).
 
 Two things a one- and two-frame scan can't see:
 - **a pop that stays**: a card that appears in one frame and remains is unlike the frame before but like the frame
@@ -27,6 +30,14 @@ Two things a one- and two-frame scan can't see:
 
 ## When a pop is found
 
+- **Before calling a flag a fault, check it against a synthetic perfect render** of the same move (the element drawn
+  exactly on its path). When the perfect render flags the same tiles, the flag is the design. One half-pixel step was a
+  button's own press (it shrinks 3% about its centre on the brand's snap ease), lifting its bottom edge 0.77 px on top
+  of the camera's slowing tail; the render followed that path within 0.13 px. Smoothing it would have meant changing
+  the press's ease, so it stayed in the act's baseline, with that reason.
+- **Take the fault's flags out of the baseline before you re-render the fix**:
+  `slate qa stability baseline --act N --drop F[-F] [--drop-class C] --by NAME --reason "…"`. A baseline that still
+  holds the fault's flags would hide it in the new render, so the new render couldn't prove the fix.
 - **Scan the whole act frame by frame** for other one-frame jumps and fix them together.
 - **Prove unchanged frames are bit-identical** before and after the fix.
 - The lead reviews stills at the changed frames and checks each fix in the builder's preview, then re-runs the shot's

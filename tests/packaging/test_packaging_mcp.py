@@ -251,6 +251,13 @@ def test_a_stage_without_its_own_detach_is_checked_before_it_is_queued(studio):
     ("balance_snapshot", {"balance": 5}, 2, "goes with one provider"),
     ("balance_snapshot", {"provider": "acme-pay", "balance": 5}, 2, "isn't a provider"),
     ("balance_snapshot", {"provider": "higgsfield", "session": "no spaces allowed"}, 2, "isn't a session label"),
+    ("job_submit", {"stage": "qa stability baseline"}, 1, "--by NAME --reason TEXT"),
+    ("job_submit", {"stage": "qa stability reference"}, 1, "takes a file and a judgement"),
+    ("run", {"command": "voice approve"}, 1, "by ear"),
+    ("job_submit", {"stage": "qa stability strip", "args": ["--act", "1", "--frame", "9", "--box", "1,2,3"]}, 2,
+     "isn't a value"),
+    ("run", {"command": "voice tags adopt", "args": ["S01"]}, 2, "needs 2 names"),
+    ("run", {"command": "voice tags adopt", "args": ["S01", "N1s101", "--force"]}, 1, "person's go"),
 ])
 def test_refusals_come_back_as_errors_with_the_right_exit_code(studio, tool, args, code, words):
     make_film(studio)
@@ -397,3 +404,65 @@ def test_slate_mcp_answers_a_client_over_stdio(studio):
     assert report["tools"] == list(server.TOOL_NAMES)
     assert report["status_answered"] and not report["status_is_error"]
     assert report["server"]["name"] == "slate" and report["exit_code"] == 0
+
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Every stage is a real command; the tag loop and render stability through the server
+
+
+def test_every_allowlisted_stage_exists_in_the_live_cli():
+    """Each stage the server offers is a command, and a step, this install really has (sub-routed ones included), so
+    nothing an agent is offered answers 'not built'."""
+    for table in (policy.RUN, policy.JOBS):
+        for st in table.values():
+            assert tools.registered(st.words, st.action), st.cli
+    assert not tools.registered(("voice", "tags"), ("sing",))
+    assert not tools.registered(("qa", "stability"), ("teleport",))
+    assert not tools.registered(("render", "nonsense"))
+
+
+def test_qa_triage_runs_now_through_run(studio):
+    film_dir = make_film(studio)
+    env = tools.run("qa triage", film="tide-pools")
+    assert env["ok"], env
+    assert env["command"] == f"slate qa --film {film_dir} triage" and "job_id" not in env
+
+
+def test_the_tag_loop_through_the_server(studio):
+    film_dir = make_film(studio)
+    # The estimate and the pick run now; on a fresh film they say what's missing, not that they aren't built.
+    est = tools.run("voice tags estimate", film="tide-pools", args=["--round", "r1"])
+    assert est["exit_code"] == 3 and "candidates" in est["error"]["message"], est
+    assert est["command"] == f"slate voice tags --film {film_dir} --estimate --round=r1 optimize"
+    pick = tools.run("voice tags pick", film="tide-pools")
+    assert pick["exit_code"] == 3 and pick["command"].endswith(" pick"), pick
+    # Voicing a round spends: refused without spend=true, queued with it. Measuring only is free.
+    refused = tools.job_submit("voice tags optimize", film="tide-pools")
+    assert refused["exit_code"] == 4 and "voice tags estimate" in refused["error"]["hint"]
+    assert store.all_jobs() == []
+    measured = tools.job_submit("voice tags optimize", film="tide-pools", args=["--measure-only"])
+    assert measured["ok"], measured
+    voiced = tools.job_submit("voice tags optimize", film="tide-pools", spend=True, args=["--round", "r1"])
+    job = store.load(voiced["job_id"])
+    assert job["kind"] == "voice-tags" and job["resources"] == ["elevenlabs_tts", "whisper"]
+    assert job["argv"][-5:] == ["tags", "--film", str(film_dir), "--round=r1", "optimize"]
+    # The listening reel is a job; adopting the person's pick runs now, and never over an approved take.
+    reel = tools.job_submit("voice tags abc", film="tide-pools", args=["S01", "--n", "3"])
+    assert store.load(reel["job_id"])["argv"][-3:] == ["--n=3", "abc", "S01"]
+    adopt = tools.run("voice tags adopt", film="tide-pools", args=["S01", "N1s101"])
+    assert adopt["exit_code"] == 2 and "has no take N1s101" in adopt["error"]["message"]
+
+
+def test_render_stability_through_the_server(studio):
+    film_dir = make_film(studio)
+    run = tools.run("qa stability", film="tide-pools", args=["--act", "1"])
+    assert run["ok"], run
+    assert run["command"] == f"slate qa stability --film {film_dir} --detach --act=1"
+    assert store.load(run["job_id"])["resources"] == ["render"]  # the scan queues itself on the render slot
+    compare = tools.job_submit("qa stability compare", film="tide-pools", args=["--act", "1", "--rest-only"])
+    job = store.load(compare["job_id"])
+    assert job["argv"][-3:] == ["--rest-only", "--act=1", "compare"] and job["resources"] == ["render"]
+    strip = tools.job_submit("qa stability strip", film="tide-pools",
+                             args=["--act", "1", "--frame", "12", "--box", "10,20,300,200"])
+    assert store.load(strip["job_id"])["argv"][-4:] == ["--act=1", "--frame=12", "--box=10,20,300,200", "strip"]

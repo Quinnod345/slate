@@ -235,6 +235,24 @@ def _tts_calls(live):
     return [c for c in live.calls if "/v1/text-to-speech/" in c["url"]]
 
 
+def test_live_tts_stitches_a_read_to_its_neighbours_request_ids(live, fx):
+    """L-voice-042: the neighbours' request ids go out in the body beside their text, at most three a side (the
+    nearest kept), and the result records what was sent; a read with none sends neither key."""
+    c = Client()
+    res = c.tts(voice_id="v", text="Twelve chars", seed=3, output_format="pcm_44100", previous_text="Before.",
+                previous_request_ids=["p1", "p2", "p3", "p4"], next_request_ids=["n1", "", "n2"])
+    body = _tts_calls(live)[-1]["json"]
+    assert body["previous_request_ids"] == ["p2", "p3", "p4"] and body["next_request_ids"] == ["n1", "n2"]
+    assert body["previous_text"] == "Before."
+    assert res["previous_request_ids"] == ["p2", "p3", "p4"] and res["next_request_ids"] == ["n1", "n2"]
+    c.tts(voice_id="v", text="Twelve chars", seed=3, output_format="pcm_44100")
+    plain = _tts_calls(live)[-1]["json"]
+    assert "previous_request_ids" not in plain and "next_request_ids" not in plain
+    from slate.voice import tts as voice_tts
+
+    assert voice_tts._sends_request_ids(c)  # noqa: SLF001 - the voice stage now hands the ids to this client
+
+
 def test_an_answer_paid_for_before_a_crash_is_never_paid_for_again(live, fx, monkeypatch):
     """The vendor answered (and billed); the process died before the take was written. The rerun of the same request
     uses the parked answer: no second call, no second row, and the park is cleared once the file is written."""

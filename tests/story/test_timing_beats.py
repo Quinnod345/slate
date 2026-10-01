@@ -74,3 +74,15 @@ def test_the_module_resolves_after_a_plain_import():
     import slate.timing
 
     assert slate.timing.beats.problems([]) == []
+
+
+def test_an_act_lands_at_most_one_impact():
+    """L-sound-D068: an impact is the act's one big landing. The kit and the engine refuse a second; so does every
+    Python reader (qa's events_complete, sound), through beats.problems."""
+    one = [_beat("land", 1.0), _beat("impact", 2.0), _beat("tap", 3.0)]
+    assert beats.problems(one) == []
+    two = one + [{**_beat("impact", 5.5), "id": "impact-2"}]
+    found = beats.problems(two, fps=24)
+    assert len(found) == 1 and found[0].startswith("2 impacts in one act")
+    assert "impact-1" in found[0] and "impact-2" in found[0] and "5.500 s" in found[0]
+    assert jsonio.validate(two, "visual_events") == []  # the schema can't say it; problems() does

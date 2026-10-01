@@ -52,6 +52,7 @@
   "claim_authority": null,
   "approved_claims": [],
   "banned_words": [],
+  "self_commentary": true,
   "never_claim": [],
   "sample_data": null,
   "rulings": [],

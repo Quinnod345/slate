@@ -261,6 +261,9 @@ def test_connect_aftereffects_with_go_installs_registers_and_runs_the_smoke_test
     add = [c for c in denv.calls if c[1:3] == ["mcp", "add"]][0]
     assert add[3:6] == ["--scope", "user", "higgsfield-use-after-effects"]
     assert add[-1].endswith("fnf-after-effects-mcp/dist/index.js")
+    # registered like every other path (L-ae-025): arbitrary eval off and the categories limited
+    env_pairs = [add[i + 1] for i, a in enumerate(add[:add.index("--")]) if a == "-e"]
+    assert "AE_MCP_ENABLE_EVAL=0" in env_pairs and any(p.startswith("AE_MCP_ALLOW_CATEGORIES=") for p in env_pairs)
 
 
 def test_a_person_in_a_terminal_is_the_go(denv):

@@ -55,7 +55,8 @@ press, a check, a vertex and a row) made consistent sound impossible on the firs
   owner loves; a beat that isn't listed gets no sound.
 - **One impact per act, at most.** Land it at the end of a sentence, so its sound plays in the voice's pause.
 - **Character rows come from the rig** (`motifBeats()`): one row per note, each on its own whole contact frame. The
-  sound engine adds no offsets of its own.
+  sound engine adds no offsets of its own. A character's flight that lands with no gesture on it is an ordinary `land`
+  event, not a `character` row.
 - **Captures' taps** become beats too: `slate capture ios` and `slate capture web` beat-map a capture's taps onto the
   voice's words and write them as events.
 - **Score cues** (where the score should drop to one pad, or thin under a heavy line) go in the act's NOTES.md for the

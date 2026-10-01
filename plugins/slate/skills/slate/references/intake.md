@@ -60,9 +60,11 @@ use for that company. "A video for <company>" means that company's film, with th
 
 ## 5. Inputs
 
-Copy attachments (an original film to remake, reference films, a script, brand files) into the film folder, for example
-`brief/inputs/`, so later stages have stable paths. Record where each came from. Never move or edit the originals, and
-never copy company source code: read it in place (slate-story, truth.md).
+Bring attachments (an original film to remake, reference films, a script, brand files) into the film with
+`slate film input <file> --source WHO`, so later stages have stable paths. It copies the file into
+`brief/inputs/`, checks the copy's SHA-256 against the source, records where it came from and who supplied it in
+film.lock.json, and locks it by its hash; an input with the same name and different bytes is refused, never replaced.
+Never move or edit the originals, and never copy company source code: read it in place (slate-story, truth.md).
 
 ## 6. Before the first stage
 

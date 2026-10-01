@@ -39,9 +39,15 @@ The rules (each a gate for `slate verify`):
                               third-octave bands over its loudest 120 ms.
     sound.balance.levels      every family inside its range against the voice: integrated, hit by hit (loudest
                               momentary), and inside words.
+    sound.balance.approved_spans
+                              a span the owner approved as a clip (palette balance approved_spans: its window and the
+                              approved clip) is kept as approved: the film's mix cut to the window and the clip are
+                              measured the same way and compared family by family, ride by ride and by the score's
+                              level over the span's core; past the meters' tolerance (1 LU, 1 dB) it fails.
     sound.planned_stops       the music's quiet stretches are all planned: each planned stop widened by the music's own
                               fade into and out of it, the composed score's own rests counted as planned beats; the film
-                              opens out of silence and ends in it only when its plan says so.
+                              ends in a silent last second always (the films' rule; a brand can set end_silent "plan")
+                              and opens out of silence only when its plan says so.
 
 Where the levels are measured. When the mix writes family stems (sound/mix/family_stems/<family>.wav, summing to
 the mix), every family is measured on its own. Otherwise the delivery stems give what they can: the voice
@@ -117,7 +123,9 @@ STARTING_BALANCE: dict[str, Any] = {
     },
     "stops": {"under_median_db": 20.0, "fade_cap_s": 2.0, "step_s": 0.1, "score_rests": True,
               "gap_threshold_dbfs": -60.0, "gap_window_s": 0.5,
-              "opening_s": 0.5, "last_s": 1.0, "silent_dbfs": -90.0, "open_silent": "plan", "end_silent": "plan"},
+              # the films' rule (p3): a silent last second always; nothing before 0.5 s only when the plan opens out of
+              # silence ("plan" keeps the ending to the plan, for a brand that wants it)
+              "opening_s": 0.5, "last_s": 1.0, "silent_dbfs": -90.0, "open_silent": "plan", "end_silent": "always"},
     "approved_spans": [],
     "hit_default_s": 0.5,
 }
@@ -1286,6 +1294,191 @@ def gate_planned_stops(x: Any) -> GateResult:
                                                       "threshold_dbfs", "window_s")} if g else None})
 
 
+# ---------------------------------------------------------------------------------------------------------------
+# Approved spans: a film keeps what the owner approved in a clip (L-sound-S031)
+
+SPAN_TOLERANCE_LU = 1.0  # a family, the score or the span's loudness may move this much and still be the approved mix
+SPAN_RIDE_TOLERANCE_DB = 1.0  # the films' span check: the film rides each hit the clip rode within 1 dB
+SPAN_CORE_PAD_S = (0.5, 2.0)  # the clip's own fade-in and fade-out, left out of the score's level
+
+
+def dir_streams(mix_dir: Path, bal: dict) -> tuple[dict[str, list[Part]], dict]:
+    """The streams of a mix folder (a clip's sound/mix, or any folder with final_mix.wav and stems/): its family stems
+    when it has them, else its delivery stems (voice, score, plate and the effects as one)."""
+    fam_dir = mix_dir / "family_stems"
+    files = {p.stem: p for p in sorted(fam_dir.glob("*.wav")) if not p.name.startswith(".")} if fam_dir.is_dir() else {}
+    if files:
+        voice = next((files[k] for k in ("voice", "dialogue", "vo") if k in files), None)
+        if voice is None:
+            raise MissingPrerequisite(f"{fam_dir} has no voice stem (voice.wav).")
+        streams: dict[str, list[Part]] = {"voice": [(voice, 1.0)]}
+        for k, p in files.items():
+            if p != voice and k in (bal.get("families") or {}):
+                streams[k] = [(p, 1.0)]
+        streams["everything_else"] = [(p, 1.0) for p in files.values() if p != voice]
+        return streams, {"source": "family stems", "split": True}
+    stems = {k: mix_dir / "stems" / f"{k}.wav" for k in ("dialogue", "effects", "ambience", "music")}
+    if not stems["dialogue"].exists():
+        raise MissingPrerequisite(f"{mix_dir} has no mix to measure (no stems/dialogue.wav or family_stems/).")
+    families = bal.get("families") or {}
+    score_name = next((k for k, v in families.items() if v.get("stem") == "music"), "score")
+    plate_name = next((k for k, v in families.items() if v.get("stem") == "ambience"), "plate")
+    streams = {"voice": [(stems["dialogue"], 1.0)]}
+    if stems["music"].exists():
+        streams[score_name] = [(stems["music"], 1.0)]
+    if stems["ambience"].exists():
+        streams[plate_name] = [(stems["ambience"], 1.0)]
+    streams["effects"] = [(stems["effects"], 1.0)] if stems["effects"].exists() else []
+    streams["everything_else"] = [(stems[k], 1.0) for k in ("effects", "ambience", "music") if stems[k].exists()]
+    return streams, {"source": "delivery stems", "split": False}
+
+
+def _cut(streams: dict[str, list[Part]], a: int, n: int) -> dict[str, list[Part]]:
+    """Every stream's sources cut to samples a..a+n (zero-padded past either end)."""
+    reader = _Reader()
+    out: dict[str, list[Part]] = {}
+    for name, parts in streams.items():
+        out[name] = []
+        for src, coef in parts:
+            x = reader.read(src, max(0, a), max(0, a) + n)
+            if a < 0:
+                x = np.concatenate([np.zeros((-a, x.shape[1])), x])[:n]
+            out[name].append((x.copy(), coef))
+            reader.cache.clear()
+    return out
+
+
+def _shift(items: list[dict], t0: float, t1: float, offset: float) -> list[dict]:
+    return [{**h, "t": float(h["t"]) - offset, "end": float(h["end"]) - offset} for h in items
+            if t0 - 1e-3 <= float(h.get("beat", h["t"]) if h.get("beat") is not None else h["t"]) < t1]
+
+
+def _ride_db(r: dict) -> float:
+    return float(r.get("depth_db") or 0.0)
+
+
+def _core_score_lu(streams: dict[str, list[Part]], sr: int, n: int, bal: dict) -> float | None:
+    families = bal.get("families") or {}
+    score_name = next((k for k, v in families.items() if v.get("stem") == "music"), "score")
+    if score_name not in streams:
+        return None
+    i0, i1 = int(SPAN_CORE_PAD_S[0] * sr), n - int(SPAN_CORE_PAD_S[1] * sr)
+    if i1 - i0 < int(1.0 * sr):
+        i0, i1 = 0, n
+    rd = _Reader()
+    v = rd.stream(streams["voice"], i0, i1)
+    rd.cache.clear()
+    sc = rd.stream(streams[score_name], i0, i1)
+    if not np.any(v) or not np.any(sc):
+        return None
+    return round(meter.integrated(sc, sr) - meter.integrated(v, sr), 2)
+
+
+def _span_clip(film, spec: dict) -> Path | None:
+    raw = spec.get("clip") or spec.get("file")
+    if not raw:
+        return None
+    p = Path(str(raw)).expanduser()
+    if not p.is_absolute():
+        brand_dir = (film.brand or {}).get("_dir")
+        p = next((c for c in (film.path(p), Path(brand_dir) / p if brand_dir else None) if c is not None and c.exists()),
+                 film.path(p))
+    if p.is_file():
+        p = p.parent
+    return p / "sound" / "mix" if (p / "sound" / "mix").is_dir() else p
+
+
+def compare_span(film, spec: dict, bal: dict, film_streams: dict, where: dict, words: list, hits: list,
+                 rides: dict) -> dict:
+    """One approved span: the film's mix cut to the window against the approved clip, measured the same way."""
+    t0, t1 = float(spec["from"]), float(spec["to"])
+    mix_dir = _span_clip(film, spec)
+    if mix_dir is None or not mix_dir.exists():
+        return {"span": [t0, t1], "unchecked": f"the span {t0:g}-{t1:g} s names no approved clip that's on this "
+                                               "machine (approved_spans: clip)"}
+    clip_streams, cwhere = dir_streams(mix_dir, bal)
+    n = _length(clip_streams["voice"][0][0])
+    starts = float(spec.get("clip_starts_at", t0))  # the film second the clip's first sample sits at
+    a = int(round(starts * film.sr))
+    span_streams = _cut(film_streams, a, n)
+    wd = [(w, s - starts, e - starts) for w, s, e in words if t0 <= s < t1]
+    hits_span = _shift(hits, t0, t1, starts)
+    ride_span = {k: _shift(rides.get(k) or [], t0, t1, starts) for k in ("rides", "pinned")}
+    clip_rides = jsonio.read(mix_dir / "rides.json", default={}) or {}
+    clip_rides = {k: [{**r, "t": float(r["t"]), "end": float(r["end"])} for r in clip_rides.get(k) or []
+                      if r.get("t") is not None and r.get("end") is not None] for k in ("rides", "pinned")}
+    clip_hits = hits_span if cwhere["split"] else []
+    m_clip = measure(clip_streams, film.sr, words=wd or None, hits=clip_hits, bal=bal, rides=clip_rides, n=n,
+                     split=cwhere["split"])
+    m_span = measure(span_streams, film.sr, words=wd or None, hits=hits_span if where["split"] else [], bal=bal,
+                     rides=ride_span, n=n, split=where["split"])
+    problems, families = [], {}
+    for f in sorted(set(m_clip["families"]) & set(m_span["families"])):
+        pc, ps = (m_clip["levels"]["per_family"].get(f) or {}), (m_span["levels"]["per_family"].get(f) or {})
+        rc, rs = (m_clip["under_speech"].get(f) or {}), (m_span["under_speech"].get(f) or {})
+        row = {"integrated_lu": [pc.get("integrated_lu"), ps.get("integrated_lu")],
+               "loudest_hit_lu": [(pc.get("hit_momentary_lu") or {}).get("max"), (ps.get("hit_momentary_lu") or {}).get("max")],
+               "inside_words_lu": [rc.get("inside_words_lu"), rs.get("inside_words_lu")]}
+        families[f] = row
+        for k, (c, v) in row.items():
+            if c is not None and v is not None and abs(v - c) > SPAN_TOLERANCE_LU + 1e-9:
+                problems.append(f"{f} {k.replace('_', ' ')}: {v:+.1f} LU in the film against {c:+.1f} in the approved clip")
+    ride_rows = []
+    film_by_hit = {str(r.get("hit")): r for r in ride_span["rides"]}
+    for r in clip_rides["rides"]:
+        fr = film_by_hit.get(str(r.get("hit"))) or next(
+            (x for x in ride_span["rides"] if abs(float(x["t"]) - float(r["t"])) <= 0.05), None)
+        diff = round((_ride_db(fr) if fr else 0.0) - _ride_db(r), 1)
+        ride_rows.append({"hit": r.get("hit"), "clip_db": _ride_db(r), "film_db": _ride_db(fr) if fr else 0.0,
+                          "diff_db": diff})
+        if abs(diff) >= SPAN_RIDE_TOLERANCE_DB:
+            problems.append(f"the ride on {r.get('hit')}: {ride_rows[-1]['film_db']:+.1f} dB in the film against "
+                            f"{_ride_db(r):+.1f} in the approved clip")
+    for fr in ride_span["rides"]:
+        if not any(str(fr.get("hit")) == str(r.get("hit")) for r in clip_rides["rides"]) and abs(_ride_db(fr)) >= SPAN_RIDE_TOLERANCE_DB:
+            ride_rows.append({"hit": fr.get("hit"), "clip_db": 0.0, "film_db": _ride_db(fr), "diff_db": _ride_db(fr)})
+            problems.append(f"the film rides {fr.get('hit')} {_ride_db(fr):+.1f} dB, which the approved clip left alone")
+    core = [_core_score_lu(clip_streams, film.sr, n, bal), _core_score_lu(span_streams, film.sr, n, bal)]
+    if None not in core and abs(core[1] - core[0]) > SPAN_TOLERANCE_LU + 1e-9:
+        problems.append(f"the score over the span's core: {core[1]:+.1f} LU against the voice in the film, "
+                        f"{core[0]:+.1f} in the approved clip")
+    return {"span": [t0, t1], "clip": str(mix_dir), "why": spec.get("why"), "families": families, "rides": ride_rows,
+            "score_core_lu_vs_voice": core, "clip_source": cwhere["source"], "film_source": where["source"],
+            "problems": problems}
+
+
+@_guarded("sound.balance.approved_spans")
+def gate_approved_spans(x: Any) -> GateResult:
+    """Every approved span (palette balance approved_spans) is kept exactly as approved: the film's mix over the span
+    against the approved clip, family by family, ride by ride and by the score's level over the span's core."""
+    gate = "sound.balance.approved_spans"
+    film = _film(x)
+    bal = palette_balance(film.palette)
+    streams, where = mix_streams(film)  # a gate of the mix: no mix yet is its next step, as for every balance gate
+    spans = [s for s in bal.get("approved_spans") or [] if isinstance(s, dict) and s.get("from") is not None]
+    if not spans:
+        return GateResult.pass_(gate, "no approved spans in this film's palette", engine=_engine(),
+                                details={"stage": "sound"})
+    from slate.sound.film import words_for  # noqa: PLC0415
+
+    hits = cue_hits(film, bal) if where["split"] else []
+    rides = read_rides(film, hits)
+    rows = [compare_span(film, sp, bal, streams, where, words_for(film), hits, rides) for sp in spans]
+    problems = [f"{r['span'][0]:g}-{r['span'][1]:g} s: {p}" for r in rows for p in r.get("problems") or []]
+    unchecked = [r["unchecked"] for r in rows if r.get("unchecked")]
+    details = {"stage": "sound", "spans": rows, "tolerance_lu": SPAN_TOLERANCE_LU,
+               "ride_tolerance_db": SPAN_RIDE_TOLERANCE_DB}
+    inputs = gates.inputs_for(film.dir, [p for p in film.path(MIX_DIR).glob("**/*.wav")][:40])
+    if problems:
+        return GateResult.fail(gate, f"{len(problems)} difference(s) from what the owner approved: {problems[0]}",
+                               evidence=problems[:20], engine=_engine(), inputs=inputs, details=details)
+    if unchecked:
+        return GateResult.unchecked(gate, unchecked[0], engine=_engine(), inputs=inputs, details=details)
+    return GateResult.pass_(gate, f"{len(rows)} approved span(s) kept as approved: every family within "
+                            f"{SPAN_TOLERANCE_LU:g} LU, every ride within {SPAN_RIDE_TOLERANCE_DB:g} dB",
+                            engine=_engine(), inputs=inputs, details=details)
+
+
 GATES: dict[str, Callable[[Any], GateResult]] = {
     "sound.balance.clarity": gate_clarity,
     "sound.balance.never_over": gate_never_over,
@@ -1293,6 +1486,7 @@ GATES: dict[str, Callable[[Any], GateResult]] = {
     "sound.balance.accents": gate_accents,
     "sound.balance.levels": gate_levels,
     "sound.planned_stops": gate_planned_stops,
+    "sound.balance.approved_spans": gate_approved_spans,
 }
 
 
@@ -1367,3 +1561,18 @@ def _cmd(args: argparse.Namespace) -> int:
     log.result({"gates": [r.to_dict() for r in results], "summary": gates.summarize(results), "report": REPORT},
                "\n".join(lines))
     return gates.exit_code(results)
+
+
+def ending_stop(film) -> dict | None:
+    """The planned stop a film's ending needs: its last second silent, when the brand's balance says so (end_silent
+    "always", the films' rule), else None. `slate score plan` writes it and the score fades into it."""
+    st = palette_balance(film.palette).get("stops") or {}
+    if st.get("end_silent", "always") not in (True, "always"):
+        return None
+    last = float(st.get("last_s", 1.0))
+    end = float(film.duration_s)
+    if end <= last:
+        return None
+    # to the millisecond, rounded down: the silence starts at or before the last second the gate measures
+    return {"from": math.floor((end - last) * 1000) / 1000, "to": round(end, 3),
+            "why": "the film ends in silence: its last second, always"}

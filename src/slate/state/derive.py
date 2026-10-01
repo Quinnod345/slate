@@ -37,7 +37,7 @@ from typing import Any
 
 from slate import __version__, config, jsonio, log, paths
 from slate.errors import UsageError
-from slate.state import _util, approvals, deps, film, lock, modes, production, scaffold
+from slate.state import _util, approvals, autonomy, deps, film, lock, modes, production, scaffold
 
 KINDS = ("cutdown", "aspect", "language")
 
@@ -112,12 +112,17 @@ def _label(kinds: list[str], aspect: str | None, cut: float | None, language: st
 
 def create(parent_dir: Path, child_id: str, *, format: str | None = None, aspect: str | None = None,
            language: str | None = None, cut: float | None = None, title: str | None = None, mode: str | None = None,
-           films_dir: str | Path | None = None, git: bool | None = None, channel: str | None = None) -> Path:
+           films_dir: str | Path | None = None, git: bool | None = None, channel: str | None = None,
+           by: str | None = None, reason: str | None = None) -> Path:
     """Make a derived film from `parent_dir` and return its folder (under the films folder by default).
 
     `channel` is the channel the variant serves (tiktok, youtube, …): its route from slate.formats.route_for is
     recorded in `derivation.route` (hero: the full pipeline at master quality; social: draft samples and an ffmpeg
-    master), and render and master follow it."""
+    master), and render and master follow it.
+
+    The child starts in its parent's mode as Slate judges it (slate.state.autonomy), so a film made autonomous can't
+    shed its limits by having a child: another mode for that child needs a person at their own Terminal and a reason
+    (`by` and `reason` are recorded with it)."""
     parent_dir = Path(parent_dir).resolve()
     pj = film.load(parent_dir)
     child_id = film.check_id(child_id)
@@ -162,7 +167,10 @@ def create(parent_dir: Path, child_id: str, *, format: str | None = None, aspect
         route = {"channel": r["channel"], "route": r["route"], "label": r.get("route_label") or r["route"],
                  "quality": r.get("quality"), "pipeline": r.get("pipeline"), "render_samples": r.get("render_samples"),
                  "master": r.get("master")}
-    mode = mode or pj.get("mode") or "supervised"
+    parent_mode = autonomy.film_mode(parent_dir, pj)
+    mode = mode or parent_mode or "supervised"
+    film.check_mode(mode)
+    autonomy.check_child(parent_dir, pj, mode, why=reason)
     pack = deps.brand_load(pj["brand"])
     modes.check_new(mode, pj["brand"], pack)
 
@@ -267,6 +275,9 @@ def create(parent_dir: Path, child_id: str, *, format: str | None = None, aspect
     if "language" in kinds and isinstance(child_fj.get("voice"), dict):
         child_fj["voice"] = {**child_fj["voice"], "note": f"re-voice every line in {language}"}
     target = film._target_dir(child_id, films_dir)  # noqa: SLF001 - same package
+    left = parent_mode == autonomy.AUTONOMOUS and mode != autonomy.AUTONOMOUS
+    autonomy.record_created(target, child_fj, parent={"id": pj["id"], "dir": str(parent_dir), "mode": parent_mode},
+                            by=(by or None) if left else None, why=reason if left else None)
 
     # The child's own script: none for an aspect change (it reads the parent's), a cut or a translation otherwise.
     parent_script_sha = _util.Hasher(parent_dir).sha(lock.resolve(parent_dir, "script/script.json"))

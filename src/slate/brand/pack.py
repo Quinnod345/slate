@@ -212,6 +212,37 @@ def banned_words(pack: dict) -> list[str] | None:
     return out
 
 
+def banned_entries(pack: dict) -> list[dict] | None:
+    """The banned list with what each entry carries: {word, forms, instead}. An entry is a word, or an object naming
+    its word, its inflections (`forms`: a banned "verified" is also "verifies", "verifying", "verification") and the
+    approved substitute (`instead`: "trusted"), so every gate matches every form and a failure names the word to use.
+    None when the pack doesn't state a list (as banned_words)."""
+    t = _truth(_as_pack(pack))
+    if not isinstance(t.get("banned_words"), list):
+        return None
+    out: list[dict] = []
+    seen: set[str] = set()
+    for w in t["banned_words"]:
+        if isinstance(w, dict):
+            word = str(w.get("word") or w.get("text") or "").strip()
+            forms = [str(f).strip() for f in w.get("forms") or [] if str(f).strip()]
+            instead = str(w["instead"]).strip() if isinstance(w.get("instead"), str) and w["instead"].strip() else None
+        else:
+            word, forms, instead = str(w or "").strip(), [], None
+        if not word or word.lower() in seen:
+            continue
+        seen.add(word.lower())
+        out.append({"word": word, "forms": [f for f in dict.fromkeys(forms) if f.lower() != word.lower()],
+                    "instead": instead})
+    return out
+
+
+def self_commentary(pack: dict) -> bool:
+    """Whether the brand lets a graphic caption itself ("Illustration", "Example"): true unless truth.self_commentary
+    is false. A brand that forbids it has those captions banned on screen by the script and banned-words gates."""
+    return _truth(_as_pack(pack)).get("self_commentary") is not False
+
+
 def declares_banned_words(pack: dict) -> bool:
     """Does the pack state its list at all (an empty list is a statement; a missing key isn't)?"""
     return isinstance(_truth(_as_pack(pack)).get("banned_words"), list)
@@ -383,6 +414,48 @@ def logos(pack: dict) -> list[dict]:
                     "exists": bool(path and path.is_file()),
                     "inline": isinstance(spec, dict) and isinstance(spec.get("svg"), str) and "<svg" in spec["svg"],
                     "build": spec.get("build") if isinstance(spec, dict) else None})
+    return out
+
+
+# A logo's colourway: what ground it's drawn for. "ink" is the mark for light grounds, "white" (inverse, reversed)
+# the mark for dark ones. A pack names each as its own logo (`on` the ground it's for, or a suffix on its name), or,
+# once the schema carries it, as `colourways` {ink: file, white: file} on the logo itself.
+_ON_DARK = ("inverse", "dark", "night", "black", "ink-ground", "reversed", "photo")
+_SUFFIXES = {"inverse": "white", "white": "white", "reversed": "white", "reverse": "white", "knockout": "white",
+             "ondark": "white", "ink": "ink", "black": "ink", "onlight": "ink", "mono": "mono"}
+
+
+def colourway_of(name: str, spec: Any) -> tuple[str, str]:
+    """(the mark a logo belongs to, its colourway: ink, white or mono) from its `on` and its name."""
+    base = str(name)
+    way = None
+    m = re.match(r"^(.*?)[-_. ](on[-_ ]?dark|on[-_ ]?light|inverse|white|reversed|reverse|knockout|ink|black|mono)$",
+                 base, re.IGNORECASE)
+    if m:
+        base = m.group(1)
+        way = _SUFFIXES.get(re.sub(r"[-_ ]", "", m.group(2).lower()))
+    on = str(spec.get("on") or "").lower() if isinstance(spec, dict) else ""
+    if on:
+        way = "white" if any(w in on for w in _ON_DARK) else (way if way == "mono" else "ink")
+    return base, way or "ink"
+
+
+def colourways(pack: dict) -> dict[str, dict[str, str]]:
+    """{mark: {colourway: the logo (or file) drawn in it}} for every logo in the pack. Builders pick the colourway for
+    the ground and never recolour a mark themselves."""
+    p = _as_pack(pack)
+    raw = p.get("logos") or {}
+    entries = list(raw.items()) if isinstance(raw, dict) else [
+        (str(x.get("name") or x.get("id") or f"logo{i + 1}"), x) for i, x in enumerate(raw) if isinstance(x, dict)]
+    out: dict[str, dict[str, str]] = {}
+    for name, spec in entries:
+        declared = spec.get("colourways") if isinstance(spec, dict) else None
+        if isinstance(declared, dict) and declared:
+            for way, f in declared.items():
+                out.setdefault(str(name), {})[str(way).lower()] = str(f)
+            continue
+        base, way = colourway_of(name, spec)
+        out.setdefault(base, {}).setdefault(way, str(name))
     return out
 
 

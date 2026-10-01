@@ -87,9 +87,11 @@ for a film that's mostly voice).
 | `id` | The shot's id (S01, S02 …). It freezes at the first clean build. |
 | `vo` | The voice-over line, words only; direction is added later as audio tags that never change a word. |
 | `on_screen` | The words on screen: a string, or a list of strings for separate lines. |
+| `hero_lines` | The on-screen lines set in the hero role (a string or a list): six words or fewer each, at most two in an act. |
+| `reading` | A declaration, with its `reason`, when on-screen text isn't read the usual way: `voice_matched` (the voice reads it as it lands), `not_for_reading` (shown too small to read on purpose), or `labels` (the picture's own words, a product's UI or an end card, which don't count against the 40%). |
 | `picture` | What the picture does, for the builders. They may restage it; the words and beats stay. |
 | `transition` | How the shot hands to the next: a carry, a portal, a mask, a whip, a UI state cut (slate-motion). |
-| `sources` | Pinned source ids from the truth pack, optionally with where (`app:src/x.tsx:40`). |
+| `sources` | Pinned source ids from the truth pack, optionally with where (`app:src/x.tsx:40`); a source that quotes the product's own copy gives the `quote` and `where` (`path:line`), re-read at the pinned commit before every build. |
 | `claims` | Claims this shot makes: an approved claim's id or text, or a claim id in the truth pack. |
 | `quotes` | Anyone quoted: `{text, by, role, source, real}`. An invented quote presented as real fails. |
 | `events` | Beats anchored to words: `{id, word, occ, offset, land, note}`, or a time `t`. `land: "<ease>:<seconds>"` means the event is the move's landing (90% of travel), so it hits the word. |
@@ -107,12 +109,13 @@ for a film that's mostly voice).
 | `script.structure` | acts and shots are there, ids unique | add or rename shots |
 | `script.pace` | 2.6 words a second or less per shot | cut words, or give the shot more time |
 | `script.read_time` | every on-screen line holds max(1.5 s, 0.4 s + 0.3 s per word) once settled; numbers 2 s | fewer words on screen, or a longer shot |
-| `script.on_screen` | at most 12 on-screen words per shot | keywords, not a transcript |
+| `script.on_screen` | at most 12 on-screen words per shot, and at most 40% of the words the voice says in it (words the voice says as they show are read along; a `reading` declaration answers for the rest) | keywords, not a transcript |
+| `script.hero_lines` | a hero line has at most 6 words, and an act shows at most 2 | shorten it, or let one of them be body type |
 | `script.runtime` | within 10% of the format's target | planning lengths (`dur`), or cut or add a beat |
 | `script.banned_words` | the brand's banned words in the VO, on screen and in the picture notes | rephrase |
 | `script.claims` | every claim approved or cited to a pinned source; nothing from the never-claim list | cite it, get it approved, or cut it |
 | `script.numbers` | every number said or shown has a source | cite it or drop it |
-| `script.quotes` | no one quoted without a named person and a pinned source | source it or cut it |
+| `script.quotes` | no one quoted without a named person and a pinned source; every quoted product fact still where it says it is at the pinned commit | source it or cut it; fix the `where` the message names |
 | `script.sources` | sources exist and are pinned (when the film requires every shot sourced) | add the source to the truth pack |
 | `script.first_line`, `script.vo_dashes` | this film's own rules, when set | as the message says |
 | `script.shot_ids` | ids freeze at a clean build; a renumber is refused once scenes use them | add new ids instead of renumbering |

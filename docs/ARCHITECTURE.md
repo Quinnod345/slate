@@ -167,32 +167,32 @@ of them.
 | `slate connect claude\|higgsfield\|elevenlabs\|aftereffects` | the four connect steps; a sign-in that needs a browser is printed for the person to run | doctor |
 | `slate guide [topic]` | prints skill reference files | packaging |
 | `slate demo [--live] [--keep]` | a neutral 15-second 9:16 reel through every stage, one line per stage; replayed unless `--live` (asked first in a Terminal, refused under an agent unless the person set `SLATE_LIVE=1`) | integration |
-| `slate new <id> --brand B --format F [--mode M] [--parent P --derivation JSON]` | scaffolds a film folder | state |
+| `slate new <id> --brand B --format F [--mode M] [--parent P --derivation JSON] [--by NAME --reason TEXT]` | scaffolds a film folder; its mode is recorded in Slate's data folder (DATA/film_modes.jsonl), outside the film | state |
 | `slate status [--write]` | per stage: fresh/stale/missing/locked + next command | state |
 | `slate make [target] [--list] [--spend]` | rebuilds only stale nodes | state |
-| `slate approve <what> <path> --by NAME` | records a person's approval of exactly this file (sha256); `slate approve proof3 <file> --by NAME` needs no film and writes DATA/approvals.json | state |
-| `slate film show\|set\|pin\|repin\|ask\|mark\|direction\|questions\|answer\|park` | film.json, pins, the brief's asks and directions, questions for a person | state |
-| `slate variant <parent> <child> [--aspect A] [--cut S] [--language L] [--format F]` | a derived film that reuses its parent's work by reference | state |
+| `slate approve <what> <path> --by NAME` | records a person's approval of exactly this file (sha256); `slate approve proof3 <file> --by NAME` needs no film and writes DATA/approvals.json; `slate approve grant --scope "<the owner's words>" --by NAME` records an autonomy grant with its scope (no file) | state |
+| `slate film show\|set\|input\|icloud\|pin\|repin\|ask\|mark\|direction\|questions\|answer\|park` | film.json, supplied inputs (copied to brief/inputs/, verified and locked), a film in iCloud Drive kept out of sync, pins, the brief's asks and directions, questions for a person; `set mode` away from autonomous needs a person at their own Terminal (`--by NAME --reason TEXT`) | state |
+| `slate variant <parent> <child> [--aspect A] [--cut S] [--language L] [--format F] [--by NAME --reason TEXT]` | a derived film that reuses its parent's work by reference (it starts in its parent's mode) | state |
 | `slate revise start\|check\|done\|list` | perfect, don't replace: revise approved work by its notes | state |
 | `slate script build\|lint` | script.json → storyboard.json + SCRIPT.md, refuses on failed gates | story-timing |
-| `slate timing [words\|misses\|show]` | shots.json, vo_cues.json, vo_words.json, events.json, timeline.json | story-timing |
-| `slate voice profile\|account\|cast\|design\|tags\|tts\|clean\|pace\|polish\|analyze\|align\|captions\|check\|approve` | the voice stages, from casting to the studio polish, measured inflection and captions | voice |
-| `slate score plan\|compose\|assemble\|qa` / `slate mix` / `slate verify [gate ...]` | score, mix, the sound gates (with slate.sound.balance's) | sound |
+| `slate timing [words\|misses\|show\|pin]` | shots.json, vo_cues.json, vo_words.json, events.json, timeline.json; `pin` keeps a shot's delivered word times through a re-voice | story-timing |
+| `slate voice profile\|account\|cast\|design\|tags\|tts\|clean\|pace\|polish\|analyze\|align\|captions\|check\|approve\|comp\|preview\|swap\|trim` | the voice stages, from casting to the studio polish, measured inflection and captions; re-voicing: a one-word pickup (`comp`), the re-voiced narration on the timeline (`preview`), an approved set swapped in (`swap`), a leaked tail trimmed off a take's play length (`trim`) | voice |
+| `slate score plan\|compose\|assemble\|qa` / `slate mix [--listen [N]]` / `slate verify [gate ...]` | score, mix (and the listening file of the hardest-ridden accents), the sound gates (with slate.sound.balance's) | sound |
 | `slate sfx [status\|spot\|render]` | effects engine; refuses until the proof-3 gate is cleared | sound |
 | `slate sound instruments\|loudness\|balance` | sound tools: tonal instruments, BS.1770-4 loudness, the balance against the voice | sound |
 | `slate gen estimate\|run\|takes\|judge\|pick\|cancel\|request-approval\|approve\|probe` | Higgsfield generations with estimate, ledger, takes | gen-capture |
-| `slate plates plan\|conform\|matte\|track` | generated plates: the plan, the conform of an approved take, mattes | gen-capture |
+| `slate plates plan\|conform\|matte\|track\|repair` | generated plates: the plan, the conform of an approved take, mattes, and the timing repair of a plate that hitches (staged with its report, then `--install`) | gen-capture |
 | `slate capture ios\|web\|conform\|beatmap` | scripted captures, conformed to the film's clock and beat-mapped | gen-capture |
-| `slate engine install\|status\|path\|skills\|scaffold` | the Node engine | engine |
+| `slate engine install\|status\|path\|skills\|scaffold\|golden` | the Node engine; `golden` checks the kit's golden stills, or with `--approved FILM` every approved act against this kit | engine |
 | `slate emit-events [--act N]` | visual events and motion traces from each act's scenes | engine |
-| `slate check <act>` | hand-in check: type check, word misses, banned words, events | engine |
+| `slate check <act> [--markup [--against REF\|FOLDER]] [--determinism]` | hand-in check: type check, word misses, banned words, never-claims, frame literals, timing margins, the character, events, contracts, each web shot of a Remotion act | engine |
 | `slate render [list\|splice\|clean\|stills] [--act N] [--from F --to T] [--engine remotion\|web\|ae] [--sub N] [--resume] [--detach]` | renders | render |
 | `slate qa [gate ...] [--quick] [--list] [--detach]` / `slate qa triage\|psnr\|unpark` | the film's gates (`slate qa motion`, `slate qa access` run those gates with their own flags) | qa |
-| `slate qa stability [run\|baseline\|reference\|strip\|selftest\|controls\|conformance]` | render stability and its tools | qa (stability) |
+| `slate qa stability [run\|baseline\|reference\|strip\|compare\|selftest\|controls\|conformance]` | render stability and its tools; `baseline --drop F[-F] --by NAME --reason TEXT` takes a fault's flags out of the baseline before its fix is re-rendered | qa (stability) |
 | `slate ae prefs\|smoke\|build\|run\|masters\|audit\|acts\|bridge` | After Effects, started only on a person's go | ae |
 | `slate master [--ae\|--ffmpeg] [--go]` | masters | finish/ae |
 | `slate deliver [--draft] [--list]` | delivery set + platform files + manifest (last) | finish |
-| `slate review [grade-brief\|grade] [--to DEST]` | review packet for the current version, and its grade | finish |
+| `slate review [grade-brief\|grade] [--to DEST] [--audio MIX]` | review packet for the current version, and its grade; `--audio` reviews a proposed mix against the current picture | finish |
 | `slate notes add\|list\|plan` | the owner's notes, mapped to shot, beat and stage; the fix plan | finish |
 | `slate approved <file>` | exit 0 only when this exact file is approved for publishing | finish |
 | `slate analyze <video> [--cuts --ocr --eases --transcript --stems --beats \| --all]` | reference analysis | formats |
@@ -204,7 +204,7 @@ of them.
 | `slate budget show\|set\|film` / `slate ledger list\|inflight\|reconcile\|snapshot` | spend | jobs |
 | `slate mcp [--list-tools] [--check]` / `slate mcpb build` | stdio MCP server; the desktop extension | packaging |
 | `slate skills build\|list` | plugin copies, Codex sidecars, OpenClaw entries, claude.ai zips | packaging |
-| `slate knowledge check\|stats\|show` | every lesson mapped | knowledge |
+| `slate knowledge check\|stats\|show\|gaps` | every lesson mapped; `gaps --write` regenerates knowledge/GAPS.md from the ledger | knowledge |
 | `slate evals list\|run\|report` | agent evals: triggering, routing, negatives, the dry run | knowledge |
 | `slate update` | git pull + reinstall | packaging |
 | `slate install [--check]` / `slate uninstall` | wire Slate into every agent here, or undo it | install |
@@ -278,11 +278,21 @@ The Python CLI never imports Node. It calls `node engine/cli.mjs <command> --jso
 from stdout. Commands: `version`, `browser-ensure` (Remotion's headless Chrome), `entry` (generate Root + per-act
 entries from shots.json), `bundle`, `render` (film, act, from, to, sub, out), `stills`, `emit-events`, `trace` (film,
 act: one act's motion trace from the kit's registry; `slate render` calls it after each whole act or patch),
-`check` (one act, or several with one bundle), `web-render` (the open web renderer: render, `emit` with `dry_run` to
-read beats without writing, or `scaffold` to start a web scene). Engine code aliases `@slate/kit` and `@film/data`;
-one bundle per film per source hash, deleted after use. Renders are ProRes 422 HQ 10-bit BT.709 via the 16-bit
-sub-frame average (render_mb), lossless intermediates for chunks, splices proven by frame hashes and PSNR. A derived
-film's reused files reach the engine through `.slate/refs.json` (written from `slate.state.lock.resolve`).
+`check` (one act, or several with one bundle), `golden` (the kit's golden stills, or a film's approved acts rendered
+with this kit and compared with their approved renders), `web-render` (the open web renderer: render, `emit` with
+`dry_run` to read beats without writing, or `scaffold` to start a web scene). Engine code aliases `@slate/kit` and
+`@film/data`; one bundle per film per source hash, deleted after use. Renders are ProRes 422 HQ 10-bit BT.709 via the
+16-bit sub-frame average (render_mb), lossless intermediates for chunks, splices proven by frame hashes and PSNR. A
+derived film's reused files reach the engine through `.slate/refs.json` (written from `slate.state.lock.resolve`).
+
+**Per-shot engines (P074).** The brand picks the engine for its scenes (`look.engine`); a shot may name its own `engine`
+in script.json (read there until timing carries it), and by default it's drawn by its act's. Built: a web shot inside a
+Remotion act. Its page lives in `scenes/shots/<SHOT>/web/`, its beats join the act's events, `slate check` hands it in
+(`handin.act<N>.shot.<ID>.*` and `handin.act<N>.shots`), and `slate render` renders it over exactly its frames at the
+act's samples and splices it in with proof before the act is registered (the registry entry lists `shot_engines`). A
+seam between engines is always a cut, so a patch never crosses one. Refused by name until built: an AE shot in a code
+act or a code shot in an AE act (After Effects builds and renders whole acts), a Remotion shot in a web act, and a web
+shot's tweens in the act's motion trace. engine/README.md holds the rules; `slate.render.shot_engines` enforces them.
 
 ## 9. Jobs
 
@@ -345,6 +355,12 @@ its own tests, and says so in its report. Film paths are always the film folder 
 - `revise.register_hook(name, fn, *, applies=None, owner=None)` (`fn(film_dir, approved, current, revision)` returns a
   GateResult; sound registers level_vs_voice, qa palette and sync)
 - `derive.create(parent_dir, child_id, *, format=None, aspect=None, language=None, cut=None) -> Path` (derived film)
+- `autonomy.film_mode(film_dir, fj=None) -> str` (the mode a film is judged in: Slate's own record in
+  DATA/film_modes.jsonl, written at `slate new` and `slate variant`, wins over film.json, so a film made autonomous
+  stays autonomous until a person at their own Terminal changes it) · `autonomy.is_locked(film_dir, fj=None) -> bool`
+  · `autonomy.ae_finish_check(film_dir) -> dict` (the owner's own AE finish of a held master, after a final-cut
+  approval). Every module that routes by mode (spend, keys, After Effects, the queue, review, notes, generation, QA's
+  claims) asks this, or `slate.ledger.film_mode(film, mode=None)`, never film.json's `mode` directly.
 
 **story / timing** (`slate.story`, `slate.timing`)
 - `story.build(film_dir) -> list[GateResult]` · `story.gates.check_script(script, *, brand, fmt) -> list[GateResult]`
@@ -358,6 +374,8 @@ its own tests, and says so in its report. Film paths are always the film folder 
 - `timing.beats.problems(beats, fps=None) -> list[str]` (§5: t is the beat; spans for draw and count)
   · `timing.beats.span(beat) -> (start, end) | None` · `timing.beats.beat_span(beat, *, default_dur=None)`
 - `timing.align.whisper_exe()` honours `SLATE_WHISPER` like the voice module, so both Whisper runners use one CLI
+- `timing.pins.pinned_time(film_dir, shot, word, occ=1, which="start") -> float | None` (a delivered word time kept
+  through a re-voice; `word_time` prefers it)
 
 **brand** (`slate.brand.pack`, `slate.brand.onboard`)
 - `find(name) -> Path` · `load(name_or_path) -> dict` · `references_approved(pack) -> bool` · `missing_references(pack) -> list[str]`
@@ -382,6 +400,10 @@ v2_5, `sections` for music_v1). Higgsfield: `probe()`, `estimate(path, body)`, `
 carries an `Idempotency-Key` derived from its ledger row and is resent with the same key and body after a lost
 answer (a keyless submit is never retried); an ambiguous keyed submit is `HiggsfieldTryLater` (exit 75), a rate limit
 `HiggsfieldBusy` (exit 5). `sync_agents` does not exist and never will.
+Inside the OpenClaw gateway every vendor call goes through `slate.vendors.egress.route(provider, *, host=None,
+op=None, queue=True)` first: the command queues itself for the launchd runner (or refuses with the exact `slate job
+submit` line), and a proxy's tunnel refusal is `EgressBlocked`, a MissingPrerequisite naming the allowlist and the
+queue route. ElevenLabs' `tts(...)` also takes `previous_request_ids` and `next_request_ids` (up to three a side).
 
 **voice** (`slate.voice`): `tags.strip(text) -> str` · `tags.check(tagged, line) -> list[str]` (problems; banned tags refused)
 · `profile.load(brand_pack) -> dict` · `captions.build(film_dir) -> list[Path]`

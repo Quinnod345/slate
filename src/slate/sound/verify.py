@@ -15,11 +15,19 @@ sound.drone            no room-tone bed under the effects (where the palette rul
 sound.levels           each effect stem at its palette level against the voice (UI about 17 LU and effects about 11 LU
                        under it, from proof 2), within the palette's tolerance
 sound.reference        the same levels against the brand's approved sound reference (UNCHECKED until onboarding
-                       approves one)
+                       approves one), and the effects no brighter than it: their spectral centroid and share of energy
+                       above 2 kHz within 25% of the reference's (REVIEW past that)
 sound.clarity          every word of the voice at least 3 dB over everything else in the speech band, and no effect
                        louder than the voice
 sound.music_licence    REVIEW for broadcast use (film, TV, radio) until the film records an Eleven Music Enterprise
                        licence; PASS otherwise
+sound.voice_limiter    the voice-only limiter touched under 5% of the speech (measured by `slate mix`)
+sound.key              every pitched note in the UI and tonal stems on the brand key's pentatonic; REVIEW a stem with more
+                       than half its notes on one or two pitches
+sound.timbre           each effect stem's median spectral centroid at or under 1.5 kHz, no chime tails (a high partial
+                       still ringing 300 ms after its strike), nothing metallic or glassy
+sound.mix_words        Whisper on the delivered mix hears the script word for word (a word heard over the music, where
+                       the voice isn't sounding or Whisper is less than 20% sure, is listed, not failed)
 
 Only PASS counts as passed. A gate that can't run says UNCHECKED and why; it's never a quiet pass.
 """
@@ -43,7 +51,9 @@ VOICE_MIN_CORR = 0.95
 SEARCH_MS = 50.0
 
 GATE_NAMES = ("sound.loudness", "sound.stems_sum", "sound.gap", "sound.voice_sync", "sound.cue_sync", "sound.repeats",
-              "sound.glides", "sound.drone", "sound.levels", "sound.reference", "sound.clarity", "sound.music_licence")
+              "sound.glides", "sound.drone", "sound.levels", "sound.reference", "sound.clarity", "sound.music_licence",
+              "sound.voice_limiter", "sound.key", "sound.timbre", "sound.mix_words")
+BRIGHTER_BY = 0.25  # the effects may be at most 25% brighter than the brand's approved reference (sound.reference)
 
 
 class _Ctx:
@@ -349,12 +359,17 @@ def gate_repeats(c: _Ctx) -> gates.GateResult:
             continue
         hits.append({"t": float(hit.get("t", hit.get("beat", 0.0))), "kind": str(hit.get("kind")),
                      "sound": str(hit.get("sound") or hit.get("family") or hit.get("kind")), "identity": ident,
-                     "audio": wave})
+                     "audio": wave, "id": hit.get("id"), "bookend": bool(hit.get("bookend")),
+                     "sonic_logo": bool(hit.get("sonic_logo") or hit.get("logo") or hit.get("kind") == "logo")})
     res = checks.repeats_check(hits, one_sound_per_kind=bool(rules.get("one_sound_per_kind", True)),
-                               no_shared=bool(rules.get("no_sound_shared_by_kinds", True)))
+                               no_shared=bool(rules.get("no_sound_shared_by_kinds", True)), film_s=film.duration_s)
     if not rules.get("no_identical_repeats", True):
         res["identical_repeats"] = []
-        res["pass"] = not res["kinds_with_several_sounds"] and not res["sounds_serving_several_kinds"]
+    # the brand's sonic logo closing the film the way it opened is the same sound on purpose (a bookend): listed
+    res["intentional"] = [r for r in res["identical_repeats"] if r.get("bookend")]
+    res["identical_repeats"] = [r for r in res["identical_repeats"] if not r.get("bookend")]
+    res["pass"] = not res["identical_repeats"] and not res["kinds_with_several_sounds"] and \
+        not res["sounds_serving_several_kinds"]
     res["unmeasured"] = unmeasured
     inputs = c.inputs(CUES_FILE)
     if not res["pass"]:
@@ -370,9 +385,11 @@ def gate_repeats(c: _Ctx) -> gates.GateResult:
     if unmeasured:
         return gates.GateResult.unchecked("sound.repeats", f"{len(unmeasured)} hit(s) couldn't be identified",
                                           evidence=[CUES_FILE], engine=_engine(), inputs=inputs, details=res)
+    ends = (f"; {len(res['intentional'])} deliberate bookend(s): {res['intentional'][0]['why']}"
+            if res["intentional"] else "")
     return gates.GateResult.pass_("sound.repeats", f"{res['hits']} hit(s), {res['distinct']} distinct: one sound per "
-                                  "kind, varied between repeats", evidence=[CUES_FILE], engine=_engine(), inputs=inputs,
-                                  details=res)
+                                  f"kind, varied between repeats{ends}", evidence=[CUES_FILE], engine=_engine(),
+                                  inputs=inputs, details=res)
 
 
 def _role_stem(c: _Ctx, role: str) -> tuple[np.ndarray | None, Path | None]:
@@ -533,10 +550,81 @@ def gate_reference(c: _Ctx) -> gates.GateResult:
                                           details=details)
     off = {r: round(measured[r] - v, 2) for r, v in common.items() if abs(measured[r] - v) > tol}
     summary = ", ".join(f"{r} {measured[r]:+.1f} LU vs reference {v:+.1f}" for r, v in common.items())
-    make = gates.GateResult.pass_ if not off else gates.GateResult.fail
-    return make("sound.reference", ("matches the brand's sound reference: " if not off else "off the brand's sound reference: ")
-                + summary, evidence=[film.rel(p) for p in used], engine=_engine(), inputs=inputs,
-                details={**details, "off": off})
+    bright = _brightness_vs_reference(c, ref)
+    details.update({"off": off, "brightness": bright})
+    evidence = [film.rel(p) for p in used]
+    if off:
+        return gates.GateResult.fail("sound.reference", "off the brand's sound reference: " + summary, evidence=evidence,
+                                     engine=_engine(), inputs=inputs, details=details)
+    if bright.get("brighter"):
+        return gates.GateResult.review("sound.reference", f"the levels match the brand's sound reference ({summary}), "
+                                       f"but the effects are brighter than it: {bright['summary']}; a person listens",
+                                       evidence=evidence, engine=_engine(), inputs=inputs, details=details)
+    note = f"; {bright['summary']}" if bright.get("summary") else ""
+    return gates.GateResult.pass_("sound.reference", "matches the brand's sound reference: " + summary + note,
+                                  evidence=evidence, engine=_engine(), inputs=inputs, details=details)
+
+
+def reference_brightness(film: Film, ref: dict | None) -> tuple[dict | None, str]:
+    """(the approved reference's effect brightness {centroid_hz, above_2k_share}, where it came from): the brand's
+    measured proof (brand.json sound.reference_brightness), else measured on the effect stems beside the reference
+    (ui, fx and their reverb, as the film's effects stem holds them)."""
+    sound = (film.brand or {}).get("sound") or {}
+    given = sound.get("reference_brightness") or (ref or {}).get("brightness")
+    if isinstance(given, dict) and given.get("centroid_hz") is not None:
+        return {"centroid_hz": float(given["centroid_hz"]),
+                "above_2k_share": float(given["above_2k_share"]) if given.get("above_2k_share") is not None else None}, \
+            "from the brand pack"
+    if not ref or not ref.get("file"):
+        return None, "the reference has no file to measure"
+    base = Path((film.brand or {}).get("_dir") or ".")
+    ref_file = Path(str(ref["file"])).expanduser()
+    ref_file = ref_file if ref_file.is_absolute() else base / ref_file
+    candidates = [ref_file.with_name(ref_file.stem + "_stems")]
+    if ref_file.stem.endswith("_mix"):
+        candidates.append(ref_file.with_name(ref_file.stem[: -len("_mix")] + "_stems"))
+    stems_dir = next((d for d in candidates if d.is_dir()), None)
+    if stems_dir is None:
+        return None, "no effect stems beside the reference to measure its brightness"
+    parts = [stems_dir / f"{r}.wav" for r in ("ui", "fx", "verb") if (stems_dir / f"{r}.wav").exists()]
+    if not parts:
+        return None, f"{stems_dir.name} has no effect stems (ui, fx, verb)"
+    total = None
+    sr = film.sr
+    for part in parts:
+        x, sr = audio.read_wav(part)
+        x = audio.to_stereo(x)
+        total = x if total is None else total[: min(len(total), len(x))] + x[: min(len(total), len(x))]
+    b = checks.brightness(total, sr)
+    return (b, f"measured on {stems_dir.name}") if b else (None, f"{stems_dir.name}'s effect stems are silent")
+
+
+def _brightness_vs_reference(c: _Ctx, ref: dict | None) -> dict:
+    """The film's effects against the reference's: REVIEW when either the centroid or the share above 2 kHz is more
+    than 25% higher (L-sound-D017: chimes to pads, notes and wood took the films' effects from 583 to 382 Hz)."""
+    film = c.film
+    ours = None
+    fx = c.stem("effects")
+    if fx is not None and np.any(fx):
+        ours = checks.brightness(fx, film.sr)
+    theirs, why = reference_brightness(film, ref)
+    out: dict = {"film": ours, "reference": theirs, "reference_from": why, "limit": BRIGHTER_BY}
+    if ours is None:
+        out["summary"] = "no effects in this film to compare for brightness"
+        return out
+    if theirs is None:
+        out["summary"] = f"brightness not compared ({why})"
+        return out
+    over = []
+    if ours["centroid_hz"] > theirs["centroid_hz"] * (1 + BRIGHTER_BY):
+        over.append(f"centroid {ours['centroid_hz']:.0f} Hz against {theirs['centroid_hz']:.0f}")
+    if theirs.get("above_2k_share") is not None and ours["above_2k_share"] > theirs["above_2k_share"] * (1 + BRIGHTER_BY):
+        over.append(f"{ours['above_2k_share']:.1%} of the energy above 2 kHz against {theirs['above_2k_share']:.1%}")
+    out["brighter"] = bool(over)
+    out["summary"] = ("; ".join(over) + f" (more than {BRIGHTER_BY:.0%} brighter)") if over else (
+        f"the effects' brightness within {BRIGHTER_BY:.0%} of the reference's (centroid {ours['centroid_hz']:.0f} Hz "
+        f"against {theirs['centroid_hz']:.0f})")
+    return out
 
 
 def gate_clarity(c: _Ctx) -> gates.GateResult:
@@ -597,11 +685,186 @@ def gate_music_licence(c: _Ctx) -> gates.GateResult:
                                                                      '{"eleven_music": "enterprise"}'})
 
 
+def gate_voice_limiter(c: _Ctx) -> gates.GateResult:
+    """L-sound-022: the voice-only limiter touches under 5% of the speech; past that it's shaping the read."""
+    from slate.sound.mix import VOICE_LIMITER_MAX  # noqa: PLC0415
+
+    dlg = c.stem("dialogue")
+    if dlg is None or not np.any(dlg):
+        return gates.GateResult.pass_("sound.voice_limiter", "no voice in this film", engine=_engine())
+    rep = c.report.get("voice_limiter")
+    inputs = c.inputs(c.report_path, c.stem_paths["dialogue"])
+    if not isinstance(rep, dict) or rep.get("share") is None:
+        return gates.GateResult.unchecked("sound.voice_limiter", "this mix was made before Slate measured the voice "
+                                          "limiter's touch; mix again to measure it", evidence=["next: slate mix"],
+                                          engine=_engine(), inputs=inputs)
+    share = float(rep["share"])
+    what = (f"the voice limiter touched {share:.1%} of the speech ({rep.get('touched_ms')} of {rep.get('speech_ms')} "
+            f"ms, at most {rep.get('max_reduction_db')} dB)")
+    if share >= VOICE_LIMITER_MAX:
+        return gates.GateResult.fail("sound.voice_limiter", what + f": {VOICE_LIMITER_MAX:.0%} or more shapes the read, "
+                                     "not just its plosives", evidence=[c.film.rel(c.report_path),
+                                                                        "next: lower the hottest takes' gain in "
+                                                                        "timing/vo_cues.json or clean their peaks, then "
+                                                                        "slate mix"],
+                                     engine=_engine(), inputs=inputs, details=rep)
+    return gates.GateResult.pass_("sound.voice_limiter", what + f" (under {VOICE_LIMITER_MAX:.0%})",
+                                  evidence=[c.film.rel(c.report_path)], engine=_engine(), inputs=inputs, details=rep)
+
+
+def _effect_family_stems(c: _Ctx, roles: tuple[str, ...]) -> list[tuple[str, Path]]:
+    """The stems a timbre or pitch check reads: the effects engine's family stems when the mix wrote them, else the
+    engine stems by role."""
+    fam_dir = c.film.path(f"{MIX_DIR}/family_stems")
+    if fam_dir.is_dir():
+        from slate.sound import balance  # noqa: PLC0415
+
+        effects = set(balance.palette_balance(c.film.palette).get("effects") or [])
+        fams = [(p.stem, p) for p in sorted(fam_dir.glob("*.wav")) if p.stem in effects]
+        if fams:
+            return fams
+    return [(r, c.engine_stems[r]) for r in roles if r in c.engine_stems]
+
+
+def gate_key(c: _Ctx) -> gates.GateResult:
+    """L-sound-060: every pitched note in the UI and tonal stems on the brand key's pentatonic (each note's pitch over
+    its first 60 ms); a stem with more than half its notes on one or two pitches waits for a person."""
+    film = c.film
+    stems = [(r, c.engine_stems[r]) for r in ("ui", "tonal") if r in c.engine_stems]
+    stems = [(r, p) for r, p in stems if np.any(c.read(p))]
+    if not stems:
+        return gates.GateResult.pass_("sound.key", "no UI or tonal stems in this film: nothing pitched to check",
+                                      engine=_engine())
+    key = ((film.brand or {}).get("sound") or {}).get("key") or (film.palette or {}).get("key")
+    per, off, narrow = {}, [], []
+    for role, path in stems:
+        res = checks.key_check(c.read(path), film.sr, key)
+        per[role] = res
+        off += [{**n, "stem": role} for n in res["off_key"]]
+        if res["narrow"]:
+            narrow.append(f"{role}: {res['top_two_share']:.0%} of {res['notes']} notes on "
+                          f"{' and '.join(t['note'] for t in res['top_pitches'])}")
+    inputs = c.inputs(*[p for _r, p in stems])
+    details = {"key": key, "stems": per}
+    evidence = [film.rel(p) for _r, p in stems]
+    if off:
+        first = off[0]
+        return gates.GateResult.fail("sound.key", f"{len(off)} note(s) off {key}'s pentatonic "
+                                     f"({', '.join(per[stems[0][0]]['pentatonic'] or [])}): first {first['note']} at "
+                                     f"{first['t']} s in the {first['stem']} stem", evidence=evidence, engine=_engine(),
+                                     inputs=inputs, details={**details, "off_key": off})
+    if checks.pentatonic(key) is None:
+        return gates.GateResult.unchecked("sound.key", "the brand's sound names no key (brand.json sound.key), so the "
+                                          "notes can't be checked against its pentatonic", evidence=evidence,
+                                          engine=_engine(), inputs=inputs, details=details)
+    if narrow:
+        return gates.GateResult.review("sound.key", "on the key, but " + "; ".join(narrow) + ": a person listens for "
+                                       "one note played over and over", evidence=evidence, engine=_engine(),
+                                       inputs=inputs, details=details)
+    notes = sum(r["notes"] for r in per.values())
+    return gates.GateResult.pass_("sound.key", f"{notes} pitched note(s) in {', '.join(per)} on {key}'s pentatonic",
+                                  evidence=evidence, engine=_engine(), inputs=inputs, details=details)
+
+
+def gate_timbre(c: _Ctx) -> gates.GateResult:
+    """L-sound-078: each effect stem (or family) at a median spectral centroid of 1.5 kHz or under, no chime tails,
+    nothing metallic or glassy: the palette is pads, small soft notes and wood."""
+    film = c.film
+    stems = [(r, p) for r, p in _effect_family_stems(c, ("ui", "fx", "tonal")) if np.any(c.read(p))]
+    if not stems:
+        return gates.GateResult.pass_("sound.timbre", "no effect stems in this film", engine=_engine())
+    per, problems = {}, []
+    for role, path in stems:
+        res = checks.timbre_check(c.read(path), film.sr)
+        per[role] = res
+        med = res["median_centroid_hz"]
+        if med is not None and med > checks.CENTROID_MAX_HZ:
+            hot = ", ".join(f"{h['t']} s" for h in res["brightest"][:3])
+            problems.append(f"the {role} stem's median centroid is {med / 1000:.2f} kHz, over "
+                            f"{checks.CENTROID_MAX_HZ / 1000:g} kHz (brightest hits at {hot})")
+        for h in res["chime_tails"][:3]:
+            problems.append(f"a {h['chime_tail']['hz'] / 1000:.1f} kHz partial still rings 300 ms after the {role} hit at "
+                            f"{h['t']} s ({h['chime_tail']['db_vs_strike']:+.0f} dB against its strike): a chime's tail")
+        for h in res["metallic"][:3]:
+            problems.append(f"the {role} hit at {h['t']} s rings metallic or glassy past 300 ms (partials at "
+                            f"{', '.join(f'{x:.0f}' for x in h['metallic']['partials_hz'])} Hz aren't one note's "
+                            "harmonics)")
+    inputs = c.inputs(*[p for _r, p in stems])
+    evidence = [film.rel(p) for _r, p in stems]
+    if problems:
+        return gates.GateResult.fail("sound.timbre", problems[0] + (f"; {len(problems) - 1} more" if len(problems) > 1
+                                                                    else ""), evidence=evidence + problems[:12],
+                                     engine=_engine(), inputs=inputs, details={"stems": per})
+    table = ", ".join(f"{r} {v['median_centroid_hz'] / 1000:.2f} kHz" for r, v in per.items()
+                      if v["median_centroid_hz"] is not None) or "no hits"
+    return gates.GateResult.pass_("sound.timbre", f"no chimes, nothing metallic, every stem's median centroid at or "
+                                  f"under {checks.CENTROID_MAX_HZ / 1000:g} kHz ({table})", evidence=evidence,
+                                  engine=_engine(), inputs=inputs, details={"stems": per})
+
+
+def gate_mix_words(c: _Ctx) -> gates.GateResult:
+    """L-sound-S019: Whisper on the delivered mix hears the script word for word (slate.sound.hear)."""
+    from slate.sound import hear  # noqa: PLC0415
+
+    film = c.film
+    lines = hear.script_lines(film)
+    inputs = c.inputs(c.mix_path, "timing/vo_words.json", "timing/vo_cues.json")
+    if not vo.cues(film):
+        return gates.GateResult.pass_("sound.mix_words", "no voice in this film", engine=_engine(), inputs=inputs)
+    if not lines or not any(ln["line"].strip() for ln in lines):
+        return gates.GateResult.unchecked("sound.mix_words", "no script lines to compare with (timing/vo_words.json)",
+                                          evidence=["next: slate timing"], engine=_engine(), inputs=inputs)
+    untimed = [ln["shot"] for ln in lines if ln["line"].strip() and ln["end"] <= ln["start"]]
+    if untimed:
+        return gates.GateResult.unchecked("sound.mix_words", f"{', '.join(untimed[:6])} {'has' if len(untimed) == 1 else 'have'} "
+                                          "no word timings, so what's heard can't be placed against the lines",
+                                          evidence=["next: slate timing"], engine=_engine(), inputs=inputs)
+    lang_code = str(film.data.get("language") or "en")
+    try:
+        from slate.voice import lang as voice_lang  # noqa: PLC0415
+
+        whisper_lang = voice_lang.load(lang_code).get("whisper_language", lang_code)
+    except Exception:  # noqa: BLE001 - a language without a table is heard in its own code
+        whisper_lang = lang_code
+    result, how = hear.hear(film, c.mix_path, language=whisper_lang)
+    engine = gates.engine("openai-whisper", how.get("version"), model=how.get("model"), replay=how.get("replay"))
+    if how.get("replay") and not how.get("recorded") and not hear.stand_in(lines):
+        return gates.GateResult.unchecked("sound.mix_words", "replay mode doesn't run Whisper, and this mix carries a "
+                                          "real voice, so nothing heard it", evidence=["next: slate verify "
+                                                                                       "sound.mix_words --live (Whisper "
+                                                                                       "is local: it spends nothing)"],
+                                          engine=engine, inputs=inputs, details={"heard": how})
+    from slate.voice import measure as voice_measure  # noqa: PLC0415
+
+    heard = voice_measure.whisper_words(result)
+    dlg = c.stem("dialogue")
+    sounding = hear.sounding_at(dlg if dlg is not None else np.zeros((film.n, 2)), film.sr)
+    res = hear.compare(lines, heard, sounding, language=lang_code, names=hear.heard_as(film))
+    details = {"heard": how, "words_heard": len(heard), "per_shot": res["per_shot"], "errors": res["errors"],
+               "over_music": res["over_music"], "probability_min": hear.PROBABILITY_MIN}
+    stood_in = " (a replayed stand-in: nothing real was heard)" if how.get("replay") and not how.get("recorded") else ""
+    music = (f"; {len(res['over_music'])} word(s) heard over the music, set aside: "
+             + ", ".join(f"{w['word']!r} at {w['t']} s" for w in res["over_music"][:3])) if res["over_music"] else ""
+    if res["errors"]:
+        e = res["errors"][0]
+        first = (f"{e['heard']!r} for {e['script']!r}" if e["what"] == "misheard" else
+                 f"{e['script']!r} not heard" if e["what"] == "not heard" else f"an extra {e['word']!r}")
+        return gates.GateResult.fail("sound.mix_words", f"{len(res['errors'])} word(s) off in the mix: first {first} "
+                                     f"at {e['t']} s{music}{stood_in}", evidence=[film.rel(c.mix_path)],
+                                     engine=engine, inputs=inputs, details=details)
+    words = sum(len(hear.tokens(ln["line"])) for ln in lines)
+    return gates.GateResult.pass_("sound.mix_words", f"Whisper heard every one of the {words} script words in the mix"
+                                  f"{music}{stood_in}", evidence=[film.rel(c.mix_path)], engine=engine, inputs=inputs,
+                                  details=details)
+
+
 GATES: dict[str, Callable[[_Ctx], gates.GateResult]] = {
     "sound.loudness": gate_loudness, "sound.stems_sum": gate_stems_sum, "sound.gap": gate_gap,
     "sound.voice_sync": gate_voice_sync, "sound.cue_sync": gate_cue_sync, "sound.repeats": gate_repeats,
     "sound.glides": gate_glides, "sound.drone": gate_drone, "sound.levels": gate_levels,
     "sound.reference": gate_reference, "sound.clarity": gate_clarity, "sound.music_licence": gate_music_licence,
+    "sound.voice_limiter": gate_voice_limiter, "sound.key": gate_key, "sound.timbre": gate_timbre,
+    "sound.mix_words": gate_mix_words,
 }
 
 # Gate modules merged into `slate verify` when they're installed: slate.sound.balance (the p3 balance gates) exports

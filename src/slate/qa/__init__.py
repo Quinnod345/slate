@@ -54,11 +54,13 @@ CORE: dict[str, GateFn] = {
     "readtime": _text.readtime,
     "glitch": _picture.glitch,
     "boundary": _picture.boundary,
+    "cuts": _picture.cuts,
     "psnr": _picture.psnr,
+    "end_hold": _picture.end_hold,
 }
 # Skipped by --quick: they decode or read the whole picture. Stability scans every act render at full resolution (a
 # --quick run of its own command reuses cached scans and never starts one).
-SLOW = ("ocr", "readtime", "glitch", "psnr", "stability")
+SLOW = ("ocr", "readtime", "glitch", "cuts", "psnr", "end_hold", "stability")
 # Gate modules merged in when they're installed (import-guarded: a missing one is "not installed yet", a broken one is
 # reported in EXTERNAL_STATUS and the core gates still run). slate.qa.stability brings the visual stability triage.
 EXTERNAL = ("slate.qa.motion", "slate.qa.access", "slate.qa.stability")
@@ -244,7 +246,7 @@ def run(film_dir: str | Path, names: Iterable[str] | None = None, *, quick: bool
                 results.append(r)
     if results:
         gates.write_report(film_dir, results)
-    mode = (jsonio.read(film_dir / "film.json", default={}) or {}).get("mode")
+    mode = _film.context(film_dir).mode  # the judged mode: Slate's record holds a film made autonomous autonomous
     reviews = [r for r in results if r.status == "REVIEW"]
     if mode == "autonomous" and reviews:
         park.park(film_dir, reviews)

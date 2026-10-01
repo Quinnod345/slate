@@ -95,7 +95,7 @@ def test_lint_checks_without_writing(make_film):
     code, out, _ = cli("script", "lint", "--film", str(film), "--json")
     assert code == 0 and out["lint"] and out["status"] == "UNCHECKED"  # no runtime target: never a quiet pass
     s = script_of(film)
-    shot(s, "S02")["vo"] = "Join 4,000 regulars every morning."
+    shot(s, "S02")["vo"] = "Join 4,000 regulars at the counter every morning."
     save_script(film, s)
     code, out, _ = cli("script", "lint", "--film", str(film), "--json")
     assert code == 1 and [g["gate"] for g in out["gates"] if g["status"] == "FAIL"] == ["script.numbers"]

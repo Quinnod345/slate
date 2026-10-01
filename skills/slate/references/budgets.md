@@ -60,9 +60,14 @@ The **Cloud API** balance pays for every Slate generation and is the one funded 
 Higgsfield's CLI, app and hosted connector, including its own skills; that pool isn't funded by default, so the fast
 lane may stop for credits. Neither is ever topped up by an agent.
 
+Cloud API credit expires a year after it's bought; app-plan credits expire every billing cycle. When the owner buys
+Cloud API credit, it's for the films actually planned, never ahead of them.
+
 ## Watching spend during a film
 
 - `slate ledger list --film <id>` has every paid call for the film; `slate ledger inflight` shows calls still waiting.
 - Before a batch (a full voicing, a score, several takes), say what it will cost and what's left of the budget.
+- An optional extra that costs real credits (a dedicated score swell is about 1,100 to 1,500 credits) is offered with
+  its price and made only on the owner's yes, even when the budget would cover it.
 - Before spending past an approval (a recomposition, a re-voice of approved lines), try what's on hand first: an unused
   take often measures better than a new one, and costs nothing.

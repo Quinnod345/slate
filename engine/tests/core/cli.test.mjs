@@ -22,7 +22,7 @@ describe('the JSON contract', () => {
     expect(v.engine_version).toBe(readJson(path.join(ENGINE, 'package.json')).version);
     expect(v.protocol).toBe(1);
     expect(Object.keys(v.commands).sort()).toEqual(
-      ['browser-ensure', 'bundle', 'check', 'emit-events', 'entry', 'render', 'stills', 'trace', 'version', 'web-render'].sort(),
+      ['browser-ensure', 'bundle', 'check', 'emit-events', 'entry', 'golden', 'render', 'stills', 'trace', 'version', 'web-render'].sort(),
     );
     expect(v.installed.remotion).toBe('4.0.521');
     expect(v.pins_ok).toBe(true);

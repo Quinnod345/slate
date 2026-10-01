@@ -37,14 +37,12 @@ function useIcon(p: IconProps, fallback: 'ink' | 'accent' | 'ink3' | 'onAccent')
   return {size: p.size ?? a(14), color: p.color ?? t.color[fallback], stroke: p.stroke ?? 2.2};
 }
 
-/** A check mark that draws on (`draw` 0 → 1). */
+/** A check mark that draws on (`draw` 0 → 1). At 0 there's no path at all: a zero-length dash with round caps still
+ * paints a dot (L-kit-D133). */
 export function IconCheck(p: IconProps) {
   const {size, color, stroke} = useIcon(p, 'onAccent');
-  return (
-    <svg {...box(size)}>
-      <path d="M5 12.5l4.5 4.5L19 7.5" stroke={color} strokeWidth={stroke} strokeLinecap="round" strokeLinejoin="round" pathLength={1} strokeDasharray={`${clamp01(p.draw ?? 1)} 2`} />
-    </svg>
-  );
+  const draw = clamp01(p.draw ?? 1);
+  return <svg {...box(size)}>{draw > 0 && <path d="M5 12.5l4.5 4.5L19 7.5" stroke={color} strokeWidth={stroke} strokeLinecap="round" strokeLinejoin="round" pathLength={1} strokeDasharray={`${draw} 2`} />}</svg>;
 }
 export function IconArrow(p: IconProps) {
   const {size, color, stroke} = useIcon(p, 'accent');

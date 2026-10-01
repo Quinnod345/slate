@@ -98,6 +98,7 @@ def test_glitch_scan_is_cached_per_render(film_builder, monkeypatch):
         raise AssertionError("scanned again")
 
     monkeypatch.setattr(glitch, "scan", boom)
+    monkeypatch.setattr(glitch, "scan_render", boom)
     assert picture.glitch(fb.path).status == "PASS"  # the cache answered
 
 

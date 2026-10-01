@@ -111,6 +111,8 @@ pin, and Whisper's large-v3-turbo model on disk (1.6 GB).
 | ocr_vision.swift and its compiled binary | none | Drop | One OCR engine, and no swiftc build | Nothing builds or calls it |
 | tesseract | 5.5.3 installed | Drop for gates | A second engine would silently change results | Owed: the OCR gate names its engine in the evidence and never falls back (qa-core) |
 | beautifulsoup4, html2text.py | never installed | Drop | Project-specific | In place: nothing in `src/` imports them |
+| html.parser † | the standard library | Keep | A brand website's visible copy as leaf-text lines, kept with its source at onboarding (`slate.brand.sources.visible_copy`), so on-screen copy can be checked against the brand's real words | In place: nothing extra to install; tests/brand/test_brand_copy_colourways.py |
+| OpenCV (`opencv-python-headless`), the films' DIS optical flow | never installed | Replace | `slate plates repair` ports the films' plate_repair.py, which re-timed a generated plate with OpenCV's DIS flow. Slate does it with numpy and scipy: a coarse-to-fine dense Lucas-Kanade (`slate.gen.flow`) whose in-between frame for a dropped frame matches the true one at 56 dB PSNR on the test texture (a plain blend reaches 35 dB; on finer detail, 57 against 23) and measures the motion to 0.05 px, and the films' own Lucas-Kanade for each step's motion. So there's no `flow` extra and nothing new to install | In place: `slate.gen.flow` and `slate.gen.repair`; tests/gencap/test_gencap_repair.py measures the flow and runs a dropped and a frozen frame end to end |
 | fonttools, uharfbuzz | Higgsedit backend only | Drop with Track A | | Nothing imports them |
 
 ## Command-line tools
@@ -122,7 +124,8 @@ pin, and Whisper's large-v3-turbo model on disk (1.6 GB).
 | Rubber Band | arm64 4.x (Intel 4.0.0 under Rosetta at `/usr/local/bin`) | Replace with arm64 | Voice pacing: the R3 engine with formants kept | Owed: doctor fails on the Intel build, and `slate doctor --install` offers the arm64 one, asking first (doctor) |
 | uv | 0.9.28 | Keep | The Python runtime and installs | Owed: a doctor version check (doctor) |
 | node, npm | ≥ 24 (26.8.1 and 11.19.0 at `/opt/homebrew/bin`; a Node 21.6.2 at `/usr/local/bin`) | Keep | Remotion and the AE bridge both need Node 24 or later | In place: the `engines` field. Owed: doctor checks the resolved node's version, not just that it exists (doctor) |
-| git, gh | 2.54.0, 2.86.0 | Keep | Film folders and updates | |
+| git, gh | 2.54.0, 2.86.0 | Keep | Film folders and updates; every delivery commits the film's small files and tags them `deliver/vN` (the code and data behind the render) | In place: `slate.finish.snapshot` (never a remote, never a push; no git never blocks a delivery) |
+| ps, System Events (through osascript) † | macOS | Keep, read-only | Doctor's duplicate-MCP-server row reads the process list (command lines are compared, never reported); its After Effects launch-dialog rows read AE's window titles through System Events, only when AE is already open (it never launches AE), which needs the Accessibility permission for the app running doctor | In place: `slate.doctor.env` (`processes`, `ae_windows`); without the permission the row is yellow, never green |
 | aerender, osascript | After Effects 26.5.0.89 | Keep | The AE lane: finishing and ExtendScript | In place: `procs.which` finds aerender inside the newest AE folder. Owed: AE steps start only on a person's go, with one AE lock shared with the bridge (ae) |
 | xcrun simctl | Xcode 27.0 | Keep | iOS captures | Owed: `slate capture ios` (gen-capture) |
 | caffeinate, security | macOS | Keep | Keep-awake for jobs; Keychain reads | In place: `slate.secrets` reads through `/usr/bin/security` and never prints a value. Owed: jobs run under `caffeinate -i` (jobs) |
@@ -212,6 +215,7 @@ pin, and Whisper's large-v3-turbo model on disk (1.6 GB).
 | ElevenLabs SDKs and CLI (`@elevenlabs/elevenlabs-js`, the `elevenlabs` Python package, `@elevenlabs/cli`) | | Not used: Slate's ElevenLabs client is a small standard-library client behind the ledger and replay mode |
 | Higgsfield SDKs (`higgsfield-client`, Apache-2.0; `@higgsfield/client` v2) | | Not used, for the same reason |
 | @remotion/whisper-webgpu | | Not used: Whisper runs locally |
+| opencv-python-headless (as an optional `flow` extra) | Apache-2.0 | Not used: the plate repair's optical flow is numpy/scipy (see the Python table) |
 
 ## Hosts Slate installs into
 

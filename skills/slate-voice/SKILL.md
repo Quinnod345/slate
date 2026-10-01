@@ -55,8 +55,11 @@ such as `[warmly, with a smile]` or `[confident]` before a line, or `[short paus
 - Every tagged take is measured against the voice's own untagged takes of the same words, and one that measures
   breathier, softer, creaky, repeated or too long is rejected, however good its tag.
 
-The tagged script lives in `voice/direction.json`; `slate voice --help` lists the direction tools (setting, checking,
-stripping and A/B-testing tags). The full guide: [v4 tags](references/v4-tags.md); settings and context:
+The tagged script lives in `voice/direction.json`. `slate voice tags rules` prints the banned tags and the rules;
+`slate voice tags set <shot> "<tagged line>"` sets a line's direction (refused when it breaks a rule or changes a word),
+`slate voice tags check` checks every line, `slate voice tags strip` shows the plain line, and
+`slate voice tags ab <shot> --variant "<tagged line>"` voices tagged variants beside an untagged control, measured and
+level-matched, before a full re-voice. The full guide: [v4 tags](references/v4-tags.md); settings and context:
 [directing](references/directing.md).
 
 **When a line's direction matters, run the tag loop**: write the candidates (several tagged versions, several seeds
@@ -110,6 +113,9 @@ loudness, a dynamic cut on the 2-5 kHz edge and a de-esser (each only while a co
 shelves, a small synthetic room, and the take's own loudness back at the end. Every stage keeps the length sample for
 sample, so nothing in the cut moves.
 
+- **Ask first.** Before tuning, ask the owner for the target in their own terms: where the harshness is, a reference
+  sound (a podcast host in a little room, warm and present, say) and how strong a change. Then bracket their middle
+  with two strengths.
 - **Try first.** Its trial mode renders the voice's named strengths (A, the subtler side of a marked change; B, the
   warmer side; or any number from 0 to 1) for every line, with a level-matched reel and A/B sheets, pinning nothing.
 - **The owner picks by ear**, then the polish runs at that strength and the film pins it, chain and all, so a line
@@ -123,7 +129,9 @@ slate voice polish --try A,B --sheet   # every line at each strength, a level-ma
 slate voice polish --strength B        # the owner's pick, pinned for the film; the cue sheets and the mix play it
 ```
 
-Align again afterwards, so Whisper hears what the audience hears. See [the polish](references/polish.md).
+Align again afterwards, so Whisper hears what the audience hears. A polish moves the mix too: it changes the speech
+band the balance gates measure, so once a film has a mix, re-run them (`slate sound balance`, or `slate verify`) and
+re-solve the mix's rides (slate-sound). See [the polish](references/polish.md).
 
 ## 7. Measure a read
 

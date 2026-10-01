@@ -127,6 +127,9 @@ export type MotifGesture =
 export type MotifTrack = MotifGesture[];
 export type GestureKind = MotifGesture['kind'];
 
+/** Every gesture the rig draws, one cell each on the gesture sheet (review.tsx GestureSheet). */
+export const GESTURE_KINDS: readonly GestureKind[] = ['enter', 'exit', 'pulse', 'grow', 'turn', 'breathe', 'wave', 'ripple', 'lean', 'hold', 'home'];
+
 /** The contact frame of a gesture (where its key pose lands): `frame`, or `t` in film seconds on a whole frame. */
 export function contactFrame(g: When): number {
   if (typeof g.frame === 'number') return Math.round(g.frame);
@@ -186,9 +189,190 @@ function landing(C: number, D: number, name: string): [number, number] {
 
 export type PoseOptions = {spec?: MotifSpec; layout?: (frame: number) => MotifLayout; short?: number};
 
+// ------------------------------------------------------------------------------------------------ how gestures combine
+// The rules (the films' character spec, §2.13), and what the rig does about them:
+// 1. One momentary gesture at a time, with at least 4 still frames between one's end and the next one's start.
+// 2. Held states persist until changed (a lean, a hold, parts sent away). Momentary gestures run on top of them, except:
+//    during a hold nothing runs (but the home that releases it), and while parts are away only a lean or a hold runs.
+// 3. Never two gestures on the same channel at once.
+// The rig switches off whatever rules 1 to 3 forbid, so the picture never shows it, and motifLint lists it, and any
+// momentary gestures closer than 4 still frames. An empty list is a clean track.
+
+/** Gestures that run and end on their own (one at a time); a lean and a hold are held states, a ripple is an echo. */
+export const MOMENTARY: readonly GestureKind[] = ['pulse', 'grow', 'turn', 'breathe', 'wave', 'enter', 'exit', 'home'];
+/** Still frames a track keeps between one momentary gesture's end and the next one's start. */
+export const STILL_FRAMES = 4;
+
+/** What a gesture moves: the parts' spread, the ring's turn, the whole mark's scale, its offset, the parts' size, their
+ * fade, and the echo rings around the mark. */
+export type MotifChannel = 'spread' | 'turn' | 'scale' | 'offset' | 'lift' | 'fade' | 'echo';
+
+/** A gesture as the rig runs it: its contact frame, the frames it moves over ([start, end] each, whole frames; a hold
+ * has two, its pull-in and its release), the channels it moves, and whether it's momentary. */
+export type GestureSpan = {g: MotifGesture; index: number; C: number; spans: [number, number][]; start: number; end: number; channels: MotifChannel[]; momentary: boolean};
+
+const CHANNELS: Record<GestureKind, MotifChannel[]> = {
+  pulse: ['spread'],
+  grow: ['scale'],
+  turn: ['turn'],
+  breathe: ['spread', 'turn'],
+  wave: ['spread', 'lift'],
+  ripple: ['echo'],
+  lean: ['offset'],
+  hold: ['spread', 'scale'],
+  home: ['offset', 'spread', 'scale'],
+  enter: ['spread', 'turn', 'fade'],
+  exit: ['spread', 'turn', 'fade'],
+};
+
+/** The frames each gesture of a track moves over, at the regime it runs in (the same numbers motifPose draws). */
+export function gestureSpans(track: MotifTrack, opts: PoseOptions = {}): GestureSpan[] {
+  const spec = opts.spec ?? motifSpec().spec;
+  const N = spec.parts;
+  const short = opts.short ?? filmShortSide();
+  const layoutAt = opts.layout;
+  const regimeAt = (C: number): MotifPose['regime'] => (layoutAt && short > 0 ? regimeOf(spec, layoutAt(C).size, short) : 'full');
+  return track.map((g, index) => {
+    const C = contactFrame(g);
+    const regime = regimeAt(C);
+    const lagMax = regime === 'full' && spec.groups === 2 ? spec.pairsLag : 0;
+    let spans: [number, number][];
+    switch (g.kind) {
+      case 'pulse': {
+        const D = Math.max(16, Math.round(g.dur ?? 18));
+        const up = Math.round(D * 0.45);
+        spans = [[C - up, C - up + D]];
+        break;
+      }
+      case 'grow':
+        spans = [[C - 8, C + 8]];
+        break;
+      case 'turn':
+        spans = [landing(C, 16, spec.curves.land)];
+        break;
+      case 'breathe': {
+        const cycles = Math.max(1, Math.round(g.cycles ?? 1));
+        const cycle = Math.max(44, Math.round(g.cycle ?? 48));
+        const B = C + (cycles - 1) * cycle;
+        spans = [[C, Math.max(B + lagMax + 36, B + 32)]];
+        break;
+      }
+      case 'wave': {
+        const rounds = Math.max(1, Math.round(g.rounds ?? 1));
+        const step = regime === 'full' ? spec.waveStep : 0;
+        const dip = Math.min(Math.max(0, g.dip ?? 0), spec.maxOvershoot);
+        spans = [[C - 6, C - 6 + (N * rounds - 1) * step + (dip > 0 ? 22 : 16)]];
+        break;
+      }
+      case 'ripple': {
+        const count = Math.max(1, Math.round(g.count ?? 2));
+        const spacing = Math.max(1, Math.round(g.spacing ?? 5));
+        spans = [[C, C + (count - 1) * spacing + 36]];
+        break;
+      }
+      case 'lean':
+        spans = [[C - 12, C + 3]];
+        break;
+      case 'hold': {
+        const U = typeof g.untilFrame === 'number' ? Math.round(g.untilFrame) : typeof g.until === 'number' ? frameOf(g.until) : null;
+        spans = U !== null ? [[C - 12, C + 3], [U, U + 20]] : [[C - 12, C + 3]];
+        break;
+      }
+      case 'home':
+        spans = [[C - 16, C + 4]];
+        break;
+      case 'enter': {
+        const D = Math.max(16, Math.round(g.dur ?? 20));
+        spans = [[C - D, C + lagMax]];
+        break;
+      }
+      case 'exit': {
+        const D = Math.max(16, Math.round(g.dur ?? 20));
+        spans = [[C, C + lagMax + D]];
+        break;
+      }
+    }
+    const start = Math.min(...spans.map((x) => x[0]));
+    const end = Math.max(...spans.map((x) => x[1]));
+    return {g, index, C, spans, start, end, channels: CHANNELS[g.kind], momentary: MOMENTARY.includes(g.kind)};
+  });
+}
+
+const overlaps = (a: GestureSpan, b: GestureSpan): boolean => a.spans.some(([s0, e0]) => b.spans.some(([s1, e1]) => s0 < e1 && s1 < e0));
+const frames = (x: GestureSpan) => (x.spans.length > 1 ? x.spans.map(([s0, e0]) => `${s0}–${e0}`).join(' and ') : `${x.start}–${x.end}`);
+const named = (x: GestureSpan) => `${x.g.kind} at frame ${x.C} (frames ${frames(x)})`;
+
+export type TrackCheck = {
+  /** the gestures the rig runs, in the track's own order */
+  allowed: MotifGesture[];
+  /** the gestures it switches off, each with the rule it broke */
+  off: {g: MotifGesture; index: number; C: number; reason: string}[];
+  /** momentary gestures closer than 4 still frames (they run; the lint lists them) */
+  crowded: string[];
+};
+
+/**
+ * How a track combines: which gestures run, which the rules switch off (and why), and which momentary gestures crowd
+ * each other. A pure function of the track and the layout, so the picture, the sound and the hand-in check agree.
+ */
+export function checkTrack(track: MotifTrack, opts: PoseOptions = {}): TrackCheck {
+  const spans = gestureSpans(track, opts).sort((a, b) => a.start - b.start || a.index - b.index);
+  const kept: GestureSpan[] = [];
+  const off: TrackCheck['off'] = [];
+  const refuse = (x: GestureSpan, reason: string) => off.push({g: x.g, index: x.index, C: x.C, reason: `${named(x)} is switched off: ${reason}`});
+  // a track whose first entrance comes before any exit starts with its parts away: they arrive with that enter
+  const firstEnter = spans.find((x) => x.g.kind === 'enter');
+  const startsAway = firstEnter && !spans.some((x) => x.g.kind === 'exit' && x.start < firstEnter.start) ? firstEnter : null;
+  for (const x of spans) {
+    if (startsAway && x !== startsAway && x.start < startsAway.end && !['lean', 'hold', 'enter'].includes(x.g.kind)) {
+      refuse(x, `the parts haven't arrived yet (the ${named(startsAway)} brings them in), and only a lean or a hold runs until they do`);
+      continue;
+    }
+    // while parts are away (an exit's start until the next enter has landed them), only a lean or a hold runs
+    const away = kept.filter((k) => k.g.kind === 'exit' && k.start <= x.start).find((exit) => !kept.some((k) => k.g.kind === 'enter' && k.start >= exit.start && k.end <= x.start));
+    if (away && !['lean', 'hold', 'enter'].includes(x.g.kind)) {
+      refuse(x, `the parts are away (sent off by the ${named(away)}), and only a lean or a hold runs until they come back`);
+      continue;
+    }
+    // during a hold (its pull-in until its release, or until the home that releases it) nothing runs but that home
+    const hold = kept
+      .filter((k) => k.g.kind === 'hold' && k.start <= x.start)
+      .find((h) => {
+        const released = h.spans.length > 1 ? h.end : Math.min(...kept.filter((k) => k.g.kind === 'home' && k.C >= h.C).map((k) => k.end), Infinity);
+        return x.start < released;
+      });
+    if (hold && x.momentary && x.g.kind !== 'home') {
+      refuse(x, `nothing runs during a hold (the ${named(hold)})`);
+      continue;
+    }
+    const busy = kept.find((k) => overlaps(k, x) && k.momentary && x.momentary);
+    if (busy) {
+      refuse(x, `one momentary gesture at a time, and the ${named(busy)} is still running`);
+      continue;
+    }
+    const shared = kept.map((k) => ({k, ch: k.channels.filter((c) => x.channels.includes(c))})).find(({k, ch}) => ch.length > 0 && overlaps(k, x));
+    if (shared) {
+      refuse(x, `never two gestures on one channel at once (the ${named(shared.k)} moves its ${shared.ch.join(' and ')} then)`);
+      continue;
+    }
+    kept.push(x);
+  }
+  const crowded: string[] = [];
+  const momentary = kept.filter((k) => k.momentary).sort((a, b) => a.start - b.start || a.index - b.index);
+  for (let i = 1; i < momentary.length; i++) {
+    const a = momentary[i - 1];
+    const b = momentary[i];
+    const gap = b.start - a.end;
+    if (gap < STILL_FRAMES) crowded.push(`${named(a)} and ${named(b)} have ${gap} still frame${gap === 1 ? '' : 's'} between them (keep ${STILL_FRAMES} still frames between momentary gestures)`);
+  }
+  const keep = new Set(kept.map((k) => k.index));
+  return {allowed: track.filter((_, i) => keep.has(i)), off: off.sort((a, b) => a.index - b.index), crowded};
+}
+
 /**
  * The rig's pose at a film frame (fractional frames are sub-frame samples). A pure function of the track and the
- * frame: evaluate any frame alone and it matches the same frame evaluated in sequence.
+ * frame: evaluate any frame alone and it matches the same frame evaluated in sequence. Gestures the combination rules
+ * forbid are switched off (checkTrack); motifLint lists them.
  */
 export function motifPose(track: MotifTrack, frame: number, opts: PoseOptions = {}): MotifPose {
   const spec = opts.spec ?? motifSpec().spec;
@@ -210,7 +394,10 @@ export function motifPose(track: MotifTrack, frame: number, opts: PoseOptions = 
   let wholeSpread = 0;
   const regimeNow = regimeAt(Math.round(f));
 
-  const sorted = track.map((g) => ({g, C: contactFrame(g)})).sort((a, b) => a.C - b.C);
+  // the combination rules switch off what they forbid, so the picture never shows it (motifLint lists it)
+  const sorted = checkTrack(track, {spec, layout: layoutAt, short})
+    .allowed.map((g) => ({g, C: contactFrame(g)}))
+    .sort((a, b) => a.C - b.C);
 
   // held channels: lean offset and hold amount, each a chain of moves from the running value
   let ox = 0;
@@ -423,13 +610,16 @@ const PRIORITY: GestureKind[] = ['turn', 'hold', 'wave', 'pulse', 'ripple', 'bre
 
 /**
  * The rig's sounds: one row per note, each on its own whole contact frame, one sound per frame (by priority), so the
- * events file matches the picture to the frame. Hand the rows to defineEvent (kind "character").
+ * events file matches the picture to the frame. Hand the rows to defineEvent (kind "character"). Gestures the
+ * combination rules switch off make no sound; pass the mark's layout and the frame's short side (as to motifPose) so
+ * the rules see the regime the picture runs in.
  */
-export function motifBeats(track: MotifTrack, spec?: MotifSpec): MotifBeat[] {
+export function motifBeats(track: MotifTrack, spec?: MotifSpec, opts: Omit<PoseOptions, 'spec'> = {}): MotifBeat[] {
   const s = spec ?? motifSpec().spec;
   const rows: MotifBeat[] = [];
   const add = (frame: number, gesture: GestureKind, size: MotifBeat['size'], note: string) => rows.push({frame, t: secOf(frame), gesture, kind: 'character', size, note});
-  for (const g of track) {
+  // a gesture the combination rules switch off makes no sound: the picture doesn't show it
+  for (const g of checkTrack(track, {...opts, spec: s}).allowed) {
     const C = contactFrame(g);
     switch (g.kind) {
       case 'turn':
@@ -480,22 +670,47 @@ export function motifBeats(track: MotifTrack, spec?: MotifSpec): MotifBeat[] {
   return [...byFrame.values()].sort((a, b) => a.frame - b.frame);
 }
 
-/** Combination rules a track should meet: momentary gestures at least 4 frames apart. Empty is clean. */
-export function motifLint(track: MotifTrack): string[] {
-  const momentary = track.filter((g) => ['pulse', 'grow', 'turn', 'wave', 'breathe', 'enter', 'exit'].includes(g.kind)).map((g) => ({g, C: contactFrame(g)}));
-  momentary.sort((a, b) => a.C - b.C);
-  const out: string[] = [];
-  for (let i = 1; i < momentary.length; i++) {
-    if (momentary[i].C - momentary[i - 1].C < 4) out.push(`${momentary[i - 1].g.kind} and ${momentary[i].g.kind} are ${momentary[i].C - momentary[i - 1].C} frames apart (keep 4 still frames between momentary gestures)`);
-  }
-  return out;
+/**
+ * Everything in a track the combination rules object to: each gesture the rig switches off (a momentary gesture during
+ * a hold, anything but a lean or a hold while parts are away, two momentary gestures at once, two gestures on one
+ * channel at once), and momentary gestures with fewer than 4 still frames between one's end and the next one's start
+ * (keep 4 still frames between momentary gestures). An empty list is a clean track. Pass the mark's layout and the
+ * frame's short side, as to motifPose, so the rules see the regime the picture runs in.
+ */
+export function motifLint(track: MotifTrack, opts: PoseOptions = {}): string[] {
+  const r = checkTrack(track, opts);
+  return [...r.off.map((o) => o.reason), ...r.crowded];
 }
+
+/** A clipping container a character sits in, in the px of its layout (x, y top-left). */
+export type ClipBox = {x: number; y: number; w: number; h: number};
+
+/** A mark the act registered with registerMotifTrace: what the hand-in check's character gate reads. */
+export type MotifTraceRecord = {
+  rig: string;
+  shot: string;
+  track: MotifTrack;
+  layout: (frame: number) => MotifLayout;
+  from: number;
+  to: number;
+  spec: MotifSpec;
+  short: number;
+  /** drawn as a character (MarkCharacter): its disc is the layout's size ÷ the mark ratio */
+  character: boolean;
+  /** the clipping container it sits in, when it sits in one (a character is best drawn with none) */
+  clip?: ClipBox | ((frame: number) => ClipBox);
+};
+
+const traces: MotifTraceRecord[] = [];
 
 /**
  * Register the rig's part positions as motion channels (x and y of every part, px) so the motion trace carries them
- * and `slate qa motion` can check their speed, acceleration and symmetry (rig = the id you give).
+ * and `slate qa motion` can check their speed, acceleration and symmetry (rig = the id you give). The track is kept
+ * too, for the hand-in check's character gate (motifTraces, characterAcceptance): give `character: true` when it
+ * draws a MarkCharacter (its layout is the mark's: the disc is the layout's size ÷ the mark ratio), and `clip` when
+ * the character sits inside a clipping container (in the layout's px).
  */
-export function registerMotifTrace(track: MotifTrack, o: {rig: string; shot: string; layout: (frame: number) => MotifLayout; from: number; to: number; spec?: MotifSpec; short: number}): void {
+export function registerMotifTrace(track: MotifTrack, o: {rig: string; shot: string; layout: (frame: number) => MotifLayout; from: number; to: number; spec?: MotifSpec; short: number; character?: boolean; clip?: ClipBox | ((frame: number) => ClipBox)}): void {
   const spec = o.spec ?? motifSpec().spec;
   const at = (frame: number) => placeParts(spec, motifPose(track, frame, {spec, layout: o.layout, short: o.short}), o.layout(frame));
   for (let i = 0; i < spec.parts; i++) {
@@ -503,5 +718,165 @@ export function registerMotifTrace(track: MotifTrack, o: {rig: string; shot: str
       defineChannel({id: `${o.rig}.part${i}.${axis}`, shot: o.shot, prop: axis, ease: spec.curves.move, frame_in: o.from, frame_out: o.to, rig: o.rig, fn: (fr) => at(fr)[i][axis]});
     }
   }
+  traces.push({rig: o.rig, shot: o.shot, track, layout: o.layout, from: o.from, to: o.to, spec, short: o.short, character: o.character ?? false, ...(o.clip ? {clip: o.clip} : {})});
+}
+
+/** Every mark registered with registerMotifTrace (the engine's hand-in check reads them). */
+export function motifTraces(): MotifTraceRecord[] {
+  return [...traces];
+}
+
+export function clearMotifTraces(): void {
+  traces.length = 0;
+}
+
+// ------------------------------------------------------------------------------------------- character acceptance
+/** How much of the disc's diameter a clipping container must keep clear around the character's centre while it moves:
+ * the disc grown a little, its shadow and the mark at every gesture's reach (the films' character spec, §1.6). */
+export const CLEAR_CIRCLE = 0.85;
+
+const SAMPLES_PER_FRAME = 4;
+const sub = (f: number) => Array.from({length: SAMPLES_PER_FRAME}, (_, k) => f - 0.25 + (0.5 * (k + 0.5)) / SAMPLES_PER_FRAME);
+
+/** The parts about the mark's centre, in px, and its size: what "the mark moved" means (a carried layout doesn't). */
+function shape(t: MotifTraceRecord, f: number): number[] {
+  const L = t.layout(f);
+  const parts = placeParts(t.spec, motifPose(t.track, f, {spec: t.spec, layout: t.layout, short: t.short}), L);
+  return [L.size, ...parts.flatMap((p) => [p.x - L.x, p.y - L.y, p.size, p.rot, p.op])];
+}
+
+const sameShape = (a: number[], b: number[]) => a.length === b.length && a.every((v, i) => Math.abs(v - b[i]) < 1e-6);
+
+/** The same picture, whichever part is where (a turn lands one slot on: the same mark, every part moved along). */
+function samePicture(t: MotifTraceRecord, f: number, g: number): boolean {
+  const key = (h: number) => {
+    const L = t.layout(h);
+    const parts = placeParts(t.spec, motifPose(t.track, h, {spec: t.spec, layout: t.layout, short: t.short}), L);
+    const rows = parts.map((p) => [p.x - L.x, p.y - L.y, p.size, ((p.rot % 360) + 360) % 360, p.op].map((v) => Math.round(v * 1e4) / 1e4));
+    rows.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    return [Math.round(L.size * 1e4) / 1e4, ...rows.flat()];
+  };
+  const a = key(f);
+  const b = key(g);
+  return a.length === b.length && a.every((v, i) => Math.abs(v - b[i]) < 2e-4 || Math.abs(Math.abs(v - b[i]) - 360) < 2e-4);
+}
+
+/** Frame lists for a message: "12, 13, 14 and 9 more". */
+const listFrames = (fs: number[]) => (fs.length > 6 ? `${fs.slice(0, 6).join(', ')} and ${fs.length - 6} more` : fs.join(', '));
+
+/**
+ * The character acceptance checks (the films' character spec; L-kit-077, L-motion-D074/D076/D077/D086/D088) on one
+ * registered mark, over its frames (or the act's, when given): `problems` empty is a pass. Each problem names the rule
+ * and the frames.
+ * - the combination rules (motifLint): no conflicts, momentary gestures at least 4 still frames apart;
+ * - calm: exactly the brand mark (isCalm) at the act's ends when the mark is on screen there, and after each gesture
+ *   that returns home (a momentary gesture ends where it started; an enter and a home end calm);
+ * - still between gestures: when no gesture runs, consecutive frames (and their sub-frame samples) are identical;
+ * - the split point: the gap between neighbouring parts changes sign at most once out and once back per excursion of a
+ *   gesture (a two-cycle breath has two), never dithering across it;
+ * - clipping: while it isn't calm, the clipping container it sits in (its declared clip) holds the clear circle
+ *   (0.85 of the disc's diameter around its centre) and every part, away parts' paths included.
+ */
+export function characterAcceptance(t: MotifTraceRecord, opts: {act?: {from: number; to: number}} = {}): {problems: string[]; checks: string[]} {
+  const problems: string[] = [];
+  const checks: string[] = [];
+  const opt = {spec: t.spec, layout: t.layout, short: t.short};
+  const pose = (f: number) => motifPose(t.track, f, opt);
+  const calm = (f: number) => isCalm(t.spec, pose(f));
+  const name = `${t.rig} (${t.shot})`;
+
+  // 1. the combination rules
+  const lint = motifLint(t.track, opt);
+  for (const l of lint) problems.push(`${name}: ${l}`);
+  checks.push(`lint: ${lint.length ? `${lint.length} finding${lint.length > 1 ? 's' : ''}` : 'clean'}`);
+
+  const spans = gestureSpans(checkTrack(t.track, opt).allowed, opt);
+  const moving = (f: number) => spans.some((x) => x.spans.some(([s0, e0]) => f > s0 && f < e0));
+  const heldAt = (f: number) =>
+    spans.some((x) => {
+      if (x.g.kind === 'lean') return x.start <= f && !spans.some((h) => h.g.kind === 'home' && h.C >= x.C && h.end <= f);
+      if (x.g.kind === 'hold') return x.start <= f && (x.spans.length > 1 ? f < x.end : !spans.some((h) => h.g.kind === 'home' && h.C >= x.C && h.end <= f));
+      if (x.g.kind === 'exit') return x.start <= f && !spans.some((e) => e.g.kind === 'enter' && e.start >= x.start && e.end <= f);
+      return false;
+    });
+
+  // 2. calm at the act's ends (where the mark is on screen) and after each gesture that returns home
+  const ends = [opts.act && t.from <= opts.act.from ? opts.act.from : null, opts.act && t.to >= opts.act.to - 1 ? opts.act.to - 1 : null].filter((x): x is number => x !== null);
+  if (!opts.act) ends.push(t.from, t.to);
+  const notCalmAtEnds = [...new Set(ends)].filter((f) => !calm(f));
+  if (notCalmAtEnds.length) problems.push(`${name}: not calm at the act's ${notCalmAtEnds.length > 1 ? 'ends' : 'end'} (frame ${listFrames(notCalmAtEnds)}): every act starts and ends with the mark exactly the brand mark`);
+  const after: number[] = [];
+  for (const x of spans) {
+    const f = x.end + 1;
+    if (f > t.to || moving(f)) continue;
+    if (x.momentary && !['exit', 'enter', 'home'].includes(x.g.kind)) {
+      if (!samePicture(t, f, x.start - 1)) after.push(f);
+    } else if ((x.g.kind === 'enter' || x.g.kind === 'home') && !heldAt(f) && !calm(f)) after.push(f);
+  }
+  if (after.length) problems.push(`${name}: not back where it started the frame after a gesture (frame ${listFrames(after)}): a gesture ends exactly calm`);
+  checks.push(`calm: ${ends.length} end${ends.length === 1 ? '' : 's'}, ${spans.length} gesture${spans.length === 1 ? '' : 's'}`);
+
+  // 3. still between gestures
+  const drift: number[] = [];
+  for (let f = t.from + 1; f <= t.to; f++) {
+    if (moving(f) || moving(f - 1) || spans.some((x) => x.spans.some(([s0, e0]) => f >= s0 && f - 1 <= e0))) continue;
+    const ref = shape(t, f - 1);
+    if (![...sub(f), f].every((s) => sameShape(shape(t, s), ref))) drift.push(f);
+  }
+  if (drift.length) problems.push(`${name}: moves between gestures (frame ${listFrames(drift)}): with no gesture running, consecutive frames are identical (no float, no idle)`);
+
+  // 4. the split point: at most once out and once back across it per excursion
+  const N = t.spec.parts;
+  const gap = (f: number, i: number) => {
+    const L = t.layout(f);
+    const p = placeParts(t.spec, pose(f), L);
+    const a = p[i];
+    const b = p[(i + 1) % N];
+    return Math.hypot(a.x - b.x, a.y - b.y) - (a.size + b.size) / 2;
+  };
+  for (const x of spans) {
+    if (!x.momentary || N < 2) continue;
+    const excursions = x.g.kind === 'breathe' ? Math.max(1, Math.round((x.g as {cycles?: number}).cycles ?? 1)) : x.g.kind === 'wave' ? Math.max(1, Math.round((x.g as {rounds?: number}).rounds ?? 1)) : 1;
+    for (let i = 0; i < N; i++) {
+      let last = 0;
+      let changes = 0;
+      const at: number[] = [];
+      for (let f = x.start; f <= x.end; f += 1 / SAMPLES_PER_FRAME) {
+        const g = gap(f, i);
+        const sign = Math.abs(g) < 1e-9 ? 0 : Math.sign(g);
+        if (sign && last && sign !== last) {
+          changes++;
+          at.push(Math.round(f * 100) / 100);
+        }
+        if (sign) last = sign;
+      }
+      if (changes > 2 * excursions) {
+        problems.push(`${name}: the ${x.g.kind} at frame ${x.C} crosses the split point between parts ${i} and ${(i + 1) % N} ${changes} times (at frames ${listFrames(at)}): once out and once back per excursion, never dithering across it`);
+        break;
+      }
+    }
+  }
+
+  // 5. clipping: the clear circle and every part inside the container the mark sits in, while it isn't calm
+  if (t.clip) {
+    const clipAt = typeof t.clip === 'function' ? t.clip : () => t.clip as ClipBox;
+    const out: number[] = [];
+    for (let f = t.from; f <= t.to; f++) {
+      if (calm(f)) continue;
+      const L = t.layout(f);
+      const p = pose(f);
+      const c = clipAt(f);
+      const D = t.character ? L.size / Math.max(t.spec.markRatio, 1e-9) : L.size;
+      const cx = L.x + p.ox * L.size;
+      const cy = L.y + p.oy * L.size;
+      const R = CLEAR_CIRCLE * D;
+      const inside = (x0: number, y0: number, x1: number, y1: number) => x0 >= c.x - 1e-6 && y0 >= c.y - 1e-6 && x1 <= c.x + c.w + 1e-6 && y1 <= c.y + c.h + 1e-6;
+      const parts = placeParts(t.spec, p, L);
+      if (!inside(cx - R, cy - R, cx + R, cy + R) || !parts.every((q) => inside(q.x - q.size, q.y - q.size, q.x + q.size, q.y + q.size))) out.push(f);
+    }
+    if (out.length) problems.push(`${name}: its clipping container cuts into it while it moves (frame ${listFrames(out)}): keep a clear circle of ${CLEAR_CIRCLE} of the disc's diameter round its centre, and every part's path, inside the clip (or draw it with no clipping ancestor)`);
+    checks.push(`clip: ${out.length ? `${out.length} frames clipped` : 'clear'}`);
+  } else checks.push('clip: none declared (drawn with no clipping ancestor)');
+  return {problems, checks};
 }
 

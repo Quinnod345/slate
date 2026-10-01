@@ -1098,7 +1098,7 @@
  "price_notes": [
   {
    "verified_on": "2026-09-30",
-   "note": "Higgsfield API cash-back ends 2026-09-30 23:59 UTC: $1 back per $1 of API spend, capped at $1,000 an account ($200,000 with a verified business email and card), ending early if the $20M pool runs out. Unused cash-back expires at the deadline; it pays first when it covers a generation's whole cost. No extension found at 15:15 UTC.",
+   "note": "Higgsfield API cash-back ended 2026-09-30 23:59 UTC. It paid $1 back per $1 of API spend, capped at $1,000 an account ($200,000 with a verified business email and card), and could end early if the $20M pool ran out; unused cash-back expired at the deadline. While it ran, it paid first when it covered a generation's whole cost. No extension was found (checked 15:15 UTC on the last day), so generations are budgeted at the plain price.",
    "expires": "2026-09-30T23:59:00Z",
    "status": "verified",
    "source": "https://higgsfield.ai/creator-hub/changelog"
@@ -1470,6 +1470,13 @@
      "lesson": "A music model upgrade can change the plan schema (sections to chunks); pin the model and the schema together.",
      "source": "FILMROOT/research/video-package-inventory-2026-09-30/process-lessons.md lesson 57, and https://elevenlabs.io/docs/api-reference/music/compose"
     }
+   ]
+  },
+  {
+   "on": "2026-10-01",
+   "what": "Worded the Higgsfield API cash-back note as ended: it ended 2026-09-30 23:59 UTC, so generations are budgeted at the plain price (`slate budget show` already marked it expired).",
+   "changes": [
+    "price_notes: the cash-back note is in the past tense throughout ('ended', 'paid', 'expired')."
    ]
   }
  ]

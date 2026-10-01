@@ -52,6 +52,35 @@ def test_claude_mcp_config_starts_slate_mcp():
     assert slate["command"] == "slate" and slate["args"] == ["mcp"] and slate["env"]["BROWSER"] == "none"
 
 
+KEYISH = re.compile(r"api[_-]?key|token|secret|bearer|authorization|xi-api|sk_[a-z0-9]|\$\{", re.I)
+
+
+def test_the_mcp_configs_bundle_the_hosted_connectors_without_keys():
+    """ElevenLabs' and Higgsfield's hosted connectors ship with the plugin as remote servers that sign in with OAuth:
+    each is a fixed https URL and nothing else, so no key or header ever goes in the file."""
+    from slate import skills_build as sb
+
+    claude = load("plugins/slate/.mcp.json")["mcpServers"]
+    agent = load("plugins/slate/mcp.json")["mcpServers"]
+    for name, url, _label, _what in sb.HOSTED_CONNECTORS:
+        assert url.startswith("https://") and url.endswith("/mcp"), url
+        assert claude[name] == {"type": "http", "url": url}  # Claude Code's remote type
+        assert agent[name] == {"type": "streamable-http", "url": url}  # Agent Plugins' remote type
+    assert set(claude) == set(agent) == {"slate", "elevenlabs", "higgsfield"}
+    for rel in ("plugins/slate/.mcp.json", "plugins/slate/mcp.json"):
+        assert not KEYISH.search((REPO / rel).read_text()), rel
+
+
+def test_the_plugins_own_files_on_disk_are_the_builds():
+    """The manifests, MCP configs, README and LICENSE in plugins/slate are exactly what `slate skills build` makes,
+    so nobody edits them by hand (CI's `slate skills build --check` holds the skill copies the same way)."""
+    from slate import skills_build as sb
+
+    for rel, (data, _executable) in sb.plugin_files().items():
+        assert (PLUGIN / rel).read_bytes() == data, \
+            f"plugins/slate/{rel} differs from the build: run slate skills build"
+
+
 def test_agent_plugins_manifest_and_mcp_config():
     data = load("plugins/slate/plugin.json")
     assert data["$schema"] == "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json"
@@ -80,6 +109,36 @@ def test_plugin_readme_explains_the_install_order():
     text = (PLUGIN / "README.md").read_text()
     assert len(text.split()) >= 40  # a plugin directory listing needs a real README
     assert "install.sh" in text and "/plugin install slate@slate" in text and "bin/" in text
+
+
+AUTO_UPDATE = "Turn on auto-update for Slate's marketplace"
+
+
+def test_the_readmes_say_to_turn_on_auto_update():
+    """Auto-update is off by default for a third-party marketplace, so both READMEs say to turn it on, and where."""
+    for doc in ("README.md", "plugins/slate/README.md"):
+        text = " ".join((REPO / doc).read_text().split())
+        assert AUTO_UPDATE in text and "(`/plugin`, Marketplaces)" in text, doc
+        assert "off by default for third-party marketplaces" in text, doc
+
+
+def test_the_plugin_readme_lists_the_permission_rules_per_agent():
+    """An unattended run never stalls on a prompt: the plugin's README carries the allowlist for Claude Code's settings
+    and Codex's rules, the connector tools Slate denies, and why aerender isn't on the list."""
+    from slate import skills_build as sb
+    from slate.vendors.higgsfield import DENIED_CONNECTOR_TOOLS
+
+    text = (PLUGIN / "README.md").read_text()
+    rules = sb.permission_rules()
+    for rule in rules["claude_code"]["permissions"]["allow"] + rules["claude_code"]["permissions"]["deny"]:
+        assert f'"{rule}"' in text, rule
+    for rule in rules["codex"]:
+        assert rule in text, rule
+    commands = {" ".join(words) for words, _ in sb.PERMISSIONS}
+    assert {"slate", "ffmpeg", "ffprobe", "whisper", ".venv/bin/python", "node engine/cli.mjs"} <= commands
+    assert all(f"mcp__plugin_slate_higgsfield__{tool}" in text for tool in DENIED_CONNECTOR_TOOLS)
+    assert "aerender isn't on the list on purpose" in text
+    assert "Permissions for unattended runs" in (REPO / "README.md").read_text()  # the root README points there
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -195,6 +254,22 @@ def _workflow() -> dict:
     return json.loads(proc.stdout)
 
 
+def test_ci_runs_both_validators_through_the_drift_check(skills_src, tmp_path, monkeypatch):
+    """CI runs `slate skills build --check`, and that check runs `claude plugin validate --strict` on the plugin and
+    `skills-ref validate` on every skill wherever they're installed (each skipped with a notice where it isn't)."""
+    from slate import skills_build as sb
+
+    runs = [step.get("run", "") for job in _workflow()["jobs"].values() for step in job["steps"]]
+    [check] = [r for r in runs if "slate skills build --check" in r]
+    assert "--no-validate" not in check
+    assert [v.label for v in sb.VALIDATORS] == ["claude plugin validate --strict", "skills-ref validate"]
+    asked = []
+    monkeypatch.setattr(sb, "find_tool", lambda name: asked.append(name) or None)
+    code, out, _ = run_cli(["skills", "build", "--check", "--src", str(skills_src), "--out", str(tmp_path / "plugin")])
+    assert code == 1 and asked == ["claude", "skills-ref"]  # the default --check looks for both
+    assert "skipped: `claude` isn't installed here" in out and "skipped: `skills-ref` isn't installed here" in out
+
+
 def test_ci_runs_the_tests_and_the_drift_checks():
     flow = _workflow()
     assert flow["env"]["SLATE_FAKE_VENDORS"] == "1" and flow["env"]["BROWSER"] == "none"
@@ -251,7 +326,8 @@ def test_changelog_agents_and_licence():
 OWNED = ["README.md", "AGENTS.md", "CHANGELOG.md", "LICENSE", "docs/DECISIONS.md", ".github/workflows/ci.yml",
          ".claude-plugin/marketplace.json", "src/slate/guide.py", "src/slate/skills_build.py", "src/slate/mcp",
          "mcpb", "plugins/slate/.claude-plugin", "plugins/slate/.mcp.json", "plugins/slate/plugin.json",
-         "plugins/slate/mcp.json", "plugins/slate/README.md", "plugins/slate/LICENSE", "tests/packaging/fixtures"]
+         "plugins/slate/mcp.json", "plugins/slate/README.md", "plugins/slate/LICENSE", "tests/packaging/fixtures",
+         "tests/packaging/client_behaviours.json"]
 # Company and brand material that must never enter the core, written as patterns so this file doesn't carry it.
 BRAND = (re.compile(r"true\s*space|\bvixa\b|\btrudy\b|inner\s*echo|\bdegular\b|quinnodonnell", re.I),
          re.compile(r"\bEOS\b|/Users/"))

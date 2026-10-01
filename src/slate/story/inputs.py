@@ -32,6 +32,9 @@ DEFAULT_READ_TIME = {
     "exit_factor": 0.75,  # exits take 0.75x their entrance
     "default_entrance": 0.5,  # seconds, when the brand's motion has no duration for a shot's entrance token
     "max_words": 12,  # on-screen words per shot (headline plus labels)
+    "max_vo_ratio": 0.4,  # on-screen words at most 40% of the shot's voice-over words: keywords, not transcripts
+    "hero_max_words": 6,  # a hero line (on-screen text set in the hero role) has at most 6 words...
+    "hero_per_act": 2,  # ...and an act shows at most 2 (MOTION.md §5.4, the films' rule)
 }
 RUNTIME_TOLERANCE = 0.10
 
@@ -112,6 +115,22 @@ def banned_words(brand: dict) -> list[str]:
         return [str(w) for w in got]
     raw = _truth(brand).get("banned_words") or []
     return [str(w if not isinstance(w, dict) else w.get("word") or w.get("text")) for w in raw if w]
+
+
+#: Captions a graphic uses to comment on itself, with their forms. A brand that forbids self-commentary
+#: (truth.self_commentary: false) has them banned on screen, never in the voice ("for example" is fine said aloud). The
+#: same captions the banned-words gate bans on the master (slate.qa.brandinfo.SELF_COMMENTARY); its longer phrases
+#: ("For illustration only") hold one of these words, so each caption is named once.
+SELF_COMMENTARY = ("Illustration", "Illustrations", "Illustrative", "Example", "Examples")
+
+
+def self_commentary(brand: dict) -> bool:
+    """Whether the brand lets a graphic caption itself ("Illustration", "Example"): true unless truth.self_commentary
+    is false (one film tagged a frame "Illustration" against its own website's rule: L-brand-010)."""
+    got = _accessor("self_commentary", brand)
+    if isinstance(got, bool):
+        return got
+    return _truth(brand).get("self_commentary") is not False
 
 
 def approved_claims(brand: dict) -> list[dict]:
@@ -258,6 +277,9 @@ def read_time_settings(script: dict, fmt: dict) -> dict:
     for density in (fmt.get("on_screen_max_words"), (script.get("rules") or {}).get("on_screen_max_words")):
         if _num(density) is not None and float(density) >= 0:
             out["max_words"] = float(density)
+    for ratio in (fmt.get("on_screen_max_vo_ratio"), (script.get("rules") or {}).get("on_screen_max_vo_ratio")):
+        if _num(ratio) is not None and float(ratio) >= 0:
+            out["max_vo_ratio"] = float(ratio)
     return out
 
 

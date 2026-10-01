@@ -39,6 +39,7 @@ import {
   cam,
   camAt,
   clearMisses,
+  colourwayLogo,
   filmFrameOf,
   gesture,
   logoPlan,
@@ -52,6 +53,7 @@ import {
   word,
 } from '@slate/kit';
 import FILM from './fixtures/film-data';
+import NEUTRAL from './fixtures/neutral-brand.json';
 
 beforeEach(() => {
   setFilmData(FILM as never);
@@ -110,11 +112,45 @@ describe('components draw, as pure functions of time', () => {
     expect(html).toContain('--slate-color-accent');
   });
 
-  it('sets a count-up\'s box by its final value, unseen, so a face without tabular figures never re-centres it', () => {
-    const html = at(0.3, <CountUp t0={0.1} from={0} to={671} duration={0.8} />);
-    // the box: the final value, hidden; the count drawn over it from the same left edge
-    expect(html).toMatch(/<span style="visibility:hidden">671<\/span><span style="position:absolute;left:0;top:0;white-space:nowrap">\d+<\/span>/);
-    expect(text(at(0.95, <CountUp t0={0.1} from={0} to={671} duration={0.8} />))).toBe('671671');
+  it("boxes a count in its own nines until it has the final value's figures, then in the final value", () => {
+    // a count from 0 to 671: the box (hidden) is 9 while it shows one figure, 99 while it shows two, then 671 itself
+    const node = <CountUp t0={0} from={0} to={671} duration={2} hold={1} />;
+    const boxAt = (t: number) => at(t, node).match(/<span style="visibility:hidden">([^<]*)<\/span>/)![1];
+    const shownAt = (t: number) => text(at(t, node)).slice(boxAt(t).length);
+    const seen = new Map<string, string>();
+    for (let f = 0; f <= 60; f++) seen.set(shownAt(f / 25), boxAt(f / 25));
+    for (const [shown, box] of seen) expect(box).toBe(shown.length < 3 ? '9'.repeat(shown.length) : '671');
+    expect([...seen.keys()].some((v) => v.length === 2)).toBe(true); // it passed through two figures
+    // the count is drawn from its box's left edge, and at the final value the line is drawn whole, as it rests
+    expect(at(0.3, node)).toMatch(/<span style="position:absolute;left:0;top:0;white-space:nowrap">\d+<\/span>/);
+    expect(text(at(3, node))).toBe('671671');
+  });
+
+  it("holds a count's suffix still at its box's right end, the last figure centred in the room before it", () => {
+    const fmt = (v: number) => `${Math.round(v).toLocaleString('en-US')}+`;
+    const html = at(0.9, <CountUp t0={0} from={0} to={2500} duration={2} hold={1} format={fmt} />);
+    expect(html.match(/<span style="visibility:hidden">([^<]*)<\/span>/)![1]).toMatch(/^[9,]+\+$|^2,500\+$/);
+    // the figures before the last at the left, the last figure in a centred flexible room, then the suffix, all in a span
+    // that runs from the box's left edge to its right
+    expect(html).toMatch(/<span style="position:absolute;left:0;right:0;top:0;display:flex;white-space:nowrap"><span style="flex-shrink:0">[\d,]*<\/span><span style="flex:1 1 0;min-width:0;display:flex;justify-content:center">\d<\/span><span style="flex-shrink:0">\+<\/span><\/span>/);
+  });
+
+  it('keeps a word that follows a count still: the final value boxes the whole count, drawn against its right edge', () => {
+    for (const t of [0.05, 0.3, 0.6, 1.2]) {
+      const html = at(t, <CountUp t0={0} from={0} to={64} duration={1.5} hold={1} followed />);
+      // the outer box is always the final value, so whatever follows the count never moves
+      expect(html.match(/<span style="visibility:hidden">([^<]*)<\/span>/)![1]).toBe('64');
+      if (text(html) !== '6464') expect(html).toContain('position:absolute;right:0;top:0');
+    }
+  });
+
+  it('shows one value on every motion-blur sub-sample of a frame: the master frame decides (L-kit-D152)', () => {
+    // the 16 samples of frame f sit at f − 0.25 + 0.5 (k + 0.5) / 16: every one of them draws the same figures
+    const node = <CountUp t0={0.1} from={0} to={671} duration={0.8} hold={1} />;
+    for (let f = 2; f < 25; f++) {
+      const values = new Set(Array.from({length: 16}, (_, k) => text(at((f - 0.25 + (0.5 * (k + 0.5)) / 16) / 25, node))));
+      expect(values.size).toBe(1);
+    }
   });
 
   it('holds each figure of a count-up for three whole frames', () => {
@@ -203,6 +239,35 @@ describe('the logo build and sting', () => {
   it('builds a sting with a tagline and knows its length', () => {
     expect(stingLength()).toBeGreaterThan(logoPlan()!.times.end);
     expect(text(at(3, <LogoSting t0={0} tagline="A line" />))).toContain('A line');
+  });
+});
+
+describe('a mark in its colourway for the ground (L-brand-D016)', () => {
+  const ink = NEUTRAL.logos.primary;
+  const white = {...ink, svg: ink.svg.replace(/#1F1F1D/g, '#FAFAF7'), on: 'inverse'};
+  const pack = (logos: Record<string, unknown>) => ({...NEUTRAL, logos}) as never;
+
+  it("draws the mark's own white colourway on the inverse ground and its ink one on the page, never recoloured", () => {
+    setBrand(pack({primary: ink, 'primary-inverse': white}));
+    expect(colourwayLogo(undefined, true)).toBe('primary-inverse');
+    expect(colourwayLogo('primary', false)).toBe('primary');
+    expect(colourwayLogo('primary-inverse', false)).toBe('primary');
+    const end = logoPlan()!.times.end + 0.5;
+    const dark = at(end, <LogoBuild t0={0} x={100} y={100} w={400} dark />);
+    const light = at(end, <LogoBuild t0={0} x={100} y={100} w={400} />);
+    expect(dark).toContain('#FAFAF7');
+    expect(dark).not.toContain('#1F1F1D');
+    expect(light).toContain('#1F1F1D');
+    expect(light).not.toContain('#FAFAF7');
+    expect(at(end, <LogoSting t0={0} dark />)).toContain('#FAFAF7');
+  });
+
+  it("follows a logo's declared colourways, and draws a mark with one colourway as it is", () => {
+    setBrand(pack({primary: {...ink, colourways: {ink: 'primary', white: 'knock'}}, knock: white}));
+    expect(colourwayLogo('primary', true)).toBe('knock');
+    setBrand(pack({primary: ink}));
+    expect(colourwayLogo(undefined, true)).toBe('primary');
+    expect(at(logoPlan()!.times.end + 0.5, <LogoBuild t0={0} x={0} y={0} w={400} dark />)).toContain('#1F1F1D');
   });
 });
 

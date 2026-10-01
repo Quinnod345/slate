@@ -205,3 +205,23 @@ class _ReplayBuild:
 
     def __call__(self, argv, timeout=None, **kw):
         return self.ae(argv, timeout=timeout, **kw)
+
+
+def test_masters_cap_aerender_cpu_only_when_asked(built):
+    """`[ae] masters_cpu_percent` in slate.toml gives every chunk's aerender `-mfr ON <percent>` (Multi-Frame Rendering
+    capped at that share of the CPU) so the Mac stays usable; unset, the flag stays off the command line (L-ae-056)."""
+    fake = built["fake"]
+    masters.render(built["dir"], go=True, runner=fake, sleep=lambda s: None)
+    assert not any("-mfr" in c for c in fake.calls if Path(c[0]).name == "aerender")
+    (built["data"] / "slate.toml").write_text("[ae]\nmasters_cpu_percent = 60\n", encoding="utf-8")
+    for f in list(fake.frames):
+        Path(f).unlink(missing_ok=True)
+    fake.frames.clear()
+    fake.calls.clear()
+    masters.render(built["dir"], go=True, runner=fake, sleep=lambda s: None)
+    aer = [c for c in fake.calls if Path(c[0]).name == "aerender"]
+    assert len(aer) == 4 and all(c[c.index("-mfr"):c.index("-mfr") + 3] == ["-mfr", "ON", "60"] for c in aer)
+    assert masters.mfr_args({"ae": {"masters_cpu_percent": 25}}) == ["-mfr", "ON", "25"]
+    assert masters.mfr_args({"ae": {}}) == []
+    with pytest.raises(Refused, match="whole percent"):
+        masters.mfr_args({"ae": {"masters_cpu_percent": 140}})

@@ -69,7 +69,9 @@ slate score qa            # silence and noise in the takes and the score
 ```
 
 `sound/score/directions.json` (hand-edited) says where the music does something special: stops, blooms on a landing,
-splits at a story turn, styles. The playbook, and why each rule exists: [score](references/score.md).
+splits at a story turn, styles. Never name an artist, songwriter, song or label in its styles or a plan's prompts,
+never ask the music to sound like one, and no lyrics. The playbook, and why each rule exists:
+[score](references/score.md).
 
 ## 6. The mix
 
@@ -84,17 +86,24 @@ The balance gates (`sound.balance.*` and `sound.planned_stops`) measure the mix 
 word at least 12 dB clear of everything else in the consonant band, nothing louder than the voice while it speaks,
 textures and accents where the brand's palette puts them. A delivery needs them to pass like every other sound gate.
 
-The mix places the voice from its cue sheet, sets the score under the voice with ducking, sets effect stems at the
+The mix places the voice from its cue sheet, sets the score under the voice with ducking (by default 18.5 LU under
+before a 6 dB duck, the starting palette's level; `slate mix --under` and `--duck` change it for one mix), runs the
+score's own clarity guard (its top dips under any word it would crowd, by just enough), sets effect stems at the
 palette's levels, and takes the whole to −14 LUFS with the true peak at or under −1 dBTP, in 48 kHz, 24-bit, exactly as
 long as the picture. Four delivery stems (dialogue, effects, ambience, music) sum to the mix sample for sample. Manual
 polish in a DAW is allowed, but the engine's timing stays the reference. See [mix](references/mix.md).
 
 ## 7. Verification
 
-`slate verify` runs twelve gates: loudness, stems summing, the music gap, voice sync, cue sync, repeats, glides, drone,
-levels against the palette, the brand's sound reference, clarity under the voice, and the music licence for the
-destination. Only PASS counts; a gate that can't run (no approved sound reference, say) is UNCHECKED. See
+`slate verify` runs sixteen core gates (loudness, stems summing, the music gap, voice sync, cue sync, repeats, glides,
+drone, levels against the palette, the brand's sound reference, clarity under the voice, the music licence for the
+destination, the voice limiter's touch, notes on the brand's key, timbre, and Whisper hearing the mix word for word)
+and the seven balance gates (section 6, an approved span kept as approved among them), and a delivery needs every one
+of them. Only PASS counts; a gate that can't run (no approved sound reference, say) is UNCHECKED. See
 [verification](references/verification.md).
+
+A change to the approved narration (a polish, a re-voice) moves the balance: re-run the balance gates after it and
+re-solve the mix's rides (mix.md).
 
 ## 8. Perfect, don't replace
 

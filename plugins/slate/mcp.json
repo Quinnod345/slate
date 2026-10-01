@@ -4,10 +4,20 @@
   "slate": {
    "type": "stdio",
    "command": "slate",
-   "args": ["mcp"],
+   "args": [
+    "mcp"
+   ],
    "env": {
     "BROWSER": "none"
    }
+  },
+  "elevenlabs": {
+   "type": "streamable-http",
+   "url": "https://api.elevenlabs.io/v1/mcp"
+  },
+  "higgsfield": {
+   "type": "streamable-http",
+   "url": "https://mcp.higgsfield.ai/mcp"
   }
  }
 }

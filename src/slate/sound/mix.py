@@ -10,11 +10,14 @@ loudnorm that rides the gain, so its stems could never sum to its mix; that's wh
 3. The effects: whatever effect stems exist in sound/stems/ (ui, fx and their reverb join the effects stem; amb is
    the ambience), each trimmed to the brand palette's level against the voice. There may be none: a film with only
    score and voice mixes the same way, which is all the first reel needs.
-4. One linear gain takes the sum to the target loudness (-14 LUFS by default). If the true peak (4x oversampled)
+4. Everything under 25 Hz comes out first (a zero-phase high-pass on every part, as the films' masters did, so no hit
+   moves and the stems still sum): subsonic energy would otherwise spend headroom nobody hears.
+5. One linear gain takes the sum to the target loudness (-14 LUFS by default). If the true peak (4x oversampled)
    would go over the ceiling (-1 dBTP), the voice alone is peak-limited (plosives carry the peaks), then, if needed,
    one linked gain curve comes off every stem alike (so the stems still sum), then whatever's left comes off the
    whole mix inside the loudness tolerance. If that still can't meet both targets, the mix refuses and says so
-   rather than hiding it.
+   rather than hiding it. The share of the voice's speech the voice limiter touched goes in the report
+   (`voice_limiter`), and `sound.voice_limiter` fails it at 5%: past that, the limiter is shaping the read.
 
 Everything is written 48 kHz / 24-bit (the film's rate), exactly the film's length, starting on its first frame.
 """
@@ -40,6 +43,8 @@ MUSIC_ROLES = ("tonal", "tverb")
 AMBIENCE_ROLES = ("amb",)
 ROLES = EFFECTS_ROLES + MUSIC_ROLES + AMBIENCE_ROLES
 DELIVERY = ("dialogue", "effects", "ambience", "music")
+HIGHPASS_HZ = 25.0  # every part, zero-phase, before the loudness gain (the films' masters)
+VOICE_LIMITER_MAX = 0.05  # the voice limiter may touch under 5% of the speech (sound.voice_limiter)
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -105,8 +110,9 @@ class EngineStems:
     feature-length film never holds a second full-length copy of every stem."""
 
     def __init__(self, sources: dict[str, np.ndarray], factors: dict[str, float], ducks: dict[str, np.ndarray],
-                 curve: np.ndarray | None, gain: float):
+                 curve: np.ndarray | None, gain: float, highpass_hz: float | None = None, sr: int = 48000):
         self.sources, self.factors, self.ducks, self.curve, self.gain = sources, factors, ducks, curve, gain
+        self.highpass_hz, self.sr = highpass_hz, sr
 
     def roles(self) -> list[str]:
         return list(self.sources)
@@ -118,6 +124,8 @@ class EngineStems:
         y = self.sources[role] * (self.factors.get(role, 1.0) * self.gain)
         if role in self.ducks:
             y *= self.ducks[role][:, None]
+        if self.highpass_hz and np.any(y):
+            y = dsp.keep_silence(dsp.highpass(y, self.highpass_hz, self.sr, zero_phase=True), y, self.sr)
         if self.curve is not None:
             y *= self.curve[:, None]
         return y
@@ -128,9 +136,10 @@ def mix_arrays(vo_stem: np.ndarray, stems: dict[str, np.ndarray], score: np.ndar
                music_release_s: float = 0.65, stem_trim_db: dict | None = None,
                effects_ceiling_dbtp: float | None = None, linked_limit: bool = True, limiter: str = "slate",
                duck_depths: dict | None = None, ducked_roles: tuple = (), words: list | None = None,
-               score_guard: dict | None = None) -> dict:
+               score_guard: dict | None = None, highpass_hz: float | None = HIGHPASS_HZ) -> dict:
     """Mix arrays of equal length. Returns {"final": {delivery stems}, "mix": the mix, "engine": EngineStems,
-    "report": {...}}. Raises Refused when the targets can't be met with a gain and the limiters.
+    "report": {...}}. Raises Refused when the targets can't be met with a gain and the limiters. highpass_hz=None
+    leaves the sub-bass in (how the films' own final_mix.py ran, for parity checks against their records).
 
     Memory: arrays the mix makes itself are scaled in place; the caller's arrays are never modified."""
     lufs_t, tol, tp_t = float(targets["lufs"]), float(targets["tol"]), float(targets["true_peak"])
@@ -196,8 +205,19 @@ def mix_arrays(vo_stem: np.ndarray, stems: dict[str, np.ndarray], score: np.ndar
     if tonal is not None:
         music += tonal
         del tonal
+    if highpass_hz:
+        # the films' masters took everything under 25 Hz out before the loudness gain; zero-phase, so no hit moves,
+        # and a digital silence stays silent (the filter would otherwise ring a little into a silent last second)
+        def cut(x: np.ndarray) -> np.ndarray:
+            return dsp.keep_silence(dsp.highpass(x, highpass_hz, sr, zero_phase=True), x, sr) if np.any(x) else x
+
+        if has_voice:
+            dialogue, dialogue_owned = cut(dialogue), True
+        effects, ambience, music = cut(effects), cut(ambience), cut(music)
+        report["highpass_hz"] = float(highpass_hz)
     raw_dialogue, raw_effects = dialogue, effects
     limited = effects_limited = False
+    voice_gain: np.ndarray | None = None  # the voice limiter's last gain curve (1.0 wherever it left the voice alone)
     mix = dialogue + effects + ambience + music
     mix_l = measure.integrated(mix, sr)
     if mix_l <= measure.SILENT_FLOOR:
@@ -210,7 +230,12 @@ def mix_arrays(vo_stem: np.ndarray, stems: dict[str, np.ndarray], score: np.ndar
             break
         if has_voice:
             # the voice carries the peaks: limit it so that, after the loudness gain, it sits 0.9 dB under the ceiling
-            dialogue, dialogue_owned = lim(raw_dialogue, tp_t - 0.9 - g_db, sr), True
+            if limiter == "ffmpeg":
+                dialogue, voice_gain = lim(raw_dialogue, tp_t - 0.9 - g_db, sr), None
+            else:  # Slate's limiter, its gain curve kept for the report (the same call dsp.limit makes)
+                voice_gain = dsp.gain_curve(raw_dialogue, tp_t - 0.9 - g_db, sr, look_ms=5.0, release_ms=60.0)
+                dialogue = raw_dialogue * voice_gain[:, None]
+            dialogue_owned = True
             limited = True
         if effects_ceiling_dbtp is not None and np.any(raw_effects):
             effects = lim(raw_effects, effects_ceiling_dbtp - g_db, sr)
@@ -222,6 +247,8 @@ def mix_arrays(vo_stem: np.ndarray, stems: dict[str, np.ndarray], score: np.ndar
         mix_l, mix_tp = measure.integrated(mix, sr), measure.true_peak(mix, sr)
         g_db = lufs_t - mix_l
     del raw_effects
+    if has_voice:
+        report["voice_limiter"] = _voice_limiter(raw_dialogue, dialogue if limited else None, voice_gain, sr)
     linked = None
     total_curve = None
     if linked_limit and mix_tp + g_db > tp_t - 0.1:
@@ -272,8 +299,24 @@ def mix_arrays(vo_stem: np.ndarray, stems: dict[str, np.ndarray], score: np.ndar
                       f"(it reached {f_l:.1f} LUFS, {f_tp:.1f} dBTP).",
                       hint="Look at what's peaking in sound/mix/final_mix.json; lower the loudest stem's trim or the "
                            "voice gain, then mix again.", details={"report": report})
-    engine = EngineStems(stems, factors, ducks, total_curve, g)
+    engine = EngineStems(stems, factors, ducks, total_curve, g, highpass_hz, sr)
     return {"final": final, "mix": out_mix, "engine": engine, "report": report}
+
+
+def _voice_limiter(raw: np.ndarray, limited: np.ndarray | None, gain: np.ndarray | None, sr: int) -> dict:
+    """The voice limiter's touch on the speech (dsp.limiter_touch): from its own gain curve, or, for the ffmpeg
+    limiter, from what it did to the signal (limited against raw, per sample, where the voice has any level)."""
+    if limited is None:
+        g = np.ones(len(raw))
+    elif gain is not None:
+        g = gain
+    else:
+        a = np.max(np.abs(raw), axis=1) if raw.ndim == 2 else np.abs(raw)
+        b = np.max(np.abs(limited), axis=1) if limited.ndim == 2 else np.abs(limited)
+        g = np.where(a > 1e-6, np.minimum(1.0, b / np.maximum(a, 1e-12)), 1.0)
+    out = dsp.limiter_touch(raw, g, sr)
+    out.update({"limited": limited is not None, "rule": f"under {VOICE_LIMITER_MAX:.0%} of the speech"})
+    return out
 
 
 def quantized_sum_error(final: dict[str, np.ndarray], mix: np.ndarray) -> float:
@@ -414,6 +457,13 @@ def run(film_dir: Path, *, score: str | Path | None = None, no_score: bool = Fal
         inputs = ["timing/shots.json", "timing/vo_cues.json"] + ([film.rel(sp)] if sp else []) + list(stem_files.values())
         record_lock(film, outputs["mix"], producer="slate mix", inputs=[i for i in inputs if film.path(i).exists()])
     return mix_path
+
+
+def listening_file(film_dir: Path, *, n: int = 9) -> dict:
+    """The listening file of the hardest-ridden accents, each as mixed before its ride and now (slate.sound.listen)."""
+    from slate.sound import listen  # noqa: PLC0415
+
+    return listen.ridden_accents(film_dir, n=n)
 
 
 def empty_by_design(placed: list, score: Path | None, stems: dict) -> dict[str, str]:

@@ -16,6 +16,17 @@ from pathlib import Path
 
 import pytest
 
+# The modules that bind slate.brand.pack or slate.formats when they're first imported, imported for real here, before
+# any test stands the fakes below in sys.modules. Otherwise the first one a state test imports (a full CLI parser build
+# imports them all) keeps the fake for good once the test is over, and a later test module's `slate budget` or
+# `slate brand` sees a fake brand pack: no leaking state between test modules, in any order.
+import slate.bench.higgsedit  # noqa: E402,F401
+import slate.brand.approve  # noqa: E402,F401
+import slate.brand.cli  # noqa: E402,F401
+import slate.brand.create  # noqa: E402,F401
+import slate.brand.onboard  # noqa: E402,F401
+import slate.brand.validate  # noqa: E402,F401
+
 FIXTURES = Path(__file__).parent / "fixtures"
 FORMATS = FIXTURES / "formats"
 BRANDS = FIXTURES / "brands"

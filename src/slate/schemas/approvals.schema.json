@@ -25,7 +25,7 @@
     "what": {"type": "string", "pattern": "^[a-z][a-z0-9_-]{0,39}(:[A-Za-z0-9][A-Za-z0-9._/-]{0,119})?$",
              "description": "The approval as named by whoever asked for it; may be qualified, e.g. plate-take:S05."},
     "kind": {"enum": ["checklist", "claims", "script", "voice_shortlist", "look_test", "final_cut", "hero", "plate",
-                      "sound_proof", "take", "score_take", "spend", "other"],
+                      "sound_proof", "take", "score_take", "spend", "grant", "other"],
              "description": "What it counts as (sittings, locking): the part before the colon, through Slate's aliases."},
     "path": {"type": "string", "minLength": 1},
     "sha256": {"$ref": "#/$defs/sha"},

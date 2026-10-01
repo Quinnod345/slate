@@ -282,6 +282,50 @@ class Env:
         except OSError:
             return None
 
+    # -- processes and windows (read-only) ------------------------------------------------------------------------
+
+    def processes(self) -> list[dict] | None:
+        """Every process as {pid, ppid, command} (`ps`, read-only), or None when the list can't be read. Command lines
+        can carry secrets, so callers only ever compare them, never report them."""
+        ran = self.run(["/bin/ps", "-axo", "pid=,ppid=,command="], timeout=20, cache=False)
+        if not ran.ok:
+            return None
+        out = []
+        for line in ran.stdout.splitlines():
+            parts = line.strip().split(None, 2)
+            if len(parts) >= 2 and parts[0].isdigit() and parts[1].isdigit():
+                out.append({"pid": int(parts[0]), "ppid": int(parts[1]), "command": parts[2] if len(parts) > 2 else ""})
+        return out
+
+    def ae_windows(self) -> dict:
+        """After Effects' open windows by title, through System Events (it never launches AE: it asks only when AE is
+        already running). {running, windows: [titles] | None, error}. Reading another app's windows needs the
+        Accessibility permission for the app running doctor; without it, windows is None and error says why."""
+        script = ('tell application "System Events"\n'
+                  '  set ps to (every process whose bundle identifier is "com.adobe.AfterEffects.application")\n'
+                  '  if ps is {} then return "not running"\n'
+                  '  set out to ""\n'
+                  '  repeat with w in (every window of (item 1 of ps))\n'
+                  '    set out to out & (name of w as text) & linefeed\n'
+                  '  end repeat\n'
+                  '  return "windows:" & linefeed & out\n'
+                  'end tell')
+        ran = self.run(["/usr/bin/osascript", "-e", script], timeout=15, cache=False)
+        if ran.ok and ran.stdout.strip() == "not running":
+            return {"running": False, "windows": [], "error": None}
+        if ran.ok and ran.stdout.startswith("windows:"):
+            titles = [t.strip() for t in ran.stdout.splitlines()[1:] if t.strip()]
+            return {"running": True, "windows": titles, "error": None}
+        return {"running": True, "windows": None, "error": (ran.text or f"exit {ran.returncode}")[:200]}
+
+    def claude_desktop_versions(self) -> list[str]:
+        """The Claude Code builds the desktop app keeps for itself (~/Library/Application Support/Claude/claude-code/
+        <version>/claude.app), newest last."""
+        root = self.home / "Library" / "Application Support" / "Claude" / "claude-code"
+        found = [n for n in self.listdir(root) if re.fullmatch(r"\d+(\.\d+)+", n)
+                 and self.exists(root / n / "claude.app")]
+        return sorted(found, key=lambda v: tuple(int(x) for x in v.split(".")))
+
     # -- Slate itself ----------------------------------------------------------------------------------------------
 
     def repo(self) -> Path:
@@ -436,6 +480,18 @@ class Env:
         from slate.ae import smoke  # noqa: PLC0415
 
         return smoke.run()
+
+    def stability_conformance(self) -> dict:
+        """{record, bench, spec_sha256}: the render-stability conformance record in Slate's data folder (None when the
+        procedure hasn't run on this Mac), and whether the engine kit's stability bench spec is in this checkout."""
+        from slate import jsonio  # noqa: PLC0415
+        from slate.qa import stability  # noqa: PLC0415
+
+        rec = self.read_json(self.data_dir() / stability.CONFORMANCE_RECORD)
+        spec = stability.bench_spec_path()
+        bench = spec.is_file()
+        return {"record": rec if isinstance(rec, dict) else None, "bench": bench,
+                "spec_sha256": jsonio.sha256(spec) if bench else None}
 
     def ae_running(self) -> bool:
         return procs.ae_running()

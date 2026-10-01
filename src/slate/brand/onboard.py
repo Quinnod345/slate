@@ -284,6 +284,19 @@ def _source_record(where: str, *, sid: str | None, pin: str | None, kind: str | 
     return rec
 
 
+def _saved_page(where: str) -> Path | None:
+    """A saved web page given as a source (an .html file, or a folder holding index.html), else None. Live URLs are
+    read by the look step (--from-website), never fetched here."""
+    if where.startswith(("http://", "https://")) or sources.is_work_path(where):
+        return None
+    p = Path(where).expanduser()
+    if p.is_file() and p.suffix.lower() in (".html", ".htm"):
+        return p
+    if p.is_dir() and (p / "index.html").is_file():
+        return p / "index.html"
+    return None
+
+
 def _merge_list(items: list, new: Iterable, key) -> list:
     out = list(items)
     seen = {key(x) for x in out}
@@ -446,8 +459,15 @@ def truth(name: str, *, source: str | None = None, source_id: str | None = None,
         changes.append(f"merged {import_file}")
     if source:
         rec = _source_record(source, sid=source_id, pin=pin, kind=kind, read=read)
+        page = _saved_page(source)
+        if page is not None:  # a saved copy of the brand's website: keep its own words with it
+            try:
+                rec["copy"] = sources.read_website(str(page))["copy"]
+            except SlateError as exc:
+                changes.append(f"its copy couldn't be read: {exc.message}")
         t["sources"] = _merge_list(t["sources"], [rec], lambda s: str(s.get("id")))
-        changes.append(f"source {rec['id']}: {rec['where']} (pinned to {rec.get('pin') or 'nothing yet'})")
+        changes.append(f"source {rec['id']}: {rec['where']} (pinned to {rec.get('pin') or 'nothing yet'})"
+                       + (f", {len(rec['copy'])} lines of its copy kept" if rec.get("copy") else ""))
     elif source_id or pin:
         raise UsageError("--source-id and --pin describe a source: give it with --source.")
     if authority:
@@ -521,6 +541,8 @@ def load_inputs(folder: Path) -> dict:
 def _record(inputs: dict, result: dict) -> str:
     src = dict(result["source"])
     inputs["sources"][src["id"]] = {**src, "found": result["found"], "problems": result.get("problems") or []}
+    if result.get("copy") is not None:  # a website's visible copy, beside what was found in its styles
+        inputs["sources"][src["id"]]["copy"] = list(result["copy"])
     return src["id"]
 
 

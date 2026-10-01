@@ -13,8 +13,8 @@ from pathlib import Path
 
 from slate import cli, jsonio, log, paths
 from slate.errors import Refused, UsageError
-from slate.state import (_util, approvals, derive, film, lock, make, modes, pins, production, revise, scaffold,
-                         status)
+from slate.state import (_util, approvals, autonomy, derive, film, inputs, lock, make, modes, pins, production, revise,
+                         scaffold, status)
 
 EPILOG = "Exit codes: 0 ok, 1 refused, 2 usage, 3 missing prerequisite, 4 spend refused, 5 busy."
 
@@ -80,7 +80,7 @@ def cmd_new(args: argparse.Namespace) -> int:
     target = film.create(args.id, brand=args.brand, format=args.format, mode=args.mode, title=args.title,
                          parent=args.parent, derivation=derivation, generation=args.generation,
                          films_dir=args.dir, request=request, request_source=args.source, runtime_s=args.runtime,
-                         aspect=args.aspect, git=False if args.no_git else None)
+                         aspect=args.aspect, git=False if args.no_git else None, by=args.by, reason=args.reason)
     st = status.compute(target)
     fj = film.load(target)
     git = scaffold.git_state(target)
@@ -151,6 +151,21 @@ def cmd_make(args: argparse.Namespace) -> int:
 
 
 def cmd_approve(args: argparse.Namespace) -> int:
+    if str(args.what or "").strip().lower() == approvals.GRANT:  # an autonomy grant: its scope, in the owner's words
+        film_dir = cli.film(args)
+        if args.path and not args.scope:
+            raise UsageError("A grant's scope goes in --scope, in the owner's words (it isn't a file).",
+                             hint='slate approve grant --scope "creative decisions on act 3" --by NAME')
+        if _dry_stop(args, f"record {args.by}'s autonomy grant: {args.scope!r}"):
+            return 0
+        rec = approvals.grant(film_dir, scope=args.scope or "", approved_by=args.by, note=args.note)
+        log.result(rec, f"Granted by {rec['approved_by']}: “{rec['note']}” ({rec['id']}, kept in {rec['path']}). "
+                        "`slate status` lists every grant.")
+        return 0
+    if args.scope:
+        raise UsageError("--scope is for autonomy grants (slate approve grant --scope \"…\" --by NAME).")
+    if not args.path:
+        raise UsageError(f"Name the file that was approved: slate approve {args.what} <path> --by NAME.")
     if approvals.is_global(args.what):  # Slate's own gates (proof 3) aren't a film's: no film needed
         if _dry_stop(args, f"record {args.by}'s approval of {args.what} for {args.path}"):
             return 0
@@ -189,8 +204,15 @@ def cmd_film_show(args: argparse.Namespace) -> int:
            "questions": ap["questions"], "revisions": [{k: r[k] for k in ("id", "artifact", "status")}
                                                        for r in ap["revisions"]],
            "lock": {"entries": len(lk["files"]), "locked": lock.locked_assets(film_dir),
-                    "shot_ids_frozen": lock.frozen_shot_ids(film_dir), "timeline": lk["frozen"].get("timeline")}}
+                    "shot_ids_frozen": lock.frozen_shot_ids(film_dir), "timeline": lk["frozen"].get("timeline")},
+           "mode_lock": autonomy.describe(film_dir), "inputs": inputs.listing(film_dir),
+           "grants": approvals.grants(film_dir)}
     human = [jsonio.dumps(fj).rstrip()]
+    if out["mode_lock"].get("locked"):
+        human.append(f"\nautonomous on Slate's own record ({out['mode_lock']['file']}) since "
+                     f"{str(out['mode_lock'].get('since') or '')[:16]}: only a person at their own Terminal changes it"
+                     + (f"; film.json says {fj.get('mode')}, which Slate ignores" if out["mode_lock"]["mismatch"]
+                        else ""))
     human.append(f"\n{len(ap['approvals'])} approvals · {len(ap['questions'])} questions · "
                  f"{len(lk['files'])} lock entries ({len(out['lock']['locked'])} locked)")
     for a in ap["approvals"][-10:]:
@@ -203,11 +225,52 @@ def cmd_film_set(args: argparse.Namespace) -> int:
     film_dir = cli.film(args)
     value = _util.parse_value(args.value)
     if _dry(args):
-        log.result({"dry_run": True, "key": args.key, "value": value}, f"Would set {args.key} to {value!r}")
+        out = {"dry_run": True, "key": args.key, "value": value}
+        if args.key.strip() == "mode" and isinstance(value, str):
+            try:  # say now whether the change would be refused, without recording anything
+                autonomy.check_change(film_dir, film.load(film_dir), value, why=args.reason)
+            except (Refused, UsageError) as exc:
+                out.update(would="refuse", why=exc.message, hint=exc.hint)
+                log.result(out, f"Would refuse: {exc.message}" + (f"\n  next: {exc.hint}" if exc.hint else ""))
+                return 0
+        log.result(out, f"Would set {args.key} to {value!r}")
         return 0
-    change = film.set_value(film_dir, args.key, value)
+    change = film.set_value(film_dir, args.key, value, by=args.by, reason=args.reason)
     production.render(film_dir)
-    log.result(change, f"{change['key']}: {change['old']!r} → {change['new']!r}")
+    rec = change.get("recorded")
+    log.result(change, f"{change['key']}: {change['old']!r} → {change['new']!r}"
+               + (f"\n  recorded in Slate's own record: by {rec['by']}"
+                  + (f", because {rec['why']}" if rec.get("why") else "") if rec else ""))
+    return 0
+
+
+def cmd_film_input(args: argparse.Namespace) -> int:
+    film_dir = cli.film(args)
+    if _dry_stop(args, f"copy {args.file} into brief/inputs/, check its SHA-256 and record where it came from"):
+        return 0
+    got = inputs.add(film_dir, args.file, source=args.source, as_name=args.as_name)
+    log.result(got, (f"{got['path']} is already this input (sha256 {_util.short(got['sha256'])})" if got["already"]
+                     else f"Copied {got['from']} to {got['path']} (sha256 {_util.short(got['sha256'])}, "
+                          f"{got['bytes']:,} bytes), supplied by {got['source']}; locked by its hash"))
+    return 0
+
+
+def cmd_film_icloud(args: argparse.Namespace) -> int:
+    film_dir = cli.film(args)
+    out = film.icloud_protect(film_dir, yes=bool(args.yes) and not _dry(args))
+    if out.get("icloud") is None:
+        log.result(out, f"{out['film']} isn't in iCloud Drive: nothing to keep out of sync.")
+        return 0
+    lines = [f"{out['film']} is in iCloud Drive ({out['icloud']})."]
+    if out["applied"]:
+        lines.append(f"Kept out of iCloud sync: {', '.join(out['applied'])} (File Provider's ignore attribute).")
+    if out["already"]:
+        lines.append(f"Already kept out: {', '.join(out['already'])}.")
+    if out.get("would"):
+        lines.append(f"Would keep out of sync: {', '.join(out['would'])}. Nothing changed: run it again with --yes "
+                     "once the person has said yes.")
+    lines.append(f"Undo: {out['undo']}")
+    log.result(out, "\n".join(lines))
     return 0
 
 
@@ -322,7 +385,7 @@ def cmd_variant(args: argparse.Namespace) -> int:
         return 0
     child = derive.create(parent_dir, args.child, format=args.format, aspect=args.aspect, language=args.language,
                           cut=args.cut, title=args.title, mode=args.mode, films_dir=args.dir,
-                          git=False if args.no_git else None, channel=args.channel)
+                          git=False if args.no_git else None, channel=args.channel, by=args.by, reason=args.reason)
     fj = film.load(child)
     d = fj["derivation"]
     reuse = d.get("reuse") or {}
@@ -421,6 +484,9 @@ def register(sub) -> None:
     p.add_argument("--no-git", action="store_true", help="don't start a git history")
     p.add_argument("--parent", help="derive from this film (id or path); see also `slate variant`")
     p.add_argument("--derivation", help='JSON, e.g. {"aspect": "9:16"}, {"cut_s": 15} or {"language": "fr"}')
+    p.add_argument("--by", help="who is making it (recorded with its mode in Slate's own record)")
+    p.add_argument("--reason", help="why a film derived from an autonomous one gets another mode (a person at their "
+                                    "own Terminal only)")
 
     p = cli.add_command(sub, "status", cmd_status, "where the film stands, per stage, and the next command",
                         epilog=EPILOG, description=(
@@ -445,22 +511,45 @@ def register(sub) -> None:
                             "script, voice_shortlist, look_test) and final_cut block; packets (hero, plate, "
                             "sound_proof, take, score_take) don't. Takes, score takes, plates and the final cut are "
                             "locked by content hash. 'spend' records a yes to spend again and prints its id. "
+                            "'grant' records an autonomy grant with its scope in the owner's words (--scope, no "
+                            "path); `slate status` lists them. "
                             "'proof3' is Slate's own: the approved proof's path and SHA-256 go to "
                             "DATA/approvals.json, which the effects engine waits on (no film needed)."))
     p.add_argument("what", help=", ".join(approvals.KINDS) + " (a qualifier may follow a colon, e.g. plate:S05); "
+                   f"{approvals.GRANT} (an autonomy grant, with --scope); "
                    "or Slate's own " + ", ".join(approvals.GLOBAL_KINDS) + ", which needs no film")
-    p.add_argument("path", help="the file or folder approved (film-relative; for proof3, the proof's own path)")
+    p.add_argument("path", nargs="?",
+                   help="the file or folder approved (film-relative; for proof3, the proof's own path; none for a grant)")
     p.add_argument("--by", required=True, help="the person who approved it")
     p.add_argument("--note", help="their words, or where they said it")
+    p.add_argument("--scope", help="for a grant: what the owner lets an agent decide on its own, in their words")
 
     grp = cli.add_group(sub, "film", "film.json, pins, the brief and questions")
     cli.add_command(grp, "show", cmd_film_show, "print film.json, approvals and lock summary", epilog=EPILOG)
     p = cli.add_command(grp, "set", cmd_film_set, "change one film.json key on purpose", epilog=EPILOG, description=(
         "Dotted keys for nested values (targets.runtime_s, budget.elevenlabs). Values are JSON when they parse. "
         "The id, pins, parent and language have their own commands; the clock and size are fixed once shot ids "
-        "freeze."))
+        "freeze. A film made autonomous stays autonomous on Slate's own record: changing its mode takes a person at "
+        "their own Terminal and a --reason, and is recorded with who and why."))
     p.add_argument("key")
     p.add_argument("value")
+    p.add_argument("--by", help="who is making a mode change (default: your login)")
+    p.add_argument("--reason", help="why (required to change a film's mode away from autonomous)")
+    p = cli.add_command(grp, "input", cmd_film_input, "copy a supplied file into brief/inputs/, hashed and recorded",
+                        epilog=EPILOG, description=(
+                            "Copies the file into the film's brief/inputs/, checks the copy's SHA-256 against the "
+                            "source, records where it came from and who supplied it in film.lock.json, and locks it "
+                            "by its hash. Tools read the film's copy; an input with the same name and different "
+                            "bytes is refused, never replaced."))
+    p.add_argument("file", help="the supplied file (an original film, a motion reference, a logo, ...)")
+    p.add_argument("--source", help="who supplied it")
+    p.add_argument("--as", dest="as_name", help="the name to keep it under (default: the file's own name)")
+    p = cli.add_command(grp, "icloud", cmd_film_icloud, "keep a film's heavy folders out of iCloud sync (with --yes)",
+                        epilog=EPILOG, description=(
+                            "For a film that has to live in iCloud Drive: sets File Provider's ignore attribute on "
+                            "renders, masters, captures, plates and archive, so iCloud never uploads them. Without "
+                            "--yes it only says what it would do; --yes means the person said yes."))
+    p.add_argument("--yes", action="store_true", help="the person agreed")
     p = cli.add_command(grp, "pin", cmd_film_pin, "pin a value at first use (first use wins)", epilog=EPILOG)
     p.add_argument("key", help="e.g. tts, voice_id, voice_settings, seed.S01, request_id.S01, music, remotion")
     p.add_argument("value")
@@ -513,7 +602,11 @@ def register(sub) -> None:
     p.add_argument("--channel", help="the channel it's for (tiktok, youtube, ...): its route decides the render "
                                      "quality and the master (social: draft samples and ffmpeg; hero: the full pipeline)")
     p.add_argument("--title")
-    p.add_argument("--mode", choices=film.MODES)
+    p.add_argument("--mode", choices=film.MODES,
+                   help="default: the parent's mode (a child of an autonomous film is autonomous unless a person at "
+                        "their own Terminal says otherwise, with --reason)")
+    p.add_argument("--by", help="who is making it (recorded with its mode)")
+    p.add_argument("--reason", help="why a child of an autonomous film gets another mode")
     p.add_argument("--dir", help="make it in this folder instead of ~/Movies/Slate")
     p.add_argument("--no-git", action="store_true")
 

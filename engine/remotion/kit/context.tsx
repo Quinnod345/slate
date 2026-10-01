@@ -112,6 +112,17 @@ export function useAppPx(): (appPx: number) => number {
   return (appPx: number) => (appPx * s) / 540;
 }
 
+/**
+ * The look's accent-line weight in px on this frame (the look's `line`, a fraction of the short side). Every kit
+ * component that draws the accent line takes it by default (the charts' curves and lines, the logo build's outline), so
+ * an act's own line and the kit component it hands to share one weight: the films' 4 px logo-build line once met a 3 px
+ * line an act drew itself (L-kit-D131).
+ */
+export function useLine(): number {
+  const k = useKit();
+  return k.look.line * k.short;
+}
+
 /** A type role as CSS, sized for this frame. */
 export function useType(role: string, color?: string): ResolvedTypeStyle {
   const k = useKit();

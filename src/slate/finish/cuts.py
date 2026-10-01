@@ -7,6 +7,10 @@ Every cut is made from one source, decoded once:
 - otherwise the **act renders** joined in film order plus the final mix, the way the films made their review cuts
   (a packet never waits for the masters).
 
+Before the final mix exists, the cuts play the voice alone, every take placed on its cue the way the mix will place
+it (timing/vo_cues.json, through slate.sound.vo), instead of silence; the packet says so. A proposed mix can stand in
+for the film's own (`slate review --audio <mix>`), so a new mix is reviewed against the current picture.
+
 Sizes come from the film: the phone cut's short side is [finish.review] phone_short_side (360 by default, never
 upscaled), the review cut is half the film's size. H.264 is VideoToolbox when this ffmpeg has it (the CPU stays free
 for renders), else libx264; audio is AAC at 48 kHz; never -shortest. Every cut's frame count is checked against the
@@ -19,9 +23,12 @@ import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from slate.errors import MissingPrerequisite, SlateError
+from slate import jsonio, log
+from slate.errors import MissingPrerequisite, SlateError, UsageError
 from slate.finish import burnin, deps, media, settings
 from slate.finish.film import Film
+
+VOICE_ONLY = "review/voice_only.wav"  # the voice placed on its cues, for cuts made before the mix exists
 
 
 @dataclass
@@ -31,18 +38,24 @@ class Source:
     kind: str  # "master" or "renders"
     files: list[Path]
     offsets: list[int]  # the film frame each file starts at
-    audio: Path | None = None  # a separate sound file (renders); a master carries its own
+    audio: Path | None = None  # a separate sound file (renders, or a proposed mix over a master)
     master_audio: bool = False
     notes: list[str] = field(default_factory=list)
+    sound: str | None = None  # what the sound is: "final mix", "voice only", "proposed mix", "the master's own"
 
     def describe(self, film: Film) -> dict:
-        return {"kind": self.kind, "files": [film.rel(f) for f in self.files],
-                "audio": film.rel(self.audio) if self.audio else ("in the master" if self.master_audio else None),
-                "notes": self.notes}
+        out = {"kind": self.kind, "files": [film.rel(f) for f in self.files],
+               "audio": film.rel(self.audio) if self.audio else ("in the master" if self.master_audio else None),
+               "notes": self.notes}
+        out["sound"] = self.sound or ("the master's own" if self.master_audio and not self.audio else
+                                      "final mix" if self.audio else "silent")
+        return out
 
     def ffmpeg_inputs(self, tmp: Path) -> tuple[list[str], str | None, int]:
         """(input args, audio map or None, how many inputs) for this source."""
         if self.kind == "master":
+            if self.audio is not None:  # another sound over the master's picture (a proposed mix)
+                return ["-i", str(self.files[0]), "-i", str(self.audio)], "1:a:0", 2
             return ["-i", str(self.files[0])], ("0:a:0" if self.master_audio else None), 1
         lst = media.concat_list(self.files, tmp / "acts.txt")
         args = ["-f", "concat", "-safe", "0", "-i", str(lst)]
@@ -58,6 +71,43 @@ class Source:
         return self.files[-1], frame - self.offsets[-1]
 
 
+def voice_only(film: Film) -> tuple[Path | None, str | None]:
+    """The voice alone, every take placed on its cue exactly as the mix places it (slate.sound.vo), as a WAV the
+    film's length: what review cuts play until the final mix exists. Kept in review/voice_only.wav and made again
+    only when the cue sheet or a take changes. (None, why) when there's no voice to place."""
+    cue_sheet = film.path("timing/vo_cues.json")
+    if not cue_sheet.is_file():
+        return None, "there's no cue sheet (timing/vo_cues.json) to place the voice from"
+    sfilm, vo, wav = deps.module("slate.sound.film"), deps.module("slate.sound.vo"), deps.module("slate.qa.wav")
+    if sfilm is None or vo is None or wav is None:
+        return None, "the sound module isn't installed, so the voice can't be placed"
+    try:
+        sf = sfilm.load(film.dir)
+        cues = vo.cues(sf)
+        if not cues:
+            return None, "the cue sheet places no takes"
+        takes = {str(c.get("file")): sf.resolve_media(str(c.get("file"))) for c in cues if c.get("file")}
+        missing = [k for k, p in takes.items() if not Path(p).is_file()]
+        if missing:
+            return None, f"the take {missing[0]} isn't on disk"
+        key = {"cues": jsonio.sha256(cue_sheet), "takes": {k: jsonio.sha256(p) for k, p in sorted(takes.items())},
+               "sr": sf.sr, "samples": sf.n}
+        out = film.path(VOICE_ONLY)
+        record = out.with_suffix(".json")
+        old = jsonio.read(record, default=None) if record.is_file() else None
+        if out.is_file() and isinstance(old, dict) and old.get("key") == key:
+            return out, None
+        stem, placed = vo.render_stem(sf)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        wav.write(out, stem, sf.sr, 24)
+        jsonio.write_atomic(record, jsonio.mark_generated({"key": key, "placed": placed,
+                                                           "why": "review cuts before the final mix exists"},
+                                                          "slate review"))
+        return out, None
+    except (SlateError, OSError, ValueError, KeyError) as exc:
+        return None, f"the voice couldn't be placed ({getattr(exc, 'message', exc)})"
+
+
 def source_for(film: Film, *, prefer_master: bool = True) -> Source:
     """The best source for cuts right now (see the module docstring)."""
     notes = []
@@ -69,9 +119,34 @@ def source_for(film: Film, *, prefer_master: bool = True) -> Source:
             notes.append("the master is older than the current renders or mix, so the cut is made from those")
     renders = film.act_renders()
     mix = film.mix()
+    sound = "final mix"
     if mix is None:
-        notes.append("there's no final mix yet, so the cut is silent")
-    return Source("renders", [r["path"] for r in renders], [r["frame_in"] for r in renders], mix, False, notes)
+        mix, why = voice_only(film)
+        if mix is not None:
+            sound = "voice only"
+            notes.append("there's no final mix yet, so the cut plays the voice alone, each take placed on its cue")
+        else:
+            sound = "silent"
+            notes.append(f"there's no final mix yet, so the cut is silent ({why})")
+    return Source("renders", [r["path"] for r in renders], [r["frame_in"] for r in renders], mix, False, notes,
+                  sound=sound)
+
+
+def with_audio(film: Film, mix: Path, *, prefer_master: bool = True) -> Source:
+    """The current picture (the master when it's current, else the act renders) with another sound: a proposed mix
+    to review against it (`slate review --audio`)."""
+    mix = Path(mix).expanduser()
+    if not mix.is_absolute():
+        mix = (Path.cwd() / mix) if (Path.cwd() / mix).is_file() else film.path(mix)
+    if not mix.is_file():
+        raise UsageError(f"There's no mix at {mix}.", hint="Give the WAV of the mix to review (--audio <file>).")
+    if not media.has_audio(mix):
+        raise UsageError(f"{mix.name} has no sound in it.")
+    pic = source_for(film, prefer_master=prefer_master)
+    notes = [n for n in pic.notes if "no final mix" not in n]
+    notes.append(f"the sound is a proposed mix ({mix.name}), not the film's own")
+    log.info(f"review: the picture from the {pic.kind}, the sound from {mix}")
+    return Source(pic.kind, pic.files, pic.offsets, mix, False, notes, sound="proposed mix")
 
 
 def _check_frames(film: Film, path: Path, what: str) -> int:

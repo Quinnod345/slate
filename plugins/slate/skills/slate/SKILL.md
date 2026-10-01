@@ -133,6 +133,8 @@ More: [approvals](references/approvals.md).
 - A film's budget is a hard stop. 1.5 times is allowed only for marked rework. Spending past it needs the owner's
   recorded yes, and an autonomous film can never raise its own.
 - **Slate never buys credits, upgrades a plan or starts a licence.** When a balance runs out, the work stops and asks.
+- An optional extra that costs real credits (a dedicated score swell is about 1,100 to 1,500) is offered with its price
+  and made only on the owner's yes, even when the budget would cover it.
 - Replay is the default for tests and demos (`SLATE_FAKE_VENDORS=1`); `--live` spends for real.
 
 Default budgets by format: [budgets](references/budgets.md).
@@ -179,6 +181,9 @@ A production can run for days and outlive every agent that works on it.
   rate limit (exit 75) goes back in the queue and tries again after the vendor's own wait.
 - **Nothing prompts.** Research slices are killed after ten minutes with stdin as a pipe, so never start anything that
   waits for input. Keys are typed by a person in their own Terminal with `slate connect`, never in chat.
+- **Inside the OpenClaw gateway, every paid stage is a job.** The gateway's egress proxy blocks the vendors, and the
+  job runner works outside it: run voicing, music and generation with `--detach` or `slate job submit`, never inline
+  ([agents and connectors](references/agents-and-connectors.md)).
 - Save early and often: a session can end without warning.
 
 See [resilience](references/resilience.md).

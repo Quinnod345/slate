@@ -18,6 +18,11 @@ better staged.
   the word) and highlight items on their spoken word with the product's own hover or selection state.
 - **Load surfaces the way the product loads them**: the curve draws, the numeral counts, the marker settles, the
   statement lands.
+- **Redraw the product's icons from their source geometry** (the icon library's own paths, at the product's pinned
+  version), never approximations. The kit's generic icons are for brands without a set of their own.
+- **Figures in the voice match the data state on screen.** One constant in the act picks which reading the film shows
+  (the first reading or the second), and every surface that depends on it (the report, the chart, the character's line)
+  reads that constant, so a sentence about the old score never sits beside a report showing the new one.
 
 ## Interactions
 

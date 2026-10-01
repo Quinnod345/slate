@@ -33,6 +33,8 @@ builder followed it.
   changes the kit.
 - **Each builder has its own scratch folder**: parallel builders overwrite each other's scratch otherwise.
 - **Builders make stills and half-scale previews only**, never full-resolution finals, never inside the film folder.
+- **When an act is handed in, the builder cleans its scratch folder** and keeps only the final preview and its contact
+  sheet.
 - **Facts several acts show** (a tally, a standing, a sample value) come from one shared source; an act that picks a
   value records it for the coordinator, and a change to a shared surface goes to every act that shows it.
 

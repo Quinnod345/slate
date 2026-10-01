@@ -28,8 +28,8 @@ def test_the_neutral_script_passes_every_gate():
     got = gates()
     assert {g: r.status for g, r in got.items()} == {
         "script.structure": "PASS", "script.pace": "PASS", "script.read_time": "PASS", "script.on_screen": "PASS",
-        "script.banned_words": "PASS", "script.runtime": "PASS", "script.numbers": "PASS", "script.claims": "PASS",
-        "script.quotes": "PASS"}
+        "script.hero_lines": "PASS", "script.banned_words": "PASS", "script.runtime": "PASS", "script.numbers": "PASS",
+        "script.claims": "PASS", "script.quotes": "PASS"}
     assert all(r.engine["name"] == "slate script build" for r in got.values())
 
 
@@ -142,6 +142,8 @@ def test_the_reading_declaration_reaches_the_storyboard():
         data = {"on_screen": "a definition", "reading": {"voice_matched": True, "reason": "read along"}}
 
     assert builder._shot_doc(Shot())["reading"] == {"voice_matched": True, "reason": "read along"}
+    Shot.data = {**Shot.data, "hero_lines": ["One clock"]}  # and its hero lines, for the kit's hero role
+    assert builder._shot_doc(Shot())["hero_lines"] == ["One clock"]
 
 
 def test_a_format_whose_picture_carries_no_words_fails_any_on_screen_word():
@@ -158,10 +160,64 @@ def test_a_format_whose_picture_carries_no_words_fails_any_on_screen_word():
 
 def test_the_scripts_own_density_rule_wins_over_the_formats():
     s = copy.deepcopy(SCRIPT)
-    shot(s, "S02").update(on_screen="Open from six every single day")  # six words
+    shot(s, "S02").update(on_screen="Open from six every single day")  # six words of an eight-word line
     assert gates(s, fmt={"on_screen_max_words": 4})["script.on_screen"].status == "FAIL"
     s["rules"] = {"on_screen_max_words": 8}
-    assert gates(s, fmt={"on_screen_max_words": 4})["script.on_screen"].status == "PASS"
+    got = gates(s, fmt={"on_screen_max_words": 4})["script.on_screen"]
+    assert got.status == "FAIL" and "75%" in got.evidence[0]  # inside the cap now, but 75% of what the voice says
+    s["rules"] = {"on_screen_max_words": 8, "on_screen_max_vo_ratio": 0.8}
+    assert gates(s, fmt={"on_screen_max_words": 4, "on_screen_max_vo_ratio": 0.4})["script.on_screen"].status == "PASS"
+
+
+# --- on screen against the voice (at most 40%: keywords, not transcripts) ------------------------------------------------
+
+def test_on_screen_text_stays_at_or_under_forty_percent_of_the_voice():
+    """L-story-030: a shot's on-screen words are at most 40% of what its voice says (the films' ratio)."""
+    s = copy.deepcopy(SCRIPT)
+    shot(s, "S02").update(on_screen="Ovens warm by dawn")  # 4 words against 8 said: 50%, and not what's said
+    got = gates(s)["script.on_screen"]
+    assert got.status == "FAIL" and "40%" in got.summary
+    assert got.evidence[0] == "S02: 4 on-screen words against 8 said (50%), over 40% (keywords, not transcripts)"
+    shot(s, "S02").update(on_screen="Ovens at dawn")  # 3 of 8: 38%
+    assert gates(s)["script.on_screen"].status == "PASS"
+
+
+def test_words_the_voice_says_as_they_show_are_read_along_and_a_declaration_counts_too():
+    s = copy.deepcopy(SCRIPT)
+    shot(s, "S02").update(on_screen="the ovens wake up")  # 4 of 8, but the voice says them, in order
+    got = gates(s)["script.on_screen"]
+    assert got.status == "PASS" and "read along with the voice" in got.summary
+    assert any(e.startswith("S02: 4 on-screen words against 8 said (50%)") for e in got.evidence)
+    shot(s, "S02").update(on_screen="wake up the ovens")  # the same words out of order: not read along
+    assert gates(s)["script.on_screen"].status == "FAIL"
+    shot(s, "S02")["reading"] = {"voice_matched": True, "reason": "the voice reads the line as it lands"}
+    got = gates(s)["script.on_screen"]
+    assert got.status == "PASS" and "declared voice-matched" in got.summary
+
+
+# --- hero lines (at most 6 words, at most 2 an act) ------------------------------------------------------------------------
+
+def test_hero_lines_are_short_and_rare():
+    """L-story-033: a hero line (on-screen text set in the hero role) has at most 6 words; an act shows at most 2."""
+    s = copy.deepcopy(SCRIPT)
+    shot(s, "S02")["hero_lines"] = "Warm bread, every single morning, since then"  # seven words
+    got = gates(s)["script.hero_lines"]
+    assert got.status == "FAIL" and "has 7 words (at most 6)" in got.evidence[0]
+    shot(s, "S02")["hero_lines"] = ["Warm bread", "Every morning"]  # two in act 1
+    shot(s, "S03")["hero_lines"] = "Since 1987"  # one in act 2
+    got = gates(s)["script.hero_lines"]
+    assert got.status == "PASS" and got.summary.startswith("3 hero lines, each at most 6 words, at most 2 an act")
+    assert gates()["script.hero_lines"].summary == "no hero lines in this script"
+
+
+def test_a_third_hero_line_in_one_act_fails():
+    s = copy.deepcopy(SCRIPT)
+    act = next(a for a in s["acts"] if len([x for x in a["shots"] if x.get("vo")]) >= 2)
+    ids = [x["id"] for x in act["shots"]]
+    shot(s, ids[0])["hero_lines"] = ["One", "Two"]
+    shot(s, ids[1])["hero_lines"] = "Three"
+    got = gates(s)["script.hero_lines"]
+    assert got.status == "FAIL" and got.evidence[0].endswith("at most 2") and "3 hero lines" in got.evidence[0]
 
 
 # --- banned words ---------------------------------------------------------------------------------------------------------
@@ -183,6 +239,22 @@ def test_banned_words_match_whole_words_only():
 
 def test_banned_words_are_unchecked_without_a_brand_pack():
     assert gates(brand={})["script.banned_words"].status == "UNCHECKED"
+
+
+def test_a_brand_that_forbids_self_commentary_bans_those_captions_on_screen_only():
+    """L-brand-010: with truth.self_commentary false, a graphic captioned "Illustration" or "Example" fails on screen
+    and in the picture; the voice may still say "for example", and a brand that allows it (the default) passes."""
+    s = copy.deepcopy(SCRIPT)
+    shot(s, "S04")["on_screen"] = "Illustration"
+    shot(s, "S03")["picture"] = "A card captioned Examples in its corner."
+    shot(s, "S02")["vo"] = shot(s, "S02")["vo"].rstrip(".") + ", for example."
+    strict = copy.deepcopy(BRAND)
+    strict.setdefault("truth", {})["self_commentary"] = False
+    got = gates(s, brand=strict)["script.banned_words"]
+    assert got.status == "FAIL"
+    assert sorted(e.split(":")[0] for e in got.evidence) == ["S03 picture", "S04 on_screen"]
+    assert all("truth.self_commentary is false" in e for e in got.evidence)
+    assert gates(s)["script.banned_words"].status == "PASS"  # the default allows a graphic to caption itself
 
 
 # --- runtime (±10%) --------------------------------------------------------------------------------------------------------
@@ -341,3 +413,78 @@ def test_an_autonomous_film_refuses_sourced_but_unapproved_claims_and_numbers():
     shot(s, "S03").update(vo="A hundred and twenty loaves, every morning.", on_screen="Fresh daily", claims=[])
     auto = gates(s, film={**FILM, "mode": "autonomous"})
     assert auto["script.claims"].status == "PASS" and auto["script.numbers"].status == "PASS"  # approved + sample data
+
+
+# --- quoted product facts, re-read at the pinned commit (L-story-005) -------------------------------------------------------
+
+def _git(repo, *argv) -> str:
+    import subprocess
+
+    return subprocess.run(["git", "-C", str(repo), "-c", "user.name=Slate test", "-c", "user.email=test@example.invalid",
+                           "-c", "commit.gpgsign=false", *argv], check=True, capture_output=True, text=True).stdout.strip()
+
+
+@pytest.fixture
+def product(tmp_path):
+    """A throwaway product checkout (in the test's own temp folder) with two commits: the copy moves two lines down."""
+    import shutil
+
+    if not shutil.which("git"):
+        pytest.skip("git isn't installed")
+    repo = tmp_path / "product"
+    (repo / "src").mkdir(parents=True)
+    _git(repo, "init", "-q")
+    page = ["export function Week() {", "  // the week view", "  return <h1>Plans a week in one view</h1>;", "}"]
+    (repo / "src" / "week.tsx").write_text("\n".join(page) + "\n")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "first")
+    first = _git(repo, "rev-parse", "HEAD")
+    (repo / "src" / "week.tsx").write_text("\n".join(page[:2] + ["  const range = 7;", "  // a heading",
+                                                                  page[2], page[3]]) + "\n")
+    _git(repo, "commit", "-q", "-am", "second")
+    second = _git(repo, "rev-parse", "HEAD")
+    return repo, first, second
+
+
+def _truth_with(repo, pin: str, where: str, quote: str = "Plans a week in one view") -> dict:
+    t = copy.deepcopy(TRUTH)
+    t["sources"].append({"id": "app", "title": "The product's source", "pin": f"commit {pin}", "path": str(repo)})
+    t["claims"].append({"id": "week", "text": "One view for the whole week", "source": "app", "where": where,
+                        "quote": quote})
+    return t
+
+
+def test_a_quoted_product_fact_is_re_read_at_its_pinned_commit(product):
+    repo, first, _second = product
+    got = gates(truth=_truth_with(repo, first[:9], "src/week.tsx:3"))["script.quotes"]
+    assert got.status == "PASS" and "1 product quote re-read at its pinned commit" in got.summary
+    assert "is at src/week.tsx:3" in got.evidence[0]
+
+
+def test_a_quote_that_moved_is_named_with_the_line_it_is_on_now(product):
+    repo, _first, second = product
+    got = gates(truth=_truth_with(repo, second, "src/week.tsx:3"))["script.quotes"]
+    assert got.status == "FAIL"
+    assert got.evidence[0] == ("claim week: 'Plans a week in one view' isn't at src/week.tsx:3 any more; it's at "
+                               "src/week.tsx:5 (cite that line)")
+    gone = gates(truth=_truth_with(repo, second, "src/week.tsx:5", quote="Plans a month in one view"))["script.quotes"]
+    assert gone.status == "FAIL" and "isn't in src/week.tsx at the pinned commit" in gone.evidence[0]
+    missing = gates(truth=_truth_with(repo, second, "src/month.tsx:2"))["script.quotes"]
+    assert missing.status == "FAIL" and "src/month.tsx isn't in source 'app'" in missing.evidence[0]
+
+
+def test_a_shots_quoted_source_is_checked_too_and_an_unreadable_source_is_unchecked(product, tmp_path):
+    repo, first, _second = product
+    s = copy.deepcopy(SCRIPT)
+    shot(s, "S04")["sources"] = [{"ref": "app:src/week.tsx:3", "quote": "Plans a week in one view"}]
+    truth = copy.deepcopy(TRUTH)
+    truth["sources"].append({"id": "app", "pin": f"commit {first}", "path": str(repo)})
+    assert gates(s, truth=truth)["script.quotes"].status == "PASS"
+    truth["sources"][-1]["path"] = str(tmp_path / "not-here")  # the code lives on another machine
+    got = gates(s, truth=truth)["script.quotes"]
+    assert got.status == "UNCHECKED" and "couldn't be re-read on this machine" in got.summary
+    assert "isn't on this machine" in got.evidence[0]
+    truth["sources"][-1]["path"] = str(repo)
+    truth["sources"][-1]["pin"] = "commit 0123456789abcdef"  # a commit the checkout doesn't have
+    got = gates(s, truth=truth)["script.quotes"]
+    assert got.status == "UNCHECKED" and "isn't in" in got.evidence[0] and "fetch it" in got.evidence[0]

@@ -13,6 +13,8 @@ motion, because every boundary was specified to the pixel and checked.
 - **Next to it**, animate to and from the rest state with the same named constants, so your first or last moving frame
   continues exactly from it.
 - **A character is calm** in the rest state: every gesture finished, the mark at rest.
+- **Gate the rest state on the master frame** (the kit's frame, rounded), so every motion-blur sub-sample of a contract
+  frame draws the rest picture.
 - Declare it in the act: `export const contracts = {in: 'NameIn', out: 'NameOut'}`. The engine registers each rest
   state as its own composition, so it can be rendered alone and compared.
 
@@ -26,6 +28,9 @@ motion, because every boundary was specified to the pixel and checked.
   builder splits it.
 - **A whip**: one act ends whipping one way in its last fraction of a second; the next opens mid-whip. Mirror the
   direction and rotation.
+- **A moving contract** (a line drawing across the join) is defined by its start point, start time and constant speed
+  in the shared contracts module, so both sides compute the same frames. Compare the two boundary frames against that
+  function, since nothing holds still.
 
 ## Settling out before the boundary
 

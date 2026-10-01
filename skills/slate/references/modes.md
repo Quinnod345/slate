@@ -3,6 +3,12 @@
 A film's mode is in film.json (`slate new --mode`). The CLI enforces each mode's rules whatever an agent intends:
 refusals come back with exit code 1 (refused) or 4 (spend refused) and say why.
 
+**A film made autonomous stays autonomous.** `slate new` and `slate variant` record each film's mode in Slate's own data
+folder, outside the film, and every rule (spend, keys, After Effects, the queue, review routing) judges the film by that
+record, whatever its film.json says now. Only a person at their own Terminal changes it, with
+`slate film set mode <mode> --by NAME --reason "…"`. An agent's attempt is refused and recorded, and an edit of
+film.json changes nothing (`slate status` shows the mismatch). A derived film starts in its parent's mode.
+
 ## Supervised (the default)
 
 - **Two sittings block:** pre-production (the checklist, the claims, the script, the voice shortlist, the look test)
@@ -35,8 +41,9 @@ refusals come back with exit code 1 (refused) or 4 (spend refused) and say why.
   vendor caps: a separate ElevenLabs key for autonomous work, with its own credit quota. An autonomous film can't raise
   its own budget.
 - **Every generation waits for the owner's yes**, asked by iMessage, recorded, and passed to the run as an approval id.
-- **No After Effects.** Autonomous films are mastered with ffmpeg and held. The owner can start the AE finish when they
-  approve a held film.
+- **No After Effects.** Autonomous films are mastered with ffmpeg and held. The owner can start the AE finish
+  themselves once they approve the held film: a final-cut approval of its held master, then `slate master --ae --go` in
+  their own Terminal (never queued, never `--detach`). No agent starts it.
 - **Voices:** the owner's own professional clone is the only clone it may use.
 - **Default output:** a 15 to 45 second 9:16 reel.
 - **Before parking,** a separate reviewer agent grades the contact sheet and the audio against the brand's references,

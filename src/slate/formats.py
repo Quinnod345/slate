@@ -600,6 +600,24 @@ def loudness_for(fmt: dict | str, *, broadcast: bool | None = None, standard: st
     return {**presets[standard], "broadcast": True}
 
 
+END_HOLD_S = 3.0  # the films' end card: every frame of the last 3 s pixel-identical (the last second inside it)
+
+
+def end_hold_for(fmt: dict | None, film: dict | None = None) -> tuple[float, str]:
+    """How long the end of a film must hold perfectly still, in seconds, and where that came from: film.json's
+    targets.end_hold_s, else the format's end_hold_s, else none for a seamless loop (its last frame flows into its
+    first), else the films' 3 seconds."""
+    targets = (film or {}).get("targets") if isinstance((film or {}).get("targets"), dict) else {}
+    if isinstance(targets.get("end_hold_s"), (int, float)) and not isinstance(targets.get("end_hold_s"), bool):
+        return max(0.0, float(targets["end_hold_s"])), "film.json targets.end_hold_s"
+    f = fmt or {}
+    if isinstance(f.get("end_hold_s"), (int, float)) and not isinstance(f.get("end_hold_s"), bool):
+        return max(0.0, float(f["end_hold_s"])), f"the {f.get('name', 'film')} format's end_hold_s"
+    if isinstance(f.get("loop"), dict) and f["loop"].get("seamless"):
+        return 0.0, f"the {f.get('name', 'film')} format is a seamless loop: its last frame flows into its first"
+    return END_HOLD_S, "the films' rule (an end card holds still for its last 3 s)"
+
+
 # ---------------------------------------------------------------------------------------------------------------
 # Describing a format for people
 

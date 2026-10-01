@@ -206,6 +206,45 @@ def check_ocr(env: Env, ctx: Ctx) -> list[dict]:
                   details=info, install=item)]
 
 
+def check_render_stability(env: Env, ctx: Ctx) -> list[dict]:
+    """The render-stability conformance procedure's last result on this Mac (`slate qa stability conformance`: the
+    engine kit's stability bench rendered here and scanned for pops, snaps and wobbles). It stays UNCHECKED until the
+    kit's bench exists, which isn't something to fix on this Mac, so that row is green and says so."""
+    rid, group = "engine.render-stability", "engine"
+    run = ("Render the engine kit's stability bench (one file per variant, named after it), then run "
+           "`slate qa stability conformance RENDERS_FOLDER`.")
+    try:
+        st = env.stability_conformance()
+    except Exception as exc:  # noqa: BLE001
+        return [R.yellow(rid, f"Couldn't read the render-stability conformance record: {getattr(exc, 'message', exc)}",
+                         run, group=group)]
+    rec = st.get("record")
+    if not rec:
+        if not st.get("bench"):
+            return [R.green(rid, "Render-stability conformance is UNCHECKED: the engine kit's stability bench isn't "
+                                 "built yet, so there's nothing to run on this Mac. Every act render is still scanned "
+                                 "by `slate qa stability`.", group=group, details={"status": "UNCHECKED", "bench": False})]
+        return [R.yellow(rid, "The engine kit's stability bench is here, but its conformance hasn't run on this Mac, so "
+                              "nothing yet shows this Mac renders motion without pops, snaps or wobbles.", run,
+                         group=group, details={"status": "UNCHECKED", "bench": True})]
+    res = rec.get("result") if isinstance(rec.get("result"), dict) else {}
+    status, when = res.get("status") or "UNCHECKED", res.get("checked_at") or "an unknown time"
+    said = first_line(res.get("summary") or "", 200)
+    details = {"status": status, "checked_at": res.get("checked_at"), "bench": bool(st.get("bench"))}
+    if st.get("spec_sha256") and rec.get("spec_sha256") and st["spec_sha256"] != rec["spec_sha256"]:
+        return [R.yellow(rid, f"The stability bench changed after its conformance last ran ({when}), so that result "
+                              f"({status}) no longer describes it.", run, group=group, details=details)]
+    if status == "PASS":
+        return [R.green(rid, f"Render-stability conformance passed on this Mac ({when}): {said}", group=group,
+                        details=details)]
+    if status == "FAIL":
+        return [R.red(rid, f"Render-stability conformance failed on this Mac ({when}): {said}",
+                      "Fix what it names (each step is listed by `slate qa stability conformance`), then run it again. "
+                      "Act renders made meanwhile may carry the same fault.", group=group, details=details)]
+    return [R.yellow(rid, f"Render-stability conformance is {status} ({when}): {said}", run, group=group,
+                     details=details)]
+
+
 def check_modules(env: Env, ctx: Ctx) -> list[dict]:
     rid = "system.modules"
     broken, total = env.broken_modules()

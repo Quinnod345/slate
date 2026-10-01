@@ -15,8 +15,10 @@ engine/
     render_mb.mjs         true motion blur into ProRes 422 HQ (or a lossless chunk)
     stills.mjs            review stills, labelled contact sheets, review sheets
     load_act.mjs          an act's modules, loaded in Node without rendering
-    events.mjs            emit-events: visual events and motion traces
+    events.mjs            emit-events: visual events, motion traces and the change report
     check.mjs             the hand-in check, as gate results
+    markup.mjs            the check's markup bench (static markup at every sub-frame sample, no pixels)
+    determinism.mjs       the check's determinism gate (frames rendered alone and in sequence)
     browser.mjs           chrome-headless-shell 149, GL modes
     lib/                  shared helpers (errors, children with BROWSER=none, film loading)
     neutral/, data/       a brand-free stand-in film for the engine's type check, vitest and kit review sheets
@@ -67,9 +69,10 @@ kill is a SIGKILL: it skips every cleanup, and Chrome, which runs in its own pro
 | `bundle` | `film`; `release: true` deletes it; `{cleanup: true}` alone deletes every unused bundle | `serve_url`, `bundle_hash`, `reused`, `compositions`, `broken` (acts left out because they don't build) |
 | `render` | `film`, `act` (or `"film"`), `from`/`to` (master frames, inclusive), `sub` (default 16; `draft: true` is 4), `out` (`.mov` ProRes, `.mkv` lossless chunk), `concurrency`, `gl`, `serve_url`, `trace` | `file`, `frames`, `film_frames`, `frame_count`, `samples`, `sha256`, `bundle_hash`, the stream's facts, `trace` |
 | `stills` | `film` (optional with `entry`), `specs: ["Act2:120"]`, `scale`, `out_dir`, `contact_sheet: {comp, every_s \| count \| frames, columns, scale}`, `entry`, `serve_url`, `gl`, `pixels` | the stills (with sha256 and, asked, a pixel hash), the sheet and its index (per cell: frame, shot, timecode; for the sheet: `cell` [w, h], `padding`, `margin`, `labels`) |
-| `emit-events` | `film`, `act` (default: every built act), `dry_run` (check everything, write nothing; a web act's page is opened and read, nothing written) | per act: the file, beats or silence, kinds, capture beats, the motion trace; in a dry run its problems and word misses |
+| `emit-events` | `film`, `act` (default: every built act), `dry_run` (check everything, write nothing; a web act's page is opened and read, nothing written) | per act: the file, beats or silence, kinds, capture beats, the motion trace, what changed since the last emit (`changes`, and `changes_file`); in a dry run its problems and word misses |
 | `trace` | `film`, `act` | one act's motion trace from the kit's motion registry, as the act is now (`slate render` refreshes it after each act render); a web act says its renderer writes its own |
-| `check` | `film`, `act` (or `acts: [N, …]`: one run, one bundle between them), `banned_words` (the brand's list; absent or null means UNCHECKED, `[]` means it bans none), `contracts`, `hold` | gate results (each filed under the `scenes` stage) and the worst status (per act, with `acts`); a web act is checked through the open web renderer |
+| `check` | `film`, `act` (or `acts: [N, …]`: one run, one bundle between them), `banned_words` (the brand's list; absent or null means UNCHECKED, `[]` means it bans none), `never_claim` (the brand's and the film's; absent skips the gate, null is UNCHECKED), `contracts`, `hold`, `markup` (+ `against: <git ref>`), `determinism` | gate results (each filed under the `scenes` stage) and the worst status (per act, with `acts`); a web act, and a web shot inside a Remotion act, is checked through the open web renderer |
+| `golden` | none: the kit's golden stills; `film`: the approved-acts check (`plan: true` lists the frames, renders nothing); `gl`, `keep` | each still (or each approved act's frames) with its PSNR, the font gate's must-fail probe, `pass` |
 | `web-render` | whatever the open web renderer takes: a render, `{emit: true}` (with `dry_run`), `{scaffold: true}` | `engine/web/render.mjs`'s `webRender(args)` result |
 
 A caller that renders several acts or stills makes one bundle (`bundle`), passes its `serve_url` to each call, then
@@ -83,6 +86,9 @@ exits, on success, on an error and on SIGTERM.
 <film>/scenes/act<N>/beats.ts    optional, React-free: beats computed at module level with the kit's core
 <film>/scenes/act<N>/events.ts   optional: the act's events, when kept apart
 <film>/scenes/contracts.tsx      optional: the named rest states acts meet on (each exported component is one)
+<film>/scenes/act<N>/web/        instead of index.tsx: a web act, drawn by the open web renderer (web/README.md)
+<film>/scenes/shots/<SHOT>/web/  optional: a web shot inside a Remotion act (Per-shot engines, below)
+<film>/scenes/ae/act<N>.json     instead of either: an act built in After Effects, as data (ae/README.md)
 <film>/public/                   optional: files scenes load with staticFile()
 <film>/captures/ <film>/plates/  conformed captures and plates: staticFile('captures/<name>/frames/f00012.jpg'),
                                  staticFile('plates/<shot>/plate/frames/f00012.jpg') (and …/matte/frames)
@@ -195,26 +201,65 @@ numbers where the sound side reads optional ones (a count's `from`/`to`, `x` acr
 whole film `frame`), every span true to its beat; any other field passes through untouched. It
 writes nothing while any of these fail, while the kit recorded a problem with a `defineEvent()`, while a capture tap
 lands in no act, or while a word lookup fell back to an estimate: film C's emitter refused that too, because a beat on
-a guessed time is a sound in the wrong place. `dry_run` (`slate emit-events --dry-run`) runs every check, writes
-nothing, and lists what the real run would refuse.
+a guessed time is a sound in the wrong place. It also writes nothing while a timing margin the act records is negative
+or the rig lint finds anything in a mark it draws: after a re-voice a beat the picture depends on can overrun another,
+and the sound would be placed on a picture that's already wrong (L-timing-D039). `dry_run` (`slate emit-events
+--dry-run`) runs every check, writes nothing, and lists what the real run would refuse.
+
+**What changed.** Before it replaces an act's events, emit-events compares them with the ones there by id and writes
+the change report to `timing/visual_events/changes/actN.json` (and returns it as `changes`): beats that moved (with
+their frames), were added or removed, changed kind or size, were reworded or changed span, and whether the act went
+silent or came back (L-timing-D028). Sound reads it to know what to move. It lives in a subfolder because everything
+that reads the beats lists `timing/visual_events/act*.json`, and a report beside them would be read as an act's
+beats.
 
 From the kit it makes the same calls the kit's `node/collect.mjs` `collectAct()` makes, on the module instances the
 act registered into: `actEvents(act)`, `eventProblems()`, `traceMotions({act})` (the motion trace, §12's shape),
 `missLabels()`, `motionProblems()`. The engine loads the act itself because it also loads the picture (`index.*`),
 with media and Google Fonts imports stubbed for Node, and acts that don't use the kit at all.
 
-`check <act>` returns gate results: `typecheck` (TypeScript 5.9.3, strict, from the film folder, over the act and what it
-imports), `module` (it loads in Node without throwing), `word_misses` (none of the kit's lookups fell back to an
-estimate), `kit_problems` (for acts that use the kit: what its motion registry had to assume, for a person to read),
-`banned_words` (the brand's list against the string literals and JSX text of the act and every scene file it imports,
-JSON and text copy included, and its shots' on-screen text; imports, types, styles, ids, event notes and the act's
-notes are never on screen), `events` (present, valid, and exactly what emit-events would write now, so a word that
-stopped matching fails it) and `contracts` (each boundary's rest state bit-identical on both sides and in
-`scenes/contracts`, held for 6 frames), and `fonts` whenever the contract stills ran the kit's font gate. The kit's
-note that its neutral motion law stands in (a brand without a motion law yet) is listed, not held against the act. A
-syntax error comes back as failed gates with its file and line, never as a crash. `acts: [N, …]` checks several acts
-in one run: the bundle for their contracts is made once, only if a contract needs pixels, and deleted at the end
-(`slate check all` does this).
+`check <act>` returns gate results (`handin.act<N>.<gate>`):
+
+- `typecheck`: TypeScript 5.9.3, strict, from the film folder, over the act and what it imports;
+- `module`: it loads in Node without throwing;
+- `word_misses`: none of the kit's lookups fell back to an estimate;
+- `kit_problems`: for acts that use the kit, what its motion registry had to assume, for a person to read;
+- `banned_words`: the brand's list against the string literals and JSX text of the act and every scene file it
+  imports, JSON and text copy included, and its shots' on-screen text (imports, types, styles, ids, event notes and the
+  act's notes are never on screen);
+- `never_claim`: the same on-screen strings against what the brand and the film never claim (brand.json
+  `truth.never_claim` and the film's `brief/truth.json`, which `slate check` passes); every line that uses one is
+  printed for the builder to read;
+- `literals`: no literal film or act frame numbers in the act's sources, so every time is keyed to a word, a shot or a
+  contract constant and a re-voice moves the picture with the voice (L-timing-D041). A number given as a frame
+  (`frame: 120`), turned into time (`secOf(90)`), compared with a frame (`frame >= 120`), placing a Sequence
+  (`from={30}`) or held in a frame constant (`const LAND_FRAME = 120`) counts; an offset from something keyed to a word
+  or a shot (`shot('S03').frameIn + 12`) doesn't, and a line marked `slate-allow-frame-literal: why` (or the line under
+  it) is let through;
+- `events`: present, valid, and exactly what emit-events would write now, so a word that stopped matching fails it;
+- `margins`: every timing margin the act records is zero or more, and the rig lint is clean for every mark it draws;
+- `character`: for an act that draws a mark character (`registerMotifTrace` with `character: true`), the kit's
+  `characterAcceptance()` on each one: calm at the act's ends and after each gesture, still between gestures, no
+  dithering across the split point, and a clipping container that keeps the clear circle;
+- `contracts`: each boundary's rest state bit-identical on both sides and in `scenes/contracts`, held for 6 frames,
+  and `fonts` whenever the contract stills ran the kit's font gate;
+- `markup` (with `markup: true`, `slate check --markup`): the act's static markup (react-dom/server, no pixels, no
+  browser) at every frame and four sub-frame samples has no NaN, Infinity or undefined in any style or attribute (the
+  films scanned their charts this way before rendering: L-kit-D146). With `against: <git ref>` every sample is also
+  compared with the act as the kit at that ref of Slate's own repository draws it (or as the kit in a folder draws
+  it: an installed engine's `remotion/kit` has no git history), so a rendering-only kit change proves itself a no-op
+  in the old mode without rendering a pixel (L-kit-S010);
+- `determinism` (with `determinism: true`, `slate check --determinism`): the act's first frames (up to 36) rendered in
+  sequence in one page, and four of them each alone in a fresh page, on software GL: every pair identical, or FAIL
+  naming the first frame that differs. Chunks, patches and stills all draw frames out of order, so a scene that
+  carries state from frame to frame draws a patch that doesn't match its act (L-render-D004).
+
+`slate check` adds `handin.act<N>.shots` for an act whose shots name an engine or have a scene of their own (Per-shot
+engines, below). The kit's note that its neutral motion law stands in (a brand without a motion law yet) is listed,
+not held against the act. A syntax error comes back as failed gates with its file and line, never as a crash; a font
+gate that fails while the contract stills render is the `fonts` gate's FAIL and leaves `contracts` UNCHECKED, rather
+than ending the check. `acts: [N, …]` checks several acts in one run: the bundle for their contracts is made once, only
+if a contract needs pixels, and deleted at the end (`slate check all` does this).
 
 A web act (`scenes/actN/web/index.html`, built for the open web renderer) is handed in through that renderer, with the
 same gates where they mean the same thing: `typecheck` (its scene scripts, from the film folder, with `@slate/web`
@@ -224,6 +269,51 @@ scripts, its page's visible text and its JSON and text copy), `events` (the file
 `contracts` (a web scene declares no rest states; when a neighbour declares one at their boundary the gate says it
 can't compare them yet, UNCHECKED, rather than passing). The page is opened once, in a dry-run emit: nothing is
 written.
+
+## Per-shot engines
+
+A shot may carry its own engine; by default it's drawn by its act's (P074). The brand picks the engine for its scenes
+(brand.json `look.engine`), and a shot that needs something its act's engine can't give says so on its own. What's
+built, and the rules that keep it safe (`src/slate/render/shot_engines.py` holds them in code):
+
+- **Declaring it.** A shot's `engine` (`remotion`, `web` or `ae`) in `script/script.json`, where a person writes it.
+  `timing/shots.json` takes it first when a shot there names one; until `slate timing` carries it over, render and
+  check read the script's declaration by shot id. A shot that names no engine is drawn by its act's.
+- **Where its scene lives.** A web shot inside a Remotion act is a page of its own,
+  `scenes/shots/<SHOT>/web/index.html`, built with `@slate/web` like a web act's (copy the web template there). It draws the act's time and is only ever
+  asked for its shot's frames. Its own folder keeps it out of the act's type check and module: the generated entry
+  gives each one a `tsconfig.shot-<ID>.json` of its own. A declaration and the scenes on disk must agree: a shot that
+  says web needs that page, and a page there needs the shot to say web.
+- **Its beats.** emit-events opens each web shot's page in a dry run and adds the beats it lands, inside its shot, to
+  the act's events; a beat outside its shot is refused like any other.
+- **Handing it in.** `slate check <act>` hands each web shot in through the open web renderer, as
+  `handin.act<N>.shot.<ID>.*`: its type check, its page (it loads and draws), its word lookups, its network wall and
+  fonts, its banned words, never-claims and literal frames. `handin.act<N>.shots` lists the act's shots in other
+  engines, or FAILs on a problem with them (an engine Slate doesn't know, a declaration without its scene, a scene
+  without its declaration, or a combination that isn't built).
+- **Rendering.** The act renders whole in its own engine; then each shot in another engine renders over exactly its
+  shot's frames, at the act's sample count, from its own page, and is spliced into the act render with the splice's
+  proof (frame count, the frames at both joins, the edge scan) before the act is registered. The registry entry lists
+  the shots and their engines (`shot_engines`). A seam between engines is always a cut, so a patch may not cross one,
+  and a patch inside such a shot renders in that shot's engine.
+
+Not built yet, so refused by name rather than guessed at:
+
+- an After Effects shot inside a code-engine act, or a code-engine shot inside an AE-built act. aerender renders whole
+  comps and the AE project builds whole acts, so the AE lane works per act (`scenes/ae/actN.json`): build the act in
+  one engine;
+- a Remotion shot inside a web act: it needs a composition of its own in the generated entry (`Shot-<ID>`, drawn at act
+  time), which the entry doesn't make yet. Make the act Remotion and the other shots web instead;
+- a web shot's tweens in the act's motion trace: the open web renderer writes a scene's trace for its whole act, so a
+  shot's render passes `trace: false` and `slate qa motion` doesn't see that shot's motion yet (its pixels still face
+  the film's glitch scan and joins);
+- `slate timing` carrying a shot's `engine` from the script into `timing/shots.json` belongs to the timing stage;
+  until it does, the script's declaration is read directly, as above.
+
+**After Effects acts** start from the brand's look: `slate engine scaffold --act N` reads `look.engine`, and for an AE
+look writes `scenes/ae/actN.json`, a starter scene in the brand's own names (its first on-screen line on the brand's
+page, rising in on its first shot), resolved against the film's timing before it's kept. The AE build spec warns about
+every act of an AE-look brand that has neither its AE scene nor a code render. See `ae/README.md`.
 
 ## Browsers
 
@@ -294,4 +384,7 @@ text, and on the vendors' real pinned text when `SLATE_TEST_SKILLS_MIRROR` names
 
 `npm test` (from engine/) runs every suite: `tests/core` here, and each `tests/<name>/vitest.config.*` under its own
 config. One suite: `npx --no-install vitest run --project core`. Files run one at a time, because renders start
-headless Chrome. The Python side is `tests/engine_core` (pytest).
+headless Chrome. The Python side is `tests/engine_core` and `tests/engine_kit` (pytest). The few tests there that
+render real frames to prove a gate (the kit's golden stills, the approved-acts comparison, determinism, the fonts
+gate) run whenever headless Chrome is installed, small and on software GL, because the knowledge check reads a
+skipped proof as no proof; bigger renders are opt-in (`SLATE_TEST_RENDER=1`).

@@ -1,6 +1,6 @@
 // The motif rig: one clock, three phase relationships, calm at rest, turns that land on themselves.
 import {beforeEach, describe, expect, it} from 'vitest';
-import {clearMotions, groupOf, isCalm, motifBeats, motifLint, motifPose, motifSpec, motions, placeParts, registerMotifTrace, setBrand, setFilmData, traceMotions, type MotifTrack} from '@slate/kit/core';
+import {brokenMargins, characterAcceptance, checkTrack, clearMargins, clearMotifTraces, clearMotions, defineMargin, gestureSpans, groupOf, isCalm, margin, margins, motifBeats, motifLint, motifPose, motifSpec, motifTraces, motions, placeParts, registerMotifTrace, setBrand, setFilmData, STILL_FRAMES, traceMotions, type MotifTrack, type MotifTraceRecord} from '@slate/kit/core';
 import FILM from './fixtures/film-data';
 
 beforeEach(() => {
@@ -143,7 +143,8 @@ describe('gestures', () => {
 
 describe('sound and checks', () => {
   it('gives one sound per frame, on whole contact frames', () => {
-    const beats = motifBeats([{kind: 'turn', frame: 40}, {kind: 'pulse', frame: 40}, {kind: 'wave', frame: 80}], spec);
+    // a turn and the echo that rings out with it share a contact frame: one sound plays, by priority
+    const beats = motifBeats([{kind: 'turn', frame: 40}, {kind: 'ripple', frame: 40}, {kind: 'wave', frame: 80}], spec);
     const frames = beats.map((b) => b.frame);
     expect(new Set(frames).size).toBe(frames.length);
     expect(beats.find((b) => b.frame === 40)?.gesture).toBe('turn'); // priority
@@ -162,5 +163,162 @@ describe('sound and checks', () => {
     const trace = traceMotions({act: 1});
     expect(trace.every((e) => e.rig === 'motif:hello')).toBe(true);
     expect(trace[0].samples.length).toBe(71);
+  });
+});
+
+// The combination rules (the films' character spec §2.13; L-kit-D081): the rig switches off what they forbid, so the
+// picture and the sound never show it, and motifLint lists it. One case per rule.
+describe('how gestures combine', () => {
+  const opts = {spec, layout: big, short: 540};
+  /** The pose with a gesture and without it: switched off means the picture is exactly as if it weren't there. */
+  const sameWithout = (track: MotifTrack, drop: number, frames: number[]) => {
+    const rest = track.filter((_, i) => i !== drop);
+    for (const f of frames) expect(motifPose(track, f, opts)).toEqual(motifPose(rest, f, opts));
+  };
+
+  it('runs nothing momentary during a hold, and lists it', () => {
+    const track: MotifTrack = [{kind: 'hold', frame: 30, untilFrame: 80}, {kind: 'pulse', frame: 55}];
+    const r = checkTrack(track, opts);
+    expect(r.off.map((o) => o.g.kind)).toEqual(['pulse']);
+    expect(motifLint(track, opts)[0]).toMatch(/nothing runs during a hold/);
+    sameWithout(track, 1, [40, 50, 55, 60, 70]);
+    // the home that releases a hold runs (it's the release)
+    expect(checkTrack([{kind: 'hold', frame: 30}, {kind: 'home', frame: 80}], opts).off).toEqual([]);
+  });
+
+  it('runs only a lean or a hold while parts are away, and lists the rest', () => {
+    const track: MotifTrack = [
+      {kind: 'exit', frame: 20},
+      {kind: 'pulse', frame: 70},
+      {kind: 'lean', frame: 80, toward: {x: 800, y: 270}},
+      {kind: 'enter', frame: 140},
+      {kind: 'pulse', frame: 200},
+    ];
+    const r = checkTrack(track, opts);
+    expect(r.off.map((o) => `${o.g.kind}@${o.C}`)).toEqual(['pulse@70']);
+    expect(r.off[0].reason).toMatch(/parts are away/);
+    expect(r.allowed.map((g) => g.kind)).toEqual(['exit', 'lean', 'enter', 'pulse']);
+    sameWithout(track, 1, [60, 70, 75]);
+    // parts that haven't arrived yet (a track that starts with an enter) are away too
+    const early = checkTrack([{kind: 'turn', frame: 10}, {kind: 'enter', frame: 60}], opts);
+    expect(early.off.map((o) => o.g.kind)).toEqual(['turn']);
+    expect(early.off[0].reason).toMatch(/haven't arrived/);
+  });
+
+  it('never runs two gestures on one channel at once, and lists the second', () => {
+    // a lean is held (not momentary), so it may overlap a momentary gesture, but never another move of the offset
+    const leans: MotifTrack = [{kind: 'lean', frame: 30, toward: {x: 800, y: 270}}, {kind: 'lean', frame: 36, toward: {x: 480, y: 600}}];
+    const r = checkTrack(leans, opts);
+    expect(r.off.map((o) => o.index)).toEqual([1]);
+    expect(r.off[0].reason).toMatch(/one channel at once.*offset/);
+    sameWithout(leans, 1, [25, 30, 36, 40]);
+    // different channels may overlap: a lean while a turn runs
+    expect(checkTrack([{kind: 'turn', frame: 40}, {kind: 'lean', frame: 40, toward: {x: 800, y: 270}}], opts).off).toEqual([]);
+  });
+
+  it('runs one momentary gesture at a time, even on different channels', () => {
+    const track: MotifTrack = [{kind: 'grow', frame: 40}, {kind: 'turn', frame: 42}];
+    const r = checkTrack(track, opts);
+    expect(r.off.map((o) => o.g.kind)).toEqual(['turn']);
+    expect(r.off[0].reason).toMatch(/one momentary gesture at a time/);
+    sameWithout(track, 1, [36, 40, 44, 50]);
+  });
+
+  it('lists momentary gestures closer than 4 still frames, and lets them run', () => {
+    const [pulse] = gestureSpans([{kind: 'pulse', frame: 30}], opts);
+    const [grow] = gestureSpans([{kind: 'grow', frame: 0}], opts);
+    // the grow starts 2 still frames after the pulse ends
+    const close: MotifTrack = [{kind: 'pulse', frame: 30}, {kind: 'grow', frame: pulse.end + 2 - grow.start}];
+    expect(checkTrack(close, opts).off).toEqual([]);
+    const lint = motifLint(close, opts);
+    expect(lint).toHaveLength(1);
+    expect(lint[0]).toMatch(/2 still frames between them \(keep 4 still frames/);
+    // exactly 4 still frames is clean
+    const spaced: MotifTrack = [{kind: 'pulse', frame: 30}, {kind: 'grow', frame: pulse.end + STILL_FRAMES - grow.start}];
+    expect(motifLint(spaced, opts)).toEqual([]);
+  });
+
+  it('makes no sound for a gesture it switches off', () => {
+    const beats = motifBeats([{kind: 'hold', frame: 30, untilFrame: 80}, {kind: 'turn', frame: 55}], spec, {layout: big, short: 540});
+    expect(beats.map((b) => b.gesture)).toEqual(['hold']);
+  });
+
+  it("gives a clean track an empty lint, and spaces a meaning's own steps", () => {
+    const clean: MotifTrack = [{kind: 'enter', frame: 40}, {kind: 'pulse', frame: 90}, {kind: 'turn', frame: 140}, {kind: 'hold', frame: 200, untilFrame: 240}, {kind: 'home', frame: 300}];
+    expect(motifLint(clean, opts)).toEqual([]);
+  });
+});
+
+// The hand-in check's character gate runs these on every mark an act registers (L-kit-077 and the motion lessons).
+describe('character acceptance', () => {
+  const layout = () => ({x: 480, y: 270, size: 120});
+  const record = (track: MotifTrack, extra: Partial<MotifTraceRecord> = {}): MotifTraceRecord => ({rig: 'mark', shot: 'K01', track, layout, from: 0, to: 120, spec, short: 540, character: true, ...extra});
+
+  it('passes a clean track: calm at both ends and after each gesture, still between them', () => {
+    const r = characterAcceptance(record([{kind: 'pulse', frame: 30}, {kind: 'turn', frame: 70}]));
+    expect(r.problems).toEqual([]);
+    expect(r.checks.join(' ')).toMatch(/lint: clean/);
+  });
+
+  it('fails a track the combination rules object to', () => {
+    const r = characterAcceptance(record([{kind: 'pulse', frame: 30}, {kind: 'turn', frame: 32}]));
+    expect(r.problems.join('\n')).toMatch(/one momentary gesture at a time/);
+  });
+
+  it("fails a mark that isn't calm at the act's end", () => {
+    const r = characterAcceptance(record([{kind: 'breathe', frame: 100}]), {act: {from: 0, to: 121}});
+    expect(r.problems.join('\n')).toMatch(/not calm at the act's end \(frame 120\)/);
+  });
+
+  it('fails a mark that floats between gestures', () => {
+    const floating = (f: number) => ({x: 480, y: 270, size: 120 + Math.sin(f / 7) * 3});
+    const r = characterAcceptance(record([{kind: 'pulse', frame: 30}], {layout: floating}));
+    expect(r.problems.join('\n')).toMatch(/moves between gestures \(frame \d+/);
+    // a carried mark (its centre moving, its shape not) isn't floating
+    const carried = (f: number) => ({x: 400 + f * 2, y: 270, size: 120});
+    expect(characterAcceptance(record([{kind: 'pulse', frame: 30}], {layout: carried})).problems).toEqual([]);
+  });
+
+  it('fails a gesture that dithers across a fused mark\'s split point', () => {
+    // a fused mark (parts overlapping at rest) moved on a curve that doubles back: the spread crosses the split
+    // point again and again instead of once out and once back
+    setBrand({motion: {eases: {wobble: [0.3, 2.5, 0.7, -1.5]}}, motif: {parts: 6, part_size: 0.33, ring: 0.3, curves: {move: 'wobble', land: 'spring0'}}} as never);
+    const fused = motifSpec().spec;
+    const r = characterAcceptance(record([{kind: 'pulse', frame: 30, amount: 0.2}], {spec: fused}));
+    expect(r.problems.join('\n')).toMatch(/crosses the split point between parts \d and \d \d+ times/);
+    // the same mark on a curve that doesn't double back crosses once out and once back
+    setBrand({motion: {eases: {calm: [0.4, 0, 0.2, 1]}}, motif: {parts: 6, part_size: 0.33, ring: 0.3, curves: {move: 'calm', land: 'spring0'}}} as never);
+    const steady = motifSpec().spec;
+    expect(characterAcceptance(record([{kind: 'pulse', frame: 30, amount: 0.2}], {spec: steady})).problems).toEqual([]);
+  });
+
+  it('fails a clipping container that cuts into the clear circle while the mark moves, and passes one with room', () => {
+    // the disc is 120 / 0.5 = 240 px: a clear circle of 0.85 × 240 = 204 px round its centre
+    const tight = characterAcceptance(record([{kind: 'pulse', frame: 30}], {clip: {x: 300, y: 100, w: 360, h: 340}}));
+    expect(tight.problems.join('\n')).toMatch(/clipping container cuts into it while it moves \(frame/);
+    const roomy = characterAcceptance(record([{kind: 'pulse', frame: 30}], {clip: {x: 0, y: 0, w: 960, h: 540}}));
+    expect(roomy.problems).toEqual([]);
+  });
+
+  it('keeps every registered mark for the hand-in check', () => {
+    clearMotifTraces();
+    registerMotifTrace([{kind: 'pulse', frame: 30}], {rig: 'mark', shot: 'K01', layout, from: 0, to: 90, short: 540, character: true});
+    const [t] = motifTraces();
+    expect(t.rig).toBe('mark');
+    expect(t.character).toBe(true);
+    expect(characterAcceptance(t).problems).toEqual([]);
+  });
+});
+
+describe('timing margins', () => {
+  it('records the slack between two beats and finds the broken ones', () => {
+    clearMargins();
+    expect(margin('the card lands before "report"', 2.0, 2.4, 0.1)).toBeCloseTo(0.3, 12);
+    margin('the chat settles before it goes', 5.0, 4.9);
+    defineMargin({name: 'worked out by the act', slack: Number.NaN});
+    expect(margins().map((m) => m.name)).toHaveLength(3);
+    expect(brokenMargins().map((m) => m.name)).toEqual(['the chat settles before it goes', 'worked out by the act']);
+    clearMargins();
+    expect(margins()).toEqual([]);
   });
 });

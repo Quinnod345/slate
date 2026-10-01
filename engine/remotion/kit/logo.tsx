@@ -10,9 +10,53 @@ import {GUIDE_STAGGER_S, MARK_DUR, MARK_SPREAD, planLogoBuild, type LogoBuildSpe
 import {dur, durRank, easeNamed, exitDur, roleEase} from './core/motion';
 import {clamp01, lerp} from './core/spline';
 import type {LogoInput} from './core/types';
-import {useFilmTime, useFrameSize, useTokens} from './context';
+import {useFilmTime, useFrameSize, useLine, useTokens} from './context';
 import {Ground} from './paper';
 import {PerWord} from './type';
+
+/** Grounds a logo is drawn for that are dark (its `on`), as slate.brand.pack reads them. */
+const ON_DARK = ['inverse', 'dark', 'night', 'black', 'ink-ground', 'reversed', 'photo'];
+/** A logo name's colourway suffix ("mark-inverse"), as slate.brand.pack reads it. */
+const SUFFIXES: Record<string, 'ink' | 'white' | 'mono'> = {inverse: 'white', white: 'white', reversed: 'white', reverse: 'white', knockout: 'white', ondark: 'white', ink: 'ink', black: 'ink', onlight: 'ink', mono: 'mono'};
+const SUFFIX_RE = /^(.*?)[-_. ](on[-_ ]?dark|on[-_ ]?light|inverse|white|reversed|reverse|knockout|ink|black|mono)$/i;
+
+/** The mark a logo belongs to and its colourway (ink, white or mono), from its `on` ground and its name. */
+export function colourwayOf(name: string, logo: LogoInput | undefined): {base: string; way: 'ink' | 'white' | 'mono'} {
+  let base = name;
+  let way: 'ink' | 'white' | 'mono' | null = null;
+  const m = SUFFIX_RE.exec(name);
+  if (m) {
+    base = m[1];
+    way = SUFFIXES[m[2].toLowerCase().replace(/[-_ ]/g, '')] ?? null;
+  }
+  const on = typeof logo?.on === 'string' ? logo.on.toLowerCase() : '';
+  if (on) way = ON_DARK.some((w) => on.includes(w)) ? 'white' : way === 'mono' ? 'mono' : 'ink';
+  return {base, way: way ?? 'ink'};
+}
+
+/**
+ * The logo to draw on this ground: the named logo (the first when none is named), or its own colourway for the ground
+ * when the pack has one, so a builder never recolours a mark (L-brand-D016). A logo's `colourways` ({white: "mark-
+ * inverse"}) names its siblings; otherwise a sibling of the same mark drawn for the other ground (by its `on`, or its
+ * name: "mark-inverse") is used. A mark with one colourway is drawn as it is.
+ */
+export function colourwayLogo(name: string | undefined, dark: boolean): string | undefined {
+  const logos = brandPack().logos;
+  if (!logos) return name;
+  const entries: [string, LogoInput][] = Array.isArray(logos) ? logos.map((l, i) => [String((l as {name?: string}).name ?? i), l]) : Object.entries(logos);
+  const hit = name ? entries.find(([n]) => n === name) : entries[0];
+  if (!hit) return name;
+  const want = dark ? 'white' : 'ink';
+  const declared = hit[1].colourways;
+  if (declared && typeof declared === 'object' && !Array.isArray(declared)) {
+    const other = (declared as Record<string, unknown>)[want];
+    if (typeof other === 'string' && entries.some(([n]) => n === other)) return other;
+  }
+  const own = colourwayOf(hit[0], hit[1]);
+  if (own.way === want || own.way === 'mono') return hit[0];
+  const sibling = entries.find(([n, l]) => n !== hit[0] && colourwayOf(n, l).base === own.base && colourwayOf(n, l).way === want);
+  return sibling ? sibling[0] : hit[0];
+}
 
 /** A brand logo by name (the first one when no name is given), with its build spec. */
 export function brandLogo(name?: string): {name: string; svg: string; build: LogoBuildSpec} | null {
@@ -38,6 +82,64 @@ export function logoPlan(name?: string, spec?: LogoBuildSpec): LogoPlan | null {
     plans.set(key, p);
   }
   return p;
+}
+
+/** How far above (or beside) its place the keystone hangs before it drops, as a share of the artwork's height. */
+export const KEYSTONE_HANG = 0.9;
+/** How far an echo ring reaches past the shape it rings (Ripple's default reach). */
+const ECHO_REACH = 1.4;
+
+/**
+ * Everything a logo build draws, in the artwork's own units: the survey's guides past the mark's edges, the keystone
+ * where it hangs before it drops, and the echo it lands with. Fit a cell or a frame to this rather than to the resting
+ * artwork, so nothing the build draws is cut off: the review sheet's logo cell once clipped the demo mark's keystone by
+ * about 5 px while it hung (frame 45), and a square mark sized by its width overflowed the cell.
+ */
+export function logoBuildExtent(plan: LogoPlan): {x0: number; y0: number; x1: number; y1: number} {
+  const box = plan.box;
+  const pad = 0.12 * (box.x1 - box.x0 + box.y1 - box.y0) * 0.5;
+  let x0 = box.x0 - pad;
+  let y0 = box.y0 - pad;
+  let x1 = box.x1 + pad;
+  let y1 = box.y1 + pad;
+  const key = plan.keystone !== null ? plan.shapes[plan.keystone] : null;
+  if (key) {
+    const kb = key.bbox;
+    const hang = (box.y1 - box.y0) * KEYSTONE_HANG;
+    const dir = plan.keystoneFrom;
+    const dx = dir === 'left' ? -hang : dir === 'right' ? hang : 0;
+    const dy = dir === 'above' ? -hang : dir === 'below' ? hang : 0;
+    x0 = Math.min(x0, kb.x0 + dx);
+    x1 = Math.max(x1, kb.x1 + dx);
+    y0 = Math.min(y0, kb.y0 + dy);
+    y1 = Math.max(y1, kb.y1 + dy);
+    if (plan.impact) {
+      const cx = (kb.x0 + kb.x1) / 2;
+      const cy = (kb.y0 + kb.y1) / 2;
+      const hw = ((kb.x1 - kb.x0) * (1 + ECHO_REACH)) / 2;
+      const hh = ((kb.y1 - kb.y0) * (1 + ECHO_REACH)) / 2;
+      x0 = Math.min(x0, cx - hw);
+      x1 = Math.max(x1, cx + hw);
+      y0 = Math.min(y0, cy - hh);
+      y1 = Math.max(y1, cy + hh);
+    }
+  }
+  return {x0, y0, x1, y1};
+}
+
+/**
+ * Where to draw a logo build so everything it draws (logoBuildExtent) fits a w × h area with a margin: the resting
+ * artwork's top-left (x, y) and its width, in the area's px, centred. Pass them to LogoBuild.
+ */
+export function fitLogoBuild(plan: LogoPlan, w: number, h: number, margin = 0.04): {x: number; y: number; w: number} {
+  const e = logoBuildExtent(plan);
+  const ew = Math.max(e.x1 - e.x0, 1e-9);
+  const eh = Math.max(e.y1 - e.y0, 1e-9);
+  const k = Math.max(0, Math.min((w * (1 - 2 * margin)) / ew, (h * (1 - 2 * margin)) / eh));
+  const [vx, vy, vw] = plan.viewBox;
+  const left = (w - ew * k) / 2 - (e.x0 - vx) * k;
+  const top = (h - eh * k) / 2 - (e.y0 - vy) * k;
+  return {x: left, y: top, w: vw * k};
 }
 
 function rrect(cx: number, cy: number, w: number, h: number, r: number): string {
@@ -92,8 +194,12 @@ export function LogoBuild({logo, spec, t0, x, y, w, t: tOverride, settleBy, dark
   const clock = useFilmTime();
   const tk = useTokens();
   const {width, height, short} = useFrameSize();
+  // the outline draws in the look's line weight, so an act's own line meets it at the same weight (L-kit-D131); the
+  // survey (guides, vertex marks) stays a hairline
+  const line = useLine();
   const uid = `logo${useId().replace(/[^a-zA-Z0-9]/g, '')}`;
-  const plan = logoPlan(logo, spec);
+  // the mark in its colourway for this ground, never recoloured (L-brand-D016)
+  const plan = logoPlan(colourwayLogo(logo, dark), spec);
   if (!plan) return null;
   const t = tOverride ?? clock;
   const rel = t - t0;
@@ -153,7 +259,7 @@ export function LogoBuild({logo, spec, t0, x, y, w, t: tOverride, settleBy, dark
     const kcy = Y((kb.y0 + kb.y1) / 2);
     const kw = (kb.x1 - kb.x0) * k;
     const kh = (kb.y1 - kb.y0) * k;
-    const hang = (box.y1 - box.y0) * k * 0.9;
+    const hang = (box.y1 - box.y0) * k * KEYSTONE_HANG;
     const dir = plan.keystoneFrom;
     const off = (d: number) => (dir === 'above' ? {dx: 0, dy: -d} : dir === 'below' ? {dx: 0, dy: d} : dir === 'left' ? {dx: -d, dy: 0} : {dx: d, dy: 0});
     const appear = enter((rel - T.hangStart) / durRank(2));
@@ -203,8 +309,9 @@ export function LogoBuild({logo, spec, t0, x, y, w, t: tOverride, settleBy, dark
       {echo}
       {plan.outline &&
         outlineOp > 0 &&
+        clamp01(outlineU) > 0 &&
         parts.map((s) => (
-          <path key={`o${s.index}`} d={s.d} transform={tf} fill="none" stroke={shapeColor(s.fill)} strokeWidth={(hair / k).toFixed(4)} pathLength={1} strokeDasharray={`${clamp01(outlineU)} 2`} opacity={outlineOp} />
+          <path key={`o${s.index}`} d={s.d} transform={tf} fill="none" stroke={shapeColor(s.fill)} strokeWidth={(line / k).toFixed(4)} pathLength={1} strokeDasharray={`${clamp01(outlineU)} 2`} opacity={outlineOp} />
         ))}
       {/* the clip goes on an untransformed group: on the transformed path itself it would be read in the path's own
           (scaled) space and clip the fill away */}
@@ -234,7 +341,8 @@ export function stingLength(logo?: string, tagline = true): number {
 export function LogoSting({logo, t0, tagline, dark = false, width: wFrac = 0.42, t: tOverride}: {logo?: string; t0: number; tagline?: string; dark?: boolean; width?: number; t?: number}) {
   const {width, height, short} = useFrameSize();
   const tk = useTokens();
-  const plan = logoPlan(logo);
+  const drawn = colourwayLogo(logo, dark);
+  const plan = logoPlan(drawn);
   if (!plan) return <Ground dark={dark} />;
   const [, , vw, vh] = plan.viewBox;
   const w = Math.min(width * wFrac, (height * 0.4 * vw) / (vh || 1));
@@ -245,7 +353,7 @@ export function LogoSting({logo, t0, tagline, dark = false, width: wFrac = 0.42,
   return (
     <AbsoluteFill>
       <Ground dark={dark} />
-      <LogoBuild logo={logo} t0={t0} x={x} y={y} w={w} t={tOverride} dark={dark} settleBy={t0 + stingLength(logo, !!tagline)} />
+      <LogoBuild logo={drawn} t0={t0} x={x} y={y} w={w} t={tOverride} dark={dark} settleBy={t0 + stingLength(drawn, !!tagline)} />
       {tagline && (
         <div style={{position: 'absolute', left: 0, right: 0, top: y + h + 0.05 * short, textAlign: 'center'}}>
           <PerWord text={tagline} t0={landAt + lerp(0, durRank(2), 0.5)} t={tOverride} role="h2" color={dark ? tk.color.onInverse : tk.color.ink} />

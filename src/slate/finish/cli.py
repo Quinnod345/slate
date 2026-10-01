@@ -147,8 +147,45 @@ def _send_lines(sent: dict | None) -> list[str]:
     return lines
 
 
+def _review_audio(args: argparse.Namespace, film_dir) -> int:
+    """`slate review --audio <mix>`: the current picture with a proposed mix as the sound."""
+    from slate.errors import UsageError  # noqa: PLC0415
+
+    if args.version:
+        raise UsageError("--audio reviews a proposed mix against the current picture; it doesn't take --version.")
+    if args.to == "imessage":
+        raise UsageError("A proposed mix goes to Downloads (or stays in the film's review folder with --no-send); "
+                         "the version's own packet is what goes by iMessage.")
+    film = Film(film_dir)
+    if _dry(args):
+        p = review_mod.proposal_plan(film_dir, args.audio)
+        log.result(p, f"Would {'keep' if p['exists'] else 'make'} the cuts of v{p['version']}'s picture with "
+                      f"{p['mix']['file']} as the sound, in {p['folder']}/")
+        return 0
+    if args.detach:
+        return _detach(args, "review", ("render",), film_dir)
+    res = review_mod.proposal(film_dir, args.audio, rebuild=args.rebuild)
+    rec = res["record"]
+    wants = not args.no_send and (args.to == "downloads" or review_mod.default_destination(film) == "downloads")
+    resend = res["built"] or bool(args.to)  # a proposal kept from before goes again only when asked
+    sent = review_mod.proposal_to_downloads(film_dir, res) if wants and resend else None
+    out = {"film": film.id, "version": rec["version"], "proposal": film.rel(res["proposal"]), "built": res["built"],
+           "mix": rec["mix"], "picture": rec["picture"], "files": rec["files"], "sent": sent}
+    human = [(f"Made" if res["built"] else "Kept") + f" the cuts of v{rec['version']}'s picture with the proposed mix "
+             f"{rec['mix']['file']}: {film.rel(res['folder'])}/",
+             f"  phone cut: {rec['files']['phone_cut']['file']} (timecode and shot id under the picture)",
+             f"  half-size cut: {rec['files']['review_cut']['file']}",
+             "  the film's own mix, packet and version are unchanged"]
+    if sent:
+        human.append(f"Copied to {sent['folder']}")
+    log.result(out, "\n".join(human))
+    return 0
+
+
 def cmd_review(args: argparse.Namespace) -> int:
     film_dir = cli.film(args)
+    if getattr(args, "audio", None):
+        return _review_audio(args, film_dir)
     if _dry(args):
         if args.version:
             p = review_mod.send(film_dir, version=args.version, to=args.to, dry_run=True, explicit=True)
@@ -309,6 +346,8 @@ REVIEW_HELP = """Build the review packet for this version and send it where the 
                                       autonomous film, iMessage and a push once a reviewer has passed it
   slate review --to imessage          send it by iMessage with a push (for an autonomous film: the hold)
   slate review --version 2 --to downloads   send an earlier packet
+  slate review --audio sound/p3/final_mix.wav   the current picture with a proposed mix as the sound (cuts in
+                                      review/proposals/, copied to Downloads); the film's own mix is unchanged
   slate review grade-brief            the brief a separate reviewer grades from
   slate review grade --verdict pass --notes "…" --by NAME
 
@@ -347,6 +386,8 @@ def register(sub) -> None:
                                                                  "films, imessage for autonomous films)")
     p.add_argument("--rebuild", action="store_true", help="make the packet again even if nothing changed")
     p.add_argument("--no-send", dest="no_send", action="store_true", help="build it, send nothing")
+    p.add_argument("--audio", metavar="MIX", help="review a proposed mix (a WAV the film's length) against the "
+                                                  "current picture, instead of the film's own sound")
     p.add_argument("--detach", action="store_true", help="run it as a job in the queue")
     stages = p.add_subparsers(dest="review_stage", metavar="<stage>")
     g = cli.add_command(stages, "grade-brief", cmd_grade_brief, "the brief a separate reviewer grades the film from")

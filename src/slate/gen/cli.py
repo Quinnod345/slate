@@ -8,7 +8,7 @@ import sys
 
 from slate import cli, log
 from slate.errors import MissingPrerequisite, UsageError
-from slate.gen import deps, judge, matte, plates, policy, run as gen_run, track
+from slate.gen import deps, judge, matte, plates, policy, repair, run as gen_run, track
 from slate.vendors import higgsfield
 
 GEN_HELP = """Generation runs only on the Higgsfield Cloud API (the one funded lane), only where the film's generation
@@ -25,7 +25,21 @@ Autonomous films: slate gen request-approval --shot S05 asks the person; slate g
 their yes; slate gen run --shot S05 --approval <id> spends."""
 
 PLATES_HELP = """Plates: the plan of generated shots, the conform of an approved take, bridge mattes (a generation's
-shape revealing real frames; its pixels never become the picture) and edge tracks (so code draws exactly on a plate)."""
+shape revealing real frames; its pixels never become the picture), edge tracks (so code draws exactly on a plate) and
+timing repair (a generation that drops or freezes a frame at its chunk joins, re-timed by its measured motion).
+
+  slate plates conform --shot S05      the approved take → JPEG sequence at the film's rate, its steps checked
+  slate plates repair S05              measure, re-time and re-synthesise into a staging folder, with a report
+  slate plates repair S05 --install    put the staged frames in place (the old sequence is kept)"""
+
+REPAIR_HELP = """Repair a generated plate whose steps are uneven (a dropped or frozen frame at the model's chunk joins).
+
+Each step of the approved take is measured on the plate's moving band; the frames go on a true-time axis (a missing
+frame takes about 1.8 units, its measured share; a frozen frame takes none and its copy is dropped); every film frame
+is made at its even place on that axis, interpolated between its two neighbours with optical flow (or --blend); and
+the plate's edge track moves through the same warp. Everything is staged in plates/<shot>/plate/repair/ with a report
+first. --install puts it in place only when no step is over 1.3× its neighbours, keeping the old sequence in
+plates/<shot>/plate/before_repair/. The approved take is never touched."""
 
 
 def _say_json(obj, human: str) -> int:
@@ -214,6 +228,46 @@ def _track(args: argparse.Namespace) -> int:
                              f"→ {result['track']}")
 
 
+def _repair(args: argparse.Namespace) -> int:
+    film = cli.film(args)
+    shot = args.shot_pos or args.shot
+    if not shot:
+        raise UsageError("Name the shot: slate plates repair <shot> (or --shot <shot>).")
+    if args.shot_pos and args.shot and args.shot_pos != args.shot:
+        raise UsageError(f"Two shots named ({args.shot_pos} and {args.shot}): give one.")
+    if args.install and (args.blend or args.band):
+        raise UsageError("--install puts the staged repair in place as it was made; --blend and --band belong to the "
+                         "staging run.")
+    dry = bool(getattr(args, "dry_run", False))
+    result = repair.run(film, shot, blend=args.blend, band=args.band, do_install=args.install, stage_dir=args.stage,
+                        dry_run=dry)
+    if dry:
+        lines = [result["summary"]]
+        for r in (result.get("retimed_steps") or [])[:12]:
+            lines.append(f"  step into source frame {r['step_to_source_frame']}: {r['kind']}, {r['units']} units "
+                         f"({r['motion_px']} px)")
+        lines += [f"next: {n}" for n in result.get("next") or []]
+        log.result(result, "\n".join(lines))
+        return 0
+    if args.install:
+        human = (f"{shot}: installed {result['count']} repaired frames in {result['frames']}; the old sequence and "
+                 f"records are in {result['kept']}" + (f"; the track moved with it ({result['track']})"
+                                                       if result.get("track") else ""))
+        human += "".join(f"\nnext: {n}" for n in result.get("next") or [])
+        return _say_json(result, human)
+    lines = [result["summary"]]
+    if result.get("needed"):
+        for r in (result.get("retimed_steps") or [])[:12]:
+            lines.append(f"  step into source frame {r['step_to_source_frame']}: {r['kind']}, {r['units']} units "
+                         f"({r['motion_px']} px)")
+        if result.get("frozen_dropped"):
+            lines.append(f"  frozen frames dropped: {', '.join(map(str, result['frozen_dropped']))}")
+        lines.append(f"  staged in {result['staged']}; report {result['report']}")
+        lines += [f"next: {n}" for n in result.get("next") or []]
+    log.result(result, "\n".join(lines))
+    return 0
+
+
 def register(sub) -> None:
     g = cli.add_group(sub, "gen", "Generated shots on the Higgsfield Cloud API: estimate, run, judge, pick.",
                       description=GEN_HELP)
@@ -296,3 +350,13 @@ def register(sub) -> None:
     p.add_argument("--every", type=float, help=f"seconds between samples (default {track.DEFAULTS['every']})")
     p.add_argument("--until", type=float, help="stop sampling at this many seconds")
     p.add_argument("--frames", help="track these film-rate frames instead of the shot's plate")
+    p = cli.add_command(pl, "repair", _repair, "re-time a plate that drops or freezes frames (staged, then --install)",
+                        description=REPAIR_HELP)
+    p.add_argument("shot_pos", nargs="?", metavar="shot", help="the shot whose plate to repair")
+    p.add_argument("--shot", help="the same, as a flag")
+    p.add_argument("--blend", action="store_true", help="blend the two neighbouring frames instead of warping them "
+                                                        "(for a frame that reads as generated)")
+    p.add_argument("--band", metavar="X0,Y0,X1,Y1", help="the moving band to measure, as fractions of the frame "
+                                                        f"(default {','.join(map(str, repair.BAND))})")
+    p.add_argument("--install", action="store_true", help="put the staged repair in place, keeping the old sequence")
+    p.add_argument("--stage", metavar="DIR", help="stage somewhere else (default plates/<shot>/plate/repair/)")

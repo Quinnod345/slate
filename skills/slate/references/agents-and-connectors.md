@@ -23,6 +23,23 @@ explains each.
 
 `slate doctor` checks each agent's context (`--context`) and names anything missing, including a skill listed twice.
 
+Slate announces itself to OpenClaw agents through its skill's own name and description. It never adds lines to an
+agent's AGENTS.md (one is already at its 20,000-character injection cap) or TOOLS.md (no longer injected).
+
+## Paid stages from the OpenClaw gateway go through the job queue
+
+The OpenClaw gateway runs its agents' shell commands behind an egress proxy that allows only the hosts its owner listed,
+and by default the voice and generation vendors aren't among them: a paid call made inside the gateway fails at the
+proxy's tunnel (a 403), whatever the key. The job runner is a launchd agent outside the gateway, so from inside it:
+
+- **Submit every paid stage as a job, never inline.** Use the stage's `--detach` (`slate voice tts --detach`,
+  `slate gen run --detach`), or `slate job submit` for a stage without one, or the MCP server's `job_submit`; then
+  follow it with `slate job status <id>`. The runner makes the vendor call outside the proxy, through the same ledger.
+- **Free work runs where you are**: timing, the gates, Whisper, renders and the mix make no vendor call.
+- **A vendor row in `slate doctor --context openclaw-gateway`** that can't reach a vendor is the proxy, not the
+  network. The fixes are the queue (above) or the owner adding the vendors' hosts to the gateway's allowlist in their
+  own security config, which Slate never edits.
+
 ## MCP
 
 `slate mcp` is a thin stdio server over the CLI and the job queue. Use it where the agent has it; the CLI does

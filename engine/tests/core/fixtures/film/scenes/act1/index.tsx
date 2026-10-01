@@ -4,6 +4,7 @@
 import React from 'react';
 import {AbsoluteFill, useCurrentFrame} from 'remotion';
 import {film, type SceneProps} from '@film/data';
+import {shots} from '@film/data';
 
 /** How far the square moves per film frame, in pixels. */
 export const SPEED = 8;
@@ -19,10 +20,12 @@ export function filmFrame(frame: number, sub: number, firstFrame: number): numbe
 }
 
 const secondsOf = (frame: number) => (frame * film.fps_den) / film.fps_num;
+/** A shot's first film frame: every beat is keyed to its shot, never to a literal film frame. */
+const shotStart = (id: string) => shots.shots.find((s) => s.id === id)?.frame_in ?? 0;
 
 export const events = [
-  {shot: 'S01', id: 'square_enters', t: secondsOf(3), kind: 'whoosh', size: 's', note: 'The square slides in from the left.'},
-  {shot: 'S02', id: 'square_crosses_centre', t: secondsOf(20), kind: 'land', size: 'm', note: 'The square reaches the middle of the frame.'},
+  {shot: 'S01', id: 'square_enters', t: secondsOf(shotStart('S01') + 3), kind: 'whoosh', size: 's', note: 'The square slides in from the left.'},
+  {shot: 'S02', id: 'square_crosses_centre', t: secondsOf(shotStart('S02') + 5), kind: 'land', size: 'm', note: 'The square reaches the middle of the frame.'},
 ];
 
 /** A saturated patch that never moves: greys encode the same under BT.601 and BT.709, this colour doesn't. */

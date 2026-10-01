@@ -16,4 +16,5 @@ export * from './looks';
 export * from './svg';
 export * from './logo';
 export * from './motif';
+export * from './margins';
 export * from './captions';

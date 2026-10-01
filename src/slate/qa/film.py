@@ -142,7 +142,14 @@ class FilmContext:
 
     @property
     def mode(self) -> str:
-        return str(self.film.get("mode") or "supervised")
+        """The mode the film is judged in: autonomous whenever film.json or Slate's own record says it was made
+        autonomous (slate.state.autonomy), else film.json's. The claims check is strict for it either way."""
+        own = str(self.film.get("mode") or "supervised")
+        try:
+            from slate.state import autonomy  # noqa: PLC0415 - qa runs without film state installed
+        except ImportError:
+            return own
+        return autonomy.film_mode(self.dir, self.film)
 
     @property
     def targets(self) -> dict:

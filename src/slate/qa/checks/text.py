@@ -1,10 +1,16 @@
 """Text gates: what the audience reads and hears.
 
 - ocr           Apple Vision reads the whole picture every 0.25 s (the one OCR engine; UNCHECKED when it can't run);
-- banned_words  the brand's one banned-word list (brand pack `truth.banned_words`) against the script, the captions
-                and the OCR of the picture. The films kept three copies of their list and two drifted apart;
+- banned_words  the brand's one banned-word list (brand pack `truth.banned_words`) against the script, the captions,
+                what Whisper heard in every take in use (timing/vo_words.json) and the OCR of the picture. The films
+                kept three copies of their list and two drifted apart. An entry may carry its inflections (`forms`) and
+                an approved substitute (`instead`): every form is matched and a failure names the substitute. A brand
+                that forbids self-commentary (`truth.self_commentary: false`) has "Illustration" and "Example"
+                captions banned on screen too;
 - readtime      every on-screen statement in the storyboard stays readable long enough once it is fully built:
-                max(1.5 s, 0.4 s + 0.3 s per word), timed from the OCR, within its own shot (±0.5 s). A shot may
+                max(1.5 s, 0.4 s + 0.3 s per word), timed from the OCR, within its own shot (±0.5 s). Where the act's
+                motion trace says which element shows the statement (its `text`), a moment counts only while the
+                element is at least 90% opaque and moving under 8 px a frame at 1080p (scaled to the film). A shot may
                 declare exemptions in script.json (`reading`, with a reason): a voice-matched definition needs only
                 the 1.5 s floor, and a surface not meant to be read isn't timed (reading_declarations);
 - captions      at most 2 lines of 42 characters, at most 17 characters a second (the format and film.json may
@@ -126,22 +132,42 @@ def ocr(film_dir: Path) -> GateResult:
 
 
 # ---------------------------------------------------------------------------------------------- banned words
+ON_SCREEN_FIELDS = ("on_screen", "picture")  # what a shot shows (a self-commentary caption is one of these)
+
+
+def _heard(record: dict) -> str:
+    """What Whisper heard in a take: its transcript, else its words joined."""
+    text = record.get("heard")
+    if isinstance(text, str) and text.strip():
+        return text
+    return " ".join(str(w.get("w") or "") for w in record.get("words") or [] if isinstance(w, dict))
+
+
 def banned_words(film_dir: Path) -> GateResult:
-    """The brand's one banned-word list against the script, the captions and the OCR of the picture."""
+    """The brand's one banned-word list (every form of every entry) against the script, the captions, what the voice
+    really said and the OCR of the picture."""
     ctx = context(film_dir)
     ok, ocr_info = ocrmod.available()
-    engine = gates.engine("slate banned-word match (whole words, any case)", __version__, ocr=ocr_info)
+    engine = gates.engine("slate banned-word match (whole words, every form, any case)", __version__, ocr=ocr_info)
     pack, where = brandinfo.load(ctx.brand)
     read: list = ["film.json", "script/script.json", brandinfo.pack_file(ctx.brand)]
     if pack is None:
         return GateResult.unchecked("banned_words", f"the brand's banned words can't be read: {where}",
                                     evidence=["next: slate brand validate"], engine=engine, inputs=ctx.inputs(read))
-    words = brandinfo.banned_words(pack)
-    if words is None:
+    entries = brandinfo.banned_entries(pack)
+    if entries is None:
+        words = brandinfo.banned_words(pack)
+        entries = None if words is None else [e for e in (textmatch.banned_entry(w) for w in words) if e]
+    if entries is None:
         return GateResult.unchecked("banned_words", "the brand pack doesn't say which words are banned "
                                     "(truth.banned_words)", evidence=[where], engine=engine, inputs=ctx.inputs(read))
-    source = f"{ctx.brand} brand pack truth.banned_words ({plural(len(words), 'word')}, {where})"
-    pattern = textmatch.banned_pattern(words)
+    self_comment = brandinfo.self_commentary(pack)
+    screen_entries = entries + ([] if self_comment else list(brandinfo.SELF_COMMENTARY))
+    forms_n = sum(1 + len(e["forms"]) for e in entries)
+    source = (f"{ctx.brand} brand pack truth.banned_words ({plural(len(entries), 'word')}, {forms_n} forms, {where})"
+              + ("" if self_comment else "; self-commentary captions banned on screen (truth.self_commentary: false)"))
+    pattern, forms = textmatch.banned_pattern(entries), textmatch.banned_forms(entries)
+    screen, screen_forms = textmatch.banned_pattern(screen_entries), textmatch.banned_forms(screen_entries)
     hits: list[str] = []
     subs: list[Sub] = []
     # the script
@@ -152,7 +178,10 @@ def banned_words(film_dir: Path) -> GateResult:
         n = 0
         for path, text in script_strings(script):
             n += 1
-            hits += [f"script {path}: {w!r} in “{text[:80]}”" for w in textmatch.find_banned(text, pattern)]
+            shown = path.rsplit(".", 1)[-1] in ON_SCREEN_FIELDS
+            pat, fm = (screen, screen_forms) if shown else (pattern, forms)
+            hits += [f"script {path}: {textmatch.name_hit(w, fm)} in “{text[:80]}”"
+                     for w in textmatch.find_banned(text, pat)]
         subs.append(Sub("script", "PASS", f"script: {n} texts checked (VO, on screen, picture, claims, quotes)"))
     # the captions
     cap = ctx.captions_path()
@@ -164,7 +193,7 @@ def banned_words(film_dir: Path) -> GateResult:
         try:
             cues = textmatch.load_cues(cap)
             for c in cues:
-                hits += [f"captions cue {c['index']} ({c['start']:.2f} s): {w!r}" for w in
+                hits += [f"captions cue {c['index']} ({c['start']:.2f} s): {textmatch.name_hit(w, forms)}" for w in
                          textmatch.find_banned(c["text"], pattern)]
             subs.append(Sub("captions", "PASS", f"captions: {plural(len(cues), 'cue')} checked"))
         except (OSError, ValueError, KeyError) as exc:
@@ -172,6 +201,26 @@ def banned_words(film_dir: Path) -> GateResult:
     elif spoken:
         subs.append(Sub("captions", "UNCHECKED", "the film has spoken lines but no captions yet",
                         ["next: slate voice captions"]))
+    # what the voice really said: Whisper's words for every take in use
+    read.append("timing/vo_words.json")
+    heard = ctx.vo_words
+    if heard:
+        n = 0
+        for sid, rec in heard.items():
+            text = _heard(rec)
+            if not text.strip():
+                continue
+            n += 1
+            hits += [f"speech {sid} (take {rec.get('take') or '?'}): {textmatch.name_hit(w, forms)} in what Whisper "
+                     f"heard, “{text[:80]}”" for w in textmatch.find_banned(text, pattern)]
+        if n:
+            subs.append(Sub("speech", "PASS", f"speech: what Whisper heard in {plural(n, 'take')} checked"))
+        else:
+            subs.append(Sub("speech", "UNCHECKED", "timing/vo_words.json has no words Whisper heard yet",
+                            ["next: slate timing words"]))
+    elif spoken or any(_texts(shot.get("vo")) for _w, shot in script_shots(script or {})):
+        subs.append(Sub("speech", "UNCHECKED", "the takes haven't been transcribed, so what the voice said isn't "
+                        "checked yet", ["next: slate timing words"]))
     # the picture
     sw = None
     if not ok:
@@ -182,8 +231,8 @@ def banned_words(film_dir: Path) -> GateResult:
             sw = ocrmod.sweep(ctx)
             for s in sw.samples:
                 for ln in s.get("lines") or []:
-                    hits += [f"picture at {s['t']:.2f} s (film frame {s['frame']}): {w!r} in “{ln.get('text')}”"
-                             for w in textmatch.find_banned(ln.get("text", ""), pattern)]
+                    hits += [f"picture at {s['t']:.2f} s (film frame {s['frame']}): {textmatch.name_hit(w, screen_forms)}"
+                             f" in “{ln.get('text')}”" for w in textmatch.find_banned(ln.get("text", ""), screen)]
             if sw.missing_acts:
                 subs.append(Sub("picture", "UNCHECKED", f"acts {', '.join(map(str, sw.missing_acts))} have no render "
                                 "to read", ["next: slate render"]))
@@ -196,7 +245,7 @@ def banned_words(film_dir: Path) -> GateResult:
     if hits:
         subs.insert(0, Sub("hits", "FAIL", f"{plural(len(hits), 'banned word')} found: {hits[0]}", hits[:60]))
     return combine("banned_words", subs, engine=engine, inputs=ctx.inputs(read + _sweep_inputs(ctx, sw)),
-                   details={"list": source, "hits": hits[:200]})
+                   details={"list": source, "hits": hits[:200], "self_commentary": self_comment})
 
 
 # ---------------------------------------------------------------------------------------------- read time
@@ -279,6 +328,65 @@ def reading_declarations(ctx: FilmContext) -> tuple[dict[str, dict], list[str]]:
     return out, problems
 
 
+LEGIBLE_OPACITY = 0.9  # a statement reads only where it's at least 90% opaque…
+LEGIBLE_SPEED = 1 / 135  # …and moving under 8 px a frame at 1080 lines: a share of the film's short side
+
+
+def _at(m, frame: float):
+    """A traced move's value at a film frame: its start before it, its end after it, its samples in between."""
+    import numpy as np  # noqa: PLC0415
+
+    if m.values is None or len(m.values) == 0:
+        return None
+    if frame <= m.frame_in:
+        return np.asarray(m.start if m.start is not None else m.values[0], dtype=float)
+    if frame >= m.frame_out:
+        return np.asarray(m.end if m.end is not None else m.values[-1], dtype=float)
+    return np.array([np.interp(frame, m.frames, m.values[:, k]) for k in range(m.values.shape[1])])
+
+
+def legibility(ctx: FilmContext, statements: list[tuple[str, str]]):
+    """{(shot, statement): a frame -> bool test} for the statements an act's motion trace names (`text` on the moves
+    of the element that shows it), and how many it doesn't. Legible: every opacity channel at least 90% (a 0–100
+    scale is read as percent) and the element's position moving under 8 px a frame at 1080 lines."""
+    try:
+        from slate.qa import motion  # noqa: PLC0415
+
+        data = motion.load_data(ctx.dir, ctx=ctx)
+    except Exception:  # noqa: BLE001 - no trace, or a trace the motion gate will report: OCR alone times it
+        return {}, len(statements)
+    traced = [m for m in data.moves if m.text]
+    size = ctx.size
+    if not size:
+        return {}, len(statements)  # no frame size: the speed can't be scaled, so OCR alone times them
+    limit = LEGIBLE_SPEED * min(size)
+    tests, untraced = {}, 0
+    for sid, text in statements:
+        key = textmatch.squash(text)
+        moves = [m for m in traced if key and key in textmatch.squash(m.text)]
+        if not moves:
+            untraced += 1
+            continue
+        opacity = [m for m in moves if m.kind == "opacity"]
+        position = [m for m in moves if m.kind in ("x", "y", "vector", "px")]
+        scale = {id(m): (100.0 if max(abs(float(v)) for v in m.values.ravel()) > 1.5 else 1.0) for m in opacity}
+
+        def test(frame: float, opacity=opacity, position=position, scale=scale) -> bool:
+            for m in opacity:
+                v = _at(m, frame)
+                if v is not None and float(v.min()) / scale[id(m)] < LEGIBLE_OPACITY - 1e-9:
+                    return False
+            speed2 = 0.0
+            for m in position:
+                a, b = _at(m, frame - 1), _at(m, frame)
+                if a is not None and b is not None:
+                    speed2 += float(((b - a) ** 2).sum())
+            return speed2 ** 0.5 < limit
+
+        tests[(sid, text)] = test
+    return tests, untraced
+
+
 def _declared(decl: dict | None, flag: str, text: str) -> bool:
     v = (decl or {}).get(flag)
     return v is True or (isinstance(v, set) and textmatch.squash(text) in v)
@@ -334,6 +442,7 @@ def readtime(film_dir: Path) -> GateResult:
     every = sw.every
     texts = [(s["t"], textmatch.squash(sw.text_at(s))) for s in sw.samples]
     shots = ctx.shot_by_id
+    legible, untraced = legibility(ctx, timed)
     rows, short, unplaced, missing_picture = [], [], [], []
     rendered = {a["index"] for a in ctx.acts} - set(sw.missing_acts)
     for sid, text in timed:
@@ -346,11 +455,15 @@ def readtime(film_dir: Path) -> GateResult:
             continue
         t0, t1 = ctx.secs_of(int(s["frame_in"])), ctx.secs_of(int(s["frame_out"]))
         hit_times = [t for t, ft in texts if t0 - 0.5 <= t <= t1 + 0.5 and textmatch.present(text, ft)]
+        test = legible.get((sid, text))
+        if test is not None:  # the trace says when it's opaque and still enough to read
+            hit_times = [t for t in hit_times if test(ctx.frame_of(t))]
         longest = textmatch.longest_run(hit_times, every)
         matched = _declared(decls.get(sid), "voice_matched", text)
         need = textmatch.need_seconds(text, per_word=0.0, base=0.0) if matched else textmatch.need_seconds(text)
         since = f" from {hit_times[0]:.2f} s" if hit_times else ""
-        row = f"{sid} '{text}' {longest:.2f} s{since} (needs {need:.2f} s{', voice-matched' if matched else ''})"
+        row = (f"{sid} '{text}' {longest:.2f} s{since} (needs {need:.2f} s{', voice-matched' if matched else ''}"
+               + (", counted only while ≥ 90% opaque and under 8 px a frame" if test is not None else "") + ")")
         rows.append(row)
         if longest + every < need:  # one OCR interval of slack: the run is sampled, not exact
             short.append(row)
@@ -365,9 +478,13 @@ def readtime(film_dir: Path) -> GateResult:
     if not short and not unplaced and rows:
         subs.append(Sub("statements", "PASS", f"all {plural(len(rows), 'statement')} stay readable long enough "
                         f"(OCR every {every} s)", rows))
+    trace_files = [f"timing/motion/act{a['index']}.json" for a in ctx.acts]
+    if untraced and legible:
+        details["untraced"] = untraced
     return combine("readtime", subs, engine=gates.engine("slate read-time matcher", __version__, ocr=sw.engine),
-                   inputs=ctx.inputs(read + _sweep_inputs(ctx, sw)),
-                   details={**details, "short": short, "rows": rows})
+                   inputs=ctx.inputs(read + trace_files + _sweep_inputs(ctx, sw)),
+                   details={**details, "short": short, "rows": rows, "traced": len(legible),
+                            "legible_rule": {"opacity": LEGIBLE_OPACITY, "speed_share_of_short_side": LEGIBLE_SPEED}})
 
 
 # ---------------------------------------------------------------------------------------------- captions

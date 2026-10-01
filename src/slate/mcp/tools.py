@@ -152,20 +152,44 @@ def _subparsers(parser: argparse.ArgumentParser) -> dict[str, argparse.ArgumentP
     return {}
 
 
-def registered(words: tuple[str, ...]) -> bool:
-    """True when `slate <words...>` exists in this install (a module that isn't built yet adds no commands)."""
+def _step_choices(parser: argparse.ArgumentParser) -> tuple[str, ...] | None:
+    """The choices of a command's first positional, when its steps are positional choices (`slate voice tags pick`);
+    None when it takes free names instead (`slate qa [gate ...]`)."""
+    for action in parser._actions:  # noqa: SLF001
+        if action.option_strings or isinstance(action, argparse._SubParsersAction):  # noqa: SLF001
+            continue
+        return tuple(action.choices) if action.choices is not None else None
+    return None
+
+
+def parser_for(argv: list[str]) -> tuple[argparse.ArgumentParser, list[str]]:
+    """The parser that reads this command line, and the words it reads, picked the way the CLI picks it: a command
+    that `slate.cli.SUBROUTES` sends to another module (`slate qa stability`) is read by that module's parser."""
+    routed = cli._subroute(list(argv))  # noqa: SLF001 - the CLI's own routing, so the server reads commands as it does
+    if routed is not None:
+        return routed
+    return cli.build_parser(), list(argv)
+
+
+def registered(words: tuple[str, ...], action: tuple[str, ...] = ()) -> bool:
+    """True when `slate <words...> <action...>` exists in this install (a module that isn't built yet adds no
+    commands, and a step a command doesn't offer isn't there either)."""
     with LOCK:
-        parser: argparse.ArgumentParser = cli.build_parser()
-    for word in words:
+        parser, rest = parser_for(list(words))
+    for word in rest:
         choices = _subparsers(parser)
         if word not in choices:
             return False
         parser = choices[word]
+    if action:
+        steps = _step_choices(parser)
+        if steps is not None and action[0] not in steps:
+            return False
     return True
 
 
 def require_built(st: policy.Stage) -> None:
-    if not registered(st.words):
+    if not registered(st.words, st.action):
         raise MissingPrerequisite(
             f"`{st.cli}` isn't part of this Slate install yet (its module, {st.module}, isn't built).",
             hint="It arrives with a Slate update (`slate update`); until then nothing here can run it.")
@@ -176,7 +200,8 @@ def preflight(argv: list[str]) -> None:
     err = io.StringIO()
     with LOCK, contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
         try:
-            cli.build_parser().parse_args(argv)
+            parser, words = parser_for(argv)
+            parser.parse_args(words)
         except SystemExit as exc:
             if exc.code not in (0, None):
                 lines = [ln for ln in err.getvalue().strip().splitlines() if ln.strip()]
@@ -233,7 +258,7 @@ def _stage_argv(st: policy.Stage, film_path: Path, args: list[str] | None) -> li
     checked = policy.check_args(st, args)
     options = [a for a in checked if a.startswith("--")]
     names = [a for a in checked if not a.startswith("--")]
-    return [*st.words, "--film", str(film_path), *st.extra, *options, *names]
+    return [*st.words, "--film", str(film_path), *st.extra, *options, *st.action, *names]
 
 
 def _queue(st: policy.Stage, argv: list[str], film_path: Path) -> dict:
@@ -446,7 +471,8 @@ def guide(topic: str | None = None) -> dict:
     return call(["guide"] + ([policy.check_value("topic", topic)] if topic else []))
 
 
-__all__ = ["envelope", "failure", "call", "shrink", "registered", "require_built", "preflight", "film_dir", "status",
+__all__ = ["envelope", "failure", "call", "shrink", "registered", "require_built", "preflight", "parser_for",
+           "film_dir", "status",
            "new_film", "run", "job_submit", "script_get", "script_put", "job_status", "job_log", "job_cancel",
            "budget", "ledger", "balance_snapshot", "guide", "LOCK", "MAX_TEXT", "MAX_GUIDE", "LEDGER_VIEWS",
            "PROVIDERS"]

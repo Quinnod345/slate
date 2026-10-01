@@ -38,6 +38,12 @@ copied: there's no redistribution grant. The clean-rig references are worth read
 - **Acceptance tests on every version bump**: the bridge is pre-1.0 and moves fast. Where it fails, fall back to Slate's
   own ExtendScript library, which needs no preference change.
 - Don't call a bridge tool that runs code inside AE without the owner's go: it launches After Effects.
+- **Its arbitrary-code tool stays off, and its categories stay limited** to the ones Slate's scenes use. Slate registers
+  and starts the bridge that way every time, and the environment can't loosen it.
+- **Its mailbox is a trust boundary**: anything that can write there runs code in After Effects, so Slate creates it
+  0700 and nothing else writes to it.
+- Each call waits a little longer than the bridge's own limit for that tool (a minute by default, longer to render a
+  frame or import), so a long import is never cut off on Slate's side and left in an unknown state.
 
 ## Alternatives, for the record
 

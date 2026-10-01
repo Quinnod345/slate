@@ -16,7 +16,14 @@ Every call is replay-aware and every paid call is ledger-wrapped:
   written. A crash in between leaves it parked, and the rerun of the same request uses it instead of paying again.
 
 Keys come only from `slate.secrets` (never argv, never a URL, never a log line). Autonomous films use Oneiro's own
-capped key (`elevenlabs_oneiro`), which is also its own spend pool in the ledger.
+capped key (`elevenlabs_oneiro`), which is also its own spend pool in the ledger. A film's mode is the one Slate judges
+it in (`slate.ledger.film_mode`): a film made autonomous spends through that key whatever mode the caller passes and
+whatever its film.json says now.
+
+Inside the OpenClaw gateway, whose egress proxy doesn't let api.elevenlabs.io through, no live call is tried: the
+command queues itself for Slate's launchd job runner (outside the gateway) or refuses with the next step
+(`slate.vendors.egress`). A proxy's 403 at the tunnel anywhere becomes a MissingPrerequisite naming the owner's egress
+allowlist and the queue route, never a mystery network error.
 
 Models are always named explicitly: Voice Design defaults to an older model on the API side (`eleven_ttv_v3` is sent
 every time) and so does music (`music_v2_5`). Lossless voice (PCM 48 kHz) needs a Pro plan or higher, so the client
@@ -43,7 +50,8 @@ import numpy as np
 
 from slate import config, http, jsonio, ledger, log, paths, procs, replay, secrets
 from slate import errors as _errors
-from slate.errors import Busy, MissingPrerequisite, UsageError
+from slate.errors import Busy, MissingPrerequisite, SlateError, UsageError
+from slate.vendors import egress
 
 TryLater = getattr(_errors, "TryLater", Busy)  # exit 75 on a vendor's "not now" (the job queue retries it)
 from slate.voice import audio as audio_mod
@@ -58,6 +66,7 @@ FORMAT_MIN_TIER = {"pcm_48000": "pro", "wav_48000": "pro", "pcm_44100": "pro", "
 VOICE_FORMATS = ("pcm_48000", "pcm_44100", "mp3_44100_192", "mp3_44100_128")
 MUSIC_FORMATS = ("pcm_48000", "mp3_48000_192", "mp3_44100_192", "mp3_44100_128")
 FORMAT_REJECTED = (400, 403, 422)  # what ElevenLabs answers when a plan can't have a format (nothing is billed)
+STITCH_MAX = 3  # previous_request_ids / next_request_ids: the API takes at most three on each side
 
 SUBSCRIPTION_FIELDS = ("tier", "status", "character_count", "character_limit", "next_character_count_reset_unix",
                        "voice_slots_used", "voice_limit", "professional_voice_slots_used", "professional_voice_limit",
@@ -449,6 +458,14 @@ class Client:
                  rework: bool = False, key: str | None = None, base_url: str | None = None):
         if mode not in ledger.MODES:
             raise UsageError(f"Unknown mode {mode!r}; one of {', '.join(ledger.MODES)}.")
+        if film is not None and hasattr(ledger, "film_mode"):
+            # A film made autonomous spends as autonomous (its own capped key, its caps), whatever mode the caller
+            # read from film.json: Slate's own record of the film's mode wins. (A film that can't be read is the
+            # ledger's to refuse when it's spent against, as before.)
+            try:
+                mode = ledger.film_mode(film, mode)
+            except UsageError:
+                pass
         self.mode = mode
         # The ledger's budget file says which key each mode spends through (autonomous: Oneiro's capped key).
         required = (ledger.secret_name(PROVIDER, mode) if hasattr(ledger, "secret_name")
@@ -481,6 +498,7 @@ class Client:
     def _live(self, method: str, path: str, *, query: dict | None = None, json_body: Any = None,
               fields: dict | None = None, files: dict | None = None, accept: str = "application/json",
               timeout: float = 300) -> tuple[dict, bytes]:
+        egress.route(PROVIDER, host=self._host(), op=path)  # inside the OpenClaw gateway: queue or refuse, never try
         headers = self._auth(accept)
         data = None
         if files is not None:
@@ -491,7 +509,15 @@ class Client:
                                                        json_body=json_body, data=data, timeout=timeout)
         except http.HttpError as exc:
             raise _vendor_refusal(exc, self.provider) or exc
+        except SlateError as exc:  # never reached the vendor: a proxy's 403 at the tunnel says why, and what to do
+            blocked = egress.from_error(PROVIDER, self._host(), exc, op=path)
+            if blocked is not None:
+                raise blocked from None
+            raise
         return _lower(resp_headers), body
+
+    def _host(self) -> str:
+        return urllib.parse.urlparse(self.base_url).netloc or egress.HOSTS[PROVIDER]
 
     def _replay(self, op: str, request: dict) -> tuple[dict, dict]:
         response = replay.respond(PROVIDER, op, request)
@@ -524,6 +550,8 @@ class Client:
         parked = self._parked(key, est)
         if parked is not None:
             return parked
+        if not self.replay:
+            egress.route(PROVIDER, host=self._host(), op=op)  # before the ledger row: nothing is begun that can't go
 
         def submit() -> tuple[dict, Any]:
             headers, payload = call()
@@ -716,9 +744,14 @@ class Client:
 
     def tts(self, *, voice_id: str, text: str, model_id: str | None = None, voice_settings: dict | None = None,
             seed: int | None = None, previous_text: str | None = None, next_text: str | None = None,
+            previous_request_ids: list[str] | None = None, next_request_ids: list[str] | None = None,
             output_format: str | None = None, out: str | Path | None = None, language_code: str | None = None,
             note: str | None = None) -> dict:
         """One read of `text` (audio tags included) with its neighbours' plain words as context.
+
+        `previous_request_ids` and `next_request_ids` stitch the read to its neighbours' own recent reads: ElevenLabs
+        takes up to three a side (the nearest ones are kept), ahead of their text, only for reads under two hours old
+        (the voice stage picks them: slate.voice.tts.neighbour_request_ids).
 
         Returns the model, format actually used (and any fallback), request ids, billed characters and, with
         `out`, the WAV written there. In replay the result also carries exact word times (`words`).
@@ -737,6 +770,12 @@ class Client:
             body["previous_text"] = previous_text
         if next_text:
             body["next_text"] = next_text
+        before = [str(r) for r in previous_request_ids or [] if r][-STITCH_MAX:]
+        after = [str(r) for r in next_request_ids or [] if r][:STITCH_MAX]
+        if before:
+            body["previous_request_ids"] = before
+        if after:
+            body["next_request_ids"] = after
         if language_code:
             body["language_code"] = language_code
         est = self._estimate("tts", model, chars=len(text))
@@ -746,7 +785,8 @@ class Client:
                                                                     json_body=body)), note=note)
         return self._finish_audio(res, out, model=model, fmt=fmt, wanted=wanted, fallbacks=fallbacks,
                                   extra={"voice_id": voice_id, "seed": body.get("seed"), "voice_settings": settings,
-                                         "previous_text": previous_text, "next_text": next_text})
+                                         "previous_text": previous_text, "next_text": next_text,
+                                         "previous_request_ids": before, "next_request_ids": after})
 
     def _with_fallback(self, op: str, est: ledger.Estimate, chain: list[str],
                        build: Callable[[str], tuple[dict, dict]], note: str | None = None

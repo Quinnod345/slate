@@ -23,7 +23,9 @@ Context-conditioned speech can leak: the next line's first sound appears at the 
 line ended with the first consonant of the next line's first word, and the owner heard it). So:
 - the tails check scans every take's end for sound returning after silence;
 - the fix is to **trim** the take after its last word decays (the trim is recorded with the take), never to regenerate an
-  approved take for it;
+  approved take for it: `slate voice trim` plans it, and with `--go` it shortens the take's play length to the line's
+  audible end plus 0.12 s, in the silence before the tail (the file stays as it was). With too little silence between the
+  line and the tail it says re-voice instead; an approved take needs `--force --by NAME`;
 - the dialogue stem is digital silence at the trimmed point.
 
 ## Re-voicing
@@ -36,6 +38,21 @@ When a line's words change (a correction, a claim removed):
 4. Re-time, re-render the affected range and splice it (slate-finish), re-mix, re-run the gates.
 
 Because every beat is keyed to words, the picture follows the new timing automatically; nothing is re-timed by hand.
+Where a beat shapes an unchanged neighbouring shot or a contract, keep its delivered timing: `slate timing pin --shot S
+--words a,b` records those words' delivered times (timing/pinned_words.json) and timing prefers them, so a re-voice moves
+only the corrected spans.
+
+Tools for a re-voice, none of which spends:
+- **A one-word pickup** (`slate voice comp <shot> --word N --from <take>`): the approved take up to a word, then the
+  word from another take, cut inside the silence before it (the word's audible onset found from the audio, since
+  Whisper's word starts run early), crossfaded in the pause, gained to match, and landed exactly where the original's
+  word was. It's a new take with both sources recorded.
+- **The re-voiced narration on the timeline** (`slate voice preview`): one voice-only track on the storyboard's timeline,
+  each line at -20 LUFS with the cue sheet's fades and each shot grown or shrunk by its take's change, next to
+  the current track made the same way. Listen before anything is re-timed.
+- **An approval swap** (`slate voice swap <set>`): without `--go` it prints the plan; with `--go --by NAME` it takes the
+  exact files the owner heard (checked by hash), records the approval, backs up what it replaces, swaps the set in and
+  re-times the film, stopping at the first failing step with the step named and a log kept.
 
 A film that uses the studio polish pinned its strength and chain at first use, so a re-voiced line gets exactly the
 same polish, and the polish check fails until it has it ([polish](polish.md)). A tagged line's pick from a tag round

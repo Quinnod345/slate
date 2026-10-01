@@ -12,6 +12,13 @@ a builder lost work that wasn't on disk yet. Slate is built so none of that lose
 - Pins make week three match week one: the voice, model, settings, seeds and request ids are recorded at first use, and
   a registry refresh never changes a pinned film. Re-pinning is explicit, tested and approved.
 
+## A film that has to live in iCloud Drive
+
+Films live outside iCloud by default. When one has to sit in iCloud Drive, its heavy folders (renders, masters,
+captures, plates, archive) must never upload: with the person's yes, `slate film icloud --yes` sets File Provider's
+ignore attribute on them. Without `--yes` it only says what it would do, and
+`--yes` means the person agreed, never that an agent decided.
+
 ## Long work runs as detached jobs
 
 - Renders, masters, word timings, score composition, generation batches and full QA passes go through the machine-wide
@@ -31,6 +38,13 @@ a builder lost work that wasn't on disk yet. Slate is built so none of that lose
 - Keys are typed by a person in their own Terminal (`slate connect elevenlabs`, `slate connect higgsfield`), never in
   chat and never by an agent. A missing key is exit code 3 with the command for the person to run.
 - A vendor rate limit sends the job back to the queue to retry later, not into a loop.
+
+## When the agents themselves are stopped
+
+Usage, session and rate limits stop agents too, not only vendor calls. When they do, a self-renewing watchdog in the
+agent host resumes the stopped agents, deletes itself when nothing is in flight, and reports only when it restarted
+something. Agents from an earlier session can't be resumed: relaunch them with briefs that pick up from their files
+(the film folder, NOTES.md, `slate status`).
 
 ## Save early and often
 

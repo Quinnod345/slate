@@ -63,7 +63,8 @@ line on a big empty field reads as empty. See [look development](references/look
 - [transitions](references/transitions.md): every scene change is a carry, a portal, a mask or a whip; no hard cuts
   or crossfades except the reasoned ones.
 - [morphs and shared elements](references/morphs-and-shared-elements.md): one object across a cut, keeping its label.
-- [techniques](references/techniques.md): tilt-to-flat, component zoom and pull-back, mask reveals, per-character type.
+- [techniques](references/techniques.md): tilt-to-flat, component zoom and pull-back, mask reveals and mask morphs, paper
+  techniques (ink, stamps, page turns), per-character type.
 - [signature moments](references/signature-moments.md): staging the held breath, the landing and its echo.
 - [logo build](references/logo-build.md): constructing a mark, and the bookend that replays it.
 
@@ -100,6 +101,8 @@ are in [anti-glitch](references/anti-glitch.md), and what's banned (with its rea
   ([read time](references/read-time.md)).
 - Text stays inside the title-safe area and each platform's safe zones; body text at least 28 px at a 1080-line frame;
   text contrast from the brand's colour pairs; no more than three flashes a second ([safe areas](references/safe-areas.md)).
+- Smaller text is only for labels of three words or fewer, and type size is judged by its measured cap height at full
+  resolution, never by the font size in code.
 
 ## 8. Other motion systems and principles
 
@@ -113,8 +116,15 @@ carries over directly from character animation to interface motion. See [motion 
 
 - `slate emit-events` writes each act's visual events and motion trace; `slate check <act>` is the builder's hand-in
   check; `slate qa motion` checks every trace: the brand's eases, durations and stagger caps, entrances from at least
-  85% scale, at most 30 px a frame and 8 px a frame squared (at 1080 lines), no loop faster than a 16-frame period,
-  symmetric mark rigs, plus a pixel cross-check for fast motion the trace doesn't explain.
+  85% scale, speed limits by what moves (at 1080 lines: a rig part 30 px a frame and 8 px a frame squared, a UI element
+  60 and 16, a carried page, card or camera 170 and 45; a whip past those goes to a person), no loop faster than a
+  16-frame period, symmetric mark rigs, plus a pixel cross-check for fast motion the trace doesn't explain.
+- **Tell the gate what moves.** A traced move names its `class` (rig, ui, carry or whip) when its name doesn't say it,
+  and declares an exemption (`exempt`: a reading sweep, or a line whose steadiness is the meaning) with its `reason`.
+  Long carries and camera drifts can use the kit's `even` curve (a third of the travel in each third of the time),
+  which the gate knows by name. See [eases](references/eases.md).
+- `slate qa stability` watches every act's render for judder a viewer feels before they can name it: pops, whole-pixel
+  snaps, shakes, reversals, flicker and shimmer (slate-qa).
 - `slate qa glitch` scans the rendered acts for one- and two-frame glitches, skipping flags within 3 frames of a planned
   beat; triage the rest (slate-qa).
 - Look as well as measure: stills at the changed frames, contact sheets, a preview at quarter speed with sound. For any

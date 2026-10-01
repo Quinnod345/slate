@@ -46,8 +46,15 @@ def setting(film_json: dict) -> str:
     return str(film_json.get("generation") or DEFAULT_SETTING)
 
 
-def mode(film_json: dict) -> str:
-    return str(film_json.get("mode") or "supervised")
+def mode(film_json: dict, film_dir: Path | str | None = None) -> str:
+    """The mode a generation is judged in: autonomous whenever film.json or Slate's own record says the film was made
+    autonomous (slate.state.autonomy, found by folder or by the film's id and creation stamp), else film.json's."""
+    own = str(film_json.get("mode") or "supervised")
+    try:
+        from slate.state import autonomy  # noqa: PLC0415 - gen runs without film state installed
+    except ImportError:
+        return own
+    return autonomy.film_mode(film_dir, film_json)
 
 
 def requires_approval(film_json: dict) -> bool:

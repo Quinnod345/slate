@@ -11,7 +11,8 @@ pack (slate-story) builds on it.
 | **Sources of truth** | where facts come from, in order of authority, each pinned (a commit, a date, a hash) |
 | **Approved claims** | the claims the authority has approved, each with its id, text and any numbers it contains |
 | **Never claim** | phrases and claims the brand never makes, even when true in the code |
-| **Banned words** | one list, used by every check (script, act files, captions, OCR of the picture, the transcript of the mix) |
+| **Banned words** | one list, used by every check (script, act files, captions, OCR of the picture, the transcript of the mix). An entry can carry its inflections and the approved substitute, `{word, forms, instead}` (a banned "verified" is also "verifies" and "verification", and the failure says to use "trusted"), so a word is banned in every form. |
+| **Self-commentary** | `truth.self_commentary`: set it to `false` when the brand's graphics never caption themselves ("Illustration", "Example"). The script and banned-words gates then ban those captions on screen; the voice can still say "for example". Ask, because one film tagged a frame "Illustration" against its own website's rule. |
 | **Sample data** | the invented sample company, people and numbers films use, always labelled as sample data |
 
 ## Who decides what's true

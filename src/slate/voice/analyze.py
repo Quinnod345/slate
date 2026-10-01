@@ -329,14 +329,30 @@ def _slug(text: str) -> str:
     return re.sub(r"[^A-Za-z0-9]+", "-", str(text)).strip("-").lower()[:60] or "take"
 
 
+def take_of_path(path: str | Path) -> tuple[str | None, str | None, str | None]:
+    """(shot, take, stage) for a film's take file, `voice/takes/<shot>/<take>[.<stage>].wav` (raw when it has no
+    stage), else (None, None, None). So a take passed by its path is labelled like one named by its shot: "D03 t01"."""
+    p = Path(path)
+    parts = p.parts
+    if len(parts) < 4 or parts[-3] != "takes" or parts[-4] != "voice":
+        return None, None, None
+    take, _, stage = p.stem.partition(".")
+    if not (take.startswith("t") and take[1:].isdigit()):
+        return None, None, None
+    return parts[-2], take, stage or "raw"
+
+
 def resolve_target(ref: str, vf=None, *, stage: str | None = None) -> dict:
     """A take to analyze: a WAV path, or (in a film) a shot's take: `S01` (the selected take), `S01/t02`, with
-    `stage` choosing the file (default: the take before the polish, which is what voice measurements read)."""
+    `stage` choosing the file (default: the take before the polish, which is what voice measurements read). A take
+    file given by its path is labelled with its shot, its take and its stage ("D03 t01 (raw)"), never its bare name."""
     from slate.errors import UsageError  # noqa: PLC0415
 
     p = Path(ref).expanduser()
     if p.is_file():
-        return {"ref": ref, "label": p.stem, "path": p, "shot": None, "take": None, "text": None, "tagged": None,
+        shot, take, file_stage = take_of_path(p.resolve())
+        label = f"{shot} {take} ({file_stage})" if shot else p.stem
+        return {"ref": ref, "label": label, "path": p, "shot": shot, "take": take, "text": None, "tagged": None,
                 "words": None, "words_source": None}
     if vf is None:
         raise UsageError(f"{ref!r} isn't a file, and there's no film to find a shot in.",

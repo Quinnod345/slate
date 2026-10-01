@@ -31,15 +31,18 @@ be done in a shell.
 
 Start with `status`: without a film it lists the films; with one it shows every stage and the one next command. \
 Start a film with `new_film`, keeping the person's request word for word. Read and write the one hand-edited script \
-with `script_get` and `script_put`. Quick stages (script build, timing, triage, estimates) run with `run`.
+with `script_get` and `script_put`. Quick stages (script build, timing, triage, estimates, the tag loop's picks) run \
+with `run`.
 
-Long work never blocks a chat. Renders, voicing, the score, the mix, QA sweeps, review packets and delivery go to the \
-job queue (`job_submit`, or `run` sends them there on its own) and return a job id at once. Check back with \
-`job_status`; don't wait in a loop.
+Long work never blocks a chat. Renders, voicing, the voice polish and analysis, the score, the mix, QA sweeps and \
+render stability, review packets and delivery go to the job queue (`job_submit`, or `run` sends them there on its \
+own) and return a job id at once. Check back with `job_status`; don't wait in a loop. The queue's runner also works \
+where a gateway's network proxy blocks the vendors, so paid stages always go through it.
 
-Stages that spend vendor credits need spend=true. Show the person the estimate first (`run` with 'voice estimate' or \
-'score estimate') and ask. After Effects steps, approvals, budget changes and connecting accounts are a person's to do \
-in their own terminal, and this server refuses them. `guide` prints Slate's reference guides.
+Stages that spend vendor credits need spend=true. Show the person the estimate first (`run` with 'voice estimate', \
+'voice tags estimate' or 'score estimate') and ask. After Effects steps, approvals, budget changes and connecting \
+accounts are a person's to do in their own terminal, and this server refuses them. `guide` prints Slate's reference \
+guides.
 
 Generations made through a hosted connector (Higgsfield's or ElevenLabs' in a chat) bypass Slate's ledger. When a \
 session uses one, record its balance with `balance_snapshot` at the start and at the end, with one session label, \
@@ -228,14 +231,15 @@ TOOLS: tuple[ToolSpec, ...] = (
              "script skeleton and the stage folders, in the films folder. CLI: slate new <id> --brand B --format F "
              "--request TEXT.", read_only=False),
     ToolSpec("run", run, "Run a quick stage",
-             "Run one stage and return its result. Stages that read or write media (qa, review, deliver) go to the "
-             "job queue on their own and return a job id. Stages: " + _stage_list(policy.RUN) + ". CLI: the command "
-             "each result names.", read_only=False),
+             "Run one stage and return its result. Stages that read or write media (qa, render stability, review, "
+             "deliver) go to the job queue on their own and return a job id. Stages: " + _stage_list(policy.RUN)
+             + ". CLI: the command each result names.", read_only=False),
     ToolSpec("job_submit", job_submit, "Queue a long stage",
              "Queue a long stage as a background job and get its id at once; it keeps running whoever started it. "
-             "Stages that spend (voice tts, score compose, ElevenLabs alignment) need spend=true, set only after the "
-             "person has seen the estimate and agreed. Stages: " + _stage_list(policy.JOBS) + ". CLI: the stage's "
-             "own command with --detach, or slate job submit.", read_only=False, open_world=True),
+             "Stages that spend (voice tts, the tag loop's rounds, score compose, ElevenLabs alignment) need "
+             "spend=true, set only after the person has seen the estimate and agreed. Stages: "
+             + _stage_list(policy.JOBS) + ". CLI: the stage's own command with --detach, or slate job submit.",
+             read_only=False, open_world=True),
     ToolSpec("job_status", job_status, "Job status",
              "One job's state, attempt, reason and log path; without a job id, the queue at a glance and the recent "
              "jobs. CLI: slate job status <id>, slate jobs status.", read_only=True),

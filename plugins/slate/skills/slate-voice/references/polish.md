@@ -46,15 +46,18 @@ owner asked for.
 
 ## The flow
 
-1. **Try before you pin.** The polish stage's trial mode renders the strengths you name (A and B, say) for every line
+1. **Ask the owner for the target in their own terms before tuning**: where the harshness is, a reference sound (the
+   first film's was a podcast host, a little room, warm and present) and how strong a change. Then bracket their middle
+   with two strengths.
+2. **Try before you pin.** The polish stage's trial mode renders the strengths you name (A and B, say) for every line
    without pinning or registering anything: a level-matched reel (each line unpolished, then each strength), every
    number in `voice/polish/try/trial.json`, and on request an A/B spectrogram sheet per line plus one long-term
    spectrum chart (every line pooled, unpolished and each strength, against natural speech's shape).
-2. **The owner picks by ear.** Measurements say what changed; the ear says whether it's still the voice.
-3. **Polish with the pick.** The first real polish pins the strength and the whole resolved chain in film.json
+3. **The owner picks by ear.** Measurements say what changed; the ear says whether it's still the voice.
+4. **Polish with the pick.** The first real polish pins the strength and the whole resolved chain in film.json
    (`voice_polish`). Every later polish of that film uses the pin, so a line re-voiced in week three gets week one's
    polish. Moving it is a re-pin with who approved it and why, after a new trial.
-4. **Align again.** Whisper hears the polished takes (the words gate runs on what the audience hears), then run the
+5. **Align again.** Whisper hears the polished takes (the words gate runs on what the audience hears), then run the
    voice checks.
 
 ## What it writes

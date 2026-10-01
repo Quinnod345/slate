@@ -8,6 +8,11 @@ person picked), conformed to a JPEG sequence at the film's frame rate and size (
 native rate by default, as the films did from 24 fps), its native audio kept as a 48 kHz / 24-bit ambience WAV, and
 optionally a ProRes 422 HQ at the native rate for After Effects. plate.json records the provenance: request id,
 model, dimensions, frame rates, duration, the estimated and actual cost, and who approved it.
+
+Every conform of a moving plate also checks its steps (slate.gen.repair.step_check): the plate's moving band is
+measured frame to frame, and no step may be over 1.3× the mean of its neighbours. Generated video can hitch in the
+clip itself (the films' Seedance plates dropped or froze a frame every second), and a hitch says so here, in
+plate.json `steps` and as a warning naming `slate plates repair <shot>`, instead of surfacing later as a stutter.
 """
 
 from __future__ import annotations
@@ -112,6 +117,9 @@ def conform(film_dir: Path, shot_id: str, *, method: str = "mci", fit: str = "co
                                    fit=fit, method=method, info=info)
         if info.get("fps_float") and info["fps_float"] > clk.fps * 1.01 and method != "dup":
             warnings.append("the take is faster than the film; frames were blended down")
+    steps = None
+    if info.get("codec") != "image":
+        steps = _steps(seq_dir, shot_id, warnings)
     ambience = None
     if audio and info.get("audio"):
         a = media.write_audio(src, out / "ambience.wav")
@@ -144,7 +152,7 @@ def conform(film_dir: Path, shot_id: str, *, method: str = "mci", fit: str = "co
                             "actual_usd": take.get("actual_usd"), "replay": bool(take.get("replay")),
                             "approved_by": take.get("verdict_by") or "unknown", "approved_at": take.get("verdict_at"),
                             "take_sha256": take["sha256"], "submitted_at": take.get("submitted_at")},
-             "covers_frames": covers_frames, "warnings": warnings, "made_at": deps.now_iso(),
+             "covers_frames": covers_frames, "steps": steps, "warnings": warnings, "made_at": deps.now_iso(),
              "tool": {"name": "slate plates conform", "ffmpeg": media.ffmpeg_version(), "method": seq.get("method"),
                       "fit": fit}}
     plate = jsonio.mark_generated(plate, "slate plates conform")
@@ -154,6 +162,26 @@ def conform(film_dir: Path, shot_id: str, *, method: str = "mci", fit: str = "co
                      inputs={deps.rel(film_dir, src): take["sha256"]})
     return {"shot": shot_id, "plate": deps.rel(film_dir, path), "frames": plate["frames"], "ambience": ambience,
             "warnings": warnings, "provenance": plate["provenance"]}
+
+
+def _steps(seq_dir: Path, shot_id: str, warnings: list[str]) -> dict | None:
+    """The conform's step check (no step over 1.3× its neighbours), with a warning when the plate hitches."""
+    from slate.gen import repair  # noqa: PLC0415 - repair builds on this module
+
+    try:
+        steps = repair.step_check(seq_dir)
+    except (SlateError, ValueError, OSError) as exc:
+        warnings.append(f"the step check couldn't run: {getattr(exc, 'message', exc)}")
+        return None
+    over = steps["over_1_3"]
+    if over:
+        where = ", ".join(f"{o['frame']} ({o['ratio']}×)" for o in over[:6]) + (" …" if len(over) > 6 else "")
+        warnings.append(f"the plate hitches: {len(over)} step(s) over {repair.STEP_LIMIT}× their neighbours at "
+                        f"frame(s) {where}; slate plates repair {shot_id} re-times it")
+    elif steps["frozen"]:
+        warnings.append(f"the plate hitches: {len(steps['frozen'])} frozen frame(s) at {steps['frozen'][:6]}; "
+                        f"slate plates repair {shot_id} re-times it")
+    return steps
 
 
 def _still_sequence(src: Path, seq_dir: Path, clk, size: tuple[int, int], fit: str, count: int) -> dict:

@@ -12,8 +12,9 @@ What this module does:
   and Access Network" is on (read through slate.ae.prefs.check, never changed; the bridge needs it for its mailbox,
   and only the person turns it on), the bridge's own offline doctor, the last acceptance run, and which route
   builds scenes today.
-- `install()`: the pinned install command (npm, global) and how each agent registers the server; it runs only with
-  the person's yes, and never changes anyone's MCP configuration.
+- `install()`: the pinned install command (npm, global, its package scripts never run) and how each agent registers
+  the server (arbitrary eval off, operations limited to the categories Slate's scenes use); it runs only with the
+  person's yes, and never changes anyone's MCP configuration.
 - `acceptance()`: a fixed script of operations (data/bridge_acceptance.json) run against a scratch project whenever
   the installed version changes, with AE open on the person's go. A version that hasn't passed isn't used for scenes.
 - `call_with_retry()`: the bridge's batches aren't transactional, so a failed or timed-out mutation is never simply
@@ -52,6 +53,31 @@ LOOKS = ("ae-animation-principles", "ae-build-orchestration", "ae-clean-rig", "a
 GLOBAL_ROOTS = ("/opt/homebrew/lib/node_modules", "/usr/local/lib/node_modules")
 ACCEPTANCE_FILE = Path(__file__).resolve().parent / "data" / "bridge_acceptance.json"
 TEST_EASE = [0.05, 0.7, 0.1, 1.0]  # the smoke test's ease: Material 3 "emphasized decelerate"
+
+# The bridge's own time limits per call (its config: 60 s by default, 120 s to render a frame, 10 minutes to import),
+# and how much longer Slate waits for an answer, so a slow import is never cut off on Slate's side and left in the
+# unknown state call_with_retry would have to read back (L-ae-023).
+BRIDGE_TIMEOUT_S = 60.0
+BRIDGE_TOOL_TIMEOUT_S = {"ae_render_frame": 120.0, "ae_project_import_json": 600.0}
+IMPORT_TIMEOUT_S = 600.0
+READ_MARGIN_S = 15.0
+
+# What the bridge may do (its policy switches, confirmed against the pinned 0.1.3's dist/policy.js): arbitrary
+# ExtendScript stays off (`eval.run` needs AE_MCP_ENABLE_EVAL=1, and Slate always passes 0, whatever the environment
+# says), and operations are limited to the categories Slate's scenes and the acceptance run use. Left out: eval,
+# command (arbitrary menu commands), pref (AE's preferences, which only slate.ae.prefs edits, byte by byte), egp,
+# expression, effect, mask and viewer (L-ae-025).
+SCENE_CATEGORIES = ("batch", "comp", "font", "footage", "item", "keyframe", "layer", "marker", "project", "property",
+                    "render", "shape", "text", "timeline", "transform")
+POLICY_ENV = {"AE_MCP_ENABLE_EVAL": "0", "AE_MCP_ALLOW_CATEGORIES": ",".join(SCENE_CATEGORIES)}
+
+
+def read_timeout(tool: str) -> float:
+    """How long Slate waits for one bridge call: a little over the bridge's own limit for that tool."""
+    own = BRIDGE_TOOL_TIMEOUT_S.get(tool)
+    if own is None:
+        own = IMPORT_TIMEOUT_S if "import" in tool else BRIDGE_TIMEOUT_S
+    return own + READ_MARGIN_S
 
 Runner = Callable[..., Any]
 
@@ -178,25 +204,43 @@ def status(*, run_doctor: bool = False, runner: Runner | None = None) -> dict:
 
 
 def install_plan() -> dict:
-    """How the bridge is installed and pinned, and how each agent registers it (nothing runs here)."""
+    """How the bridge is installed and pinned, and how each agent registers it (nothing runs here).
+
+    In order: the pinned package with npm, its own install scripts never run (`--ignore-scripts`: L-packaging-D004);
+    its doctor; its config; then each agent's registration, with arbitrary eval off and operations limited to the
+    categories Slate's scenes use (POLICY_ENV).
+    """
     pin = pinned()
     root = Path(GLOBAL_ROOTS[0]) / PACKAGE
     node = procs.which("node") or "node"
+    index = str(root / "dist" / "index.js")
+    env_pairs = [f"{k}={v}" for k, v in POLICY_ENV.items()]
     return {
-        "install": ["npm", "install", "--global", f"{PACKAGE}@{pin}"],
+        "install": ["npm", "install", "--global", "--ignore-scripts", f"{PACKAGE}@{pin}"],
         "pinned": pin,
         "verify": ["fnf-after-effects", "doctor"],
+        "config": ["fnf-after-effects", "config"],
+        "policy": dict(POLICY_ENV),
         "register": {
-            "claude-code": ["claude", "mcp", "add", "--scope", "user", SERVER_NAME, "--", node,
-                            str(root / "dist" / "index.js")],
-            "codex": ["fnf-after-effects", "install-codex"],
+            "claude-code": ["claude", "mcp", "add", "--scope", "user", SERVER_NAME,
+                            *[x for pair in env_pairs for x in ("-e", pair)], "--", node, index],
+            # `fnf-after-effects install-codex` registers it with no environment, so Slate registers it the same way
+            # it does for the others: eval off and the categories limited
+            "codex": ["codex", "mcp", "add", SERVER_NAME, *[x for pair in env_pairs for x in ("--env", pair)], "--",
+                      node, index],
             # OpenClaw 2026.9.4 registers a server with `mcp add`, probes it before saving (5 s by default, so 30 here)
             # and refuses a name it already has; `fnf-after-effects config` prints the same entry for a look.
-            "openclaw": ["openclaw", "mcp", "add", SERVER_NAME, "--command", node, "--arg",
-                         str(root / "dist" / "index.js"), "--connect-timeout", "30"],
+            "openclaw": ["openclaw", "mcp", "add", SERVER_NAME, "--command", node, "--arg", index,
+                         *[x for pair in env_pairs for x in ("--env", pair)], "--connect-timeout", "30"],
         },
         "notes": ["Exact version only: a new version is used for scenes after `slate ae bridge acceptance --go` "
                   "passes on it.",
+                  "npm runs with --ignore-scripts, so the package's own install scripts never run; then its doctor, "
+                  "its config, and each agent's registration, in that order.",
+                  "Every registration keeps the bridge's arbitrary eval off (AE_MCP_ENABLE_EVAL=0) and limits its "
+                  "operations to the categories Slate's scenes use (AE_MCP_ALLOW_CATEGORIES).",
+                  "The bridge's mailbox is a trust boundary: anything that can write there runs code in After "
+                  "Effects, so Slate creates it 0700 and nothing else writes to it.",
                   "Slate never vendors the package or copies its skills (no redistribution grant); it depends on "
                   "the installed copy.",
                   "Registration changes each agent's own MCP settings, so Slate prints the commands and the person "
@@ -252,10 +296,13 @@ class BridgeSession:
             ok, payload = s.call("ae_catalog", {})
 
     The server runs with a minimal environment (PATH, HOME, the temp dir, BROWSER=none): it needs no keys, and
-    none are passed. Starting it doesn't start After Effects; only calls that touch a project do.
+    none are passed. Arbitrary eval stays off and operations are limited to the categories Slate's scenes use
+    (POLICY_ENV), whatever the environment says. Each call waits a little longer than the bridge's own limit for that
+    tool (read_timeout: about 75 s, 135 s to render a frame, 615 s to import); `timeout` overrides it for every call.
+    Starting it doesn't start After Effects; only calls that touch a project do.
     """
 
-    def __init__(self, pkg: Path | None = None, *, timeout: float = 120.0):
+    def __init__(self, pkg: Path | None = None, *, timeout: float | None = None):
         self.pkg = pkg or package_dir()
         if self.pkg is None:
             raise MissingPrerequisite(f"{PACKAGE} isn't installed.", hint="slate ae bridge install --yes")
@@ -266,13 +313,18 @@ class BridgeSession:
         self._ready = threading.Event()
         self._error: BaseException | None = None
 
+    def timeout_for(self, tool: str) -> float:
+        """How long this session waits for one call to `tool`."""
+        return float(self.timeout) if self.timeout is not None else read_timeout(tool)
+
     def _env(self) -> dict[str, str]:
         base = procs.child_env()
         keep = ("PATH", "HOME", "USER", "LOGNAME", "SHELL", "LANG", "TMPDIR", "BROWSER")
         env = {k: base[k] for k in keep if k in base}
         for k, v in base.items():
-            if k.startswith("AE_MCP_") or k == "AE_EXE":
+            if (k.startswith("AE_MCP_") or k == "AE_EXE") and k not in POLICY_ENV:
                 env[k] = v
+        env.update(POLICY_ENV)  # eval off and the categories limited, never loosened from the environment
         return env
 
     async def _serve(self) -> None:
@@ -294,7 +346,7 @@ class BridgeSession:
                         break
                     tool, args, fut = item
                     try:
-                        res = await session.call_tool(tool, args, read_timeout_seconds=self.timeout)
+                        res = await session.call_tool(tool, args, read_timeout_seconds=self.timeout_for(tool))
                         fut.set_result(res)
                     except BaseException as exc:  # noqa: BLE001 - handed back to the caller's thread
                         fut.set_exception(exc)
@@ -320,7 +372,7 @@ class BridgeSession:
         fut: concurrent.futures.Future = concurrent.futures.Future()
         assert self._loop is not None and self._queue is not None
         self._loop.call_soon_threadsafe(self._queue.put_nowait, (tool, args or {}, fut))
-        return _payload(fut.result(timeout=self.timeout + 30))
+        return _payload(fut.result(timeout=self.timeout_for(tool) + 30))
 
     def __exit__(self, *exc) -> None:
         if self._loop is not None and self._queue is not None and not self._loop.is_closed():

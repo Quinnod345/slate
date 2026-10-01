@@ -35,7 +35,10 @@ the hand-in check.
 ## The rules it keeps for you
 
 Exact 0 and 1 at the ends of every ease; lookups that never throw; no spline overshoot; staggers capped at 0.6 s and
-half the entrance; nothing scales from zero (kinetic words start at 85%); a count-up holds each figure for three frames;
+half the entrance; nothing scales from zero (kinetic words start at 85%); a count-up holds each figure for three frames
+and never re-centres (`CountUp` draws over an unseen box: the count's own shape in nines until it has the final
+value's figures, then the final value; a suffix holds still at its right end, and `followed` keeps a word after the
+count from moving);
 a fading card fades as one sheet; clips on untransformed wrappers; raster hints only while moving; a world layer
 untransformed at rest; a motif that moves as a whole below its size threshold, never loops but to breathe, and
 overshoots only where the brand allows.
@@ -47,7 +50,19 @@ wrapper, and every copy drifted.
 
 - **Import it; never edit it from an act.** A builder who needs a kit change writes it up in the act's NOTES.md and
   works around it locally until the coordinator changes the kit.
+- **A kit change is additive and opt-in**: without its new prop a component draws exactly as before. Before it lands,
+  `slate engine golden` (the kit's own stills) and `slate engine golden --approved <film>` (every approved act's
+  boundary frames and one frame per shot, at 45 dB against the approved render) both pass.
 - **Reuse grounded components** (surfaces already matched to the product) rather than redrawing them.
+- **Shared product surfaces are timeline-free faces drawn in card pixels**: a kit `Card` places one at the builder's
+  pose, and 0-to-1 progress props from the act's beats drive its states, so any act can reuse it. A surface first drawn
+  on one film's timeline is adapted once, when it's shared.
+- **A surface a character sits in exports that slot** (its position in card pixels), and the character is drawn in the
+  same card at the slot, never as a second copy.
+- **Every shared surface has a cell in the film's kit review sheet.**
+- **A helper that places something against text** (an underline, a marker) measures from the text's real origin and
+  width in the loaded face (the kit's `measureText`), never an assumed offset: one underline sat 64 px right of its
+  word.
 - **Bookends reuse the same component** as the opening, with the closing's timing, never a redraw.
 - **Author a world at film scale and screen-aligned at rest**, so rest frames are pixel-exact.
 - **Lay out text with room** for words that arrive later, so no make-room move is needed.

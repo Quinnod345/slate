@@ -14,7 +14,7 @@ session added after the first inventory) an id and one destination:
                   there;
 - `dropped`       the `reason`: the plan overrides it, it's one film's content, or it's a fact with nothing to carry;
 - `gap`           not reflected anywhere yet: the `module` and the exact `change` that would close it (listed in
-                  knowledge/GAPS.md for the integrator);
+                  knowledge/GAPS.md for the integrator, which `slate knowledge gaps --write` generates from the ledger);
 - `pending`       being built in this run: the planned `file` (and `symbol`), the `module` building it and `what`. It
                   counts against the check like a gap until it's re-mapped; the check says when the planned file has
                   landed.
@@ -40,7 +40,8 @@ them.
                           reasons, changes) are held to the same rule.
 
 Only PASS counts. The harvest runs twice (docs/PLAN.md, "Knowledge ledger"): the ledger's `meta.harvests` records each
-run, and `meta.next_harvest` says when the next one is due.
+run (and any addendum between them: what the film session added after a harvest, in a harvest file of its own), and
+`meta.next_harvest` says when the next one is due.
 """
 
 from __future__ import annotations
@@ -67,7 +68,7 @@ LEDGER = "knowledge/lessons.json"
 GAPS = "knowledge/GAPS.md"
 COMPONENTS = "knowledge/components.json"
 HARVEST = ("knowledge/harvest/inventory_lessons.json", "knowledge/harvest/doc_rules.json",
-           "knowledge/harvest/second_harvest.json")
+           "knowledge/harvest/second_harvest.json", "knowledge/harvest/addendum_2026-10-01.json")
 TYPES = ("code_default", "gate", "skill_rule", "dropped", "gap", "pending")
 #: The destination types a lesson can land on and still count as unfinished: the check fails while any lesson has one.
 OPEN_TYPES = ("gap", "pending")
@@ -866,6 +867,92 @@ def stats(data: dict) -> dict:
     }
 
 
+# --------------------------------------------------------------------------------------------------- GAPS.md
+#: How a ledger note sends a reader to GAPS.md's appendix (the note, without this, is the appendix's line).
+_APPENDIX = re.compile(r"\s*(?:\((?:see )?the GAPS\.md appendix\)|[;,]?\s*see the GAPS\.md appendix)\.?\s*$")
+
+
+def _module(dest: dict) -> str:
+    return str(dest.get("module") or "?").split(" ")[0]
+
+
+def _plural(n: int, word: str) -> str:
+    return f"{n} {word}" + ("" if n == 1 else "s")
+
+
+def _sentence(text: str) -> str:
+    """One sentence: whitespace collapsed, a capital first when it starts with a plain word (never a path or a name in
+    code), and a full stop last."""
+    text = " ".join(str(text).split())
+    first = text.split(" ", 1)[0] if text else ""
+    if first[:1].islower() and re.fullmatch(r"[a-z][a-z'-]*,?", first):
+        text = text[0].upper() + text[1:]
+    return text if not text or text.endswith((".", "!", "?")) else text + "."
+
+
+def gaps_markdown(data: dict) -> str:
+    """knowledge/GAPS.md from the ledger: every gap grouped by the module that closes it (each change once, with the
+    lessons it closes), every pending lesson with its planned file, and an appendix of lessons that land somewhere real
+    with a part nothing enforces yet (a note that points to the appendix). `slate knowledge gaps --write` writes it."""
+    items = lessons(data)
+    gaps = [x for x in items if (x.get("destination") or {}).get("type") == "gap"]
+    pending = [x for x in items if (x.get("destination") or {}).get("type") == "pending"]
+    out = ["# Knowledge gaps", "",
+           "Lessons from the films that nothing in Slate reflects yet, grouped by the module that closes them, and "
+           "lessons being built (pending) with their planned file. Each entry is the exact change and the lesson ids "
+           "it closes; `slate knowledge show <id>` gives a lesson's text and sources. `slate knowledge check` fails "
+           "(knowledge.gaps) until every one is closed and the lesson is re-mapped in knowledge/lessons.json.", ""]
+    changes: dict[str, dict[tuple, list[str]]] = defaultdict(dict)
+    for x in gaps:
+        d = x["destination"]
+        key = (d.get("change_id") or str(d.get("change") or ""), str(d.get("target") or ""))
+        changes[_module(d)].setdefault(key, []).append(str(x.get("id")))
+    pend: dict[str, dict[tuple, list[str]]] = defaultdict(dict)
+    for x in pending:
+        d = x["destination"]
+        key = (str(d.get("what") or ""), str(d.get("file") or ""), str(d.get("symbol") or ""), str(d.get("note") or ""))
+        pend[_module(d)].setdefault(key, []).append(str(x.get("id")))
+    n_changes = sum(len(v) for v in changes.values())
+    modules = set(changes) | set(pend)
+    out.append(f"{_plural(len(gaps), 'gap')} ({_plural(n_changes, 'change')}) and {len(pending)} pending, across "
+               f"{_plural(len(modules), 'module')} (generated from the ledger by `slate knowledge gaps --write`; edit "
+               "the ledger, not this file).")
+    by_change = {x["id"]: x["destination"] for x in gaps}
+    for mod in sorted(changes, key=lambda m: (-sum(len(v) for v in changes[m].values()), m)):
+        groups = changes[mod]
+        out += ["", f"## {mod} ({_plural(sum(len(v) for v in groups.values()), 'lesson')}, "
+                    f"{_plural(len(groups), 'change')})", ""]
+        for (_key, target), ids in groups.items():
+            change = by_change[ids[0]].get("change") or ""
+            where = f" ({target})" if target else ""
+            out.append(f"- **{', '.join(ids)}**{where}: {_sentence(change)}")
+    if pend:
+        out += ["", "## Pending", "",
+                "Being built, or waiting on something named; each counts against the check like a gap until it's "
+                "re-mapped, and the check says when its planned file has landed."]
+        for mod in sorted(pend, key=lambda m: (-sum(len(v) for v in pend[m].values()), m)):
+            groups = pend[mod]
+            out += ["", f"### {mod} ({_plural(sum(len(v) for v in groups.values()), 'lesson')})", ""]
+            for (what, file, symbol, note), ids in groups.items():
+                where = file + (f"::{symbol}" if symbol else "")
+                line = f"- **{', '.join(ids)}** ({where}): {_sentence(what)}"
+                if note:
+                    line += f" {_sentence(note)}"
+                out.append(line)
+    partly = []
+    for x in items:
+        for d in destinations(x):
+            note = str(d.get("note") or "")
+            if _APPENDIX.search(note):
+                partly.append(f"- **{x.get('id')}**: {_sentence(_APPENDIX.sub('', note))}")
+                break
+    if partly:
+        out += ["", "## Appendix: partly covered", "",
+                "These lessons land somewhere real (a code default, a gate or a skill rule), so they aren't gaps, "
+                "but a part of each isn't enforced yet. Each note says what is and what isn't.", ""] + partly
+    return "\n".join(out) + "\n"
+
+
 # ---------------------------------------------------------------------------------------------------------- CLI
 def _dest_line(d: dict) -> str:
     kind = d.get("type")
@@ -959,6 +1046,20 @@ def _cmd_show(args: argparse.Namespace) -> int:
     return 0 if all(c["resolves"] for c in checked) else 1
 
 
+def _cmd_gaps(args: argparse.Namespace) -> int:
+    data = load()
+    text = gaps_markdown(data)
+    st = stats(data)
+    counts = {"gaps": st["by_type"]["gap"], "pending": st["by_type"]["pending"]}
+    if getattr(args, "write", False):
+        path = paths.REPO / GAPS
+        jsonio.write_text_atomic(path, text)
+        log.result({"written": GAPS, **counts}, f"wrote {GAPS}: {counts['gaps']} gaps, {counts['pending']} pending")
+    else:
+        log.result({"markdown": text, **counts}, text.rstrip("\n"))
+    return 0
+
+
 def register(sub) -> None:
     from slate import cli  # noqa: PLC0415
 
@@ -976,6 +1077,9 @@ def register(sub) -> None:
     p.add_argument("--run-tests", dest="run_tests", action="store_true",
                    help="also run every gate-type lesson's tests, in one pytest batch")
     cli.add_command(group, "stats", _cmd_stats, help="counts by destination, area and kind; gaps by module")
+    p = cli.add_command(group, "gaps", _cmd_gaps, help="knowledge/GAPS.md from the ledger: every gap and pending "
+                                                        "lesson by module, and the partly-covered appendix")
+    p.add_argument("--write", action="store_true", help="write knowledge/GAPS.md (without it, print it)")
     p = cli.add_command(group, "show", _cmd_show, help="one lesson (by its id or an id it absorbed), its sources and "
                                                         "destination, checked against the checkout now")
     p.add_argument("id", help="a lesson id such as L-motion-D001")

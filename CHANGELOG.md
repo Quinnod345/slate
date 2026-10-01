@@ -132,9 +132,90 @@ are data packs, and the tests use a neutral demo brand.
   `SLATE_WHISPER`, like timing and voice. The brand's kit review sheet is stilled at frame 45, so the logo build and
   type in motion show, and it's proven to render. The MCP server can queue `voice polish` and `voice analyze`.
 
+### The skills and the plugin catch up (2026-10-01)
+
+- **The films' lessons, where agents meet them.** The 56 lessons the knowledge ledger listed for the skills are in the
+  skills now, generalized: sending a mark's parts away, moving contracts, shared product surfaces, paper techniques,
+  plate overlays, read time by measured cap height, the stability flags a clean act still shows, the score's no-names
+  rule, the voice polish's first question, a voice change moving the balance, and the rest. A rule every film needs is
+  in its skill's SKILL.md; the rest sit in the reference for that work. `tests/skills/test_skills_lessons.py` holds
+  each one by its lesson id.
+- **What landed in integration, documented.** `slate voice polish`, `slate voice analyze` and every step of
+  `slate voice tags` (rules, set, check, strip, ab, and the tag loop's optimize, pick, abc and adopt);
+  `slate qa stability` (its triage order, baselines, references and strips); the six balance
+  gates, the score's level and its guard; spans on visual events (`t` is always the beat); web act hand-ins and
+  `slate engine scaffold`; a trace's `class`, `exempt` and `reason` and the `even` curve; `slate formats show`, the
+  delivery's platform files and onboarding's spend line; the ledger snapshot and reconcile at both ends of a session;
+  and the gateway route: from inside the OpenClaw gateway, every paid stage is a job, because its proxy blocks the
+  vendors and the job runner works outside it. The newest film steps are described too: an input copied in and locked
+  by its hash, an autonomy grant recorded with its scope, a film in iCloud Drive that never uploads its heavy folders,
+  and plate timing repair.
+- **The MCP server knows the new stages.** The tag loop runs through it (`voice tags estimate`, `pick` and `adopt` now;
+  `voice tags optimize`, which spends, and the `abc` listening reel as jobs), and so does render stability (`qa
+  stability` as a job, `compare` and `strip` queued on the render slot). Accepting a stability baseline, choosing a
+  reference and approving a take are refused with where a person runs them. `qa triage` through the server works again
+  (it was reported as not built).
+- **The whole plugin is generated.** `slate skills build` now writes the plugin's manifests, its MCP configs (Slate's
+  server plus ElevenLabs' and Higgsfield's hosted connectors, which sign in with OAuth, so no key is ever in the file),
+  its README (with the auto-update step and a permission allowlist per agent for unattended runs) and its LICENSE, so
+  nothing in `plugins/slate` is edited by hand. The build refuses media in a skill, a listing past Claude Code's
+  1,536-character cut, a skill list past Codex's 8,000-character budget (it notes one within a tenth of it), and a
+  plugin past claude.ai's 200 MB or 5,000 files. `--check` also runs `claude plugin validate --strict` and
+  `skills-ref validate` wherever they're installed, each skipped with a notice where it isn't (`--no-validate` skips
+  them).
+- **Client behaviours, recorded.** Five behaviours the packaging could lean on are recorded with their hands-on checks
+  in `tests/packaging/client_behaviours.json`: `claude plugin validate` taking both manifests and the gateway's default
+  state folder are confirmed; OpenClaw's placeholders in Claude bundles, Codex reading Claude-style marketplace sources
+  and nested skill metadata stay unconfirmed, and Slate relies on none of them.
+- **Every cited step and flag is real.** The skills tests hold each `slate …` a skill cites to the live CLI below the
+  stage too: a step such as `slate qa stability strip` and every `--flag` must be one the command takes.
+
+### The films' lessons, closed (2026-10-01)
+
+- **A film made autonomous stays autonomous.** `slate new` and `slate variant` record each film's mode in Slate's own
+  data folder, outside the film, and every rule that depends on the mode (the monthly caps, the capped key, a yes per
+  generation, After Effects, the queue, review routing, the claims gate, voice and sound) judges the film by that
+  record, whatever its film.json says. Only a person at their own Terminal changes it, with `--by` and `--reason`; an
+  agent's attempt is refused and recorded. The owner's own AE finish of a held film is `slate master --ae --go` in
+  their Terminal, after a final-cut approval of the held master. Inside the OpenClaw gateway, vendor calls queue
+  themselves for the launchd runner, and a proxy's refusal names the allowlist and the queue route.
+- **New film steps.** `slate film input` copies a supplied file in, verified and locked; `slate film icloud` keeps a
+  film's heavy folders out of iCloud sync, with a yes; `slate approve grant --scope` records an autonomy grant in the
+  owner's words, as its own approval kind. The mix goes stale when the brand's sound palette or the effect cues change,
+  and cancelling a generation job cancels its requests at the vendor.
+- **The kit and the engine.** A count never re-centres (its box is its own nines until it has the final figures, a
+  suffix holds still, `followed` keeps the next word still) and shows one value per master frame; the look's line
+  weight everywhere; dots that grow in and nothing drawn at zero length; staged axis labels; two-sided cards; the
+  character's disc placed by a transform, staging props kept apart from gestures, the gesture sheet and the rig's
+  combination rules; a mark drawn in its own colourway for the ground. `slate check` adds never-claims, frame
+  literals, timing margins with the rig lint, the character's acceptance checks, `--markup [--against]` and
+  `--determinism`, and hands in a web shot inside a Remotion act. `slate engine golden [--approved FILM]` proves a kit
+  change against the kit's stills and every approved act. An act render proves itself before it replaces the
+  registered one, and the AE lane starts acts from the brand's `look.engine`.
+- **Sound, voice, timing and story.** New gates: `sound.voice_limiter`, `sound.key`, `sound.timbre`, `sound.mix_words`
+  and `sound.balance.approved_spans`. A 25 Hz high-pass on every part, big moments that land together, act joins
+  measured, a silent last second by default, and `slate mix --listen`. `slate voice comp|preview|swap|trim`, each live
+  read stitched to its neighbours' request ids, `slate timing pin`, one impact per act, `script.hero_lines`,
+  `script.on_screen`'s 40% of the voice, and quoted product facts re-read at their pinned commit. Whole-mix parity
+  for all three films (opt-in and heavy).
+- **QA, finishing, generation, brand and doctor.** The `cuts` and `end_hold` gates; title-safe and body type size;
+  hero entrances that move; type that waits for the camera; gestures on their word; banned words in every form and in
+  what the voice said; read time counted only while text is legible; glitch flags explained by motion or a fade;
+  blank-frame runs; `slate qa stability baseline --drop`. `slate plates repair` re-times a plate that hitches (numpy
+  and scipy, no OpenCV), and the conform warns about one. `slate review --audio` reviews a proposed mix; a delivery
+  writes its README from its own records and tags a snapshot of the code and data behind it; review cuts play the
+  voice before the mix exists; a generation's audio flag goes out explicitly off. Brand packs keep their website's
+  copy and take banned-word forms with substitutes, `truth.self_commentary` and a mark's colourways. Doctor adds the
+  gateway's egress proxy, AE's launch dialogs, one MCP server copy per client, the Claude Code version and a stray
+  `.env`.
+- **The ledger, re-mapped.** Every one of the 166 lessons that were gaps now lands somewhere real or waits with its
+  planned file: 147 closed, each with its file, symbol and tests; 10 wait for proof 3 and 9 for the tilt wave. The film
+  session's work after the second harvest is harvested as an addendum (8 lessons). `slate knowledge gaps --write`
+  regenerates `knowledge/GAPS.md` from the ledger, and a test holds the file to it.
+
 ### Still to come in 0.1.0
 
 Waiting for a person: the first live After Effects finish (`slate ae smoke --go` and the rest, on Quinn's go), the
-effects engine (after proof 3 is approved) and the agents' live eval runs. Being built: the changes the knowledge
-ledger lists as gaps (`slate knowledge check` names each; `knowledge/GAPS.md` groups them by module), the accent and
-air guards (with the effects engine) and the kit's stability bench.
+effects engine (after proof 3 is approved) and the agents' live eval runs. Being built: the kit's tilt raster mode and
+its stability bench (bench first), then the effects engine's spotting, guards and family stems once proof 3 is
+approved; `knowledge/GAPS.md` lists each with its planned file.

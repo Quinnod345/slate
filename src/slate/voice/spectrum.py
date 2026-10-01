@@ -29,7 +29,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 import numpy as np
-from PIL import Image, ImageDraw
+from PIL import Image
 
 from slate.voice import audio as audio_mod
 from slate.voice import dsp, polish
@@ -247,7 +247,7 @@ def chart(curves: list[tuple[str, str, dict]], out: str | Path, *, title: str, s
           ansi: bool = True) -> Path:
     """Third-octave long-term spectra, one curve per take, over natural speech's shape (ANSI S3.5, grey), set equal over
     500 Hz-1 kHz to the first curve, on a log frequency axis from 100 Hz to 16 kHz."""
-    from slate.voice.sheet import F_BODY, F_HEAD, F_SMALL, F_TITLE, HAIR, INK, MUTED, PAGE  # noqa: PLC0415
+    from slate.voice.sheet import F_BODY, F_HEAD, F_SMALL, F_TITLE, HAIR, INK, MUTED, PAGE, draw  # noqa: PLC0415
 
     curves = [(name, colour, {int(k): float(v) for k, v in c.items() if v is not None}) for name, colour, c in curves]
     curves = [c for c in curves if c[2]]
@@ -260,7 +260,7 @@ def chart(curves: list[tuple[str, str, dict]], out: str | Path, *, title: str, s
             curves.append(("natural speech (ANSI S3.5)", "#9e9e9e", {f: v + float(offset) for f, v in an.items()}))
     width, height, left, right, top, bottom = 1400, 720, 90, 320, 96, 80
     img = Image.new("RGB", (width, height), PAGE)
-    d = ImageDraw.Draw(img)
+    d = draw(img)  # every label drawable in the built-in font (sheet.drawable)
     d.text((left, 24), title, fill=INK, font=F_TITLE)
     d.text((left, 58), subtitle or ("Third-octave long-term spectrum of speech, every take at −20 LUFS, set equal to "
                                     "natural speech over 500 Hz–1 kHz, so a gap between curves is a real change."),

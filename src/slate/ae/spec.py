@@ -374,6 +374,15 @@ def build_spec(film_dir: str | os.PathLike, *, chunks: int | None = None, queue:
                                                  durations=brand["durations"], fps_num=num, fps_den=den)
             act["bg"] = scene.get("bg")
         acts.append(act)
+    # The AE lane reads the brand's look.engine when it starts acts: a brand whose look builds in AE has every act
+    # started as an AE scene, so an act with neither its scene nor a code render is named, with the next step.
+    pack, _pack_dir = brand_pack(film)
+    if ae_acts.look_engine(pack) == "ae":
+        rendered = {r["act"] for r in renders}
+        for a in acts:
+            if a["engine"] != "ae" and a["index"] not in rendered:
+                warnings.append(f"act {a['index']} isn't started in After Effects yet, and the brand's look builds in "
+                                f"AE: slate engine scaffold --act {a['index']}")
     mix = find_mix(film_dir)
     fid = film.get("id") or film_dir.name
     spec = {

@@ -14,6 +14,10 @@ moves just to fill time.
 - **Fewer, better moves.** Don't pan out to one thing and back when one draw-back can show both; don't push onto a page
   and straight back out.
 - **The camera can step down a list** as the voice reaches each line.
+- **Overlays on a plate take the plate's own transform** (labels, marks, UI over footage), its slow push included, so
+  they never drift against it. A linear push starts and stops off screen.
+- **A move bounded by a later beat shrinks to fit** rather than overrunning it after a re-voice, and keyed drift points
+  stay at least 0.8 s apart.
 
 ## How it moves
 

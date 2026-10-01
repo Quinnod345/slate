@@ -13,8 +13,9 @@ This module is that behaviour for Python, on files the timing build writes:
 - `resolve_tokens(line, words)` resolves every token of a script line once, with its take-relative span, so the
   engine's TypeScript clock only reads JSON (Python resolves every frame; the kit never re-derives timing).
 - `find(words, query, occ)` finds the occ-th time a query is heard (for words that aren't in the script line).
-- `word_time(film_dir, shot, word, occ, which)` answers in film seconds and returns (seconds, exact). On a miss it
-  estimates, records the miss in timing/word_misses.json, and still returns.
+- `word_time(film_dir, shot, word, occ, which)` answers in film seconds and returns (seconds, exact). A word the film
+  pinned (timing/pinned_words.json, `slate timing pin`) answers with its delivered time, so a re-voice moves only the
+  spans it corrects. On a miss it estimates, records the miss in timing/word_misses.json, and still returns.
 """
 
 from __future__ import annotations
@@ -370,6 +371,11 @@ def word_time(film_dir: str | os.PathLike, shot_id: str, word: str, occ: int = 1
         at = float(cue["at"]) if cue else float(shot.get("vo_lead_sec") or 0.0)
         record = ((_load(_timing(film_dir, "vo_words.json")) or {}).get("shots") or {}).get(shot_id) or {}
         n = occ if isinstance(occ, int) and occ >= 1 else 1
+        from slate.timing import pins  # noqa: PLC0415
+
+        kept = pins.pinned_time(film_dir, shot_id, word, n, which, lang) if isinstance(occ, int) else None
+        if kept is not None:  # a delivered time the film pinned: a re-voice doesn't move it (L-timing-D030)
+            return kept, True
         hit = lookup(record, word, occ, which, lang) if isinstance(occ, int) else None
         if hit:
             return shot_start + at + hit[0], True

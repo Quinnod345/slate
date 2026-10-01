@@ -16,12 +16,38 @@ slate check <N>
 | `handin.act<N>.word_misses` | every word lookup found its word; none fell back to an estimate |
 | `handin.act<N>.kit_problems` | what the kit had to assume or refuse (an unknown ease name, a missing token), for a person to read |
 | `handin.act<N>.banned_words` | none of the brand's banned words in the act's strings or its shots' on-screen text |
+| `handin.act<N>.never_claim` | every on-screen line that uses something the brand or the film never claims, printed for you to read |
+| `handin.act<N>.literals` | no literal film or act frame numbers in the act's sources: every time is keyed to a word, a shot or a contract constant |
+| `handin.act<N>.margins` | every timing margin the act records (the kit's `margin()`: the slack between beats the picture depends on) is positive, and the rig lint is clean; `slate emit-events` writes nothing until both hold |
+| `handin.act<N>.character` | each mark the act registers (`registerMotifTrace`) passes the character's acceptance checks: calm at both ends and after every gesture, still between gestures, clear of the split point and of every clip |
 | `handin.act<N>.events` | the events file exists, is valid, and matches what the act says now |
 | `handin.act<N>.contracts` | the act's boundary frames are bit-identical to its neighbours' and the rest state, and held |
 | `handin.act<N>.fonts` | the brand's faces loaded (a substituted font fails) |
 
 Only PASS counts. A gate that couldn't run is UNCHECKED, never a quiet pass. `slate timing misses` lists any word
-lookups that fell back to an estimate. `slate check all` checks every built act.
+lookups that fell back to an estimate. `slate check all` checks every built act. Two checks run when you ask for them:
+`slate check <N> --markup` reads the act's static markup at every frame and four sub-frame samples (NaN, Infinity or
+undefined fails; with `--against <git ref or kit folder>` a rendering-only change proves it changes nothing), and
+`--determinism` renders the act's first frames alone and in sequence and fails on the first frame that differs. A web
+shot inside a Remotion act is handed in with its act (`handin.act<N>.shot.<ID>.*`). After a re-voice, emit-events
+reports what moved in `timing/visual_events/changes/act<N>.json`.
+
+## Handing in a web act
+
+An act built for the open web renderer (`scenes/act<N>/web/`, started with `slate engine scaffold --act <N>`) hands in
+with the same `slate emit-events --act <N>` and `slate check <N>`, through that renderer. Its scene scripts are
+type-checked from the film folder like any act, and its page is opened once in a dry-run emit (nothing written), which
+hands back its beats, its word lookups and what the kit had to assume. On top of the gates above:
+
+| Gate | What it proves |
+|---|---|
+| `handin.act<N>.page` | the page loads and draws its first frame in the open web renderer without an error (a page the renderer can't open is UNCHECKED, with its next step) |
+| `handin.act<N>.network` | the page reached for nothing outside its own folders (the renderer can't reach the network, and a request that tried is a finding) |
+| `handin.act<N>.fonts` | the brand's faces loaded in the page (a substituted font fails) |
+
+Its banned words are read from its scripts, its page's text and its copy files. A web act's boundary frames aren't yet
+compared with a neighbour's declared rest state (the contracts gate says UNCHECKED when asked), so check those joins by
+eye and with `slate render stills` until it is.
 
 ## Checking your work
 

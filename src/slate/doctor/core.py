@@ -36,7 +36,7 @@ def make_env() -> Env:
 
 def registry() -> list[tuple[str, str, Check]]:
     """Every check, in report order: (group, name, function)."""
-    from slate.doctor import aftereffects, agents, fonts, keys, system, tools  # noqa: PLC0415
+    from slate.doctor import aftereffects, agents, egress, fonts, keys, system, tools  # noqa: PLC0415
 
     return [
         ("host", "macos", system.check_macos),
@@ -53,11 +53,15 @@ def registry() -> list[tuple[str, str, Check]]:
         ("tools", "aside", tools.check_aside),
         ("tools", "stale-copies", tools.check_stale_copies),
         ("engine", "engine", tools.check_engine),
+        ("engine", "render-stability", system.check_render_stability),
         ("keys", "keys", keys.check_keys),
+        ("keys", "egress-proxy", egress.check_egress),
         ("aftereffects", "aftereffects", aftereffects.check_ae),
         ("sound", "instruments", system.check_instruments),
         ("agents", "skills", agents.check_skills),
         ("agents", "mcp", agents.check_mcp),
+        ("agents", "mcp-single-instance", agents.check_mcp_single),
+        ("agents", "claude-code-version", agents.check_claude_version),
         ("agents", "cli-path", agents.check_cli_path),
         ("agents", "codex-dia", agents.check_codex_dia),
         ("system", "disk", system.check_disk),

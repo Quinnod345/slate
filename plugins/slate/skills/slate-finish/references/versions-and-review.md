@@ -8,9 +8,15 @@
 - **what changed** since the last version, in plain words;
 - **the open questions**, each one decision.
 
-Review cuts can be made straight from the act renders, before the masters, so the owner sees the film early. Other
-useful review material: voice-only previews, per-shot half-resolution previews with sound, side-by-side comparisons (two
-takes, before and after a fix), and gesture sheets for a character (slate-qa, review-packets.md).
+Review cuts can be made straight from the act renders, before the masters, so the owner sees the film early. Until the
+final mix exists, the cuts play the voice alone, each take on its cue, and the packet says so (silent only when there's
+no voice yet, saying why). Other useful review material: voice-only previews, per-shot half-resolution previews with
+sound, side-by-side comparisons (two takes, before and after a fix), and gesture sheets for a character (slate-qa,
+review-packets.md).
+
+**A proposed mix against the current picture:** `slate review --audio <mix>` makes the phone and half-size cuts with
+that mix as the sound, in `review/proposals/`, and leaves the film's own mix and version as they are. Use it when a mix
+change (a new score level, rebalanced effects) needs the owner's ear before it becomes the film's.
 
 ## Where it goes
 
@@ -46,5 +52,9 @@ holds nothing and feeds the fix plan.
 ## Before sending a packet
 
 - The gates for everything that changed have been re-run, and their status is in the packet (only PASS counts).
+- Every installed act passes its regression and stability checks with no reversal and no wobble, and every flag you
+  resolved is written down with its reason (a designed press stays in the baseline, named as designed).
+- You've read the 0.5-second contact sheets end to end: nothing blank, broken or out of order. The glitch gate flags
+  runs of blank frames; the sheets are the rest of that check.
 - You've watched the phone cut yourself, start to finish, with sound.
 - The questions are ones only the owner can answer; everything else is decided and noted.

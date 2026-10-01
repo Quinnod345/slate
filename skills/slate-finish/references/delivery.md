@@ -15,6 +15,8 @@ manifest only ever describes a complete set.
 | Platform files | the format's per-platform encodes (size, clock, bitrate, length limits), in `deliver/vN/platform/`; `slate formats show <format>` lists them |
 | The AE project | for supervised films finished in AE |
 | Synthetic-media flags | which voices and shots are synthetic: internal only, never published |
+| The README | `deliver/vN/README.md`, written from the set's own records, never by hand: every standing gate's verdict, the balance report's numbers against the voice, what changed since the last version, and every file with its hash |
+| The snapshot | the film folder's small files (code and data; heavy media stays ignored) committed and tagged `deliver/vN`, so a later before-and-after can rebuild exactly what made this render; an existing tag is never moved |
 | The manifest | every file with its bytes, SHA-256 and probe; anything missing listed; the approval status |
 
 ## Thumbnails and covers
@@ -33,6 +35,9 @@ manifest only ever describes a complete set.
 - A film whose gates don't all pass: only PASS counts; REVIEW items need a person's decision first (slate-qa). That
   includes the sound gates `slate verify` records, the balance gates among them, whenever the master carries sound.
 - A platform file over its platform's size or length limit.
+- A platform that takes a slower clock than the film's. A derived film keeps its parent's clock, so make the film from
+  the platform's own format (`slate new … --format <format>`), or deliver a draft with `slate deliver --draft`, which
+  leaves that file out and names it.
 - Overwriting a delivered version: the next delivery is a new version.
 
 ## Publishing

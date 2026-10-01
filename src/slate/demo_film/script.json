@@ -8,9 +8,11 @@
    "job": "the hook: one clock under every film",
    "shots": [
     {"id": "D01", "vo": "One script. One clock. One film.", "on_screen": "One clock",
-     "picture": "the kit's placeholder: the shot, its timing and its read", "hold": 1.2},
+     "picture": "the kit's placeholder: the shot, its timing and its read", "hold": 1.2,
+     "reading": {"not_for_reading": true, "reason": "act 1 is the kit's placeholder, drawn small inside the platforms' safe column: a scaffold to look at, not copy to read"}},
     {"id": "D02", "vo": "Demo Studio makes short films from data.", "on_screen": "Short films from data",
-     "claims": ["demo-1"], "picture": "the kit's placeholder", "hold": 0.8}
+     "claims": ["demo-1"], "picture": "the kit's placeholder", "hold": 0.8,
+     "reading": {"not_for_reading": true, "reason": "act 1 is the kit's placeholder, drawn small inside the platforms' safe column: a scaffold to look at, not copy to read"}}
    ]
   },
   {

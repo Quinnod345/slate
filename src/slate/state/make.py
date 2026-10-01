@@ -10,6 +10,12 @@ hashes, the renders registry, qa/gates.json) and runs the owning command in-proc
 they aren't. A command that isn't built in this Slate yet is reported (exit 3), never faked, and nothing downstream of
 it runs. Locked outputs (approved work) are never remade here. Paid stages (voicing) run only with --spend, or in
 replay mode, because make is a convenience and spending must stay a decision.
+
+A node can also track inputs its command doesn't record for itself (`Node.tracked`), including named ones
+(`brand:{brand}#sound`, the film's brand's sound palette). The mix tracks the palette and the effect cues: when the
+palette changes, every effect has to be re-spotted in it and the mix made again (the films' rule). Make adds them to
+the output's lock entry once it has seen that output fresh against them, so from then on a change shows by hash;
+before that, a palette or cue sheet newer than the output counts as a change.
 """
 
 from __future__ import annotations
@@ -36,6 +42,9 @@ class Node:
     producers: tuple[str, ...] = ()
     owner: str = ""
     paid: bool = False
+    # Inputs the node's own command doesn't record in its lock entries, which make tracks for it: hashed onto the
+    # output's entry once it's seen fresh (adopt_inputs), and judged by modification time until then.
+    tracked: tuple[str, ...] = ()
 
 
 NODES: dict[str, Node] = {n.name: n for n in (
@@ -50,7 +59,9 @@ NODES: dict[str, Node] = {n.name: n for n in (
          ("timing/visual_events",), ("slate emit-events",), "engine"),
     Node("render", ("render",), ("timing", "events"), ("timing/shots.json", "timing/timeline.json"),
          ("renders/registry.json",), (), ("slate render",), "render"),
-    Node("mix", ("mix",), ("timing", "events"), ("timing/vo_cues.json",), (), (), ("slate mix",), "sound"),
+    # The palette and the effect cues are the mix's inputs too: a palette change re-spots the effects and remakes it.
+    Node("mix", ("mix",), ("timing", "events"), ("timing/vo_cues.json",), (), (), ("slate mix",), "sound",
+         tracked=("sound/sound_cues.json", "brand:{brand}#sound")),
     Node("master", ("master",), ("render", "mix"), ("renders/registry.json",), (), ("masters",),
          ("slate master",), "finish"),
     Node("qa", ("qa",), ("master",), (), ("qa/gates.json",), (), ("slate qa",), "qa"),
@@ -108,6 +119,78 @@ def _mtime(path: Path) -> float | None:
         return None
 
 
+def declared_inputs(film_dir: Path, node: Node) -> list[str]:
+    """The inputs make tracks for this node, for this film: `{brand}` becomes the film's brand (a named input with no
+    brand is dropped)."""
+    out = []
+    brand = None
+    for key in node.tracked:
+        if "{brand}" in key:
+            if brand is None:
+                try:
+                    brand = str(film.load(film_dir).get("brand") or "")
+                except UsageError:
+                    brand = ""
+            if not brand:
+                continue
+            key = key.replace("{brand}", brand)
+        out.append(key)
+    return out
+
+
+def _named(key: str) -> bool:
+    return bool(lock.SCHEME_RE.match(key))
+
+
+def _stamp(text: str | None) -> float | None:
+    import datetime as _dt  # noqa: PLC0415
+
+    try:
+        return _dt.datetime.fromisoformat(str(text)).timestamp()
+    except (TypeError, ValueError):
+        return None
+
+
+def _changed_after(film_dir: Path, key: str, made_at: str | None) -> bool:
+    """Before make has a hash for a declared input, a file (or brand pack) newer than the output counts as a change."""
+    made = _stamp(made_at)
+    if made is None:
+        return False
+    if _named(key):
+        scheme, _sep, rest = key.partition(":")
+        if scheme != "brand":
+            return False
+        from slate.errors import SlateError  # noqa: PLC0415
+        from slate.state import deps  # noqa: PLC0415
+
+        try:
+            path = Path(deps.brand_find(rest.partition("#")[0])) / "brand.json"
+        except SlateError:
+            return False
+    else:
+        path = lock.resolve(film_dir, key)
+    m = _mtime(path)
+    return m is not None and m > made + 1.0  # stamps are to the second
+
+
+def adopt_inputs(film_dir: Path, node: Node) -> list[str]:
+    """Record the node's declared inputs on its outputs' lock entries (hashed now), where they're missing. Called once
+    the outputs are known fresh against them, so later changes show by hash. Returns the outputs it touched."""
+    keys = declared_inputs(film_dir, node)
+    if not keys:
+        return []
+    files = lock.load(film_dir)["files"]
+    touched = []
+    for rel in _outputs(film_dir, node, files):
+        e = files.get(rel)
+        if not e or e.get("locked") or e.get("ref"):
+            continue
+        missing = [k for k in keys if k not in (e.get("inputs") or {})]
+        if missing and lock.add_inputs(film_dir, rel, missing):
+            touched.append(rel)
+    return touched
+
+
 def node_state(film_dir: Path, node: Node, *, hasher: _util.Hasher | None = None) -> dict:
     """{node, state: fresh|stale|missing|locked, reasons, outputs} from the film's own records."""
     film_dir = Path(film_dir)
@@ -138,8 +221,9 @@ def node_state(film_dir: Path, node: Node, *, hasher: _util.Hasher | None = None
         if not outs and not dir_files:
             return {"node": node.name, "state": "missing", "reasons": ["nothing made yet"], "outputs": outs}
         locked_n = 0
-        newest_input = max((m for r in node.inputs if (m := _mtime(lock.resolve(film_dir, r))) is not None),
-                           default=None)
+        declared = declared_inputs(film_dir, node)
+        newest_input = max((m for r in (*node.inputs, *(k for k in declared if not _named(k)))
+                            if (m := _mtime(lock.resolve(film_dir, r))) is not None), default=None)
         for rel in outs:
             if rel in files:
                 x = lock.explain(film_dir, rel, hasher=hasher, _memo=memo)
@@ -147,6 +231,13 @@ def node_state(film_dir: Path, node: Node, *, hasher: _util.Hasher | None = None
                     locked_n += 1
                 elif x["state"] != "fresh":
                     reasons.append(f"{rel}: {x['reasons'][0] if x['reasons'] else x['state']}")
+                else:
+                    e = files[rel]
+                    for key in declared:
+                        if key not in (e.get("inputs") or {}) and _changed_after(film_dir, key, e.get("made_at")):
+                            what = f"the brand pack's {key.partition('#')[2] or 'brand.json'}" if _named(key) else key
+                            reasons.append(f"{rel}: {what} changed after it was made")
+                            break
             else:
                 # No record of what made it: fall back to modification times against the declared inputs.
                 m = _mtime(lock.resolve(film_dir, rel))
@@ -216,6 +307,8 @@ def run(film_dir: Path, target: str, *, force: bool = False, dry_run: bool = Fal
             if not needs_work:
                 row["action"] = "skipped"
                 row["why"] = "locked (approved work is never remade here)" if st["state"] == "locked" else "fresh"
+                if st["state"] == "fresh" and not dry_run:
+                    adopt_inputs(film_dir, node)  # fresh against its declared inputs: hash them from now on
                 results.append(row)
                 continue
             if upstream:
@@ -256,6 +349,7 @@ def run(film_dir: Path, target: str, *, force: bool = False, dry_run: bool = Fal
                 code = 1
                 results.append(row)
                 continue
+            adopt_inputs(film_dir, node)  # it was just made from its declared inputs as they are now
             after = node_state(film_dir, node, hasher=_util.Hasher(film_dir))
             row["after"] = after["state"]
             if after["state"] in ("stale", "missing"):

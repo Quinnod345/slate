@@ -24,7 +24,10 @@ Render the film's acts with true motion blur (16 sub-frames averaged in 16-bit, 
   slate render --engine ae --act 2 --go an After Effects act, only on a person's go (never for autonomous films)
 
 Renders are chunked and resumable: a chunk with the right frame count and hash is kept, a short or missing one is
-rendered again. Long renders always go through the job queue and return a job id at once (follow it with
+rendered again. A whole act that replaces a registered render proves itself first: the stability report against the
+act's accepted baseline, and, when only the engine or kit changed, nothing moved against the render it replaces; a
+FAIL keeps the new render aside with a strip (--accept-change lets a deliberate change in; --rollout renders a
+one-sample preview against the act's reference before the full render). Long renders always go through the job queue and return a job id at once (follow it with
 `slate job status <id>`); --detach sends any render there. Every render reserves its disk first and removes its bundle
 when it ends. Renders always run on this Mac.
 
@@ -51,6 +54,11 @@ def register(sub) -> None:
     p.add_argument("--resume", action="store_true", help="finish renders that stopped, with their original options")
     p.add_argument("--fresh", action="store_true", help="throw away this render's chunks and start over")
     p.add_argument("--go", action="store_true", help="a person's go, which After Effects renders need")
+    p.add_argument("--accept-change", dest="accept_change", action="store_true",
+                   help="let a rendering-only change that changed the picture replace the registered render "
+                        "(recorded as accepted)")
+    p.add_argument("--rollout", action="store_true",
+                   help="a roll-out: each act's one-sample preview against its reference first, then the full render")
     p.add_argument("--in-queue", dest="in_queue", action="store_true", help=argparse.SUPPRESS)
     stages = p.add_subparsers(dest="render_stage", metavar="<stage>")
 
@@ -195,7 +203,8 @@ def _cmd_render(args: argparse.Namespace) -> int:
     dry = bool(cli.flag(args, "dry_run", False))
     if args.in_queue:
         result = runner.run(film_dir, act=args.act, frames=frames, engine=args.engine, samples=samples, out=args.out,
-                            draft=args.draft, go=args.go, fresh=args.fresh, resume=args.resume, in_queue=True)
+                            draft=args.draft, go=args.go, fresh=args.fresh, resume=args.resume, in_queue=True,
+                            accept_change=args.accept_change, rollout=args.rollout)
         log.result(result, human=_describe_result(result))
         return 0
     if args.resume:
@@ -235,9 +244,10 @@ def _cmd_render(args: argparse.Namespace) -> int:
     if p.runs == "queue":
         _check_before_queueing(film_dir, film, p, go=args.go)
         argv = runner.job_argv(film_dir, p, act=args.act, frames=frames, out=args.out, go=args.go, fresh=args.fresh,
-                               resume=False)
+                               resume=False, accept_change=args.accept_change, rollout=args.rollout)
         return _queue(film_dir, film, p, argv, wait=args.wait)
-    result = runner.execute(film_dir, film, p, go=args.go, fresh=args.fresh)
+    result = runner.execute(film_dir, film, p, go=args.go, fresh=args.fresh, accept_change=args.accept_change,
+                            rollout=args.rollout)
     log.result(result, human=_describe_result(result))
     return 0
 

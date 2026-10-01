@@ -15,6 +15,13 @@
               contact sheet, read at full size), else on the film's contact sheets, else on the sheet given with
               --sheet. The label the engine burns into each contact-sheet cell is review material and is left out.
               UNCHECKED when Vision OCR can't run here.
+- title_safe  on every film, every text box inside title-safe: the middle 90% of the frame (96 px in from the sides
+              and 54 px from the top and bottom on a 1920 × 1080 frame, scaled to the frame); text outside it fails,
+              and text outside action-safe (93%) says so too. Same text boxes as safe_zones.
+- type_size   body copy (a line of four or more words, not set in capitals) stands at least 28 px tall at 1080 lines:
+              each line's capitals are measured on the picture inside its OCR box and must reach 62% of 28 px (the
+              lowest common cap height), scaled to the frame's short side. The original film's 12 to 14 px body copy
+              was unreadable. Labels, eyebrows and anything a shot declares not for reading are left out.
 
 A sub-check that doesn't apply is left out rather than passed: a 16:9 film has no 9:16 safe zones, and a film with
 no voice has no captions. One that applies but can't run yet (no render, no OCR, no brand pairs) is UNCHECKED, with
@@ -1469,8 +1476,221 @@ def check_safe_zones(ctx, *, sheet: str | None = None, platforms: list[str] | No
                 f"({texts} boxes in {len(samples)} frames)", [], **details)
 
 
+# ---------------------------------------------------------------------------------------------------- title-safe
+TITLE_SAFE = 0.90  # the middle 90% of the frame: 96 px from the sides and 54 px from top and bottom at 1920 × 1080
+ACTION_SAFE = 0.93
+
+
+def safe_area(fraction: float) -> list[float]:
+    m = (1.0 - fraction) / 2.0
+    return [m, m, 1.0 - m, 1.0 - m]
+
+
+def outside(box: list[float], area: list[float]) -> list[str]:
+    """Which edges of a safe area a text box [x0, y0, x1, y1] crosses (fractions of the frame, top-left origin)."""
+    x0, y0, x1, y1 = box
+    ax0, ay0, ax1, ay1 = area
+    t = ZONE_TOLERANCE
+    out = []
+    if y0 < ay0 - t:
+        out.append("top")
+    if y1 > ay1 + t:
+        out.append("bottom")
+    if x0 < ax0 - t:
+        out.append("left")
+    if x1 > ax1 + t:
+        out.append("right")
+    return out
+
+
+def _text_lines(samples: list[dict]):
+    """(sample, text, box) for every OCR'd line that counts: readable, confident, and not a contact sheet's label."""
+    for s in samples:
+        for line in s["lines"]:
+            text = str(line.get("text") or "").strip()
+            conf = _num(line.get("conf", line.get("confidence")))
+            box = box_from_ocr(line.get("box"))
+            if not text or box is None or not re.search(r"[A-Za-z0-9]", text):
+                continue
+            if conf is not None and conf < OCR_MIN_CONF:
+                continue
+            if is_stamp(text, box, s.get("stamp")):
+                continue
+            yield s, text, box
+
+
+def _read_text_boxes(ctx, sheet: str | None, name: str, read: list):
+    """(samples, engine, files) for a text check, or an UNCHECKED sub-check saying why there are none."""
+    from slate.qa import ocr  # noqa: PLC0415
+
+    ok, engine = ocr.available()
+    if not ok:
+        return None, _sub(name, "UNCHECKED", f"text can't be located without OCR: {engine.get('reason')}", [],
+                          hint=engine.get("hint") or ocr.INSTALL_HINT, engine=engine)
+    try:
+        samples, engine, files = _ocr_samples(ctx, sheet)
+    except SlateError as exc:
+        return None, _sub(name, "UNCHECKED", f"the frames couldn't be read for text: {exc.message}", [],
+                          hint=exc.hint)
+    read += list(files)
+    if not samples:
+        return None, _sub(name, "UNCHECKED", "there were no frames to read for text", [])
+    return (samples, engine, files), None
+
+
+def check_title_safe(ctx, *, sheet: str | None = None, read: list | None = None):
+    """Every OCR'd text box inside title-safe (the middle 90% of the frame); outside action-safe (93%) said too."""
+    read = read if read is not None else []
+    if not ctx.size:
+        return _sub("title_safe", "UNCHECKED", "film.json has no width and height, so the frame's shape is unknown")
+    got, unchecked = _read_text_boxes(ctx, sheet, "title_safe", read)
+    if unchecked is not None:
+        return unchecked
+    samples, engine, files = got
+    title, action = safe_area(TITLE_SAFE), safe_area(ACTION_SAFE)
+    w, h = ctx.size
+    violations, texts = [], 0
+    for s, text, box in _text_lines(samples):
+        texts += 1
+        where = outside(box, title)
+        if where:
+            past = outside(box, action)
+            violations.append({"at": s["label"], "t": s["t"], "text": text[:60], "box": [round(v, 4) for v in box],
+                               "where": where, "outside_action_safe": past})
+    details = {"title_safe_px": [round(title[0] * w), round(title[1] * h)], "frames_read": len(samples),
+               "text_boxes": texts, "engine": engine, "files": files}
+    if violations:
+        v = violations[0]
+        lines = [f"“{x['text']}” at {x['at']} crosses title-safe at the {', '.join(x['where'])}"
+                 + (f" (and action-safe at the {', '.join(x['outside_action_safe'])})" if x["outside_action_safe"]
+                    else "") for x in violations[:15]]
+        return _sub("title_safe", "FAIL", f"{_plural(len(violations), 'text box', 'text boxes')} outside title-safe "
+                    f"(the middle {TITLE_SAFE:.0%}: {details['title_safe_px'][0]} px from the sides, "
+                    f"{details['title_safe_px'][1]} px from top and bottom): “{v['text']}” at {v['at']}", lines,
+                    violations=violations[:60], violations_total=len(violations), **details)
+    return _sub("title_safe", "PASS", f"every text box sits inside title-safe ({texts} boxes in {len(samples)} "
+                "frames)", [], **details)
+
+
+# ---------------------------------------------------------------------------------------------------- type size
+BODY_PX = 28.0  # body copy at 1080 lines…
+BODY_SHARE = 7 / 270  # …which is this share of the frame's short side (scaled to any film)
+REFERENCE_LINES = BODY_PX / BODY_SHARE  # the line count the 28 px is stated at
+CAP_EM = 0.62  # the lowest common cap height, as a share of the type size (sans faces run about 0.62–0.73)
+BODY_WORDS = 4  # a line of this many words or more, not set in capitals, is body copy
+_MEASURABLE = re.compile(r"[A-Z0-9bdfhklt]")  # a capital, a figure or an ascender reaches the cap line
+
+
+def cap_height(gray) -> float | None:
+    """How tall a line's capitals (or ascenders) stand, in px, from a crop of it: from the cap line to the baseline.
+    Column by column: the baseline is where most columns' ink ends (descenders are a minority of columns, so g, p, q
+    and y don't make the line taller), and the cap line is the highest ink a few columns agree on (one stray pixel
+    doesn't count). None when the crop has no ink."""
+    np = _np()
+    g = np.asarray(gray, dtype=float)
+    if g.ndim != 2 or min(g.shape) < 3:
+        return None
+    border = np.concatenate([g[0], g[-1], g[:, 0], g[:, -1]])
+    diff = np.abs(g - float(np.median(border)))
+    peak = float(diff.max())
+    if peak < 12:
+        return None
+    ink = diff > max(12.0, 0.4 * peak)
+    cols = np.flatnonzero(ink.any(axis=0))
+    if len(cols) < 3:
+        return None
+    h = ink.shape[0]
+    bottoms = h - 1 - np.argmax(ink[::-1, cols], axis=0)
+    tops = np.sort(np.argmax(ink[:, cols], axis=0))
+    agree = max(2, int(round(0.01 * len(cols))))
+    return float(np.median(bottoms) - tops[min(len(tops) - 1, agree - 1)] + 1)
+
+
+def _not_for_reading(ctx) -> set[str]:
+    try:
+        from slate.qa.checks.text import reading_declarations  # noqa: PLC0415
+
+        decls, _problems = reading_declarations(ctx)
+    except Exception:  # noqa: BLE001 - a broken declaration is the read-time gate's to report
+        return set()
+    return {sid for sid, d in decls.items() if d.get("not_for_reading")}
+
+
+def check_type_size(ctx, *, sheet: str | None = None, read: list | None = None):
+    """Body copy at least 28 px at 1080 lines, measured on the picture inside each line's OCR box."""
+    read = read if read is not None else []
+    if sheet:
+        return None  # a contact sheet's thumbnails are scaled: type is measured on the picture itself
+    if not ctx.size:
+        return _sub("type_size", "UNCHECKED", "film.json has no width and height, so type can't be measured")
+    got, unchecked = _read_text_boxes(ctx, None, "type_size", read)
+    if unchecked is not None:
+        return unchecked
+    samples, engine, files = got
+    from slate.qa import media, ocr  # noqa: PLC0415
+
+    try:
+        _source, parts, _missing = ocr._sources(ctx)  # noqa: SLF001 - the same picture the sweep read
+    except SlateError as exc:
+        return _sub("type_size", "UNCHECKED", f"the picture couldn't be found: {exc.message}", [], hint=exc.hint)
+    skip = _not_for_reading(ctx)
+    w, h = ctx.size
+    floor = BODY_SHARE * CAP_EM * min(w, h)
+    wanted: dict[tuple, tuple] = {}
+    for s, text, box in _text_lines(samples):
+        words = text.split()
+        if len(words) < BODY_WORDS or text.upper() == text or not _MEASURABLE.search(text):
+            continue
+        shot = ctx.shot_of_frame(int(s["frame"])) if s.get("frame") is not None else None
+        if shot in skip:
+            continue
+        key = (re.sub(r"\W+", "", text.lower())[:40], tuple(round(v, 2) for v in box))
+        wanted.setdefault(key, (s, text, box, shot))
+    measured, small = [], []
+    by_part: dict[int, list] = {}
+    for item in list(wanted.values())[:400]:
+        frame = int(item[0]["frame"])
+        k = next((i for i, (_p, f0, n) in enumerate(parts) if f0 <= frame < f0 + n), None)
+        if k is not None:
+            by_part.setdefault(k, []).append(item)
+    for k, items in by_part.items():
+        path, f0, _n = parts[k]
+        frames = media.read_frames(path, [int(it[0]["frame"]) - f0 for it in items], pix_fmt="gray")
+        for s, text, box, shot in items:
+            arr = frames.get(int(s["frame"]) - f0)
+            if arr is None:
+                continue
+            fh, fw = arr.shape[:2]
+            x0, y0, x1, y1 = box
+            pad = 0.15 * (y1 - y0)
+            crop = arr[max(0, int((y0 - pad) * fh)):min(fh, int(math.ceil((y1 + pad) * fh))),
+                       max(0, int(x0 * fw)):min(fw, int(math.ceil(x1 * fw)))]
+            cap = cap_height(crop) if crop.size else None
+            if cap is None:
+                continue
+            cap *= h / fh  # in the film's own pixels
+            row = {"text": text[:60], "at": s["label"], "shot": shot, "cap_px": round(cap, 1),
+                   "type_px_at_1080": round(cap / CAP_EM * REFERENCE_LINES / min(w, h), 1)}
+            measured.append(row)
+            if cap < floor:
+                small.append(row)
+    details = {"floor_cap_px": round(floor, 1), "measured": len(measured), "engine": engine, "files": files,
+               "rule": f"body copy (≥ {BODY_WORDS} words, not in capitals) ≥ {BODY_PX:g} px at 1080 lines"}
+    if small:
+        smallest = min(small, key=lambda r: r["cap_px"])
+        return _sub("type_size", "FAIL", f"{_plural(len(small), 'line')} of body copy under {BODY_PX:g} px at 1080 "
+                    f"lines: “{smallest['text']}” at {smallest['at']} stands about {smallest['type_px_at_1080']:g} px",
+                    [f"“{r['text']}” at {r['at']}: capitals {r['cap_px']:g} px (about {r['type_px_at_1080']:g} px "
+                     f"type at 1080 lines)" for r in small[:15]], small=small[:40], **details)
+    if not measured:
+        return _sub("type_size", "PASS", "no body copy to measure (labels and titles aren't body copy)", [], **details)
+    lowest = min(measured, key=lambda r: r["cap_px"])
+    return _sub("type_size", "PASS", f"all {_plural(len(measured), 'line')} of body copy stand at {BODY_PX:g} px or "
+                f"more at 1080 lines (smallest about {lowest['type_px_at_1080']:g} px)", [], **details)
+
+
 # ---------------------------------------------------------------------------------------------------- the gate
-SUBCHECKS = ("flashes", "contrast", "captions", "safe_zones")
+SUBCHECKS = ("flashes", "contrast", "captions", "safe_zones", "title_safe", "type_size")
 
 
 def evaluate(film_dir: Path, *, render: str | None = None, render_act: int | None = None,
@@ -1496,6 +1716,8 @@ def evaluate(film_dir: Path, *, render: str | None = None, render_act: int | Non
         ("contrast", lambda: check_contrast(ctx)),
         ("captions", lambda: check_captions(ctx, captions=captions)),
         ("safe_zones", lambda: check_safe_zones(ctx, sheet=sheet, platforms=platforms, read=read)),
+        ("title_safe", lambda: check_title_safe(ctx, sheet=sheet, read=read)),
+        ("type_size", lambda: check_type_size(ctx, sheet=sheet, read=read)),
     ]
     subs = []
     for name, run in runs:
@@ -1512,7 +1734,7 @@ def evaluate(film_dir: Path, *, render: str | None = None, render_act: int | Non
         narrowed.append(f"the flashes of {render} instead of the film's picture (--render)")
     if captions and runs_it["captions"]:
         narrowed.append(f"the captions in {captions} instead of the film's own (--captions)")
-    if sheet and runs_it["safe_zones"]:
+    if sheet and (runs_it["safe_zones"] or runs_it["title_safe"]):
         narrowed.append(f"the text of {sheet} instead of the film's picture (--sheet)")
     if platforms and runs_it["safe_zones"]:
         default, _why = platforms_for(ctx, None)

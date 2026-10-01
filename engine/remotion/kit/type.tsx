@@ -134,34 +134,90 @@ export function Arrive({t0, out, t: tOverride, duration, rise = 0.0185, ease, ch
   return <div style={{opacity: clamp01(u * 1.3) * ex.op, transform: `translateY(${((1 - u) * rise * short + ex.dy).toFixed(3)}px)`, ...motionHint(inMotion(u) || (ex.dy < -0.0001 && ex.op > 0.001)), ...style}}>{children}</div>;
 }
 
+/** The film time a count reads at `t`: its master frame's, so every motion-blur sub-sample of a frame (they sit within
+ * a quarter frame of it) reads the same value. */
+export function masterTime(t: number, rate = fps()): number {
+  return Math.round(t * rate) / rate;
+}
+
+/**
+ * The value a count shows at film time `t`: the master frame's time (masterTime), held for `hold` whole frames from
+ * `t0` so figures tick rather than flicker, on the entrance ease over `d` seconds.
+ */
+export function countValue(t: number, {t0, from, to, d, hold = 3, rate = fps()}: {t0: number; from: number; to: number; d: number; hold?: number; rate?: number}): number {
+  const step = Math.max(1, hold);
+  const tm = masterTime(t, rate);
+  // hold each figure for `step` frames: sample the ease at the start of each hold (1e-6 absorbs float error at a hold's
+  // first frame, so a count that starts on a whole frame holds exactly `step` frames)
+  const held = t0 + Math.floor(((tm - t0) * rate) / step + 1e-6) * (step / rate);
+  const u = tm >= t0 + d ? 1 : easeNamed(roleEase('entrance'))((held - t0) / d);
+  return from + (to - from) * u;
+}
+
+/** A count's text with every figure written as a 9: the shape of the box it's drawn over until it has its final figures. */
+export const countShape = (text: string): string => text.replace(/[0-9]/g, '9');
+
 /**
  * A number counting to its value on the entrance ease, tabular figures. Each shown figure holds for `hold` whole
  * frames so digits tick rather than flicker; count once (a second count of a number already on screen reads as a
  * glitch).
  *
- * The final value, unseen, sets the number's box, and the count is drawn over it from the box's left edge. With a face
- * that has no tabular figures (`tabular-nums` then changes nothing) a centred count re-centred a pixel at a time as its
- * digits changed width: +1 px, then -1 px a frame later (the films' lesson L-kit-S006). Now the leading digits hold
- * still, only the changing ones change, and the final value sits exactly where it would on its own.
+ * One value per frame: the count reads its master frame's time, so every motion-blur sub-sample of a frame shows the
+ * same figures while the numeral's own movement still blurs. Counting per sub-sample blended the values either side of
+ * each change into double-exposed digits (the films' lesson L-kit-D152).
+ *
+ * It never re-centres. With a face that has no tabular figures (`tabular-nums` then changes nothing) a count re-flowed
+ * as its figures changed width: a centred count stepped +1 px, then −1 px a frame later, and anything after it was
+ * pushed back and forth (L-kit-S006). So the count is drawn over an unseen box that holds still while its figures change
+ * (the films' refined rule, 2026-10-01):
+ * - once the count has the final value's figures (as many digits, the same commas and signs), the box is the final
+ *   value, so the final value rests exactly where it would on its own;
+ * - before that, the box is the count's own shape in nines (99 while it passes 10 to 99). 9 is a figure of typical width
+ *   in most faces, so a centred count from 0 sits within a pixel or two of its true centre. A final-value box from the
+ *   first frame put the films' counts from 0 half a figure left of centre (37 px);
+ * - the count is drawn from its box's left edge, so within each stretch the leading figures hold still and only the
+ *   changing ones change;
+ * - a suffix in the format ("2,500+") holds still at the box's right end, and the last figure is centred in the room
+ *   between it and the figures before it. Drawn after the figures, the "+" stepped with the last figure's width;
+ * - `followed`: a word comes right after the count ("%", a label). The word never moves: the final value is the box for
+ *   the whole count, and the count is drawn against its right edge, its last figure centred in the room before it. A
+ *   count that stands alone and is centred keeps its stretch boxes.
+ * At the final value the line is drawn whole, as it rests.
  */
-export function CountUp({t0, from, to, duration, hold = 3, format = (v: number) => Math.round(v).toString(), t: tOverride, role = 'numeral', color, style}: {t0: number; from: number; to: number; duration?: number; hold?: number; format?: (v: number) => string; t?: number; role?: string; color?: string; style?: React.CSSProperties}) {
+export function CountUp({t0, from, to, duration, hold = 3, format = (v: number) => Math.round(v).toString(), t: tOverride, role = 'numeral', color, style, followed = false}: {t0: number; from: number; to: number; duration?: number; hold?: number; format?: (v: number) => string; t?: number; role?: string; color?: string; style?: React.CSSProperties; followed?: boolean}) {
   const clock = useFilmTime();
   const s = useType(role, color);
   const t = tOverride ?? clock;
   // count-ups take the broad step of the brand's scale (its fourth-shortest) unless told otherwise
   const d = duration ?? durRank(3);
-  const rate = fps();
-  // hold each figure for `hold` frames: sample the ease at the start of each hold
-  const heldT = t0 + Math.floor(((t - t0) * rate) / Math.max(1, hold)) * (Math.max(1, hold) / rate);
-  const u = t >= t0 + d ? 1 : easeNamed(roleEase('entrance'))((heldT - t0) / d);
-  return (
-    <span style={{...s, fontVariantNumeric: 'tabular-nums', ...style}}>
-      <span style={{position: 'relative', display: 'inline-block'}}>
-        <span style={{visibility: 'hidden'}}>{format(to)}</span>
-        <span style={{position: 'absolute', left: 0, top: 0, whiteSpace: 'nowrap'}}>{format(from + (to - from) * u)}</span>
-      </span>
+  const text = format(countValue(t, {t0, from, to, d, hold}));
+  const final = format(to);
+  // the box of the stretch the count is in: the final value once the count has its figures, its own nines before
+  const run = countShape(text) === countShape(final) ? final : countShape(text);
+  // [, the figures before the last, the last figure, a suffix]
+  const parts = text === final ? null : /^(.*)([0-9])([^0-9]*)$/.exec(text);
+  const boxed = (box: string, drawn: React.ReactNode) => (
+    <span style={{position: 'relative', display: 'inline-block'}}>
+      <span style={{visibility: 'hidden'}}>{box}</span>
+      {drawn}
     </span>
   );
+  const plain = <span style={{position: 'absolute', left: 0, top: 0, whiteSpace: 'nowrap'}}>{text}</span>;
+  // the figures before the last at the left, the suffix at the right, and the last figure centred in the room between
+  // (it may be a little narrower than the figure: the room shrinks and the figure overhangs it evenly on both sides)
+  const slot = (m: RegExpExecArray) => (
+    <span style={{position: 'absolute', left: 0, right: 0, top: 0, display: 'flex', whiteSpace: 'nowrap'}}>
+      <span style={{flexShrink: 0}}>{m[1]}</span>
+      <span style={{flex: '1 1 0', minWidth: 0, display: 'flex', justifyContent: 'center'}}>{m[2]}</span>
+      <span style={{flexShrink: 0}}>{m[3]}</span>
+    </span>
+  );
+  let drawn: React.ReactNode;
+  if (followed && parts) drawn = boxed(final, <span style={{position: 'absolute', right: 0, top: 0, whiteSpace: 'nowrap'}}>{boxed(run, slot(parts))}</span>);
+  else if (followed) drawn = boxed(final, plain);
+  else if (parts && parts[3]) drawn = boxed(run, slot(parts));
+  else drawn = boxed(run, plain);
+  return <span style={{...s, fontVariantNumeric: 'tabular-nums', ...style}}>{drawn}</span>;
 }
 
 let measureCtx: CanvasRenderingContext2D | null = null;

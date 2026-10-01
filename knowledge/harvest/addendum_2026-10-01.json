@@ -1,0 +1,106 @@
+[
+ {
+  "id": "L-generate-A001",
+  "text": "A generated plate can hitch once a second where the model joins its chunks (a dropped or a frozen frame), in the vendor's own file and every conform of it. Repair the timing rather than regenerate: measure each source step's motion on the plate's moving band (Lucas-Kanade), put every source frame on a true-time axis (a missing frame takes about 1.8 units, a step more than 12% off its own ratio, a frozen frame none and its copy is dropped), make each output frame at its even place on that axis (a source frame as it is within 2%, otherwise optical-flow interpolation between its neighbours, a blend as the fallback), keep the length and the first and last frames, move tracked samples through the same warp, and stage it with its report before installing it, keeping the old sequence. ffmpeg's minterpolate can't follow an uneven time axis.",
+  "source": "FILMROOT/ASSETS.md:36-88; FILMROOT/pipeline/tools/plate_repair.py (docstring)",
+  "kind": "process",
+  "area": "generate",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "code_default",
+   "target": "src/slate/gen/repair.py (`slate plates repair`)",
+   "reason": "A pipeline stage: built on numpy and scipy, no OpenCV."
+  }
+ },
+ {
+  "id": "L-generate-A002",
+  "text": "A plate passes its step check when no step is over 1.3 times the mean of its two neighbours (the films' worst after repair was 1.13, where a hitch had been 2.2); check every conformed plate and say when it hitches.",
+  "source": "FILMROOT/ASSETS.md:72-73; FILMROOT/pipeline/tools/plate_repair.py (docstring)",
+  "kind": "rule",
+  "area": "generate",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "code_default",
+   "target": "src/slate/gen/plates.py (the conform's step check)",
+   "reason": "The conform measures every plate's steps and warns, naming the repair."
+  }
+ },
+ {
+  "id": "L-kit-A001",
+  "text": "Counting numbers never re-centre, refined: until the count has the final value's figures, its unseen box is the count's own shape in nines (99 while it passes 10 to 99), because a final-value box from the first frame put counts from 0 half a figure off centre (37 px); once it has them, the box is the final value, so it rests exactly where it would on its own. A suffix holds still at the box's right end, with the last figure centred in the room before it, and a word that follows the count never moves (the final value is the box for the whole count).",
+  "source": "FILMROOT/pipeline/r3f/KIT.md:79-92; FILMROOT/pipeline/r3f/src/kit/type.tsx (CountUp)",
+  "kind": "rule",
+  "area": "kit",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "code_default",
+   "target": "engine/remotion/kit/type.tsx (CountUp)",
+   "reason": "The kit's own count, with a golden still."
+  }
+ },
+ {
+  "id": "L-kit-A002",
+  "text": "A box that grows or settles slowly is sized by a transform, not by layout: a tile growing out of a line, a fill rising to its level, segments, an axis, ticks, dividers, drop lines, row backgrounds through a fold and an edge shadow are laid out at whole pixels and drawn to their exact place and size with translate and scale, their content counter-scaled. Laid out by height, a tile and its number settled a pixel at a time.",
+  "source": "FILMROOT/pipeline/r3f/src/b/act5/NOTES.md:274-292; FILMROOT/QA_B.md:122-123",
+  "kind": "rule",
+  "area": "kit",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "skill_rule",
+   "target": "skills/slate-build/references/remotion-gotchas.md",
+   "reason": "How builders draw a slowly sized box."
+  }
+ },
+ {
+  "id": "L-finish-A001",
+  "text": "Review a proposed mix against the current picture: the review copies take another mix in place of the film's own, and the film's mix and version stay as they are.",
+  "source": "FILMROOT/pipeline/tools/review_cuts.sh:12-14; FILMROOT/PRODUCTION_B.md:45",
+  "kind": "process",
+  "area": "finish",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "code_default",
+   "target": "src/slate/finish/review.py (`slate review --audio`)",
+   "reason": "A review stage."
+  }
+ },
+ {
+  "id": "L-qa-A001",
+  "text": "Before calling a stability flag a fault, check it against a synthetic perfect render of the designed motion: when it flags the same tiles, the flag is the design. One half-pixel step was a button's designed 3% press on top of the camera's slowing tail, which the render followed within 0.13 px; it stayed in the baseline with that reason rather than changing the press's ease.",
+  "source": "FILMROOT/QA_B.md:122, 138; FILMROOT/PRODUCTION_B.md:45",
+  "kind": "lesson",
+  "area": "qa",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "skill_rule",
+   "target": "skills/slate-qa/references/triage.md",
+   "reason": "Triage practice: a person judges the flag with the perfect render beside it."
+  }
+ },
+ {
+  "id": "L-qa-A002",
+  "text": "Before re-rendering a fix, take the fault's flags out of the act's stability baseline, so the new render proves the fix instead of the baseline hiding the fault.",
+  "source": "FILMROOT/QA_B.md:122",
+  "kind": "process",
+  "area": "qa",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "code_default",
+   "target": "src/slate/qa/stability.py (`slate qa stability baseline --drop`)",
+   "reason": "A baseline step, recorded with who and why."
+  }
+ },
+ {
+  "id": "L-qa-A003",
+  "text": "A review cut goes out only when every installed act passes its regression and stability checks with no reversal and no wobble, every resolved flag is written down with its reason, and the 0.5 s contact sheets have been read end to end with nothing blank, broken or out of order.",
+  "source": "FILMROOT/PRODUCTION_B.md:45; FILMROOT/QA_B.md:138",
+  "kind": "process",
+  "area": "qa",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "skill_rule",
+   "target": "skills/slate-finish/references/versions-and-review.md",
+   "reason": "The bar before a packet is sent; the glitch gate's blank-run pass is its automated half."
+  }
+ }
+]

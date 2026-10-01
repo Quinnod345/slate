@@ -10,16 +10,24 @@
 3. Join: start (the pre-roll cut at frame one, a 20 ms fade so it doesn't click), act (an equal-power crossfade over
    1.2 s centred on the cut), bloom (the bloom enters in 25 ms exactly on its landing; what came before fades in 120 ms),
    lift and arrive (short equal-power handovers), stop (the part stops dead, a 120 ms fade, before the next landing).
+   A big moment lands together (a bloom marked `together`, or one of the plan's `moments` inside a part): the music
+   holds its breath, fading out over 80 ms into a short silence, and comes back exactly on the hit through the bloom's
+   25 ms entry, 3 dB over its own level and settling over 2 s, so its steepest rise ends 20-30 ms after the hit.
+   It re-cuts the music already there; nothing new is composed.
 4. Repair holes in place, with the music's own material:
    - a take that runs out before its hand-over has its last sustain held (a phase-vocoder freeze, -2 dB, easing down
      1 dB a second) from just before it fell, crossfaded in as the real chord decays;
    - a part whose take enters late gets the previous part's music carried over until it's in (equal power, 0.8 s);
-   - the final part's last chord is held to the last frame, and the score fades over its last 2 s to reach silence on
-     the final frame, not before it.
+   - the final part's last chord is held to the end, and the score fades over 2 s to reach silence where the film's
+     closing silence starts: its last second (the films' rule, a planned stop the plan writes), or the final frame
+     when a brand leaves the ending to its plan.
 5. Level each part on its own body (-16 LUFS, plus any shape in directions.json), keep the peak under 0.95.
 6. Check: take QA on the whole score, the landings measured (every bloom, lift and arrival within a frame of its beat),
-   and the gap check on the music as the mix will set it (the palette's level under the voice, 18.5 LU to start,
-   ducked 6 dB under words, times the mix's loudness gain): no window under -60 dBFS outside the planned stops.
+   the gap check on the music as the mix will set it (the palette's level under the voice, 18.5 LU to start,
+   ducked 6 dB under words, times the mix's loudness gain): no window under -60 dBFS outside the planned stops; and
+   every join between parts measured (the level across the beat, the largest 100 ms step, any dip under the parts
+   either side, where the loudest 250 ms falls against the words). An act change breathes at most 7 dB, for a quarter
+   of a second at most (the films' rule): past that, the assembly doesn't pass.
 
 Writes sound/score/score.wav (48 kHz / 24-bit, exactly the film's length) and sound/score/score.json.
 """
@@ -52,6 +60,10 @@ NUDGE_S = 0.3
 LATE_XFADE_S = 0.8
 END_FADE_S = 2.0
 SEED = 20260929
+TOGETHER_FADE_S = 0.08  # a big moment: the music fades out over 80 ms into its breath...
+BLOOM_DB, BLOOM_SETTLE_S = 3.0, 2.0  # ...and comes back on the hit 3 dB over its level, settling over 2 s
+JOIN_BREATH_DB, JOIN_BREATH_S, JOIN_STEP_DB = 7.0, 0.25, 7.0  # an act change breathes at most 7 dB, for 0.25 s at most
+JOIN_UNDER_DB = JOIN_BREATH_DB / 2  # a breath's length: how long the level sits more than half the limit under the parts either side
 
 
 @dataclass
@@ -233,6 +245,9 @@ def assemble(film_dir: Path, picks: dict[str, str] | None = None, *, out: str | 
                 continue
             a, b = JOIN_OUT_PREVIOUS[nx.part["join"]]
             c.win_out = (nland + a, nland + b)
+            if nx.part.get("together"):  # the music holds its breath before the hit: an 80 ms fade into silence
+                breath = float(nx.part.get("breath_s", 0.35))
+                c.win_out = (nland - breath - TOGETHER_FADE_S, nland - breath)
             n_on = nx.offset + dsp.entry_s(nx.env)
             if repairs and nx.part["join"] == "act" and n_on > nx.win_in[1] + 0.05:
                 # the next take enters late: carry this part's music until it's in, handing over equal power
@@ -260,13 +275,21 @@ def assemble(film_dir: Path, picks: dict[str, str] | None = None, *, out: str | 
             seg = seg * g[:, None]
             if repairs and c.part["end"] != "stop":
                 seg = _hold_if_running_out(c, seg, f0, f1, last, end, sr, place)
+            if c.part.get("together"):
+                seg = seg * bloom_lift(len(seg), f0, float(c.part["landing_s"]), sr)[:, None]
             place(seg, f0)
-        # the end: settle and reach silence on the final frame, not before it
+        for m in plan.get("moments") or []:  # big moments inside a part: the same breath and bloom, re-cut in place
+            together(mix, float(m["t"]), sr, breath_s=float(m.get("breath_s", 0.35)))
+        # the end: settle and reach silence where the film's silence starts (its last second, when the plan ends in a
+        # stop, as the films' p3 rule asks), else on the final frame, not before it
+        silent_from = _ending_silence(film, plan)
+        quiet = int(round(silent_from * sr))
         fade = float(plan.get("end_fade_s", END_FADE_S))
         if fade > 0:
-            e0 = max(0, int((end - fade) * sr))
-            tt = (n - np.arange(e0, n)) / sr
+            e0 = max(0, int((silent_from - fade) * sr))
+            tt = (quiet - np.arange(e0, n)) / sr
             mix[e0:] *= np.sqrt(np.clip(tt / fade, 0, 1))[:, None]
+        mix[quiet:] = 0.0
         pk = float(np.max(np.abs(mix))) if mix.size else 0.0
         if pk > 0.95:
             mix *= 0.95 / pk
@@ -278,6 +301,125 @@ def assemble(film_dir: Path, picks: dict[str, str] | None = None, *, out: str | 
         record_lock(film, film.rel(out_path), producer="slate score assemble",
                     inputs=[f"{SCORE_DIR}/plan.json", *sorted({film.rel(c.path) for c in chosen})])
     return record
+
+
+def bloom_lift(n: int, t0: float, hit: float, sr: int) -> np.ndarray:
+    """Gain over n samples (sample 0 = film time t0): 3 dB over unity on the hit, settling back over 2 s (cos²)."""
+    tt = t0 + np.arange(n) / sr - hit
+    g = np.ones(n)
+    on = (tt >= 0) & (tt < BLOOM_SETTLE_S)
+    g[on] = 1.0 + (dsp.db(BLOOM_DB) - 1.0) * np.cos(np.pi / 2 * tt[on] / BLOOM_SETTLE_S) ** 2
+    return g
+
+
+def together(mix: np.ndarray, hit: float, sr: int, *, breath_s: float = 0.35) -> np.ndarray:
+    """A big moment in the music already there (in place): it fades out over 80 ms into a breath of breath_s, and
+    comes back exactly on the hit through a 25 ms equal-power entry, 3 dB over its own level and settling over 2 s.
+    Nothing moves: the music re-enters where it would have been anyway (the films' stress hits and punches)."""
+    hi = int(round(hit * sr))
+    b0 = hi - int(round(breath_s * sr))
+    f0 = b0 - int(round(TOGETHER_FADE_S * sr))
+    if f0 < 0 or hi >= len(mix):
+        return mix
+    mix[f0:b0] *= (np.cos(np.linspace(0, np.pi / 2, b0 - f0)) ** 2)[:, None]
+    mix[b0:hi] = 0.0
+    k = int(round(JOIN_IN["bloom"][1] * sr))
+    mix[hi:hi + k] *= dsp.equal_power(k, True)[: len(mix[hi:hi + k]), None]
+    mix[hi:] *= bloom_lift(len(mix) - hi, hit, hit, sr)[:, None]
+    return mix
+
+
+def steepest_rise_ms(x: np.ndarray, sr: int, hit: float, *, search_s: float = 0.15) -> float | None:
+    """Where the score's steepest 50 ms rise ends, in ms after the hit: its 5 ms level, every millisecond, against the
+    level 50 ms before. A big moment's re-entry ends its rise 20-30 ms after the hit (the films' keystone signature)."""
+    m = audio.mono(np.asarray(x, dtype=np.float64))
+    hop = sr // 1000
+    a, b = int((hit - 0.1) * sr), int((hit + search_s) * sr)
+    if a < 0 or b > len(m):
+        return None
+    p = m[a:b] ** 2
+    k = len(p) // hop
+    if k < 60:
+        return None
+    pw = p[:k * hop].reshape(k, hop).mean(axis=1)
+    env = 10 * np.log10(np.convolve(pw, np.ones(5) / 5, mode="same") + 1e-24)
+    rise = env[50:] - env[:-50]
+    i = int(np.argmax(rise)) + 50
+    return round(i - 100.0, 1)
+
+
+def _level_db(lv: tuple[np.ndarray, np.ndarray], a: float, b: float) -> float | None:
+    xs, db = lv
+    sel = (xs >= a) & (xs < b)
+    return float(np.median(db[sel])) if sel.any() else None
+
+
+def measure_joins(film: Film, plan: dict, mix: np.ndarray, words: list | None = None) -> list[dict]:
+    """Every join between parts on the assembled score (L-sound-062): the level across the beat (the second either
+    side of the join's crossfade), the largest 100 ms step and the deepest dip under the parts either side within a
+    second of it (and how long the level sits more than 3.5 dB, half the limit, under them), and where the loudest
+    250 ms falls against the words. An act change is judged (at most 7 dB, for 0.25 s at most; no 100 ms step over
+    7 dB); a join inside a planned silence is recorded as planned."""
+    sr = film.sr
+    m = audio.mono(np.asarray(mix, dtype=np.float64))
+    p = np.concatenate([[0.0], np.cumsum(m ** 2)])
+    w, hop = int(0.1 * sr), int(0.01 * sr)
+    starts = np.arange(0, max(0, len(m) - w), hop)
+    lv = (starts / sr + 0.05, 10 * np.log10(np.maximum((p[starts + w] - p[starts]) / w, 1e-24)))
+    stops = list(plan.get("planned_stops") or [])
+    out = []
+    for part in plan["parts"][1:]:
+        land = float(part["landing_s"])
+        before, after = _level_db(lv, land - 2.0, land - 1.0), _level_db(lv, land + 1.0, land + 2.0)
+        xs, db = lv
+        win = (xs >= land - 1.0) & (xs < land + 1.0)
+        if before is None or after is None or not win.any():
+            continue
+        floor = min(before, after)
+        low = db[win] < floor - JOIN_UNDER_DB
+        run = best = 0
+        for v in low:
+            run = run + 1 if v else 0
+            best = max(best, run)
+        steps = np.abs(np.diff(db[win][::10])) if win.sum() > 10 else np.zeros(1)  # 100 ms apart
+        w4 = int(0.25 * sr)
+        a0, b0 = max(0, int((land - 1.0) * sr)), min(len(m) - w4, int((land + 2.0) * sr))
+        loud_t = None
+        if b0 > a0:
+            k = np.arange(a0, b0, hop)
+            e = p[k + w4] - p[k]
+            loud_t = round(float(k[int(np.argmax(e))]) / sr + 0.125, 3)
+        word = None
+        if loud_t is not None and words:
+            near = min(words, key=lambda wd: abs(wd[1] - loud_t))
+            word = {"word": near[0], "start": round(near[1], 3), "loudest_after_word_s": round(loud_t - near[1], 3)}
+        planned = any(float(s["from"]) < land + 1.0 and float(s["to"]) > land - 1.0 for s in stops)
+        row = {"part": part["id"], "join": part["join"], "landing_s": round(land, 3),
+               "level_change_db": round(after - before, 1), "largest_step_db": round(float(steps.max()), 1),
+               "dip_db": round(max(0.0, floor - float(db[win].min())), 1), "dip_s": round(best * 0.01, 2),
+               "loudest_250ms_s": loud_t, "against_word": word, "planned": planned}
+        judged = part["join"] == "act" and not planned
+        row["judged"] = judged
+        row["ok"] = (not judged) or (row["dip_db"] <= JOIN_BREATH_DB + 1e-9 and row["dip_s"] <= JOIN_BREATH_S + 1e-9
+                                     and row["largest_step_db"] <= JOIN_STEP_DB + 1e-9)
+        out.append(row)
+    return out
+
+
+def _covers_end(stops: list[dict], film: Film) -> bool:
+    return any(float(s.get("to", 0.0)) >= film.duration_s - film.frame_s for s in stops)
+
+
+def _ending_silence(film: Film, plan: dict) -> float:
+    """Film second the closing silence starts: the earliest planned stop that runs to the end, else the brand's
+    ending rule (a silent last second, always), else the final frame."""
+    stops = [s for s in plan.get("planned_stops") or [] if float(s.get("to", 0.0)) >= film.duration_s - film.frame_s]
+    if stops:
+        return max(0.0, min(float(s["from"]) for s in stops))
+    from slate.sound import balance  # noqa: PLC0415
+
+    ending = balance.ending_stop(film)
+    return float(ending["from"]) if ending else film.duration_s
 
 
 def _hold_if_running_out(c: Choice, seg: np.ndarray, f0: float, f1: float, last: bool, end: float, sr: int,
@@ -342,6 +484,11 @@ def _record(film: Film, plan: dict, chosen: list[Choice], mix: np.ndarray, out_p
                                        attack_s=float(music_cfg.get("attack_s", 0.08)),
                                        release_s=float(music_cfg.get("release_s", 0.65)))
     stops = list(plan.get("planned_stops") or [])
+    from slate.sound import balance  # noqa: PLC0415
+
+    ending = balance.ending_stop(film)
+    if ending and not _covers_end(stops, film):
+        stops.append(ending)  # a plan made before the films' silent-last-second rule: the score keeps it anyway
     gap_res = gap.check(predicted, sr, stops)
     landings = []
     for c in chosen:
@@ -358,6 +505,12 @@ def _record(film: Film, plan: dict, chosen: list[Choice], mix: np.ndarray, out_p
         else:
             landings.append({"part": c.part["id"], "join": c.part["join"], "landing_s": round(land, 3), "onset_s": None,
                              "delta_ms": None, "within_frame": False})
+        if c.part.get("together"):
+            landings[-1].update({"together": True, "steepest_rise_end_ms": steepest_rise_ms(mix, sr, land)})
+    moments = [{**m, "steepest_rise_end_ms": steepest_rise_ms(mix, sr, float(m["t"]))} for m in plan.get("moments") or []]
+    from slate.sound.film import words_for  # noqa: PLC0415
+
+    joins = measure_joins(film, {**plan, "planned_stops": stops}, mix, words_for(film) if cues else None)
     parts = {}
     for c in chosen:
         parts[c.part["id"]] = {
@@ -368,10 +521,12 @@ def _record(film: Film, plan: dict, chosen: list[Choice], mix: np.ndarray, out_p
             "fade_out": [round(x, 3) for x in c.win_out], "gain_db": c.gain_db,
             "qa": {"problems": c.qa["problems"], "score": c.qa["score"]}, "fit_penalty": c.penalty, "checks": c.checks,
             "repairs": c.repairs, "drift_since_composed": _drift(film, c.path, c.part), "alternatives": c.alternatives}
-    ok = gap_res["pass"] and not whole_qa["problems"] and all(l["within_frame"] for l in landings)
+    ok = gap_res["pass"] and not whole_qa["problems"] and all(l["within_frame"] for l in landings) and \
+        all(j["ok"] for j in joins)
     return {"kind": "assembly", "film": film.id, "file": film.rel(out_path), "sample_rate": sr, "samples": len(mix),
             "seconds": round(len(mix) / sr, 6), "model_id": plan.get("model_id"), "parts": parts,
-            "planned_stops": stops, "landings": landings, "assembled_qa": whole_qa,
+            "planned_stops": stops, "landings": landings, "joins": joins, "moments": moments,
+            "assembled_qa": whole_qa,
             "music_gap_check": {**{k: v for k, v in gap_res.items() if k != "windows"}, "predicted_for_music_stem": True,
                                 "predicted_mix_gain_db": round(gain_db, 2), "gain_from": gain_why},
             "licence": plan.get("licence"), "made_at": gates.now_iso(), "pass": ok,
@@ -392,5 +547,16 @@ def describe(record: dict) -> str:
     lines.append(f"take QA on the whole score: {'clean' if not q['problems'] else q['problems']}")
     for l in record["landings"]:
         lines.append(f"landing {l['part']} ({l['join']}) at {l['landing_s']} s: onset {l['onset_s']} "
-                     f"({l['delta_ms']} ms){'' if l['within_frame'] else '  NOT within a frame'}")
+                     f"({l['delta_ms']} ms){'' if l['within_frame'] else '  NOT within a frame'}"
+                     + (f"; together: its rise ends {l['steepest_rise_end_ms']} ms after the hit"
+                        if l.get("together") else ""))
+    for m in record.get("moments") or []:
+        lines.append(f"big moment at {m['t']} s ({m['why']}): breath {m['breath_s']:g} s, rise ends "
+                     f"{m['steepest_rise_end_ms']} ms after the hit")
+    for j in record.get("joins") or []:
+        verdict = "planned silence" if j["planned"] else ("ok" if j["ok"] else
+                                                          f"PAST THE LIMIT (an act change breathes at most "
+                                                          f"{JOIN_BREATH_DB:g} dB for {JOIN_BREATH_S:g} s)")
+        lines.append(f"join into {j['part']} ({j['join']}) at {j['landing_s']} s: {j['level_change_db']:+.1f} dB across "
+                     f"it, step {j['largest_step_db']} dB, dip {j['dip_db']} dB for {j['dip_s']} s: {verdict}")
     return "\n".join(lines)

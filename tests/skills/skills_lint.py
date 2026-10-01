@@ -331,3 +331,68 @@ def contract_problems(cites: list[Citation], contract: dict[str, frozenset[str] 
             problems.append(f"{c.path}:{c.line}: `{c.text}`: §4 promises `slate {c.command} "
                             f"{'|'.join(sorted(allowed))}`, not `{c.stage}`")
     return problems
+
+
+# ------------------------------------------------------------------------------------------------ the live CLI
+
+def _subparsers(parser) -> dict:
+    import argparse  # noqa: PLC0415
+
+    for action in parser._actions:  # noqa: SLF001 - argparse keeps its tree here
+        if isinstance(action, argparse._SubParsersAction):  # noqa: SLF001
+            return dict(action.choices)
+    return {}
+
+
+def _step_choices(parser) -> tuple[str, ...] | None:
+    """The choices of a command's first positional when its steps are positional choices (`slate voice tags pick`);
+    None when it takes free names (`slate qa [gate ...]`) or has no positional."""
+    import argparse  # noqa: PLC0415
+
+    for action in parser._actions:  # noqa: SLF001
+        if action.option_strings or isinstance(action, argparse._SubParsersAction):  # noqa: SLF001
+            continue
+        return tuple(action.choices) if action.choices is not None else None
+    return None
+
+
+def live_problems(cites: list[Citation]) -> list[str]:
+    """Every cited step and flag, held to the live CLI: the command's own parser (sub-routed ones included, as
+    `slate qa stability`) must offer the step a citation names after it and every `--flag` it passes. Commands whose
+    module isn't built here are left to `test_every_cited_command_is_in_section_4`."""
+    from slate import cli  # noqa: PLC0415
+
+    root = cli.build_parser()
+    top = _subparsers(root)
+    problems = []
+    for c in cites:
+        tokens = c.text.split()
+        for stop in ("|", ">", "2>&1"):
+            if stop in tokens:
+                tokens = tokens[:tokens.index(stop)]
+        tokens = tokens[1:]
+        i = 0
+        while i < len(tokens) and tokens[i].startswith("-"):
+            i += 2 if tokens[i] in GLOBAL_VALUE_FLAGS else 1
+        tokens = tokens[i:]
+        if not tokens or tokens[0] not in top:
+            continue
+        routed = cli._subroute(tokens[:2]) if len(tokens) >= 2 else None  # noqa: SLF001 - the CLI's own routing
+        if routed is not None:
+            parser, used = _subparsers(routed[0])[tokens[1]], 2
+        else:
+            parser, used = top[tokens[0]], 1
+            while used < len(tokens) and tokens[used] in _subparsers(parser):
+                parser = _subparsers(parser)[tokens[used]]
+                used += 1
+        rest = tokens[used:]
+        steps = _step_choices(parser)
+        if steps is not None and rest and BARE.match(rest[0]) and rest[0] not in steps:
+            problems.append(f"{c.path}:{c.line}: `{c.text}`: `slate {' '.join(tokens[:used])}` has no step "
+                            f"`{rest[0]}` (it offers {', '.join(sorted(steps))})")
+        known = set(parser._option_string_actions)  # noqa: SLF001
+        for token in rest:
+            flag = token.split("=", 1)[0].rstrip(",.;:)")
+            if flag.startswith("--") and flag != "--" and flag not in known:
+                problems.append(f"{c.path}:{c.line}: `{c.text}`: `slate {' '.join(tokens[:used])}` has no {flag}")
+    return problems

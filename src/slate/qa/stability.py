@@ -320,6 +320,18 @@ def _tile_d(a: np.ndarray, b: np.ndarray, tx: int, ty: int, tile: int) -> float:
     return float(np.abs(a - b)[ty * tile:(ty + 1) * tile, tx * tile:(tx + 1) * tile].mean())
 
 
+def between_share(a: np.ndarray, b: np.ndarray, c: np.ndarray, tx: int, ty: int, tile: int, eps: float = 1.0) -> float:
+    """Of the tile's pixels that change around frame n (by more than `eps` levels), the share where n lies between its
+    neighbours (within eps): high for a fade or smooth motion, low for a flash, where n is outside them both."""
+    sl = (slice(ty * tile, (ty + 1) * tile), slice(tx * tile, (tx + 1) * tile))
+    pa, pb, pc = a[sl], b[sl], c[sl]
+    changed = (np.abs(pb - pa) > eps) | (np.abs(pc - pb) > eps)
+    if not changed.any():
+        return 1.0
+    inside = (pb >= np.minimum(pa, pc) - eps) & (pb <= np.maximum(pa, pc) + eps)
+    return float(inside[changed].mean())
+
+
 def categorize_glitches(frames: dict[int, np.ndarray], flags: list[dict], *, tile: int = glitchmod.TILE,
                         radius: int = SEARCH_PX) -> list[dict]:
     """The glitch scan's flags, each with a category: motion, fade, odd or look. `frames` holds the small grey frames
@@ -350,7 +362,8 @@ def categorize_glitches(frames: dict[int, np.ndarray], flags: list[dict], *, til
         else:
             cat = "look"
         out.append({**g, "category": cat, "ratio": round(ratio, 2), "shift_prev": list(sp), "shift_next": list(sn),
-                    "explained_prev": round(red_p, 2), "explained_next": round(red_n, 2)})
+                    "explained_prev": round(red_p, 2), "explained_next": round(red_n, 2),
+                    "between": round(between_share(a, b, c, tx, ty, tile), 2)})
     return out
 
 
@@ -1002,6 +1015,48 @@ def accept_baseline(film_dir: Path, act: int, *, by: str | None, reason: str | N
     jsonio.write_atomic(film_dir / baseline_rel(act), data)
     return {**record, "act": act, "baseline": baseline_rel(act), "total": len(rows),
             "reversals_left_out": len(hard_left)}
+
+
+def drop_from_baseline(film_dir: Path, act: int, frames: tuple[int, int], *, classes: Iterable[str] = (),
+                       by: str | None, reason: str | None, mode: str = "supervised") -> dict:
+    """Take accepted flags back out of an act's baseline: those in a range of film frames (and of some classes). The
+    films did this before re-rendering a fix (B4's 664 snap, its dashes' re-spacing), so the new render proves the fix
+    instead of the baseline hiding the fault. Needs the person's name and reason, like accepting."""
+    film_dir = Path(film_dir)
+    if not (by or "").strip() or not (reason or "").strip():
+        raise UsageError("Taking flags out of a baseline needs the person's name and their reason: --by NAME "
+                         "--reason TEXT.")
+    if mode == "autonomous" and procs.agent_context():
+        raise Refused("This film is autonomous, so its baseline is a person's to change.",
+                      hint="Change it from your own Terminal.")
+    data = load_baseline(film_dir, act)
+    rows = list(data.get("flags") or [])
+    if not rows:
+        raise UsageError(f"Act {act} has no baseline yet, so there's nothing to take out.")
+    rep = jsonio.read(film_dir / report_rel(act), default=None) or {}
+    if rep.get("first_film_frame") is None:
+        raise UsageError(f"There's no stability report for act {act}, so its film frames can't be placed.",
+                         hint=f"Run `slate qa stability --act {act}` first.")
+    first = int(rep["first_film_frame"])
+    lo, hi = sorted((int(frames[0]), int(frames[1])))
+    wanted = {str(c) for c in classes}
+    keep, dropped = [], []
+    for r in rows:
+        try:
+            film_frame = first + int(r[1])
+        except (TypeError, ValueError, IndexError):
+            keep.append(r)
+            continue
+        if lo <= film_frame <= hi and (not wanted or r[0] in wanted):
+            dropped.append(r)
+        else:
+            keep.append(r)
+    record = {"by": by.strip(), "reason": reason.strip(), "at": gates.now_iso(), "frames": [lo, hi],
+              "classes": sorted(wanted), "dropped": len(dropped), "agent": procs.agent_context()}
+    data["flags"] = keep
+    data.setdefault("dropped", []).append({**record, "flags": dropped})
+    jsonio.write_atomic(film_dir / baseline_rel(act), data)
+    return {**record, "act": act, "baseline": baseline_rel(act), "total": len(keep)}
 
 
 # ---------------------------------------------------------------------------------------------------- references
@@ -1876,6 +1931,9 @@ DESCRIPTION = """Render stability on every act's render, triaged so what's left 
     slate qa stability --quick | --detach                reuse the scans already made | queue the scan as a job
     slate qa stability baseline --act 3 --by NAME --reason TEXT
                                                          accept act 3's open flags (never a reversal)
+    slate qa stability baseline --act 3 --drop F[-F] [--drop-class C] --by NAME --reason TEXT
+                                                         take accepted flags at those film frames back out, before
+                                                         re-rendering a fix
     slate qa stability reference --act 3 RENDER          compare act 3 with this render
     slate qa stability strip --act 3 --frame F [--box x,y,w,h] [--count 7] [--zoom Z] [--out PNG]
                                                          before/after strips for eyes
@@ -1889,7 +1947,12 @@ DESCRIPTION = """Render stability on every act's render, triaged so what's left 
 
 Flags within ±3 frames of a planned beat (pops only), shared with a reference render (same class, within 2 frames
 and one tile) or in the act's baseline don't count. A whole-pixel reversal always fails. Strips for the open flags
-are written to qa/stability/strips/."""
+are written to qa/stability/strips/.
+
+Before calling a flag a glitch, check it against a perfect render of the designed motion (set it as the act's
+reference): a flag that render shares is the design's (the films' B4 "step" was a button's designed 3% press). Before
+re-rendering a fix, take the fault's flags out of the baseline (`baseline --act N --drop FRAMES --by NAME --reason
+TEXT`), so the new render proves the fix instead of the baseline hiding it."""
 
 
 def register(sub) -> None:
@@ -1904,6 +1967,11 @@ def register(sub) -> None:
     p.add_argument("--act", type=int, action="append", help="the act (repeat for more)")
     p.add_argument("--by", metavar="NAME", help="the person accepting or setting")
     p.add_argument("--reason", metavar="TEXT", help="why the flags are acceptable (baseline), or why this reference")
+    p.add_argument("--drop", metavar="FRAME[-FRAME]",
+                   help="baseline: take accepted flags at these film frames back out (before re-rendering a fix, so "
+                        "the new render proves it)")
+    p.add_argument("--drop-class", dest="drop_class", action="append", metavar="CLASS",
+                   help="baseline --drop: only flags of this class (repeat for more)")
     p.add_argument("--frame", type=int, help="strip: the film frame to centre on")
     p.add_argument("--count", type=int, default=7, help="strip: frames in the strip (default 7)")
     p.add_argument("--box", help="strip: the crop, x,y,w,h in pixels (default: around the worst flag at the frame)")
@@ -2015,6 +2083,20 @@ def _baseline(args: argparse.Namespace) -> int:
     film_dir = _film_dir(args)
     act = _one_act(args)
     mode = (jsonio.read(film_dir / "film.json", default={}) or {}).get("mode", "supervised")
+    if getattr(args, "drop", None):
+        text = str(args.drop)
+        try:
+            lo, _, hi = text.partition("-")
+            frames = (int(lo), int(hi or lo))
+        except ValueError as exc:
+            raise UsageError(f"--drop takes film frames, one (1077) or a range (1070-1090), not {text!r}.") from exc
+        rec = drop_from_baseline(film_dir, act, frames, classes=args.drop_class or (), by=args.by,
+                                 reason=args.reason, mode=mode)
+        human = (f"act {act}: {rec['dropped']} accepted flag(s) at film frames {rec['frames'][0]}–{rec['frames'][1]} "
+                 f"taken out of {rec['baseline']} by {rec['by']} ({rec['total']} left). Re-render the fix: the scan "
+                 f"now judges those frames again.\nnext: slate render --act {act}, then slate qa {GATE}")
+        log.result({"baseline": rec}, human)
+        return 0
     rec = accept_baseline(film_dir, act, by=args.by, reason=args.reason, mode=mode)
     human = (f"act {act}: {rec['added']} flag(s) accepted into {rec['baseline']} by {rec['by']} ({rec['total']} in all)"
              + (f"; {rec['reversals_left_out']} reversal(s) left out: they're always fixed" if rec["reversals_left_out"]

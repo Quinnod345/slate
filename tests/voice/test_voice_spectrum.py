@@ -117,3 +117,62 @@ def test_the_spectrogram_puts_each_tone_on_its_row_and_its_time_on_its_column():
         assert abs(py - (1 - f / 8000) * h) <= 0.02 * h  # the picture's row too
         quiet = int(round(((a - 0.25) * SR - nper / 2) / hop))  # before the tone starts: nothing at its row
         assert s[int(np.argmax(s[:, col])), quiet] < s[:, col].max() - 40
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Every label is drawn in glyphs the font has (GAPS-FINAL A6.1), and a take given by its path keeps its shot (A6.2)
+
+
+def test_every_label_on_the_charts_is_drawn_in_glyphs_its_font_has(tmp_path, monkeypatch):
+    """Pillow's built-in font has no minus sign or en dash: "−20 LUFS" and "2–5 kHz edge" drew as boxes. Every string
+    any voice chart draws now holds only characters its font has, with the plain text standing in ("-20 LUFS")."""
+    from PIL import ImageDraw
+
+    drawn: list[tuple[str, object]] = []
+    real = ImageDraw.ImageDraw.text
+
+    def record(self, xy, text, fill=None, font=None, *args, **kwargs):
+        drawn.append((str(text), font or self.getfont()))
+        return real(self, xy, text, fill, font, *args, **kwargs)
+
+    monkeypatch.setattr(ImageDraw.ImageDraw, "text", record)
+    curve = {f: -20.0 - i for i, f in enumerate(spectrum.THIRDS) if 100 <= f <= 16000}
+    spectrum.chart([("D03 t01 (raw) · −3 dB", "#202020", curve)], tmp_path / "c.png",
+                   title="Where the harshness lives: A against B …")
+    wav = tmp_path / "take.wav"
+    words = write_rich(wav, TEXT, seed=3)
+    sheet.ab_sheet([{"label": "A · D03 t01 (raw)", "path": wav, "measures": {}, "words": words},
+                    {"label": "B · D03 t01 (polished) → −1 dB", "path": wav, "measures": {}, "words": words}],
+                   tmp_path / "s.png", title="A/B: one against another against a third …",
+                   headline="2–5 kHz edge ≥ 3 dB under — not over")
+    text = " | ".join(s for s, _ in drawn)
+    assert "-20 LUFS" in text and "500 Hz-1 kHz" in text and "2-5 kHz edge" in text and "5-9 kHz sibilance" in text
+    assert "->" in text and ">=" in text and "−" not in text and "–" not in text
+    for s, fnt in drawn:
+        missing = [ch for ch in s if not sheet.has_glyph(fnt, ch)]
+        assert not missing, (s, missing)
+
+
+def test_drawable_keeps_what_the_font_has_and_spells_out_the_rest():
+    f = sheet.F_SMALL
+    assert sheet.drawable("Plans take minutes.", f) == "Plans take minutes."
+    assert sheet.drawable("−20 LUFS, 500 Hz–1 kHz", f) == "-20 LUFS, 500 Hz-1 kHz"
+    assert sheet.drawable("café ≤ 3", f) == "cafe <= 3"
+    assert not sheet.has_glyph(f, "") and sheet.has_glyph(f, "A")
+
+
+def test_a_take_given_by_its_path_is_labelled_with_its_shot(tmp_path):
+    takes = tmp_path / "film" / "voice" / "takes" / "D03"
+    takes.mkdir(parents=True)
+    raw, polished = takes / "t01.wav", takes / "t01.polished.wav"
+    write_rich(raw, TEXT, seed=4)
+    write_rich(polished, TEXT, seed=4)
+    t = analyze.resolve_target(str(raw))
+    assert t["label"] == "D03 t01 (raw)" and (t["shot"], t["take"]) == ("D03", "t01")
+    assert analyze.resolve_target(str(polished))["label"] == "D03 t01 (polished)"
+    other = tmp_path / "loose.wav"
+    write_rich(other, TEXT, seed=4)
+    assert analyze.resolve_target(str(other))["label"] == "loose"  # not a film's take: its file name, as before
+    res = analyze.run([str(polished)], ab_ref=str(raw), sheet=True, text=TEXT, out=tmp_path / "ab")
+    assert res["reference"] == "D03 t01 (raw)"
+    assert [t["label"] for t in res["takes"]] == ["D03 t01 (raw)", "D03 t01 (polished)"]

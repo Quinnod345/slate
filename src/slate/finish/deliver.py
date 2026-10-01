@@ -13,8 +13,12 @@
     ae/           the editable After Effects project, when After Effects finished the film
     validation/   every gate's latest result
     script/       the script
+    README.md     written from the set's own records, never by hand: the files, every standing gate's verdict, the
+                  balance against the voice (sound/balance_check.json, from `slate verify`) and what changed since the
+                  last version (slate.finish.readme)
     manifest.json written last: every file's size, sha256 and what ffprobe reads; anything expected but missing;
-                  the gates; and, internal only, which voices, shots and music are synthetic
+                  the gates; the snapshot of the code and data behind it; and, internal only, which voices, shots and
+                  music are synthetic
 
 Rules:
 
@@ -29,6 +33,9 @@ Rules:
 - **A delivered version is never overwritten.** The set is built in a staging folder and moved into place only when
   complete; a folder that exists is refused, and delivered files are made read-only. When the film's content has
   moved on since vN was delivered or reviewed, the delivery starts the next version.
+- **The code and data behind every delivery are kept** (slate.finish.snapshot): the film folder's small files are
+  committed before the set is made, the commit is tagged `deliver/vN` (`draft/vN.K` for a draft), and the manifest
+  records both, so a later before-and-after comparison is one `git diff` away. No git never blocks a delivery.
 """
 
 from __future__ import annotations
@@ -40,7 +47,7 @@ from pathlib import Path
 
 from slate import gates, jsonio, log, procs
 from slate.errors import MissingPrerequisite, Refused, SlateError, UsageError
-from slate.finish import checks, cuts, deps, media, synthetic, versions
+from slate.finish import checks, cuts, deps, media, readme, snapshot, synthetic, versions
 from slate.finish.film import Film
 
 COMMAND = "slate deliver"
@@ -51,6 +58,8 @@ RULE = ("Every file here is not approved for publishing until the owner approves
 DRAFT_APPROVE = ("Nothing in a draft is ever approved for publishing: deliver the film as final (slate deliver), then "
                  "the owner approves a file from deliver/vN/.")
 MASTER_LABELS = {"prores_422_hq": "master, ProRes 422 HQ", "h264": "master, H.264"}
+BALANCE_REPORT = "sound/mix/balance_check.json"  # what `slate verify` measured the mix's balance against the voice
+BALANCE_IN_SET = "sound/balance_check.json"
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -170,6 +179,10 @@ def _copy_items(film: Film, rec: dict, masters: list[dict]) -> tuple[list[dict],
                           "dest": f"ae/{aep.name}"})
         else:
             missing.append({"what": "After Effects project", "expected": "ae/<film>.aep (slate master --ae --go)"})
+    balance = film.path(BALANCE_REPORT)
+    if balance.is_file():
+        items.append({"what": "the balance against the voice (slate verify)", "kind": "balance_report", "src": balance,
+                      "dest": BALANCE_IN_SET})
     report = film.path("qa/gates.json")
     if report.is_file():
         items.append({"what": "validation: every gate's latest result", "kind": "validation", "src": report,
@@ -321,6 +334,9 @@ def deliver(film_dir: Path, *, final: bool = True) -> dict:
         fp = film.fingerprint()
         ver = {"version": n, "started": False}
     items, missing = _copy_items(film, rec, ms)
+    # the code and data this delivery is made from, committed before anything is staged (the tag comes once it's made)
+    snap = snapshot.commit(film, f"Deliver v{n}" if final else f"Draft v{n}.{draft_no}")
+    tag_name = f"deliver/v{n}" if final else f"draft/v{n}.{draft_no}"
     staging = target.parent / f".staging-{target.name}-{os.getpid()}"
     if staging.exists():
         shutil.rmtree(staging)
@@ -351,6 +367,8 @@ def deliver(film_dir: Path, *, final: bool = True) -> dict:
         entries += _platform_files(film, staging, n, src, master_rel, final=final, missing=missing,
                                    skip=bool(b.get("platform")))
         folder_rel = film.rel(target)
+        snap = snapshot.tag(film, snap, tag_name, f"{film.title} v{n}" + (" (draft)" if not final else "")
+                            + f", delivered {gates.now_iso()[:16]}")
         post = next((e["file"] for e in entries if e["kind"] == "master:h264"), entries[0]["file"])
         manifest = {
             "generated": f"do not edit by hand: {COMMAND}",
@@ -379,9 +397,18 @@ def deliver(film_dir: Path, *, final: bool = True) -> dict:
             "files": entries,
             "missing": missing,
             "replayed": b["replayed"],
+            "snapshot": {k: snap.get(k) for k in ("repo", "commit", "tag", "committed", "why", "tag_error")
+                         if k in snap},
             "internal": {"note": synthetic.NOTE, "synthetic_media": synthetic.record(film),
                          "labels": synthetic.labels(film)},
         }
+        # the README, from the set's own records (the manifest above, the gates, the balance report, the packet)
+        bal_path = staging / BALANCE_IN_SET
+        balance = jsonio.read(bal_path, default=None) if bal_path.is_file() else None
+        rd = readme.write(staging, film, manifest, balance=balance if isinstance(balance, dict) else None,
+                          balance_source=BALANCE_IN_SET if bal_path.is_file() else None)
+        manifest["files"].append(_entry(staging, rd, what="README, written from the set's own records",
+                                        kind="readme", source="slate.finish.readme"))
         problems = jsonio.validate(manifest, "manifest")
         if problems:
             raise UsageError("The manifest doesn't match its schema:\n  " + "\n  ".join(problems[:10]))
@@ -400,10 +427,11 @@ def deliver(film_dir: Path, *, final: bool = True) -> dict:
                      inputs=[m["file"] for m in rec.get("masters") or []])
     return {"status": "delivered", "film": film.id, "version": n, "final": bool(final),
             "started_version": bool(ver.get("started")), "folder": folder_rel,
-            "manifest": f"{folder_rel}/manifest.json", "files": len(entries),
-            "bytes": sum(e["bytes"] for e in entries), "missing": missing,
+            "manifest": f"{folder_rel}/manifest.json", "files": len(manifest["files"]),
+            "bytes": sum(e["bytes"] for e in manifest["files"]), "missing": missing,
             "why_not_final": manifest["why_not_final"], "publishing": PUBLISHING,
-            "approve": manifest["publishing"]["approve"]}
+            "approve": manifest["publishing"]["approve"], "readme": f"{folder_rel}/{readme.README}",
+            "snapshot": manifest["snapshot"]}
 
 
 def run(film_dir: Path, *, final: bool = True) -> Path:
@@ -440,6 +468,12 @@ def describe(out: dict) -> str:
         return out["message"]
     lines = [f"Delivered {out['film']} v{out['version']}" + ("" if out["final"] else " as a draft (never final)")
              + f" to {out['folder']}: {out['files']} files, {out['bytes'] / 1e6:.1f} MB, manifest written last."]
+    snap = out.get("snapshot") or {}
+    if snap.get("commit"):
+        lines.append(f"The code and data behind it: commit {snap['commit'][:12]}"
+                     + (f", tagged {snap['tag']}" if snap.get("tag") else "") + ".")
+    elif snap.get("why"):
+        lines.append(f"No snapshot of the code and data behind it: {snap['why']}.")
     if out["final"]:
         lines += [f"Every file is {PUBLISHING} until the owner approves that exact file:", f"  {out['approve']}"]
     else:

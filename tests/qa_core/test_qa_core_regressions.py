@@ -139,6 +139,10 @@ def _banned_film(film_builder, brand_store, words):
          "picture": "a forbidden sign on the wall", "notes": "forbidden in a note is only a note"}]}]})
     fb.captions([{"text": "Nothing forbidden here, surely.", "lines": ["Nothing forbidden here, surely."],
                   "start": 0.1, "end": 0.9}])
+    # what Whisper heard in the take (the banned-words gate checks the voice too)
+    write_json(fb.path / "timing" / "vo_words.json", {"shots": {"S01": {
+        "take": "voice/S01.wav", "line": "Nothing forbidden here, surely.", "heard": "Nothing here, surely.",
+        "words": [{"w": "Nothing", "start": 0.1, "end": 0.3}]}}})
     frames = paint_codes(moving_square(30, fb.size), [(0, 30, 1)])
     fb.render(1, frames)
     return fb

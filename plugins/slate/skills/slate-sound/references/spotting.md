@@ -14,6 +14,8 @@ visible cause, and it follows the picture's own eases, so sound moves the way th
 Every sound's attack sits on its beat's frame (for air and swells, the peak), within one frame. Sound never comes before
 the picture.
 
+**A repeating state sounds once.** A thinking loop or a pulse sounds on its first cycle only; later cycles are silent.
+
 **Tell the sound exactly what each beat is.** Each kind of interaction has its own family of sounds with several
 variations, and that only works when every beat names its kind (and its size). A beat with a loose or wrong kind gets the
 wrong sound; an unknown kind is reported, never guessed.
@@ -52,6 +54,14 @@ wrong sound; an unknown kind is reported, never guessed.
 Plan silence as deliberately as sound: a silent opening second, a held breath before a hero moment, half a second before
 a reveal, and the ending on the last frame. Planned stops are written down (score.md), so the gap check knows they're on
 purpose.
+
+## Carrying an approved proof onto the real picture
+
+A proof spotted on the storyboard moves onto the real picture cue by cue:
+- move every cue to the beat the picture really has, and remove cues for beats it doesn't have;
+- re-voice tonal roles on the sampled instruments;
+- trim a file that opens on silence, so its hit lands with the others;
+- tie every change to one of the owner's own words about the proof.
 
 ## A spotting sheet
 

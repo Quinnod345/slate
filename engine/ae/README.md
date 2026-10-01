@@ -27,7 +27,9 @@ or a film: sizes, frame rates, colours, fonts, eases and logos all come from the
    person turns on; Slate reads that setting and never changes it. A version is used for scenes only after
    `slate ae bridge acceptance --go` passes on it. Where the bridge isn't ready, Slate's own library builds scenes.
    The looks are referenced by name and fetched from the bridge when used (its skill corpus has no redistribution
-   grant, so Slate never copies it).
+   grant, so Slate never copies it). Every way Slate starts or registers the bridge keeps its arbitrary ExtendScript
+   eval off (`AE_MCP_ENABLE_EVAL=0`) and limits its operations to the categories Slate's scenes use
+   (`AE_MCP_ALLOW_CATEGORIES`, `slate.ae.bridge.POLICY_ENV`); the environment can't loosen either.
 
 Both routes share one lock: Slate's `ae` resource lock (the job queue's) plus the bridge's own `dispatcher-busy.lock`
 protocol, so AE never gets a second script while one runs (that raises a modal that blocks all scripting).
@@ -63,6 +65,16 @@ act. Its beats mean what every engine's mean: `t` is the beat, a draw or a count
 the animation's first key to its last) and ends on `t`, a whoosh or a swell peaks inside its span. A move can say which
 speed limits `slate qa motion` holds it to (`class`: rig, ui, carry or whip; a rig part is rig unasked) and declare an
 exemption (`exempt` with a `reason`).
+
+An act starts in AE from the brand's look: `slate engine scaffold --act N` reads brand.json `look.engine`, and for an
+AE look writes a starter scene in the brand's own names (its first on-screen line on the brand's page, rising in on its
+first shot), resolved against the film's timing before it's kept, so it never starts broken. The build spec warns
+about every act of an AE-look brand that has neither its AE scene nor a code render. A shot can't move into or out of
+an AE act (aerender renders whole comps): see the per-shot engine rules in `../README.md`.
+
+**Masters and the rest of the Mac.** `[ae] masters_cpu_percent` in slate.toml (a whole percent, 1 to 100) renders the
+masters chunks with aerender's Multi-Frame Rendering capped at that share of the CPU (`-mfr ON <percent>`), so the Mac
+stays usable while they render (L-ae-056). Unset, aerender runs as it always has.
 
 ## Dialogs
 

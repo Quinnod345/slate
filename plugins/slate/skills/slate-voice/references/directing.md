@@ -16,7 +16,8 @@ SSML.
   carries the neighbours' **plain words**, with tags stripped: a tag belongs to the line it directs. (Tagged context was
   tested: harmless, and no better.)
 - Request ids of neighbouring takes can stitch generations more tightly than text, within a couple of hours; the voice
-  stage handles it.
+  stage handles it. It sends up to three a side, only from takes voiced live in the last two hours (never a replay, a
+  comp or a swap), and records what it sent on each take as `stitch`.
 - Context can leak: the next line's first sound sometimes appears at the end of a take (takes-and-revoicing.md).
 
 ## Timing comes from the text

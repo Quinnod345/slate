@@ -353,11 +353,18 @@ def aftereffects(env: Env, *, go: bool = False, brand: str | None = None, dry_ru
     need_install = not st.get("installed") or not st.get("pin_ok")
     need_register = "claude-code" not in regs and bool(env.which("claude"))
     result: dict = {"service": "aftereffects", "go": person_go, "steps": steps, "fonts": font_rows or None}
+    # the bridge's one policy, as every registration has it (L-ae-025, L-packaging-D004)
+    from slate.ae import bridge as bridge_mod  # noqa: PLC0415
+
+    policy = [x for k, v in bridge_mod.POLICY_ENV.items() for x in ("-e", f"{k}={v}")]
     if dry_run:
         if need_install:
-            _step(steps, "install the AE bridge", "would", f"npm install --global fnf-after-effects-mcp@{pin}")
+            _step(steps, "install the AE bridge", "would",
+                  f"npm install --global --ignore-scripts fnf-after-effects-mcp@{pin}")
         if need_register:
-            _step(steps, "register the AE bridge", "would", "claude mcp add --scope user higgsfield-use-after-effects …")
+            _step(steps, "register the AE bridge", "would",
+                  f"claude mcp add --scope user {ae_mod.BRIDGE_SERVER} {' '.join(policy)} -- node …/dist/index.js "
+                  "(arbitrary eval off, its operations limited to the categories Slate's scenes use)")
         _step(steps, "1-second smoke test", "would", "build, render and measure one second in After Effects")
         result["dry_run"] = True
         return 0, result, _ae_text(steps, "Dry run: nothing was installed, and After Effects wasn't started.")
@@ -378,8 +385,8 @@ def aftereffects(env: Env, *, go: bool = False, brand: str | None = None, dry_ru
     if need_register:
         pkg = Path(st.get("where") or "/opt/homebrew/lib/node_modules/fnf-after-effects-mcp")
         node = env.which("node") or "node"
-        argv = [env.which("claude") or "claude", "mcp", "add", "--scope", "user", ae_mod.BRIDGE_SERVER, "--", node,
-                str(pkg / "dist" / "index.js")]
+        argv = [env.which("claude") or "claude", "mcp", "add", "--scope", "user", ae_mod.BRIDGE_SERVER, *policy, "--",
+                node, str(pkg / "dist" / "index.js")]
         if person_go and st.get("installed"):
             ran = env.run(argv, timeout=60, cache=False)
             if ran.ok:

@@ -29,6 +29,20 @@ from typing import Any
 from slate import clock as clock_mod
 from slate import jsonio, log
 from slate.errors import MissingPrerequisite, Refused, SpendRefused, UsageError
+
+
+def _judged_mode(film_dir: Path, data: dict) -> str:
+    """The mode the film is judged in: Slate's own record (slate.state.autonomy.film_mode) holds a film made
+    autonomous autonomous, whatever its film.json says now. film.json's own mode without the state module."""
+    own = str((data or {}).get("mode") or "supervised")
+    try:
+        from slate.state import autonomy  # noqa: PLC0415 - the voice stage works without film state installed
+    except ImportError:
+        return own
+    try:
+        return autonomy.film_mode(film_dir, data)
+    except Exception:  # noqa: BLE001 - an unreadable record never makes a film less strict than its film.json
+        return own
 from slate.voice import profile as profile_mod
 from slate.voice import tags as tags_mod
 
@@ -201,7 +215,7 @@ class VoiceFilm:
             raise UsageError(f"{self.dir} isn't a film folder (no film.json).")
         self.data = load_film(self.dir)
         self.id = str(self.data.get("id") or self.dir.name)
-        self.mode = str(self.data.get("mode") or "supervised")
+        self.mode = _judged_mode(self.dir, self.data)
         self.language = str(self.data.get("language") or "en")
 
     # -- paths --------------------------------------------------------------------------------------------------

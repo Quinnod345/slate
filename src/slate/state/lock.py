@@ -18,7 +18,8 @@ and make can place it), the tool version, the SHA-256 of every input and of the 
   is copied. `resolve` finds the real file.
 
 Inputs are film-relative or absolute paths, or named inputs that aren't film files: `brand:<name>` (the brand pack's
-brand.json), `film:<dotted.key>` (one film.json value, e.g. film:targets.runtime_s, so a new pin doesn't make
+brand.json; `brand:<name>#<dotted.key>` is one block of it, e.g. brand:demo#sound for the sound palette),
+`film:<dotted.key>` (one film.json value, e.g. film:targets.runtime_s, so a new pin doesn't make
 everything made from the film's targets stale), `film:*` (all of film.json except its bookkeeping: pins, the pin log,
 versions, budgets, model overrides, stamps) and `format:<name>`. Any other `scheme:name` keeps the producer's own
 marker and is reported as not checkable here, never guessed fresh or stale.
@@ -151,12 +152,26 @@ def _named_input(film_dir: Path, key: str) -> tuple[bool, str | None]:
     from slate.state import deps  # noqa: PLC0415
 
     if scheme == "brand":
+        # brand:<name> is the whole brand.json; brand:<name>#<dotted.key> is one block of it (brand:demo#sound is the
+        # sound palette), so a change elsewhere in the pack doesn't make what was made from that block stale. A block
+        # the pack doesn't have hashes as an empty value, so adding one later is a change too.
+        name, _sep, block = name.partition("#")
         try:
             pack_dir = deps.brand_find(name)
         except SlateError:
             return True, None
         path = Path(pack_dir) / "brand.json"
-        return True, (jsonio.sha256(path) if path.is_file() else None)
+        if not path.is_file():
+            return True, None
+        if not block:
+            return True, jsonio.sha256(path)
+        try:
+            node: Any = jsonio.read(path)
+        except SlateError:
+            return True, None
+        for part in block.split("."):
+            node = node.get(part) if isinstance(node, dict) else None
+        return True, jsonio.sha256_obj(node)
     if scheme == "film":
         data = jsonio.read(Path(film_dir) / "film.json", default=None)
         if name == "*":
@@ -250,6 +265,29 @@ def record(film_dir: Path, rel_path: str, *, producer: str, inputs: Any, tool_ve
         }
         data["files"][rel] = new
         return new
+
+    return _edit(film_dir, change)
+
+
+def add_inputs(film_dir: Path, rel_path: str, inputs: Any) -> dict[str, str | None]:
+    """Add inputs a file's own producer didn't record (hashed now) to its existing entry, keeping its hash, maker and
+    stamp. Inputs it already has keep their recorded hashes. Returns the inputs added (nothing when it has no entry).
+
+    `slate make` uses this for the inputs it declares for a step beyond what the step records itself (the mix's brand
+    sound palette and effect cues), once it has seen the step's output fresh against them."""
+    film_dir = Path(film_dir)
+    rel = _util.film_rel(film_dir, rel_path)
+    with _util.Hasher(film_dir) as hasher:
+        wanted = hash_inputs(film_dir, inputs, hasher)
+
+    def change(data: dict) -> dict[str, str | None]:
+        e = data["files"].get(rel)
+        if e is None:
+            return {}
+        have = e.setdefault("inputs", {})
+        added = {k: v for k, v in wanted.items() if k not in have}
+        have.update(added)
+        return added
 
     return _edit(film_dir, change)
 

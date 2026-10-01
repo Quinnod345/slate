@@ -21,6 +21,7 @@ Stages:
   words     (re)time the words: --engine whisper (default, local) or elevenlabs (paid, through the ledger)
   misses    word lookups that fell back to an estimate; must be empty at hand-in (exit 1 when it isn't)
   show ID   one shot: frames, timecodes, its read, its words and events
+  pin       keep a shot's delivered word times through a re-voice (--shot S --words a,b#2 | all; --list; --clear)
 
 Exit codes: 0 written and every gate passed or is waiting on a person, 1 a gate failed or the timing is locked,
 2 usage, 3 missing prerequisite (no storyboard, no Whisper)."""
@@ -154,6 +155,30 @@ def _show(args: argparse.Namespace) -> int:
     return 0
 
 
+def _pin(args: argparse.Namespace) -> int:
+    from slate.timing import pins  # noqa: PLC0415
+
+    film_dir = cli.film(args)
+    words = [w.strip() for w in (args.words or "").split(",") if w.strip()]
+    if args.list:
+        shots = pins.load(film_dir)
+        lines = [f"{sid}: " + ", ".join(f"{p['w']}{'#' + str(p['occ']) if p.get('occ', 1) > 1 else ''} "
+                                         f"({p['start']:.3f} s)" for p in e.get("words") or [])
+                 + (f" ({e['why']})" if e.get("why") else "") for sid, e in shots.items()]
+        log.result({"pinned": shots}, "\n".join(lines) or "Nothing is pinned: every word follows its take.")
+        return 0
+    if args.clear:
+        res = pins.clear(film_dir, args.shot, words or None)
+        log.result(res, f"let go of {res['cleared']} pinned word(s); rebuild the timing (slate timing) to use the takes'")
+        return 0
+    if not args.shot or not words:
+        raise UsageError("Pin words of one shot: slate timing pin --shot S12 --words companies,growth#2 [--why ...]")
+    res = pins.pin(film_dir, args.shot, words, why=args.why)
+    log.result(res, f"{args.shot}: pinned " + ", ".join(f"{p['w']} ({p['start']:.3f} s)" for p in res["pinned"])
+               + f" in {res['file']}. A re-voice keeps them; `slate timing` lays them over the new take.")
+    return 0
+
+
 def _lock_flags(parser) -> None:
     parser.add_argument("--force", action="store_true",
                         help="rebuild although act renders lock the timing (needs --approved-by and --reason)")
@@ -180,3 +205,13 @@ def register(sub) -> None:
     show = cli.add_command(stages, "show", _show, help="one shot on the clock: frames, read, words, events",
                            description="Show one shot from timing/shots.json with its words and events in film time.")
     show.add_argument("shot", help="the shot id, e.g. S03")
+    pin = cli.add_command(stages, "pin", _pin, help="keep delivered word times through a re-voice",
+                          description="Record a shot's delivered word times (film seconds) in timing/pinned_words.json "
+                                      "before it's re-voiced. The timing build lays them over the new take, so beats "
+                                      "that shape unchanged shots or contracts between acts don't move; only the "
+                                      "words left unpinned follow the new take.")
+    pin.add_argument("--shot", help="the shot whose words to pin (or clear)")
+    pin.add_argument("--words", help="comma-separated words, word#2 for a second time in the line, or all")
+    pin.add_argument("--why", help="what leans on these times (an approved neighbour, a contract)")
+    pin.add_argument("--list", action="store_true", help="show what's pinned")
+    pin.add_argument("--clear", action="store_true", help="let pins go (a shot's, some of its words, or all)")

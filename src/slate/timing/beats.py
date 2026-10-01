@@ -56,6 +56,13 @@ def problems(beats: Iterable[Any] | dict, *, fps: float | None = None) -> list[s
         return []
     tol = tolerance(fps)
     out: list[str] = []
+    # An impact is an act's one big landing: rare, at most one per act (the kit's validateEvents and the engine's
+    # events.mjs refuse a second; every Python reader holds the same rule here, L-sound-D068).
+    impacts = [(i, b) for i, b in enumerate(beats or [], 1) if isinstance(b, dict) and b.get("kind") == "impact"]
+    if len(impacts) > 1:
+        where = ", ".join(f"beat {i}" + (f" ({b.get('id')})" if b.get("id") else "") +
+                          (f" {float(b['t']):.3f} s" if _number(b.get("t")) is not None else "") for i, b in impacts)
+        out.append(f"{len(impacts)} impacts in one act ({where}): at most one, the act's one big landing")
     for i, beat in enumerate(beats or [], 1):
         if not isinstance(beat, dict):
             continue

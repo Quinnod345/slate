@@ -86,6 +86,12 @@ What it does, in order:
 Mac). Exit codes: 0 installed (doctor may still list things to fix), 1 something failed or was refused, 2 usage,
 3 a prerequisite is missing (git or uv; the message says how to get it).
 
+An agent that stops to ask before each command stalls an unattended run. The commands Slate's agents run themselves
+(slate, ffmpeg and ffprobe, Slate's own Python, the engine's node renders, Whisper) are listed with ready-made rules for
+Claude Code's settings and for Codex in the plugin's README, "Permissions for unattended runs"
+(`plugins/slate/README.md`, written by `slate skills build`). Offer them to the person; adding a permission is their
+call, never the agent's. aerender isn't on the list on purpose: After Effects starts only on a person's go.
+
 ### What needs the person
 
 Ask for each of these; don't do them yourself.

@@ -276,9 +276,27 @@ def launch(job_id: str) -> bool:
     return True
 
 
+def inside_gateway() -> bool:
+    """Is this runner itself inside the OpenClaw gateway (a one-shot runner an agent there started)? Then its jobs
+    inherit the gateway's egress proxy, which turns ElevenLabs and Higgsfield away, so it leaves jobs that hold a
+    vendor's slot for the launchd runner, which runs outside the gateway."""
+    try:
+        from slate.vendors import egress  # noqa: PLC0415
+    except ImportError:
+        return False
+    return egress.gateway_context() is not None
+
+
+def _vendor_job(job: dict) -> bool:
+    from slate.jobs.client import VENDOR_RESOURCES  # noqa: PLC0415
+
+    return bool(set(job.get("resources") or ()) & set(VENDOR_RESOURCES))
+
+
 def schedule() -> list[str]:
     """One scheduling pass. Returns the ids started."""
     now = model.now()
+    in_gateway = inside_gateway()
     running = store.by_state("running")
     # Jobs launched but whose supervisors haven't taken their slots and space yet still count as holding them.
     pending_slots: collections.Counter = collections.Counter()
@@ -300,6 +318,10 @@ def schedule() -> list[str]:
         if not_before and not_before > now:
             _set_waiting(job, f"trying again after {not_before.astimezone().strftime('%H:%M:%S')} "
                               f"({job.get('reason') or 'backoff'})")
+            continue
+        if in_gateway and _vendor_job(job):
+            _set_waiting(job, "waiting for the launchd runner: this runner is inside the OpenClaw gateway, whose egress "
+                              "proxy turns the vendors away (the owner loads it with `slate jobs agent install`)")
             continue
         for r in job.get("resources") or []:
             total = locks.slots(r)

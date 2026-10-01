@@ -49,6 +49,8 @@
   "capture": {"$ref": "#/$defs/capture"},
   "character": {"$ref": "#/$defs/character"},
   "loop": {"$ref": "#/$defs/loop"},
+  "end_hold_s": {"type": "number", "minimum": 0,
+                 "description": "How long the end must hold perfectly still, in seconds (qa's end_hold gate). Unset, the films' 3 s, or none for a seamless loop; a film.json targets.end_hold_s overrides it."},
   "encode": {"$ref": "#/$defs/encode"},
   "content_rules": {"type": "array", "items": {"type": "string", "minLength": 1},
                     "description": "Rules the platform itself sets for what the film may show."},

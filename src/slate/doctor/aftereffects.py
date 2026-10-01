@@ -12,11 +12,17 @@ Doctor never launches After Effects or aerender, and never changes an AE setting
   which would launch AE if it weren't open, so doctor only asks when AE is already open. Otherwise the last smoke test
   is the proof; with neither, the row is yellow (unchecked is never green) and the fix is the smoke test;
 - the last 1-second smoke test's result (slate.ae.smoke without a go only reports; `slate connect aftereffects` runs
-  it).
+  it);
+- AE's launch-time dialogs (a licence or sign-in dialog, the Home screen, crash recovery's restore, missing fonts or
+  footage on open). They sit outside a script's control (beginSuppressDialogs can't touch them), so an unattended
+  step would hang on one. When AE is open, doctor reads its window titles through System Events (never AE itself)
+  and the bridge's status, and each dialog it finds is a red row naming it. `launch_dialogs()` is the same check for
+  a supervised AE step to run first.
 """
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from slate.doctor import clients
@@ -41,6 +47,93 @@ else
 end if'''
 
 
+# AE's launch-time dialogs: what each looks like (its window title, lower case) and what a person does about it.
+DIALOGS: dict[str, dict] = {
+    "sign_in": {"name": "a licence or sign-in dialog",
+                "words": ("sign in", "sign-in", "adobe id", "licens", "licenc", "trial", "subscription", "activate"),
+                "fix": "Sign in, or close the dialog, in After Effects yourself (it can't be scripted)."},
+    "home": {"name": "the Home screen", "words": ("home",),
+             "fix": "Close After Effects' Home screen (open or create a project) before the step."},
+    "crash_recovery": {"name": "crash recovery's restore dialog",
+                       "words": ("crash", "recover", "restore", "auto-save", "autosave", "unexpectedly"),
+                       "fix": "Choose whether to restore the project in After Effects, then run the step again."},
+    "missing_fonts": {"name": "a missing-fonts dialog", "words": ("missing font", "fonts are missing", "font"),
+                      "fix": "Install or replace the fonts it names (doctor's fonts rows list the brand's), then "
+                             "dismiss it."},
+    "missing_footage": {"name": "a missing-footage dialog",
+                        "words": ("missing footage", "missing file", "could not be found", "can't find", "cannot find",
+                                  "offline", "relink"),
+                        "fix": "Relink or replace the missing footage in After Effects, then dismiss the dialog."},
+}
+_MAIN_WINDOW = re.compile(r"^adobe after effects\b", re.IGNORECASE)
+
+
+def classify_dialog(title: str) -> str | None:
+    """The kind of launch dialog a window title is, or None for AE's own windows and panels."""
+    low = " ".join(str(title).lower().split())
+    if not low or _MAIN_WINDOW.match(low):
+        return None
+    if low == "home" or low.startswith("home "):
+        return "home"
+    for kind in ("crash_recovery", "missing_footage", "missing_fonts", "sign_in"):
+        if any(w in low for w in DIALOGS[kind]["words"]):
+            return kind
+    return None
+
+
+def launch_dialogs(env: Env | None = None) -> dict:
+    """The launch-time dialogs After Effects is showing now: {running, readable, dialogs: [{kind, name, title, fix}],
+    error}. Asks System Events for AE's window titles only when AE is already running (it never launches AE), and
+    takes the AE bridge's own report of open dialogs too (`open_dialogs`), when the bridge gives one."""
+    env = env or Env()
+    found: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+    try:
+        st = env.ae_bridge_status()
+    except Exception:  # noqa: BLE001 - the bridge row reports its own problems
+        st = {}
+    for d in (st or {}).get("open_dialogs") or []:
+        title = str(d.get("title") if isinstance(d, dict) else d)
+        kind = (d.get("kind") if isinstance(d, dict) and d.get("kind") in DIALOGS else None) or classify_dialog(title)
+        if kind and (kind, title) not in seen:
+            seen.add((kind, title))
+            found.append({"kind": kind, "name": DIALOGS[kind]["name"], "title": title, "fix": DIALOGS[kind]["fix"],
+                          "from": "the AE bridge"})
+    if not env.ae_running():
+        return {"running": False, "readable": True, "dialogs": found, "error": None}
+    got = env.ae_windows()
+    if got.get("windows") is None:
+        return {"running": bool(got.get("running", True)), "readable": False, "dialogs": found,
+                "error": got.get("error")}
+    for title in got["windows"]:
+        kind = classify_dialog(title)
+        if kind and (kind, title) not in seen:
+            seen.add((kind, title))
+            found.append({"kind": kind, "name": DIALOGS[kind]["name"], "title": title, "fix": DIALOGS[kind]["fix"],
+                          "from": "AE's windows"})
+    return {"running": bool(got.get("running")), "readable": True, "dialogs": found, "error": None}
+
+
+def _dialogs(env: Env, ctx: Ctx) -> list[dict]:
+    rid = "ae.dialogs"
+    st = launch_dialogs(env)
+    if st["dialogs"]:
+        return [R.red(f"{rid}.{d['kind']}", f"After Effects is showing {d['name']} (“{d['title'][:80]}”): an "
+                                            "unattended AE step would hang on it, because scripts can't dismiss it.",
+                      d["fix"], group=G, details={"kind": d["kind"], "title": d["title"][:120], "from": d["from"]})
+                for d in st["dialogs"]]
+    if not st["running"]:
+        return [R.green(rid, "After Effects isn't open, so no launch dialog can be in the way (doctor looks whenever "
+                             "it's open, and a supervised AE step asks first).", group=G)]
+    if not st["readable"]:
+        return [R.yellow(rid, f"After Effects is open, but its windows couldn't be read for launch dialogs "
+                              f"({ctx.host_app} needs the Accessibility permission to list another app's windows).",
+                         f"Look at After Effects yourself before an AE step, or allow it once: System Settings > "
+                         f"Privacy & Security > Accessibility, then turn on {ctx.host_app}.", group=G,
+                         details={"error": (st.get("error") or "")[:160]})]
+    return [R.green(rid, "After Effects is open with no launch dialog in the way.", group=G)]
+
+
 def check_ae(env: Env, ctx: Ctx) -> list[dict]:
     installs = env.ae_installs()
     if not installs:
@@ -54,6 +147,7 @@ def check_ae(env: Env, ctx: Ctx) -> list[dict]:
     smoke = _smoke(env)
     rows.append(_automation(env, ctx, smoke))
     rows.append(smoke)
+    rows += _dialogs(env, ctx)
     return rows
 
 

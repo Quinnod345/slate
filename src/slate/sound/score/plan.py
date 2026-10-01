@@ -18,6 +18,12 @@ bloom (the bloom lands exactly on the landing), lift (a small arrival nudged ont
 cadence). Ends (how a part goes out): handover (the next part's join), or stop (stops dead stop_before_s before the
 next landing: a held breath, recorded as a planned stop).
 
+Big moments land with the score and the effects together (the films' keystone): a bloom with `"together": true` holds
+its breath first (the music before it fades out over 80 ms into `breath_s` of silence, 0.35 s by default) and comes
+back exactly on the hit, 3 dB over its own level and settling over 2 s. `"moments": [{"event": "...", "why": "..."}]`
+(or "at" seconds, or "word") does the same inside a part, re-cutting the music already there; nothing new is composed.
+Every breath is a planned stop.
+
 Writes sound/score/plan.json (generated) and sound/score/plans/<part>.json (exactly what's sent to the API).
 
 The plan is built for the model it's sent to (`slate.vendors.elevenlabs.music_plan_schema`). music_v2 and music_v2_5
@@ -46,6 +52,7 @@ MAX_SECTION_S = 120.0  # Eleven Music's limit for one section or chunk
 MAX_NAME = 100  # a section name (v1) or a chunk's [name] (v2 and later)
 DEFAULT_MAX_PART_S = 90.0
 JOINS = ("start", "act", "bloom", "lift", "arrive")
+BREATH_S = 0.35  # a big moment's held breath before the hit (the films' keystone and stress hits)
 ENDS = ("handover", "stop")
 
 
@@ -320,6 +327,10 @@ def build(film_dir: Path, *, seeds: list[int] | None = None, write: bool = True)
         p["stop_before_s"] = float(spec.get("stop_before_s", 0.5))
         default_landing = 0.0 if i == 0 else p["start"]
         p["landing_s"], p["landing_from"] = _landing(film, spec, default_landing)
+        p["together"] = bool(spec.get("together"))
+        if p["together"] and p["join"] != "bloom":
+            raise UsageError(f"Part {p['id']}: together (the breath, then the hit) is a bloom's; its join is {p['join']}.")
+        p["breath_s"] = float(spec.get("breath_s", BREATH_S))
         p["shape_db"] = float((d.get("shape_db") or {}).get(p["id"], 0.0))
     for i, p in enumerate(raw):
         nxt = raw[i + 1] if i + 1 < len(raw) else None
@@ -354,14 +365,33 @@ def build(film_dir: Path, *, seeds: list[int] | None = None, write: bool = True)
         if p["end_kind"] == "stop":
             stops.append({"from": round(p["hand_over_s"] - p["stop_before_s"], 3), "to": round(p["hand_over_s"], 3),
                           "why": f"{p['id']} stops dead {p['stop_before_s']:g} s before {p['hand_over_s']:.3f} s (a held breath)"})
+        if p["together"]:
+            stops.append({"from": round(p["landing_s"] - p["breath_s"], 3), "to": round(p["landing_s"], 3),
+                          "why": f"the score holds its breath, then {p['id']} blooms on the hit at {p['landing_s']:.3f} s"})
         parts.append({"id": p["id"], "act": p["act"], "shots": p["shots"], "join": p["join"], "end": p["end_kind"],
                       "stop_before_s": p["stop_before_s"] if p["end_kind"] == "stop" else None,
                       "landing_s": round(p["landing_s"], 6), "landing_from": p["landing_from"],
+                      **({"together": True, "breath_s": p["breath_s"]} if p["together"] else {}),
                       "hand_over_s": round(p["hand_over_s"], 6), "pre_roll_s": pre_s, "tail_s": tail,
                       "seconds": round(total_ms / 1000, 3), "shape_db": p["shape_db"],
                       "plan_schema": schema, "blocks": [{"name": b["name"], "shots": b["shots"],
                                                          "duration_ms": b["duration_ms"]} for b in blocks],
                       "plan_file": f"{SCORE_DIR}/plans/{p['id']}.json", "composition_plan": comp})
+    moments = []
+    for k, m in enumerate(d.get("moments") or []):
+        spec = {"landing_s": m.get("at"), "landing_event": m.get("event"), "landing_word": m.get("word")}
+        t_m, src = _landing(film, spec, -1.0)
+        if t_m < 0:
+            raise UsageError(f"directions.json moment {k + 1} says neither when (\"at\"), nor an event, nor a word.")
+        breath = float(m.get("breath_s", BREATH_S))
+        moments.append({"t": round(t_m, 6), "from": src, "breath_s": breath, "why": str(m.get("why") or "a big moment")})
+        stops.append({"from": round(t_m - breath, 3), "to": round(t_m, 3),
+                      "why": f"the score holds its breath, then comes back on {src} ({m.get('why') or 'a big moment'})"})
+    from slate.sound import balance  # noqa: PLC0415
+
+    ending = balance.ending_stop(film)
+    if ending and not any(float(s.get("to", 0)) >= ending["to"] - film.frame_s for s in stops):
+        stops.append(ending)  # a silent last second, always (the brand's balance can leave the ending to the plan)
     broadcast = film.broadcast()
     licence = {"broadcast": broadcast, "needs_enterprise": broadcast,
                "recorded": film.music_licence(),
@@ -374,7 +404,7 @@ def build(film_dir: Path, *, seeds: list[int] | None = None, write: bool = True)
             "min_section_s": MIN_SECTION_S, "seeds": list(seeds or d.get("seeds") or (film.palette.get("score") or {}).get("seeds") or [7, 21]),
             "level_lufs": float((film.palette.get("score") or {}).get("level_lufs", -16.0)),
             "styles": {"positive": pos_g, "negative": neg_g}, "licence": licence, "planned_stops": stops,
-            "parts": parts}
+            "parts": parts, **({"moments": moments} if moments else {})}
     problems = jsonio.validate(jsonio.mark_generated(plan, "slate score plan"), "score")
     if problems:
         raise UsageError("The score plan doesn't match its schema:\n  " + "\n  ".join(problems[:10]))

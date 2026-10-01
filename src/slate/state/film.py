@@ -26,6 +26,7 @@ FILM_JSON = "film.json"
 SCHEMA = "film"
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,79}$")
 MODES = ("supervised", "express", "draft", "autonomous")
+AUTONOMOUS_MODE = "autonomous"
 GENERATION = ("none", "rarely", "where-it-helps")
 DEFAULT_LANGUAGE = _util.DEFAULT_LANGUAGE
 
@@ -95,7 +96,11 @@ def film_id(film_dir: Path) -> str:
 
 
 def mode_of(film_dir: Path) -> str:
-    return str(load(film_dir).get("mode") or "supervised")
+    """The film's mode as Slate judges it: autonomous whenever Slate's own record says the film was made autonomous,
+    whatever film.json says now (slate.state.autonomy); otherwise film.json's."""
+    from slate.state import autonomy  # noqa: PLC0415
+
+    return autonomy.film_mode(film_dir, load(film_dir))
 
 
 def language_of(film_dir: Path) -> str:
@@ -430,13 +435,16 @@ def create(film_id: str, *, brand: str | None, format: str | None, mode: str = "
            title: str | None = None, parent: Any = None, derivation: dict | None = None,
            generation: str = "rarely", films_dir: str | Path | None = None, request: str | None = None,
            request_source: str | None = None, runtime_s: float | None = None, aspect: str | None = None,
-           language: str | None = None, git: bool | None = None) -> Path:
+           language: str | None = None, git: bool | None = None, by: str | None = None,
+           reason: str | None = None) -> Path:
     """Make a film folder and return it. With `parent`, the film is derived (see `slate.state.derive`).
 
     The folder goes under `paths.films()` (outside iCloud) unless `films_dir` says otherwise. The mode's rules apply
-    from the first moment: an autonomous film refuses a brand whose four references aren't approved.
+    from the first moment: an autonomous film refuses a brand whose four references aren't approved, and its mode is
+    recorded in Slate's own data folder (slate.state.autonomy), so it stays autonomous until a person at their own
+    Terminal changes it. `by` and `reason` are recorded with a derived film that leaves its parent's autonomous mode.
     """
-    from slate.state import derive, modes, scaffold  # noqa: PLC0415 (import cycle: they use this module)
+    from slate.state import autonomy, derive, modes, scaffold  # noqa: PLC0415 (import cycle: they use this module)
 
     film_id = check_id(film_id)
     if parent is not None:
@@ -445,7 +453,8 @@ def create(film_id: str, *, brand: str | None, format: str | None, mode: str = "
         return derive.create(parent_dir, film_id, format=format or spec.get("format"),
                              aspect=spec.get("aspect"), language=spec.get("language") or language,
                              cut=spec.get("cut_s", spec.get("cut")), title=title,
-                             mode=mode if mode != "supervised" else None, films_dir=films_dir, git=git)
+                             mode=mode if mode != "supervised" else None, films_dir=films_dir, git=git,
+                             by=by, reason=reason)
     if derivation:
         raise UsageError("A derivation needs a parent film (--parent).")
     if not brand:
@@ -465,6 +474,9 @@ def create(film_id: str, *, brand: str | None, format: str | None, mode: str = "
     data = build(film_id, brand=brand, format=format, mode=mode, title=title, generation=generation,
                  language=language, runtime_s=runtime_s, aspect=aspect, fmt=fmt, fmt_source=fmt_source, pack=pack,
                  brand_dir=brand_dir)
+    # The mode goes on Slate's own record (outside the film folder) before the folder exists, so there's never a moment
+    # when an autonomous film is only autonomous because its own film.json says so.
+    autonomy.record_created(target, data, by=by)
     scaffold.write(target, data, request=request, request_source=request_source, git=git)
     return target
 
@@ -475,14 +487,89 @@ def _target_dir(film_id: str, films_dir: str | Path | None) -> Path:
     if target.exists() and any(target.iterdir()):
         raise Refused(f"{target} already exists and isn't empty; Slate never writes over a film.",
                       hint=f"Pick another id, or look at it: slate status --film {target}")
-    icloud = Path.home() / "Library" / "Mobile Documents"
-    try:
-        target.resolve().relative_to(icloud.resolve())
+    if icloud_root(target) is not None:
         log.warn(f"{target} is inside iCloud Drive. Films hold heavy media and watchers; the default "
-                 f"({paths.films()}) keeps them out of sync.")
-    except ValueError:
-        pass
+                 f"({paths.films()}) keeps them out of sync. If it has to live there, `slate film icloud --film "
+                 f"{target}` shows how Slate keeps its heavy folders out of iCloud (with your yes, --yes).")
     return target
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# iCloud Drive (a film that has to live there keeps its heavy folders out of sync)
+
+# File Provider (iCloud Drive's sync engine) leaves alone anything carrying this attribute; `xattr -d` with the same
+# name syncs it again. The films kept their project folder out of iCloud this way, with .nosync names as a backstop.
+ICLOUD_IGNORE_ATTR = "com.apple.fileprovider.ignore#P"
+HEAVY_FOLDERS = ("renders", "masters", "captures", "plates", "archive")
+
+
+def icloud_roots() -> list[Path]:
+    """The folders iCloud Drive syncs on this Mac: iCloud Drive itself, plus Desktop and Documents when
+    "Desktop & Documents Folders" is on (iCloud Drive then holds a Desktop or Documents folder of its own)."""
+    home = Path.home()
+    drive = home / "Library" / "Mobile Documents"
+    roots = [drive]
+    cloud_docs = drive / "com~apple~CloudDocs"
+    for name in ("Desktop", "Documents"):
+        if (cloud_docs / name).is_dir():
+            roots.append(home / name)
+    return roots
+
+
+def icloud_root(folder: Path | str) -> Path | None:
+    """The iCloud-synced folder `folder` sits in, or None when it's outside iCloud Drive."""
+    target = Path(folder).expanduser()
+    target = target.resolve() if target.exists() or target.parent.exists() else target.absolute()
+    for root in icloud_roots():
+        try:
+            target.relative_to(root.resolve() if root.exists() else root)
+            return root
+        except ValueError:
+            continue
+    return None
+
+
+def _xattr(args: list[str]) -> tuple[int, str]:
+    from slate import procs  # noqa: PLC0415
+
+    proc = procs.run(["/usr/bin/xattr", *args], timeout=30)
+    return proc.returncode, ((proc.stdout or "") + (proc.stderr or "")).strip()
+
+
+def icloud_protect(film_dir: Path, *, yes: bool = False) -> dict:
+    """Keep a film's heavy folders out of iCloud sync: with the person's yes, set File Provider's ignore attribute on
+    renders, masters, captures, plates and archive (the ones that exist). Without `yes` it only says what it would do.
+
+    The folders keep their names. A `.nosync` rename (the films' backstop) would move every path Slate records (the
+    lock, the render registry, approvals), so Slate doesn't rename; the attribute is the switch iCloud reads."""
+    film_dir = Path(film_dir)
+    load(film_dir)
+    root = icloud_root(film_dir)
+    folders = [film_dir / name for name in HEAVY_FOLDERS if (film_dir / name).is_dir()]
+    out: dict[str, Any] = {"film": film_id(film_dir), "dir": str(film_dir), "icloud": str(root) if root else None,
+                           "attribute": ICLOUD_IGNORE_ATTR, "folders": [f.name for f in folders], "applied": [],
+                           "already": [], "yes": bool(yes),
+                           "undo": f"xattr -d '{ICLOUD_IGNORE_ATTR}' <folder> (iCloud syncs it again)"}
+    if root is None:
+        out["note"] = "this film isn't in iCloud Drive, so nothing needs keeping out of sync"
+        return out
+    for folder in folders:
+        code, _text = _xattr(["-p", ICLOUD_IGNORE_ATTR, str(folder)])
+        if code == 0:
+            out["already"].append(folder.name)
+    todo = [f for f in folders if f.name not in out["already"]]
+    if not yes:
+        out["would"] = [f.name for f in todo]
+        out["note"] = ("nothing changed: this needs the person's yes (--yes). It sets File Provider's ignore attribute "
+                       "on each heavy folder, so iCloud never uploads renders, masters or plates")
+        return out
+    for folder in todo:
+        code, text = _xattr(["-w", ICLOUD_IGNORE_ATTR, "1", str(folder)])
+        if code != 0:
+            raise Refused(f"Couldn't keep {folder.name} out of iCloud ({text or f'xattr exited {code}'}).",
+                          hint=f"Set it by hand: xattr -w '{ICLOUD_IGNORE_ATTR}' 1 {folder}")
+        out["applied"].append(folder.name)
+    return out
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -498,14 +585,16 @@ def _get_dotted(data: dict, key: str) -> Any:
     return node
 
 
-def set_value(film_dir: Path, key: str, value: Any) -> dict:
+def set_value(film_dir: Path, key: str, value: Any, *, by: str | None = None, reason: str | None = None) -> dict:
     """Set one key (dotted for nested: targets.runtime_s) with the rules that keep a film coherent.
 
     Returns {"key", "old", "new"}. Protected keys point at their own command; the clock and size refuse once shot ids
-    froze or the timeline locked; a mode change re-runs the mode's rules; a format change re-applies the format's
-    defaults, but only before anything was made.
+    froze or the timeline locked; a format change re-applies the format's defaults, but only before anything was made.
+    A mode change re-runs the mode's rules and goes on Slate's own record (slate.state.autonomy): a change away from
+    autonomous is refused unless a person typed it at their own Terminal, and it's recorded with who (`by`, else their
+    login) and why (`reason`, required).
     """
-    from slate.state import lock, modes  # noqa: PLC0415
+    from slate.state import autonomy, lock, modes  # noqa: PLC0415
 
     key = key.strip()
     top = key.split(".")[0]
@@ -520,8 +609,16 @@ def set_value(film_dir: Path, key: str, value: Any) -> dict:
         if why:
             raise Refused(f"The film's clock and size are fixed now: {why}.",
                           hint="Make a derived film for a new aspect: slate variant <film> <child> --aspect W:H")
+    mode_event = None
     if top == "mode":
+        if key != "mode" or not isinstance(value, str):
+            raise UsageError("mode takes one of: " + ", ".join(MODES) + ".")
+        check_mode(value)
+        # Who may leave autonomous is decided first: an agent hears "only a person", whatever else is wrong, and the
+        # attempt goes on Slate's record.
+        autonomy.guard_change(film_dir, current, value, by=by, why=reason)
         modes.check_new(str(value), current.get("brand"), deps.brand_load(current["brand"]))
+        mode_event = autonomy.record_change(film_dir, current, value, by=by, why=reason)
     if top == "brand":
         from slate.state import approvals  # noqa: PLC0415
 
@@ -556,7 +653,16 @@ def set_value(film_dir: Path, key: str, value: Any) -> dict:
             data["aspect"] = aspect_of(data["width"], data["height"])
 
     data = update(film_dir, change)
-    return {"key": key, "old": old, "new": _get_dotted(data, key)}
+    out = {"key": key, "old": old, "new": _get_dotted(data, key)}
+    if mode_event is not None:
+        out["recorded"] = {k: mode_event.get(k) for k in ("from", "to", "by", "why", "at")}
+        if AUTONOMOUS_MODE in (mode_event.get("from"), mode_event.get("to")):
+            from slate.state import production  # noqa: PLC0415
+
+            words = f"Mode changed from {mode_event['from']} to {mode_event['to']}"
+            production.add_direction(film_dir, words + (f": {mode_event['why']}" if mode_event.get("why") else "."),
+                                     source=str(mode_event.get("by") or "slate film set"), kind="mode change")
+    return out
 
 
 # ---------------------------------------------------------------------------------------------------------------

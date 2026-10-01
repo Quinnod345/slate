@@ -295,11 +295,16 @@ def tails_gate(vf: VoiceFilm) -> GateResult:
             fails.append(f"{ln.shot}: ends with \"{' '.join(tail)}\", from the next line")
         ends_with_tag = sent.rstrip().endswith("]")  # a tag after the last word may add a sound there
         if words and not ends_with_tag:
-            extra = trailing_voice(audio, max(w["end"] for w in words))
+            from slate.voice import trim  # noqa: PLC0415
+
+            plays_to = trim.current(vf, ln.shot)  # a trimmed take plays only to its cut (slate voice trim)
+            extra = [e for e in trailing_voice(audio, max(w["end"] for w in words))
+                     if plays_to is None or e["start"] < plays_to]
             if extra:
                 e = extra[0]
                 fails.append(f"{ln.shot}: {e['end'] - e['start']:.2f} s of voice after the last word "
-                             f"(at {e['start']:.2f} s): a tail from a neighbouring line may have leaked in")
+                             f"(at {e['start']:.2f} s): a tail from a neighbouring line may have leaked in"
+                             + ("" if plays_to is None else f", before the take's trim at {plays_to:.2f} s"))
     return _result("voice_tails", fails=fails, unchecked=unchecked, checked=checked, total=len(vf.lines),
                    passed=f"no leaked tails in {checked} line(s)", inputs=_inputs(vf, files),
                    engine=gates_mod.engine("slate voice tails (Whisper words + YIN voicing)"))

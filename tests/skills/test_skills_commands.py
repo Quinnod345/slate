@@ -1,8 +1,10 @@
-"""Every `slate …` command the skills and docs/METHOD.md cite is in ARCHITECTURE §4, and parses in the real CLI.
+"""Every `slate …` command the skills and docs/METHOD.md cite is in ARCHITECTURE §4, and exists in the live CLI.
 
 §4 is the contract every agent relies on, and it lists every command and stage that's built (the test below holds it
 to the live CLI both ways). A skill that cites a stage §4 doesn't promise would send an agent to a command that may not
-exist; a step that isn't built yet is described in words instead.
+exist; a step that isn't built yet is described in words instead. Below the stage, every cited step
+(`slate voice tags pick`, `slate qa stability strip`) and every `--flag` must be one the command's own parser takes,
+so a renamed option fails here rather than in an agent's session.
 """
 
 from __future__ import annotations
@@ -99,3 +101,23 @@ def test_cited_commands_parse_where_their_module_is_built():
 def test_each_skill_points_at_real_commands(name):
     cites = [c for p in (L.skill_md(name), *L.reference_files(name)) for c in L.citations(p)]
     assert cites, f"skills/{name} never cites a slate command; skills drive the CLI"
+
+
+def test_every_cited_step_and_flag_exists_in_the_live_cli():
+    problems = L.live_problems(CITATIONS)
+    assert not problems, "\n".join(problems)
+
+
+def test_the_live_check_catches_a_made_up_step_or_flag():
+    bad = [L.Citation("x.md", 1, "slate voice tags sing S01", "voice", "tags"),
+           L.Citation("x.md", 2, "slate qa stability --frobnicate", "qa", "stability"),
+           L.Citation("x.md", 3, "slate render --act 2 --nonsense", "render", None),
+           L.Citation("x.md", 4, "slate qa stability teleport --act 3", "qa", "stability")]
+    assert len(L.live_problems(bad)) == 4
+    good = [L.Citation("x.md", 1, "slate voice tags pick --round main", "voice", "tags"),
+            L.Citation("x.md", 2, 'slate qa stability baseline --act 3 --by <name> --reason "<why>"', "qa",
+                       "stability"),
+            L.Citation("x.md", 3, "slate ledger snapshot --provider=higgsfield --balance <n>", "ledger", "snapshot"),
+            L.Citation("x.md", 4, "slate engine scaffold --act <N> --engine web", "engine", "scaffold"),
+            L.Citation("x.md", 5, "slate --film f1 status --write", "status", None)]
+    assert L.live_problems(good) == []

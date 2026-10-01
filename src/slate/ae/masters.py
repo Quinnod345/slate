@@ -11,7 +11,9 @@ person's preferences, so the ProRes 422 HQ master is conformed from the 4444 fra
   through slate.ae.prefs, the only way Slate edits that file;
 - renders each chunk in a fresh aerender (`-rqindex k -mem_usage 25 50`; one long aerender grew until the Mac
   swapped and aborted), up to three tries, and skips a chunk whose outputs already hold the right frame count, so a
-  stopped run resumes where it stopped;
+  stopped run resumes where it stopped; with `[ae] masters_cpu_percent` set in slate.toml, each aerender also gets
+  `-mfr ON <percent>` (Multi-Frame Rendering, capped at that share of the CPU), so the Mac stays usable while the
+  masters render;
 - watches free space under the output folder and stops its own aerender (never anyone else's) under 4 GB;
 - conforms each 4444 chunk to ProRes 422 HQ (prores_ks profile 3, 10-bit 4:2:2, BT.709 tags) between passes, never
   alongside aerender, and deletes the 4444;
@@ -42,6 +44,23 @@ from slate.errors import MissingPrerequisite, Refused, SlateError
 MIN_FREE_GB = 4.0
 TRIES = 3
 RETRY_SLEEP_S = 10.0
+
+
+def mfr_args(settings: dict | None = None) -> list[str]:
+    """aerender's Multi-Frame Rendering switch for a masters chunk: `-mfr ON <percent>` when slate.toml's
+    `[ae] masters_cpu_percent` is set (a whole percent, 1 to 100: the most of the CPU aerender may take), so the Mac stays
+    usable while masters render; nothing when it isn't, and aerender runs as it always has (L-ae-056)."""
+    ae = (settings if settings is not None else config.load()).get("ae") or {}
+    raw = ae.get("masters_cpu_percent") if isinstance(ae, dict) else None
+    if raw is None or raw == "":
+        return []
+    try:
+        pct = int(raw)
+    except (TypeError, ValueError) as exc:
+        raise Refused(f"[ae] masters_cpu_percent in slate.toml is {raw!r}; it's a whole percent from 1 to 100.") from exc
+    if not 1 <= pct <= 100:
+        raise Refused(f"[ae] masters_cpu_percent in slate.toml is {pct}; it's a whole percent from 1 to 100.")
+    return ["-mfr", "ON", str(pct)]
 
 Runner = Callable[..., Any]
 
@@ -254,6 +273,7 @@ def render(film_dir: str | os.PathLike, *, go: bool = False, runner: Runner | No
     out_h264 = final_dir / f"{fid}_H264.mp4"
     out_hq = final_dir / f"{fid}_ProRes422HQ.mov"
     per_frame_s = float((config.load().get("ae") or {}).get("seconds_per_frame_timeout") or 5.0)
+    mfr = mfr_args()
     started = time.time()
     done: list[dict] = []
     cm = prefs.disk_cache_off() if cache_off else contextlib.nullcontext({"toggled": False})
@@ -274,7 +294,7 @@ def render(film_dir: str | os.PathLike, *, go: bool = False, runner: Runner | No
                     p.unlink(missing_ok=True)
                 log.info(f"chunk {k}/{len(plan)}: frames {c['start']}–{c['end']} (try {tries})")
                 argv = [aerender, "-project", str(aep), "-rqindex", str(plan.index(c) + 1), "-mem_usage", "25", "50",
-                        "-v", "ERRORS_AND_PROGRESS"]
+                        *mfr, "-v", "ERRORS_AND_PROGRESS"]
                 with driver.ae_lock(bridge=False, owner=f"slate-ae-masters-{fid}"):
                     proc = run(argv, timeout=max(1800.0, want * per_frame_s))
                 log_path.write_text((getattr(proc, "stdout", "") or "") + (getattr(proc, "stderr", "") or ""),

@@ -16,6 +16,9 @@ The block says what the shot needs in words and files; this module turns it into
   registry.json (720p) unless slate.toml `[gen] video_resolution` or the shot's own `resolution` says otherwise; the
   full-HD option costs 2.46x as much, so it is a person's choice (registry.json questions: plate_video_resolution). A
   still uses the film's short side, within what the model offers.
+- Sound is always said out loud. Some models make native audio unless told not to (Kling 3.0 Pro's sound is on,
+  Seedance 2.5's generate_audio is true), and audio costs more (a plate with sound cost 0.378 USD against 0.252
+  silent). So every video request carries the flag: off unless the block asks for `audio: true` (plate ambience).
 """
 
 from __future__ import annotations
@@ -146,11 +149,12 @@ def build(role: str, model: str, block: dict, film: dict, *, urls: dict[str, str
     aspect = block.get("aspect_ratio") or (aspect_of(width, height) if role != "plate_video_extend" else None)
     if aspect:
         body["aspect_ratio"] = aspect
-    if "audio" in block:
+    if role in VIDEO_ROLES or "audio" in block:
+        wants = bool(block.get("audio", False))  # never the model's default: nobody pays for audio they didn't ask for
         if model.startswith("kling-video/"):
-            body["sound"] = "on" if block["audio"] else "off"
+            body["sound"] = "on" if wants else "off"
         else:
-            body["generate_audio"] = bool(block["audio"])
+            body["generate_audio"] = wants
     for key, value in (block.get("params") or {}).items():
         body[key] = value
     return body

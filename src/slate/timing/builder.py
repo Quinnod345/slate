@@ -165,6 +165,8 @@ def lock_inputs(film_dir: Path, film: dict, takes: dict[str, Take]) -> dict:
     """{input: sha256} for the timing files' lock entries: the storyboard, each take, the film.json keys the clock
     reads and the brand pack (its eases place the landings). State's named inputs keep each one checkable."""
     keys = [str(STORYBOARD), *[t.rel for _sid, t in sorted(takes.items())]]
+    if (Path(film_dir) / "timing" / "pinned_words.json").is_file():
+        keys.append("timing/pinned_words.json")  # pinned word times shape the timeline too
     keys += [f"film:{k}" for k in FILM_KEYS if k in film]
     if film.get("brand"):
         keys.append(f"brand:{film['brand']}")
@@ -334,6 +336,13 @@ def run(film_dir: Path, *, force: bool = False, engine: str = "whisper", realign
     shots_doc = make_shots(storyboard, clock=clock, width=width, height=height, cues=cues, words=words_doc,
                            events=events)
     shots_doc["tool_version"] = __version__
+    # delivered word times a re-voice must keep (timing/pinned_words.json): laid over the new takes' tokens before
+    # anything reads them, so only the unpinned words follow a new take (L-timing-D030)
+    from slate.timing import pins  # noqa: PLC0415
+
+    pinned = pins.apply(film_dir, words_doc, shots_doc, cues, lang)
+    if pinned:
+        words_doc["pinned"] = pinned
     frames_gate = check_frames(shots_doc, clock)
     out = TimingBuild(results=[frames_gate])
     eases = brand_eases(film_dir, film)

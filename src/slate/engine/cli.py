@@ -1,4 +1,5 @@
-"""Commands for the Node engine: `slate engine install|status|path|skills|scaffold`, `slate emit-events`, `slate check`."""
+"""Commands for the Node engine: `slate engine install|status|path|skills|scaffold|golden`, `slate emit-events`,
+`slate check`."""
 
 from __future__ import annotations
 
@@ -12,6 +13,7 @@ from slate.errors import Refused, UsageError
 
 EMIT_TIMEOUT = 900.0
 CHECK_TIMEOUT = 1800.0
+GOLDEN_TIMEOUT = 3600.0
 
 
 # --- slate engine … -------------------------------------------------------------------------------------------------
@@ -122,9 +124,16 @@ def _scaffold(args: argparse.Namespace) -> int:
     film_dir = slate_cli.film(args)
     engine = args.engine or look_engine(film_dir) or "remotion"
     if engine == "ae":
-        raise UsageError("An After Effects act is a scene written as data (scenes/ae/actN.json), not a template.",
-                         hint="`slate ae acts --help` shows its shape; `slate ae acts export N` writes its trace and "
-                              "events.")
+        # the AE lane starts the act from the brand's look: a starter scene written as data, resolved before it's kept
+        from slate.ae import acts as ae_acts  # noqa: PLC0415
+
+        res = ae_acts.scaffold(film_dir, args.act, force=bool(args.force))
+        log.result(res, f"act {res['act']}: started in After Effects at {res['file']} (a starter scene: its first "
+                        "line on the brand's page, rising in on its first shot)\n"
+                        f"next: build the act's layers and moves in {res['file']}, then `slate ae acts export "
+                        f"{res['act']}` (its trace and events) and, on a person's go, `slate ae acts render "
+                        f"{res['act']} --go`")
+        return 0
     if engine != "web":
         raise UsageError(f"Act {args.act} would be a Remotion act, which starts as the kit's placeholder by itself "
                          "(it renders its shot ids, on-screen text and VO until scenes/actN/index.tsx exists).",
@@ -143,6 +152,48 @@ def _scaffold(args: argparse.Namespace) -> int:
                f"next: make it this act's picture (scene.ts), then `slate emit-events --act {args.act}` and "
                f"`slate check {args.act}`")
     return 0
+
+
+def _golden(args: argparse.Namespace) -> int:
+    """The kit's golden stills, or the approved-acts check for one film (L-kit-D060): every approved act's boundary
+    frames and one frame per shot, rendered with this engine's kit and compared with the approved render."""
+    payload: dict = {"gl": args.gl}
+    if args.approved is not None:
+        film_dir = Path(args.approved).expanduser().resolve() if args.approved else slate_cli.film(args)
+        payload.update(film=str(film_dir), plan=True if args.plan else None)
+    elif args.plan:
+        raise UsageError("--plan goes with --approved: it lists the approved acts' frames without rendering them.")
+    res = bridge.call("golden", payload, timeout=GOLDEN_TIMEOUT)
+    out = {k: v for k, v in res.items() if k not in ("ok", "command")}
+    if args.approved is not None:
+        lines = []
+        for a in res.get("acts") or []:
+            if a.get("problem"):
+                lines.append(f"FAIL  act {a['act']}  {a['problem']}")
+            elif res.get("plan"):
+                lines.append(f"plan  act {a['act']}  {a['file']}, {a.get('samples')} samples, frames "
+                             + ", ".join(str(f) for f in a.get("frames") or []))
+            else:
+                frames = ", ".join(f"f{r['frame']} {r['psnr']}" + ("" if r["psnr"] == "identical" else " dB")
+                                   for r in a.get("frames") or [])
+                lines.append(f"{'PASS' if a.get('pass') else 'FAIL'}  act {a['act']}  {frames}")
+        if res.get("note"):
+            lines.append(res["note"])
+        if res.get("plan"):
+            lines.append("plan only: nothing rendered")
+        else:
+            lines.append(("every approved act draws as approved" if res.get("pass") else
+                          "an approved act changed: this kit change isn't additive") +
+                         f" ({res.get('checked', 0)} frames on {res.get('gl')}, {res.get('psnrMin')} dB bar)")
+    else:
+        lines = [f"{'PASS' if s.get('pass') else 'FAIL'}  {s['id']}@{s['frame']}  "
+                 + (f"{' / '.join(str(x) for x in s.get('psnr') or [])} dB" if s.get("psnr") else str(s.get("error")))
+                 for s in res.get("stills") or []]
+        gate = res.get("fontGate") or {}
+        lines.append(f"{'PASS' if gate.get('pass') else 'FAIL'}  {gate.get('id')}  font gate {gate.get('status')}")
+        lines.append("all golden stills pass" if res.get("pass") else "golden stills failed")
+    log.result(out, "\n".join(lines))
+    return 0 if res.get("pass") else 1
 
 
 # --- slate emit-events ----------------------------------------------------------------------------------------------
@@ -242,6 +293,39 @@ def banned_words(film_dir: Path) -> list[str] | None:
     return out
 
 
+def _claims_text(items) -> list[str]:
+    out: list[str] = []
+    for x in items or []:
+        text = str((x.get("text") or x.get("claim")) if isinstance(x, dict) else x or "").strip()
+        if text and text not in out:
+            out.append(text)
+    return out
+
+
+def never_claim(film_dir: Path) -> list[str] | None:
+    """What the film never claims: the brand pack's truth.never_claim and the film's own (brief/truth.json), the same
+    list script.claims reads. None means unknown (the film names a brand whose pack can't be read), and the gate reads
+    unknown as UNCHECKED, never as "nothing"."""
+    film_dir = Path(film_dir)
+    truth = jsonio.read(film_dir / "brief" / "truth.json", default=None)
+    own = _claims_text(truth.get("never_claim")) if isinstance(truth, dict) else []
+    name = (jsonio.read(film_dir / "film.json", default={}) or {}).get("brand")
+    if not name:
+        return own
+    try:
+        from slate.brand import pack  # noqa: PLC0415 (the brand module is optional here)
+
+        brand = [str(x) for x in pack.never_claim(pack.load(str(name)))]
+    except Exception:  # noqa: BLE001 - no brand module, or a pack it can't load: read the file instead
+        folder = bridge.brand_path(film_dir)
+        data = jsonio.read(folder / "brand.json", default=None) if folder else None
+        if not isinstance(data, dict):
+            return None
+        truth_b = data.get("truth") if isinstance(data.get("truth"), dict) else {}
+        brand = _claims_text(truth_b.get("never_claim"))
+    return brand + [x for x in own if x not in brand]
+
+
 def _built(film_dir: Path, act: int) -> bool:
     """A Remotion act the hand-in check reads: scenes/actN/index.* (a web scene has scenes/actN/web/index.html)."""
     return any((film_dir / "scenes" / f"act{act}" / f"index{ext}").is_file() for ext in (".tsx", ".ts", ".jsx", ".js"))
@@ -249,6 +333,39 @@ def _built(film_dir: Path, act: int) -> bool:
 
 def _web(film_dir: Path, act: int) -> bool:
     return not _built(film_dir, act) and (film_dir / "scenes" / f"act{act}" / "web" / "index.html").is_file()
+
+
+def _shot_engine_gates(film_dir: Path, shots: dict | None, acts: list[int]) -> list:
+    """handin.act<N>.shots for each checked act whose shots name an engine or have a scene of their own: the
+    declarations and the scenes on disk agree, and only what's built is asked for (slate.render.shot_engines)."""
+    if not shots:
+        return []
+    from slate.render import shot_engines  # noqa: PLC0415
+
+    decl = shot_engines.declared(film_dir, shots)
+    scenes = shot_engines.scene_engines(film_dir)
+    found = shot_engines.problems(film_dir, shots)
+    out = []
+    for act in acts:
+        ids = [str(s["id"]) for s in shots.get("shots") or [] if int(s.get("act", -1)) == int(act)]
+        mine = {sid: decl[sid] for sid in ids if sid in decl}
+        mine_scenes = {sid: e for sid, e in scenes.items() if sid in ids}
+        if not mine and not mine_scenes:
+            continue
+        probs = [p for p in found if any(f"shot {sid} " in p or f"/{sid}/" in p for sid in ids)]
+        engine = gates.engine("slate.render.shot_engines", "1")
+        inputs = gates.inputs_for(film_dir, [film_dir / "timing" / "shots.json"]) if (film_dir / "timing" / "shots.json").is_file() else {}
+        if probs:
+            out.append(gates.GateResult(f"handin.act{act}.shots", "FAIL", f"{len(probs)} problem"
+                                        f"{'s' if len(probs) > 1 else ''} with the act's shot engines; the first: "
+                                        f"{probs[0]}", evidence=probs, engine=engine, inputs=inputs,
+                                        details={"stage": "scenes"}))
+        else:
+            listed = ", ".join(f"{sid} in {eng}" for sid, eng in sorted(mine.items()))
+            out.append(gates.GateResult(f"handin.act{act}.shots", "PASS", f"shots in their own engine: {listed} "
+                                        "(each handed in through its engine, spliced into the act with proof)",
+                                        engine=engine, inputs=inputs, details={"stage": "scenes", "shots": mine}))
+    return out
 
 
 def _check(args: argparse.Namespace) -> int:
@@ -272,11 +389,20 @@ def _check(args: argparse.Namespace) -> int:
         except ValueError as exc:
             raise UsageError(f"`slate check` takes an act number or 'all', not {args.act!r}.") from exc
     words = banned_words(film_dir)
+    if args.against and not args.markup:
+        raise UsageError("--against goes with --markup: it compares the act's markup with the kit at that ref.")
+    against = args.against or None
+    if against and Path(against).expanduser().is_dir():
+        against = str(Path(against).expanduser().resolve())  # a kit folder (an installed engine's): the engine needs it whole
     # one engine run for every act: at most one bundle, shared by every act's boundary contracts
     res = bridge.call("check", {"film": str(film_dir), "acts": acts, "banned_words": words,
-                                "contracts": not args.no_contracts, "hold": args.hold},
+                                "never_claim": never_claim(film_dir), "contracts": not args.no_contracts,
+                                "hold": args.hold, "markup": True if args.markup else None,
+                                "against": against,
+                                "determinism": True if args.determinism else None},
                       timeout=CHECK_TIMEOUT * len(acts))
     results = [gates.GateResult.from_dict(g) for g in res["gates"]]
+    results += _shot_engine_gates(film_dir, shots, acts)
     if results:
         gates.write_report(film_dir, results)
     summary = gates.summarize(results)
@@ -310,6 +436,22 @@ def register(sub) -> None:
     p.add_argument("--engine", choices=("web", "remotion", "ae"), default=None,
                    help="the engine to start it for (default: the brand's look.engine, else remotion)")
     p.add_argument("--force", action="store_true", help="replace a scene that's already there")
+    p = slate_cli.add_command(grp, "golden", _golden,
+                              help="the kit's golden stills, or (--approved) prove a kit change leaves approved acts "
+                                   "as they were",
+                              description=(
+                                  "Without options: the kit's golden stills (each kit composition on software GL, "
+                                  "within 45 dB of its baseline, and the font gate failing a face that exists "
+                                  "nowhere). With --approved: every approved act of the film (an approval in "
+                                  "approvals.json of its registered render) has its boundary frames and one frame per "
+                                  "shot rendered with this engine's kit, at the render's own sample count on software "
+                                  "GL, and compared with the approved render at the same 45 dB bar. Kit changes are "
+                                  "additive and opt-in, so an approved act that draws differently fails the change."))
+    p.add_argument("--approved", nargs="?", const="", default=None, metavar="FILM",
+                   help="the film whose approved acts to check (default: this film)")
+    p.add_argument("--plan", action="store_true", help="with --approved: list the acts and frames, render nothing")
+    p.add_argument("--gl", default="swangle", choices=("swangle", "angle"),
+                   help="the renderer's GL (default swangle: bit-exact run to run)")
     p = slate_cli.add_command(sub, "emit-events", _emit,
                               help="write each act's visual events (or its silence) and motion trace from its scenes",
                               description=(
@@ -320,8 +462,26 @@ def register(sub) -> None:
                                   "everything, writes nothing, and exits 1 if the real run would be refused."))
     p.add_argument("--act", type=int, default=None, help="one act (default: every act that's built)")
     p = slate_cli.add_command(sub, "check", _check,
-                              help="an act's hand-in check: types, word misses, banned words, events, boundary contracts")
+                              help="an act's hand-in check: types, word misses, banned words, never-claims, frame "
+                                   "literals, events, margins, the character, boundary contracts",
+                              description=(
+                                  "The hand-in check an act builder runs before handing an act in. Every part is a "
+                                  "gate result: types, the module loading in Node, word misses, banned words and "
+                                  "never-claims on screen, literal frames in the act's sources (every time keyed to "
+                                  "words, shots or contracts), events current with the act, timing margins and the "
+                                  "rig lint, the character's acceptance checks when the act draws a mark, and the "
+                                  "boundary contracts. --markup reads the act's static markup at every frame and four "
+                                  "sub-frame samples (no pixels) for NaN, Infinity or undefined, and with --against "
+                                  "REF compares it with the act drawn by the kit at that git ref; --determinism "
+                                  "renders sampled frames alone and in sequence and compares them."))
     p.add_argument("act", help="the act number, or 'all' for every built act")
     p.add_argument("--no-contracts", dest="no_contracts", action="store_true",
                    help="skip the boundary renders (the contracts gate reports UNCHECKED)")
     p.add_argument("--hold", type=int, default=6, help="frames a rest state must hold at a boundary (default 6)")
+    p.add_argument("--markup", action="store_true",
+                   help="the markup bench: the act's static markup at every frame and four sub-frame samples")
+    p.add_argument("--against", metavar="REF", default=None,
+                   help="with --markup: compare every sample with the act as the kit at this git ref draws it (or "
+                        "the kit in this folder, such as an installed engine's remotion/kit)")
+    p.add_argument("--determinism", action="store_true",
+                   help="render sampled frames alone and in sequence on software GL and compare them")

@@ -56,6 +56,13 @@ export const KIT_HOOKS = {
     ['motionProblems', (fn) => fn()],
     ['unknownShotsInRegistry', (fn) => fn().map((s) => `a move is registered on shot ${s}, which the film doesn't have`)],
   ],
+  // the timing margins the act recorded (margin(), defineMargin()): the slack between beats the picture depends on
+  margins: [
+    ['actMargins', (fn, act) => fn(act)],
+    ['margins', (fn) => fn()],
+  ],
+  // the marks the act registered with registerMotifTrace(), for the character gate and the rig lint
+  motifTraces: [['motifTraces', (fn) => fn()]],
 };
 
 // Everything a scene might import that has no meaning in Node: fonts load in the browser, media is never read here.
@@ -229,6 +236,8 @@ export async function loadAct(ctx, act) {
         kitEvents: firstHook(kit, KIT_HOOKS.kitEvents, act),
         eventProblems: firstHook(kit, KIT_HOOKS.eventProblems, act),
         problems: allProblems(kit, act),
+        margins: firstHook(kit, KIT_HOOKS.margins, act),
+        motifTraces: firstHook(kit, KIT_HOOKS.motifTraces, act),
       },
     };
   } finally {
@@ -243,5 +252,27 @@ export function declarations(loaded) {
     for (const src of sources) for (const n of names) if (src && n in src && src[n] !== undefined) return src[n];
     return undefined;
   };
-  return {events: pick('events', 'visualEvents'), silent: pick('silent'), contracts: pick('contracts') ?? null};
+  return {events: pick('events', 'visualEvents'), silent: pick('silent'), contracts: pick('contracts') ?? null, margins: pick('margins', 'timingMargins')};
+}
+
+/**
+ * The act's timing margins: what it recorded with the kit's margin() and defineMargin(), and a `margins` export of its
+ * own ([{name, slack}] or a function returning them), as [{name, slack}] (L-timing-D039).
+ */
+export async function actMarginList(loaded) {
+  const out = [];
+  if (loaded?.hooks?.margins) for (const m of loaded.hooks.margins.fn() ?? []) out.push(m);
+  let own = declarations(loaded).margins;
+  if (typeof own === 'function' && !(loaded?.hooks?.margins && own.name === loaded.hooks.margins.name)) own = await own();
+  if (Array.isArray(own)) for (const m of own) if (m && typeof m === 'object' && !out.some((x) => x.name === m.name && x.slack === m.slack)) out.push(m);
+  return out.map((m) => ({name: String(m.name ?? '(unnamed margin)'), slack: typeof m.slack === 'number' ? m.slack : Number(m.slack)}));
+}
+
+/** The rig lint for every mark the act registered (each finding with its rig), from the kit's own motifLint. */
+export function rigLint(loaded) {
+  const traces = loaded?.hooks?.motifTraces ? loaded.hooks.motifTraces.fn() ?? [] : [];
+  const lint = typeof loaded?.kit?.motifLint === 'function' ? loaded.kit.motifLint : null;
+  if (!lint) return {traces, findings: []};
+  const findings = traces.flatMap((t) => lint(t.track, {spec: t.spec, layout: t.layout, short: t.short}).map((l) => `${t.rig} (${t.shot}): ${l}`));
+  return {traces, findings};
 }

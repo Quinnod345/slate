@@ -12,6 +12,18 @@
 //                                kit's registrations and the captures' taps) says now, with no word lookup missing
 //   handin.act<N>.contracts      the act's boundary frames are bit-identical to its neighbours' and to the named rest
 //                                state, and held still for `hold` frames, so parallel builders meet exactly
+//   handin.act<N>.never_claim    (when the caller passes the list) no on-screen line uses anything the brand or the
+//                                film never claims; every line that does is printed for the builder to read
+//   handin.act<N>.literals       no literal film or act frame numbers in the act's sources: every time is keyed to
+//                                words, shots or contract constants, so a re-voice moves the picture with the voice
+//   handin.act<N>.margins        every timing margin the act records (the slack between beats the picture depends on)
+//                                is not negative, and the rig lint is clean for every mark it draws
+//   handin.act<N>.character      (acts that draw a mark character) the character acceptance checks on each mark
+//   handin.act<N>.markup         (with `markup: true`) the act's static markup at every frame and four sub-frame samples
+//                                has no NaN, Infinity or undefined in any style or attribute; with `against: <git ref>`
+//                                (or a kit folder) every sample is identical to the act drawn by the kit at that ref
+//   handin.act<N>.determinism    (with `determinism: true`) sampled frames rendered alone and in sequence on software
+//                                GL are identical
 //
 // An act built for the open web renderer (scenes/act<N>/web/index.html) is handed in the same way, through that
 // renderer: its scene scripts are type-checked from the film folder like any act; its page is opened once in a dry-run
@@ -24,8 +36,8 @@ import ts from 'typescript';
 import {EngineError, listFiles, log, refused, sha256FileSync, usage} from './lib/common.mjs';
 import {actOf} from './lib/film.mjs';
 import {ensureEntry, contractsModule, missingIndexNote, sceneIndex, slateDir} from './entry.mjs';
-import {declarations, loadAct} from './load_act.mjs';
-import {captureBeats, computeEvents, emitWebAct, eventsFile, validateEventsFile, webScene} from './events.mjs';
+import {actMarginList, declarations, loadAct, rigLint} from './load_act.mjs';
+import {actShotScenes, captureBeats, computeEvents, emitWebAct, eventsFile, validateEventsFile, webScene, webShotPage} from './events.mjs';
 import {useBundle} from './bundle.mjs';
 import {pixelHash, psnr, renderStills} from './stills.mjs';
 import {browserLogCollector, fontGate} from './kit_bridge.mjs';
@@ -64,7 +76,11 @@ const actSources = (ctx, act) =>
 // ---------------------------------------------------------------- type check
 
 export function typecheck(ctx, act, name) {
-  const configPath = path.join(slateDir(ctx.dir), `tsconfig.act${act}.json`);
+  return typecheckWith(ctx, path.join(slateDir(ctx.dir), `tsconfig.act${act}.json`), name);
+}
+
+/** The type check with one generated tsconfig (an act's, or a web shot's: .slate/tsconfig.shot-<SHOT>.json). */
+export function typecheckWith(ctx, configPath, name) {
   const engine = {name: 'typescript', version: ts.version};
   const read = ts.readConfigFile(configPath, ts.sys.readFile);
   if (read.error) return gate(name, 'UNCHECKED', `couldn't read ${path.relative(ctx.dir, configPath)}`, {engine});
@@ -218,9 +234,9 @@ function screenFiles(ctx, act, loaded) {
   return [...new Set([...own, ...imported, ...web])].sort();
 }
 
-export function bannedWords(ctx, act, words, name, loaded = null) {
+export function bannedWords(ctx, act, words, name, loaded = null, {files: only = null, shots: onlyShots = null} = {}) {
   const engine = {name: 'slate banned-words (typescript AST)', version: ts.version};
-  const files = screenFiles(ctx, act, loaded);
+  const files = only ?? screenFiles(ctx, act, loaded);
   const inputs = inputsFor(ctx, [...files, 'timing/shots.json']);
   if (words === undefined || words === null) {
     return gate(name, 'UNCHECKED', "no banned-word list was given (the brand pack couldn't be read)", {engine, inputs});
@@ -241,7 +257,7 @@ export function bannedWords(ctx, act, words, name, loaded = null) {
   }
   const a = actOf(ctx, act);
   for (const s of ctx.shots?.shots ?? []) {
-    if (Number(s.act) !== a.act || typeof s.on_screen !== 'string') continue;
+    if (Number(s.act) !== a.act || typeof s.on_screen !== 'string' || (onlyShots && !onlyShots.includes(String(s.id)))) continue;
     strings++;
     for (const m of matchers) if (m.re.test(s.on_screen)) hits.push(`timing/shots.json ${s.id} on_screen: "${s.on_screen.slice(0, 120)}" (${m.word})`);
   }
@@ -249,6 +265,162 @@ export function bannedWords(ctx, act, words, name, loaded = null) {
   if (unreadable.length) return gate(name, 'UNCHECKED', unreadable[0], {engine, evidence: unreadable, inputs, details: {strings, banned: matchers.length}});
   const summary = matchers.length ? `none of the brand's ${matchers.length} banned words in ${strings} on-screen strings` : `the brand bans no words (${strings} on-screen strings read)`;
   return gate(name, 'PASS', summary, {engine, inputs, details: {strings, banned: matchers.length, files: files.length}});
+}
+
+// ---------------------------------------------------------------- never-claim
+
+/** Lower case, letters, digits and % only: the text gates' squash (slate.qa.textmatch.squash), so they agree. */
+export const squash = (text) => String(text).toLowerCase().replace(/[^\p{L}\p{M}\p{N}_%]/gu, '').replace(/_/g, '');
+
+/**
+ * Every on-screen line that uses something the brand or the film never claims (the same list script.claims reads),
+ * printed for the builder to read (L-qa-D036). `list` undefined: the caller didn't ask (no gate); null: the list
+ * couldn't be read (UNCHECKED); [] : the brand and the film never-claim nothing.
+ */
+export function neverClaim(ctx, act, list, name, loaded = null, {files: only = null, shots: onlyShots = null} = {}) {
+  const engine = {name: 'slate never-claim (typescript AST)', version: ts.version};
+  const files = only ?? screenFiles(ctx, act, loaded);
+  const inputs = inputsFor(ctx, [...files, 'timing/shots.json']);
+  if (list === null) return gate(name, 'UNCHECKED', "the never-claim list couldn't be read (the brand pack, or the film's brief/truth.json)", {engine, inputs});
+  const phrases = (list ?? []).map((x) => String(x ?? '').trim()).filter((x) => squash(x));
+  const hits = [];
+  let strings = 0;
+  const look = (where, text) => {
+    strings++;
+    const st = squash(text);
+    for (const p of phrases) if (st.includes(squash(p))) hits.push(`${where}: "${String(text).trim().slice(0, 120)}" says "${p}", which the film never claims`);
+  };
+  for (const rel of files) {
+    const text = fs.readFileSync(path.join(ctx.dir, rel), 'utf8');
+    const found = rel.endsWith('.json') ? jsonStrings(text) : rel.endsWith('.txt') ? textLines(text) : /\.html?$/i.test(rel) ? htmlStrings(text) : onScreenStrings(rel, text);
+    for (const s of found ?? []) look(`${rel}:${s.line}`, s.text);
+  }
+  const a = actOf(ctx, act);
+  for (const s of ctx.shots?.shots ?? []) if (Number(s.act) === a.act && typeof s.on_screen === 'string' && (!onlyShots || onlyShots.includes(String(s.id)))) look(`timing/shots.json ${s.id} on_screen`, s.on_screen);
+  if (hits.length) return gate(name, 'FAIL', `${hits.length} on-screen line${hits.length > 1 ? 's use' : ' uses'} something the film never claims; the first: ${hits[0]}`, {engine, evidence: hits.slice(0, 40), inputs});
+  const summary = phrases.length ? `none of the ${phrases.length} never-claims in ${strings} on-screen strings` : `the brand and the film never-claim nothing (${strings} on-screen strings read)`;
+  return gate(name, 'PASS', summary, {engine, inputs, details: {strings, never_claim: phrases.length}});
+}
+
+// ---------------------------------------------------------------- frame literals
+
+/** Properties whose value is a film or act frame. */
+const FRAME_PROPS = new Set(['frame', 'frame_in', 'frame_out', 'frameIn', 'frameOut', 'untilFrame', 'until_frame', 'startFrame', 'endFrame', 'start_frame', 'end_frame', 'atFrame', 'at_frame', 'fromFrame', 'toFrame']);
+/** Calls that turn a frame into time: a literal argument is a literal frame. */
+const FRAME_CALLS = /^(secOf|secondsOf|frameToSec|frameToSeconds|timecode|filmSecond|filmSeconds)$/;
+/** Names that hold a frame (an identifier, a property, a constant), for comparisons and declarations. */
+const FRAME_NAME = /frame$|frame_?(in|out)$|^frame|_frame_/i;
+const COMPARE = new Set([ts.SyntaxKind.LessThanToken, ts.SyntaxKind.LessThanEqualsToken, ts.SyntaxKind.GreaterThanToken, ts.SyntaxKind.GreaterThanEqualsToken, ts.SyntaxKind.EqualsEqualsEqualsToken, ts.SyntaxKind.EqualsEqualsToken, ts.SyntaxKind.ExclamationEqualsEqualsToken, ts.SyntaxKind.ExclamationEqualsToken]);
+export const ALLOW_LITERAL = 'slate-allow-frame-literal';
+
+const literalValue = (node) => {
+  if (!node) return null;
+  if (ts.isNumericLiteral(node)) return Number(node.text);
+  if (ts.isPrefixUnaryExpression(node) && node.operator === ts.SyntaxKind.MinusToken && ts.isNumericLiteral(node.operand)) return -Number(node.operand.text);
+  return null;
+};
+const nameOf = (node, sf) => {
+  if (!node) return '';
+  if (ts.isIdentifier(node) || ts.isPrivateIdentifier(node)) return node.text;
+  if (ts.isPropertyAccessExpression(node)) return node.name.text;
+  if (ts.isCallExpression(node)) return nameOf(node.expression, sf);
+  if (ts.isStringLiteral(node)) return node.text;
+  return '';
+};
+
+/**
+ * Literal film or act frame numbers in a source file (L-timing-D041): a number given as a frame (`frame: 120`,
+ * `frame_in: 0`), a frame turned into time (`secOf(90)`), a frame compared with a number (`frame >= 120`), a
+ * Sequence placed at a number (`from={30}`), a frame constant (`const LAND_FRAME = 120`). Offsets from something keyed
+ * to a word or a shot (`shot('S03').frameIn + 12`) are fine. A line saying `slate-allow-frame-literal: why` (or the
+ * line above it) is let through. Returns [{line, text, why}].
+ */
+export function frameLiterals(file, text) {
+  const kind = /x$/.test(file) ? ts.ScriptKind.TSX : /\.m?jsx?$/.test(file) ? ts.ScriptKind.JSX : ts.ScriptKind.TS;
+  const sf = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, kind);
+  const lines = text.split('\n');
+  const allowed = (line) => [line - 1, line - 2].some((i) => i >= 0 && lines[i]?.includes(ALLOW_LITERAL));
+  const found = [];
+  const add = (node, why) => {
+    const line = sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1;
+    if (!allowed(line)) found.push({line, text: (lines[line - 1] ?? '').trim().slice(0, 140), why});
+  };
+  const visit = (node) => {
+    if (ts.isPropertyAssignment(node) && FRAME_PROPS.has(nameOf(node.name, sf)) && literalValue(node.initializer) !== null) {
+      add(node, `${nameOf(node.name, sf)}: ${literalValue(node.initializer)} is a literal frame`);
+    } else if (ts.isCallExpression(node) && FRAME_CALLS.test(nameOf(node.expression, sf)) && literalValue(node.arguments[0]) !== null) {
+      add(node, `${nameOf(node.expression, sf)}(${literalValue(node.arguments[0])}) turns a literal frame into time`);
+    } else if (ts.isBinaryExpression(node) && COMPARE.has(node.operatorToken.kind)) {
+      const [named, lit] = literalValue(node.right) !== null ? [node.left, literalValue(node.right)] : [node.right, literalValue(node.left)];
+      if (lit !== null && Math.abs(lit) >= 2 && FRAME_NAME.test(nameOf(named, sf))) add(node, `${nameOf(named, sf)} is compared with the literal frame ${lit}`);
+    } else if (ts.isJsxAttribute(node) && nameOf(node.name, sf) === 'from' && node.initializer && ts.isJsxExpression(node.initializer)) {
+      const v = literalValue(node.initializer.expression);
+      if (v !== null && v >= 1) add(node, `from={${v}} places a sequence at a literal frame`);
+    } else if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && FRAME_NAME.test(node.name.text) && !/frames$/i.test(node.name.text)) {
+      const v = literalValue(node.initializer);
+      if (v !== null && Math.abs(v) >= 2) add(node, `${node.name.text} = ${v} is a literal frame`);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+  return found;
+}
+
+/** The literals gate: every literal frame in the act's own sources (or the files given), with file and line. */
+export function literalsGate(ctx, act, name, only = null) {
+  const engine = {name: 'slate frame-literal lint (typescript AST)', version: ts.version};
+  const files = only ?? [...actSources(ctx, act), ...(webScene(ctx.dir, act) ? listFiles(path.join(ctx.dir, 'scenes', `act${act}`, 'web')).filter((f) => SOURCE_EXT.test(f)).map((f) => path.join('scenes', `act${act}`, 'web', f)) : [])];
+  const unique = [...new Set(files)].sort();
+  const inputs = inputsFor(ctx, unique);
+  const hits = [];
+  for (const rel of unique) for (const h of frameLiterals(rel, fs.readFileSync(path.join(ctx.dir, rel), 'utf8'))) hits.push(`${rel}:${h.line}: ${h.why} (${h.text})`);
+  if (hits.length) {
+    return gate(name, 'FAIL', `${hits.length} literal frame${hits.length > 1 ? 's' : ''} in the act; the first: ${hits[0]}`, {engine, evidence: [...hits.slice(0, 40), 'key every time to a word (word()), a shot (shot().frameIn) or a contract constant, so a re-voice moves the picture with the voice'], inputs, details: {literals: hits.length}});
+  }
+  return gate(name, 'PASS', `no literal frames in ${unique.length} source file${unique.length === 1 ? '' : 's'}: every time is keyed to words, shots or contracts`, {engine, inputs, details: {files: unique.length}});
+}
+
+// ---------------------------------------------------------------- timing margins and the rig lint
+
+/** The margins gate: every margin's slack, and the rig lint; FAIL while a margin is negative or the lint finds anything. */
+export async function marginsGate(loaded, name, inputs) {
+  const engine = {name: 'slate timing margins and rig lint', version: 'unknown'};
+  const list = await actMarginList(loaded);
+  const {traces, findings} = rigLint(loaded);
+  const broken = list.filter((m) => !(Number.isFinite(m.slack) && m.slack >= 0));
+  const lines = list.map((m) => `${Number.isFinite(m.slack) ? m.slack.toFixed(3).padStart(8) : String(m.slack).padStart(8)} s  ${m.slack >= 0 ? '' : 'BROKEN  '}${m.name}`);
+  const evidence = [...lines, ...findings.map((f) => `rig lint: ${f}`)];
+  const details = {margins: list.length, broken: broken.length, rigs: traces.length, lint: findings.length};
+  if (broken.length || findings.length) {
+    const first = broken.length ? `${broken[0].name} (${Number.isFinite(broken[0].slack) ? `${broken[0].slack.toFixed(3)} s` : 'not a number'})` : findings[0];
+    const what = [broken.length ? `${broken.length} timing margin${broken.length > 1 ? 's' : ''} broken` : null, findings.length ? `${findings.length} rig lint finding${findings.length > 1 ? 's' : ''}` : null].filter(Boolean).join(' and ');
+    return gate(name, 'FAIL', `${what}; the first: ${first}`, {engine, evidence: evidence.slice(0, 60), inputs, details});
+  }
+  if (!list.length && !traces.length) return gate(name, 'PASS', 'the act records no timing margins and draws no mark', {engine, inputs, details});
+  const least = list.length ? Math.min(...list.map((m) => m.slack)) : null;
+  const summary = [list.length ? `${list.length} margin${list.length > 1 ? 's' : ''}, the least ${least.toFixed(3)} s` : 'no margins', traces.length ? `the rig lint clean on ${traces.length} mark${traces.length > 1 ? 's' : ''}` : null].filter(Boolean).join('; ');
+  return gate(name, 'PASS', summary, {engine, evidence, inputs, details});
+}
+
+// ---------------------------------------------------------------- the character
+
+/** The character acceptance checks on every mark the act registered (registerMotifTrace); null when it draws none. */
+export function characterGate(ctx, act, loaded, name, inputs) {
+  const traces = loaded?.hooks?.motifTraces ? loaded.hooks.motifTraces.fn() ?? [] : [];
+  if (!traces.length) return null;
+  const engine = {name: 'slate character acceptance (the kit)', version: 'unknown'};
+  const accept = loaded.kit?.characterAcceptance;
+  if (typeof accept !== 'function') return gate(name, 'UNCHECKED', "the act draws a mark, but this kit has no characterAcceptance() to check it with", {engine, inputs});
+  const a = actOf(ctx, act);
+  const problems = [];
+  const checks = [];
+  for (const t of traces) {
+    const r = accept(t, {act: {from: a.frameIn, to: a.frameOut}});
+    problems.push(...r.problems);
+    checks.push(`${t.rig}: ${r.checks.join('; ')}`);
+  }
+  if (problems.length) return gate(name, 'FAIL', `${problems.length} character check${problems.length > 1 ? 's' : ''} failed; the first: ${problems[0]}`, {engine, evidence: [...problems.slice(0, 40), ...checks], inputs, details: {marks: traces.length, problems: problems.length}});
+  return gate(name, 'PASS', `${traces.length} mark${traces.length > 1 ? 's' : ''}: calm, still between gestures, clear of the split point and every clip, the rig lint clean`, {engine, evidence: checks, inputs, details: {marks: traces.length}});
 }
 
 // ---------------------------------------------------------------- word misses
@@ -287,7 +459,7 @@ export function kitProblems(loaded, name, inputs) {
 
 const canonical = (v) => JSON.stringify(v, (k, x) => (x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => a.localeCompare(b))) : x));
 
-export async function eventsGate(ctx, act, loaded, name) {
+export async function eventsGate(ctx, act, loaded, name, args = {}) {
   const engine = {name: 'slate emit-events', version: 'protocol 1'};
   const file = eventsFile(ctx, act);
   const rel = path.relative(ctx.dir, file);
@@ -304,7 +476,7 @@ export async function eventsGate(ctx, act, loaded, name) {
   if (!loaded || loaded.missing) return gate(name, 'UNCHECKED', `${rel} is valid, but the act's module didn't load, so it can't be compared with the act`, {engine, inputs});
   let now;
   try {
-    now = await computeEvents(ctx, act, loaded);
+    now = await computeEvents(ctx, act, loaded, {args});
   } catch (e) {
     return gate(name, 'FAIL', `${rel} is valid, but the act's beats don't compute now: ${e.message.split('\n')[0]}`, {engine, inputs});
   }
@@ -428,38 +600,47 @@ export async function contractsGate(ctx, act, loaded, name, args, bundles = null
     const own = bundles ? null : lazyBundle(ctx, args);
     const b = await (bundles ?? own).get();
     try {
-      for (const r of renders) {
-        const me = actOf(ctx, act);
-        const myFrames = r.side === 'in' ? [...Array(Math.min(hold, me.frames)).keys()] : [...Array(Math.min(hold, me.frames)).keys()].map((i) => me.frames - Math.min(hold, me.frames) + i);
-        const specs = myFrames.map((f) => ({comp: `Act${act}`, frame: f}));
-        if (r.neighbourReady) {
-          const n = actOf(ctx, r.side === 'in' ? r.from : r.to);
-          specs.push({comp: `Act${n.act}`, frame: r.side === 'in' ? n.frames - 1 : 0});
-        }
-        if (contractComps.has(r.name)) specs.push({comp: `Contract-${r.name}`, frame: 0});
-        const stills = await renderStills(ctx, b, specs, {outDir, gl, scale: 1, sub: 1, pixels: true, logs});
-        const mineStills = stills.slice(0, myFrames.length);
-        const edge = r.side === 'in' ? mineStills[0] : mineStills.at(-1);
-        const ok = [];
-        let held = true;
-        for (const s of mineStills) {
-          if (s.pixels !== edge.pixels) {
-            held = false;
-            problems.push(`${r.label}: act ${act} frame ${s.frame} differs from its boundary frame ${edge.frame}: the rest state must hold still for ${hold} frames`);
+      try {
+        for (const r of renders) {
+          const me = actOf(ctx, act);
+          const myFrames = r.side === 'in' ? [...Array(Math.min(hold, me.frames)).keys()] : [...Array(Math.min(hold, me.frames)).keys()].map((i) => me.frames - Math.min(hold, me.frames) + i);
+          const specs = myFrames.map((f) => ({comp: `Act${act}`, frame: f}));
+          if (r.neighbourReady) {
+            const n = actOf(ctx, r.side === 'in' ? r.from : r.to);
+            specs.push({comp: `Act${n.act}`, frame: r.side === 'in' ? n.frames - 1 : 0});
           }
-        }
-        const others = stills.slice(myFrames.length);
-        for (const o of others) {
-          if (o.pixels === edge.pixels) ok.push(`${o.comp}:${o.frame}`);
-          else {
-            const db = await psnr(edge.file, o.file);
-            problems.push(`${r.label}: ${edge.comp}:${edge.frame} and ${o.comp}:${o.frame} differ (PSNR ${db === Infinity ? '∞' : db?.toFixed(2)} dB); "${r.name}" must be bit-identical`);
+          if (contractComps.has(r.name)) specs.push({comp: `Contract-${r.name}`, frame: 0});
+          const stills = await renderStills(ctx, b, specs, {outDir, gl, scale: 1, sub: 1, pixels: true, logs});
+          const mineStills = stills.slice(0, myFrames.length);
+          const edge = r.side === 'in' ? mineStills[0] : mineStills.at(-1);
+          const ok = [];
+          let held = true;
+          for (const s of mineStills) {
+            if (s.pixels !== edge.pixels) {
+              held = false;
+              problems.push(`${r.label}: act ${act} frame ${s.frame} differs from its boundary frame ${edge.frame}: the rest state must hold still for ${hold} frames`);
+            }
           }
+          const others = stills.slice(myFrames.length);
+          for (const o of others) {
+            if (o.pixels === edge.pixels) ok.push(`${o.comp}:${o.frame}`);
+            else {
+              const db = await psnr(edge.file, o.file);
+              problems.push(`${r.label}: ${edge.comp}:${edge.frame} and ${o.comp}:${o.frame} differ (PSNR ${db === Infinity ? '∞' : db?.toFixed(2)} dB); "${r.name}" must be bit-identical`);
+            }
+          }
+          if (!others.length) unchecked.push(`${r.label}: nothing to compare act ${act}'s "${r.name}" frames with`);
+          else if (held && ok.length === others.length) passed.push(`${r.label}: "${r.name}" matches ${ok.join(' and ')} bit for bit, held ${myFrames.length} frames`);
         }
-        if (!others.length) unchecked.push(`${r.label}: nothing to compare act ${act}'s "${r.name}" frames with`);
-        else if (held && ok.length === others.length) passed.push(`${r.label}: "${r.name}" matches ${ok.join(' and ')} bit for bit, held ${myFrames.length} frames`);
+        fonts = await fontGate(logs.lines);
+      } catch (e) {
+        // A face the renderer can't load cancels the still with the gate's report: that's the fonts gate failing (never
+        // a crash of the whole check), and the contracts couldn't be compared.
+        const failed = await fontGate([...logs.lines, String(e?.message ?? e)]);
+        if (!failed || failed.status === 'PASS') throw e;
+        fonts = failed;
+        unchecked.unshift(`the contract stills didn't render: the font gate failed (${failed.summary})`);
       }
-      fonts = await fontGate(logs.lines);
     } finally {
       if (own) own.release();
     }
@@ -630,9 +811,56 @@ export async function checkWebAct(ctx, act, args) {
     }
   }
   gates.push(bannedWords(ctx, act, args.banned_words, `${p}.banned_words`, null));
+  if (args.never_claim !== undefined) gates.push(neverClaim(ctx, act, args.never_claim, `${p}.never_claim`, null));
+  gates.push(literalsGate(ctx, act, `${p}.literals`));
   gates.push(webEventsGate(ctx, act, page, `${p}.events`, files));
   gates.push(await webContractsGate(ctx, act, args, `${p}.contracts`, inputsFor(ctx, [...files, 'timing/shots.json'])));
   return {act, engine: 'web', gates, status: worstOf(gates), passed: gates.every((g) => g.status === 'PASS')};
+}
+
+// ---------------------------------------------------------------- shots in another engine
+
+/**
+ * The hand-in of each shot of a Remotion act drawn in the open web renderer (scenes/shots/<SHOT>/web; the rules are
+ * slate.render.shot_engines'): its type check, its page (opened once, in a dry run: nothing written), its word
+ * lookups and what the kit had to assume, its network wall and fonts, its banned words, never-claims and literal
+ * frames. Each gate is handin.act<N>.shot.<SHOT>.<part>; the act's events gate already holds the page's beats.
+ */
+export async function checkWebShots(ctx, act, args) {
+  const out = [];
+  for (const sc of actShotScenes(ctx, act)) {
+    const p = `handin.act${act}.shot.${sc.shot}`;
+    const rel = path.relative(ctx.dir, sc.dir);
+    const files = listFiles(sc.dir).map((f) => path.join(rel, f));
+    const sources = files.filter((f) => SOURCE_EXT.test(f));
+    const copy = files.filter((f) => SOURCE_EXT.test(f) || /\.(html?|json|txt)$/i.test(f));
+    const inputs = inputsFor(ctx, files);
+    log(`act ${act}: shot ${sc.shot} in the open web renderer`);
+    out.push(typecheckWith(ctx, path.join(slateDir(ctx.dir), `tsconfig.shot-${sc.shot}.json`), `${p}.typecheck`));
+    const page = await webShotPage(ctx, act, sc, args, {on_blocked: 'report', ...(args.load_timeout_ms ? {load_timeout_ms: args.load_timeout_ms} : {})});
+    const engine = {name: 'slate web renderer (a dry-run emit of the shot: nothing written)', version: 'protocol 1'};
+    if (page.error) {
+      const status = page.failure?.kind === 'missing_prerequisite' ? 'UNCHECKED' : 'FAIL';
+      out.push(gate(`${p}.page`, status, page.error, {engine, evidence: pageEvidence(page.failure), inputs}));
+    } else {
+      out.push(gate(`${p}.page`, 'PASS', `the shot's page loads and draws in the open web renderer (${page.beats.length} beat${page.beats.length === 1 ? '' : 's'})`, {engine, inputs}));
+      if (page.declared_misses === false || page.declared_misses === undefined) {
+        out.push(gate(`${p}.word_misses`, 'UNCHECKED', "the shot's page doesn't report its word lookups (a scene built with defineScene() from '@slate/web' does)", {inputs}));
+      } else if (page.misses.length) {
+        out.push(gate(`${p}.word_misses`, 'FAIL', `${page.misses.length} word${page.misses.length > 1 ? 's' : ''} fell back to an estimate: ${page.misses.slice(0, 5).join(', ')}`, {evidence: page.misses.slice(0, 40), inputs}));
+      } else out.push(gate(`${p}.word_misses`, 'PASS', 'every word the shot looks up was found in the timings', {inputs}));
+      const kit = [...new Set(page.scene_problems.filter((x) => !page.misses.includes(x) && !/neutral law/.test(x)))];
+      out.push(kit.length ? gate(`${p}.kit_problems`, 'REVIEW', `the kit recorded ${kit.length} thing${kit.length > 1 ? 's' : ''} it had to assume or refuse; the first: ${kit[0]}`, {evidence: kit.slice(0, 40), inputs}) : gate(`${p}.kit_problems`, 'PASS', 'the kit assumed and refused nothing', {inputs}));
+      for (const g of page.gates) {
+        const suffix = g.gate === 'web.network' ? 'network' : g.gate;
+        out.push({...g, gate: `${p}.${suffix}`, inputs: {...(g.inputs ?? {}), ...inputs}, details: {...(g.details ?? {}), stage: STAGE}});
+      }
+    }
+    out.push(bannedWords(ctx, act, args.banned_words, `${p}.banned_words`, null, {files: copy, shots: [sc.shot]}));
+    if (args.never_claim !== undefined) out.push(neverClaim(ctx, act, args.never_claim, `${p}.never_claim`, null, {files: copy, shots: [sc.shot]}));
+    out.push(literalsGate(ctx, act, `${p}.literals`, sources));
+  }
+  return out;
 }
 
 export async function checkAct(ctx, args, {bundles = null} = {}) {
@@ -667,7 +895,27 @@ export async function checkAct(ctx, args, {bundles = null} = {}) {
   gates.push(loaded ? wordMisses(loaded, `${p}.word_misses`, srcInputs) : gate(`${p}.word_misses`, 'UNCHECKED', "the act's module didn't load, so its word lookups couldn't run", {inputs: srcInputs}));
   if (loaded?.usesKit) gates.push(kitProblems(loaded, `${p}.kit_problems`, srcInputs));
   gates.push(bannedWords(ctx, act, args.banned_words, `${p}.banned_words`, loaded));
-  gates.push(await eventsGate(ctx, act, loaded, `${p}.events`));
+  if (args.never_claim !== undefined) gates.push(neverClaim(ctx, act, args.never_claim, `${p}.never_claim`, loaded));
+  gates.push(literalsGate(ctx, act, `${p}.literals`));
+  gates.push(await eventsGate(ctx, act, loaded, `${p}.events`, args));
+  if (loaded) {
+    gates.push(await marginsGate(loaded, `${p}.margins`, srcInputs));
+    const ch = characterGate(ctx, act, loaded, `${p}.character`, srcInputs);
+    if (ch) gates.push(ch);
+  } else {
+    gates.push(gate(`${p}.margins`, 'UNCHECKED', "the act's module didn't load, so its timing margins and rig lint couldn't be read", {inputs: srcInputs}));
+  }
+  gates.push(...(await checkWebShots(ctx, act, args)));
+  if (args.markup) {
+    log(`act ${act}: markup bench`);
+    const {markupGate} = await import('./markup.mjs');
+    gates.push(await markupGate(ctx, act, args, `${p}.markup`, srcInputs));
+  }
+  if (args.determinism) {
+    log(`act ${act}: determinism (frames alone and in sequence)`);
+    const {determinismGate} = await import('./determinism.mjs');
+    gates.push(await determinismGate(ctx, act, args, `${p}.determinism`, srcInputs, bundles));
+  }
   if (args.contracts === false) {
     gates.push(gate(`${p}.contracts`, 'UNCHECKED', 'contracts were skipped for this run (contracts: false)', {inputs: srcInputs}));
   } else if (!loaded) {

@@ -14,6 +14,15 @@
 - Clarity: every word of the voice against everything else in the speech band (300 Hz to 4 kHz). The narration is
   always understood: the voice stays a few dB over the rest on every word.
 - Never over: no effect louder than the voice. The effects' loudest 400 ms never passes the voice's own loudness.
+- Key: every pitched note in the UI and tonal stems on the brand key's pentatonic, measured over each note's first
+  60 ms; a stem with more than half its notes on one or two pitches is a person's call (one film's UI stem sat 71% on
+  two notes, one of them off-key).
+- Timbre: the palette is pads, small soft notes and wood; no chimes. Each effect stem's median spectral centroid at
+  or under 1.5 kHz, no high partial still ringing 300 ms after its strike (a chime's tail), and no metallic or glassy
+  ring (bright partials that aren't harmonics of one note, sustaining past 300 ms).
+- Brightness: the effects' long-term spectral centroid and share of energy above 2 kHz, to compare with the brand's
+  approved sound reference (moving from chimes to pads, notes and wood took the films' effects from 583 to 382 Hz
+  and from 3.7% to 1.2% above 2 kHz).
 """
 
 from __future__ import annotations
@@ -206,11 +215,27 @@ def _identical(a: dict | None, b: dict) -> bool:
     return a.get("identity") is not None and a.get("identity") == b.get("identity")
 
 
-def repeats_check(hits: list[dict], *, one_sound_per_kind: bool = True, no_shared: bool = True) -> dict:
-    """hits: [{t, kind, sound, identity, audio?}] in any order. Checks, in film order:
+def bookend(a: dict, b: dict, film_s: float | None = None) -> str | None:
+    """Why two identical hits are the same sound on purpose, or None: either is marked a bookend in the cue sheet, or
+    both are the brand's sonic logo, one in the film's first third and the other in its last (the film closing the way
+    it opened)."""
+    if a.get("bookend") or b.get("bookend"):
+        return "marked a bookend in sound/sound_cues.json"
+    if a.get("sonic_logo") and b.get("sonic_logo"):
+        end = float(film_s) if film_s else max(float(a["t"]), float(b["t"]))
+        first, last = sorted((float(a["t"]), float(b["t"])))
+        if end > 0 and first <= end / 3 and last >= end * 2 / 3:
+            return "the brand's sonic logo, closing the film the way it opened"
+    return None
+
+
+def repeats_check(hits: list[dict], *, one_sound_per_kind: bool = True, no_shared: bool = True,
+                  film_s: float | None = None) -> dict:
+    """hits: [{t, kind, sound, identity, audio?, bookend?, sonic_logo?}] in any order. Checks, in film order:
     - one deliberate sound per kind (every hit of a kind uses the same sound);
     - no sound serves two kinds;
-    - no hit identical to the previous hit of its kind, and no two identical hits back to back overall.
+    - no hit identical to the previous hit of its kind, and no two identical hits back to back overall, except a
+      deliberate bookend (see bookend()), which is listed with `bookend: true` for the gate to set aside.
     Hits with audio are compared by waveform (same_sound); hits known only by their parameters, by identity."""
     hits = sorted(hits, key=lambda h: h["t"])
     sounds_by_kind: dict[str, set] = {}
@@ -220,18 +245,25 @@ def repeats_check(hits: list[dict], *, one_sound_per_kind: bool = True, no_share
     for h in hits:
         sounds_by_kind.setdefault(h["kind"], set()).add(h["sound"])
         kinds_by_sound.setdefault(h["sound"], set()).add(h["kind"])
-        if _identical(last_by_kind.get(h["kind"]), h):
-            identical.append({"t": round(h["t"], 3), "kind": h["kind"], "sound": h["sound"], "why": "same as its kind's previous hit"})
-        elif _identical(prev, h):
-            identical.append({"t": round(h["t"], 3), "kind": h["kind"], "sound": h["sound"], "why": "same as the hit before it"})
+        same = last_by_kind.get(h["kind"]) if _identical(last_by_kind.get(h["kind"]), h) else (
+            prev if _identical(prev, h) else None)
+        if same is not None:
+            row = {"t": round(h["t"], 3), "kind": h["kind"], "sound": h["sound"], "after_t": round(same["t"], 3),
+                   "why": "same as its kind's previous hit" if same is last_by_kind.get(h["kind"]) else
+                          "same as the hit before it"}
+            why = bookend(same, h, film_s)
+            if why:
+                row.update({"bookend": True, "why": why})
+            identical.append(row)
         last_by_kind[h["kind"]] = h
         prev = h
     mixed = {k: sorted(v) for k, v in sounds_by_kind.items() if len(v) > 1} if one_sound_per_kind else {}
     shared = {s: sorted(v) for s, v in kinds_by_sound.items() if len(v) > 1} if no_shared else {}
     distinct = len({h["identity"] for h in hits})
+    failing = [r for r in identical if not r.get("bookend")]
     return {"hits": len(hits), "distinct": distinct, "kinds": {k: sorted(v) for k, v in sounds_by_kind.items()},
             "identical_repeats": identical, "kinds_with_several_sounds": mixed, "sounds_serving_several_kinds": shared,
-            "pass": not identical and not mixed and not shared}
+            "pass": not failing and not mixed and not shared}
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -269,3 +301,250 @@ def never_over(voice: np.ndarray, effects: np.ndarray, sr: int, margin_db: float
     rel = round(worst - vo_l, 2)
     at = round(float(np.argmax(mom)) * measure.STEP_S, 2) if len(mom) else None
     return {"pass": rel <= margin_db, "effects_max_momentary_lu_vs_voice": rel, "at_s": at, "margin_db": margin_db}
+
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Key: notes on the brand key's pentatonic
+
+PITCH_CLASSES = {"c": 0, "d": 2, "e": 4, "f": 5, "g": 7, "a": 9, "b": 11}
+PENTATONIC = {"major": (0, 2, 4, 7, 9), "minor": (0, 3, 5, 7, 10)}
+NOTE_NAMES = ("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B")
+NOTE_WINDOW_S = 0.06  # a note's pitch is measured over its first 60 ms
+NOTE_SKIP_S = 0.005  # after the strike's first 5 ms (the attack's click has no pitch)
+PITCHED_DB = 20.0  # a note is pitched when its strongest partial stands this far over the band's median
+
+
+def parse_key(key: str | None) -> tuple[int, str] | None:
+    """(tonic pitch class, "major" | "minor") from a key name like "A minor", "F# major", "Bb", "Em"; None when it
+    can't be read."""
+    if not key or not str(key).strip():
+        return None
+    k = str(key).strip().replace("♯", "#").replace("♭", "b")
+    root = k[0].lower()
+    if root not in PITCH_CLASSES:
+        return None
+    pc, rest = PITCH_CLASSES[root], k[1:]
+    if rest[:1] == "#":
+        pc, rest = pc + 1, rest[1:]
+    elif rest[:1] == "b":
+        pc, rest = pc - 1, rest[1:]
+    rest = rest.strip().lower()
+    mode = "minor" if rest.startswith(("m", "min", "minor", "aeolian", "dorian")) and not rest.startswith("maj") else "major"
+    return pc % 12, mode
+
+
+def pentatonic(key: str | None) -> set[int] | None:
+    parsed = parse_key(key)
+    if parsed is None:
+        return None
+    pc, mode = parsed
+    return {(pc + i) % 12 for i in PENTATONIC[mode]}
+
+
+def note_name(midi: int) -> str:
+    return f"{NOTE_NAMES[midi % 12]}{midi // 12 - 1}"
+
+
+STRIKE_RISE_DB = 9.0  # a strike: the 5 ms level climbs this much over the quietest of the 50 ms before it
+STRIKE_WITHIN_DB = 40.0  # ...to within this much of the stem's loudest moment
+
+
+def strikes(y: np.ndarray, sr: int, *, min_gap_s: float = 0.08) -> list[float]:
+    """Where a stem's sounds start: spectral-flux onsets (dsp.flux_onsets) that are also strikes, the level jumping at
+    least 9 dB in 30 ms to within 40 dB of the stem's peak. A ringing note's slow decay makes flux without a strike,
+    and a second onset inside one note would count it twice, so those are left out."""
+    from slate.sound import dsp  # noqa: PLC0415
+
+    m = audio.mono(np.asarray(y, dtype=np.float64))
+    if not np.any(m):
+        return []
+    hop = max(1, sr // 1000)
+    k = len(m) // hop
+    p = (m[:k * hop] ** 2).reshape(k, hop).mean(axis=1)
+    env = 10 * np.log10(np.convolve(p, np.ones(5) / 5, mode="same") + 1e-20)  # 5 ms level per millisecond
+    top = float(env.max())
+    out: list[float] = []
+    for t, _z in dsp.flux_onsets(m, sr, 0.0, len(m) / sr, min_z=6.0):
+        i = int(t * 1000)
+        before = env[max(0, i - 60):max(1, i - 10)]
+        after = env[i:min(k, i + 30)]
+        if not len(before) or not len(after):
+            continue
+        if float(after.max()) - float(before.min()) >= STRIKE_RISE_DB and float(after.max()) >= top - STRIKE_WITHIN_DB:
+            # the strike itself: the first millisecond within 12 dB of its peak (flux frames run a little early)
+            lo = max(0, i - 30)
+            near = env[lo:min(k, i + 30)]
+            t = (lo + int(np.argmax(near >= float(near.max()) - 12.0))) / 1000.0
+            if not out or t - out[-1] >= min_gap_s:
+                out.append(float(t))
+    return out
+
+
+def _spectrum(seg: np.ndarray, sr: int, n_fft: int = 1 << 16) -> tuple[np.ndarray, np.ndarray]:
+    """(frequencies, amplitude spectrum in dB, a sinusoid's amplitude whatever the window's length) of a mono segment."""
+    win = np.hanning(len(seg))
+    mag = np.abs(np.fft.rfft(seg * win, n=max(n_fft, len(seg)))) * 2 / max(win.sum(), 1e-12)
+    return np.fft.rfftfreq(max(n_fft, len(seg)), 1 / sr), 20 * np.log10(mag + 1e-12)
+
+
+def note_pitch(y: np.ndarray, sr: int, t: float, *, fmin: float = 80.0, fmax: float = 4000.0) -> dict | None:
+    """The pitch a note rings at over its first 60 ms (from `t`, the onset): its strongest partial, interpolated.
+    None when the segment is too short or nothing in it is pitched (a click, a noise)."""
+    m = audio.mono(np.asarray(y, dtype=np.float64))
+    a, b = int((t + NOTE_SKIP_S) * sr), int((t + NOTE_SKIP_S + NOTE_WINDOW_S) * sr)
+    seg = m[max(0, a):min(len(m), b)]
+    if len(seg) < int(0.03 * sr) or not np.any(seg):
+        return None
+    f, db = _spectrum(seg, sr)
+    band = (f >= fmin) & (f <= fmax)
+    if not band.any():
+        return None
+    i = int(np.flatnonzero(band)[np.argmax(db[band])])
+    if db[i] - float(np.median(db[band])) < PITCHED_DB:
+        return None
+    if 0 < i < len(db) - 1:  # parabolic interpolation of the peak
+        alpha, beta, gamma = db[i - 1], db[i], db[i + 1]
+        p = 0.5 * (alpha - gamma) / (alpha - 2 * beta + gamma) if (alpha - 2 * beta + gamma) else 0.0
+        hz = float(f[i] + p * (f[1] - f[0]))
+    else:
+        hz = float(f[i])
+    midi_f = 69 + 12 * math.log2(hz / 440.0)
+    midi = int(round(midi_f))
+    return {"t": round(t, 3), "hz": round(hz, 1), "midi": midi, "note": note_name(midi),
+            "cents": round((midi_f - midi) * 100, 1)}
+
+
+def key_check(y: np.ndarray, sr: int, key: str | None, *, min_notes_for_variety: int = 8) -> dict:
+    """Every pitched note's pitch (onsets by spectral flux), the ones off the key's pentatonic, and how many notes the
+    two commonest pitches take (more than half: a person listens to whether it plays one note a million times)."""
+    m = audio.mono(np.asarray(y, dtype=np.float64))
+    onsets = strikes(m, sr)
+    notes = [n for n in (note_pitch(m, sr, t) for t in onsets) if n is not None]
+    scale = pentatonic(key)
+    off = [n for n in notes if scale is not None and n["midi"] % 12 not in scale]
+    counts: dict[int, int] = {}
+    for n in notes:
+        counts[n["midi"]] = counts.get(n["midi"], 0) + 1
+    top = sorted(counts.items(), key=lambda kv: -kv[1])[:2]
+    share = sum(c for _, c in top) / len(notes) if notes else 0.0
+    return {"onsets": len(onsets), "notes": len(notes), "unpitched": len(onsets) - len(notes), "key": key,
+            "pentatonic": [NOTE_NAMES[pc] for pc in sorted(scale)] if scale is not None else None, "off_key": off,
+            "top_pitches": [{"note": note_name(k), "notes": c} for k, c in top],
+            "top_two_share": round(share, 3),
+            "narrow": len(notes) >= min_notes_for_variety and share > 0.5,
+            "pitches": [n["note"] for n in notes][:200]}
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Timbre: no chimes, nothing metallic or glassy, nothing bright
+
+CENTROID_MAX_HZ = 1500.0
+RING_FROM_S, RING_TO_S = 0.3, 0.6  # where a strike should have died away
+CHIME_DB = -30.0  # a high partial (2 kHz and up) this close to its strike's peak, 300 ms on, is a chime's tail
+TONAL_DB = 20.0  # a partial stands this far over the ring window's own median (noise doesn't)
+HARMONIC_CENTS = 35.0
+
+
+def _tonal_peaks(f: np.ndarray, db: np.ndarray, lo: float, hi: float, *, within_db: float = 20.0) -> list[tuple[float, float]]:
+    """[(Hz, dB)] of the spectrum's tonal peaks in lo..hi: local maxima standing TONAL_DB over the band's median and
+    within within_db of the band's strongest."""
+    band = (f >= lo) & (f <= hi)
+    if not band.any():
+        return []
+    idx = np.flatnonzero(band)
+    sub = db[idx]
+    floor, top = float(np.median(sub)), float(np.max(sub))
+    peaks = signal.find_peaks(sub, prominence=TONAL_DB / 2)[0]
+    out = [(float(f[idx[k]]), float(sub[k])) for k in peaks
+           if sub[k] - floor >= TONAL_DB and sub[k] >= top - within_db]
+    return sorted(out, key=lambda p: -p[1])[:8]
+
+
+def _harmonic(freqs: list[float]) -> bool:
+    """True when every frequency is a whole multiple of the lowest (within HARMONIC_CENTS)."""
+    if len(freqs) < 2:
+        return True
+    f1 = min(freqs)
+    for fr in freqs:
+        r = fr / f1
+        n = max(1, round(r))
+        if abs(1200 * math.log2(r / n)) > HARMONIC_CENTS:
+            return False
+    return True
+
+
+def centroid_hz(seg: np.ndarray, sr: int, lo: float = 50.0, hi: float = 16000.0) -> float | None:
+    """The power-weighted spectral centroid of a segment (lo..hi), or None when it's silent."""
+    m = audio.mono(np.asarray(seg, dtype=np.float64))
+    if len(m) < 64 or not np.any(m):
+        return None
+    win = np.hanning(len(m))
+    pw = np.abs(np.fft.rfft(m * win)) ** 2
+    f = np.fft.rfftfreq(len(m), 1 / sr)
+    band = (f >= lo) & (f <= min(hi, sr / 2))
+    total = float(pw[band].sum())
+    return float((f[band] * pw[band]).sum() / total) if total > 0 else None
+
+
+def timbre_check(y: np.ndarray, sr: int) -> dict:
+    """Every hit in a stem (onsets by spectral flux): its centroid over its first 150 ms, and, when nothing else
+    starts before 600 ms, what still rings 300-600 ms after it: a high tonal partial close to the strike's peak (a
+    chime's tail) or bright tonal partials that aren't harmonics of one note (metal, glass)."""
+    m = audio.mono(np.asarray(y, dtype=np.float64))
+    dur = len(m) / sr
+    onsets = strikes(m, sr)
+    hits, centroids, chimes, metallic = [], [], [], []
+    for k, t in enumerate(onsets):
+        nxt = onsets[k + 1] if k + 1 < len(onsets) else dur
+        a = int(t * sr)
+        body = m[a:min(len(m), a + int(0.15 * sr), int(nxt * sr))]
+        c = centroid_hz(body, sr)
+        row = {"t": round(t, 3), "centroid_hz": round(c, 1) if c is not None else None}
+        if c is not None:
+            centroids.append(c)
+        strike = m[a:a + int(0.06 * sr)]
+        if nxt - t >= RING_TO_S and len(strike) > 64:
+            _f0, sdb = _spectrum(strike, sr)
+            peak = float(np.max(sdb))
+            ring = m[a + int(RING_FROM_S * sr):a + int(RING_TO_S * sr)]
+            f, rdb = _spectrum(ring, sr)
+            high = [p for p in _tonal_peaks(f, rdb, 2000.0, 12000.0, within_db=60.0)]
+            if high and high[0][1] - peak > CHIME_DB:
+                row["chime_tail"] = {"hz": round(high[0][0], 1), "db_vs_strike": round(high[0][1] - peak, 1)}
+                chimes.append(row)
+            ringing = [p for p in _tonal_peaks(f, rdb, 150.0, 12000.0) if p[1] - peak > -40.0]
+            bright = [p for p in ringing if p[0] >= 1000.0]
+            if bright and len(ringing) >= 2 and not _harmonic([p[0] for p in ringing]):
+                row["metallic"] = {"partials_hz": [round(p[0], 1) for p in ringing[:6]]}
+                metallic.append(row)
+        hits.append(row)
+    med = float(np.median(centroids)) if centroids else None
+    return {"hits": len(hits), "median_centroid_hz": round(med, 1) if med is not None else None,
+            "brightest": sorted((h for h in hits if h["centroid_hz"] is not None), key=lambda h: -h["centroid_hz"])[:5],
+            "chime_tails": chimes, "metallic": metallic}
+
+
+def brightness(x: np.ndarray, sr: int, *, split_hz: float = 2000.0, window_s: float = 0.1) -> dict | None:
+    """A stem's long-term brightness, over the windows where it sounds (within 50 dB of its loudest 100 ms): the
+    power-weighted spectral centroid and the share of its energy above split_hz. None for silence."""
+    m = audio.mono(np.asarray(x, dtype=np.float64))
+    w = max(256, int(window_s * sr))
+    k = len(m) // w
+    if k == 0 or not np.any(m):
+        return None
+    frames = m[:k * w].reshape(k, w)
+    rms = np.sqrt(np.mean(frames ** 2, axis=1))
+    live = rms >= rms.max() * 10 ** (-50 / 20)
+    win = np.hanning(w)
+    f = np.fft.rfftfreq(w, 1 / sr)
+    pw = np.zeros(len(f))
+    for fr in frames[live]:
+        pw += np.abs(np.fft.rfft(fr * win)) ** 2
+    band = (f >= 20.0) & (f <= sr / 2)
+    total = float(pw[band].sum())
+    if total <= 0:
+        return None
+    return {"centroid_hz": round(float((f[band] * pw[band]).sum() / total), 1),
+            "above_2k_share": round(float(pw[band & (f >= split_hz)].sum()) / total, 4), "split_hz": split_hz,
+            "live_s": round(float(live.sum()) * w / sr, 2)}

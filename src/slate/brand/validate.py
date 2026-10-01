@@ -243,6 +243,12 @@ def _logos(c: _Ctx) -> GateResult:
             reviews += [f"logo {lg['name']}: {x}" for x in r]
         if not lg["build"]:
             reviews.append(f"logo {lg['name']}: no build spec (the logo build uses its defaults)")
+    for mark, ways in pack.colourways(c.view).items():
+        if len(ways) < 2:
+            only = next(iter(ways))
+            reviews.append(f"logo {mark}: only one colourway ({only}). Add the other (ink and white at least) as its "
+                           f"own SVG, for example a `{mark}-inverse` logo with `on: inverse`, so builders never "
+                           "recolour the mark themselves")
     if fails:
         return c.result("logos", "FAIL", fails[0], fails + reviews)
     if reviews:

@@ -11,6 +11,15 @@ import pytest
 FIXTURES = Path(__file__).parent / "fixtures"
 
 
+@pytest.fixture(autouse=True)
+def _client_validators_off(monkeypatch):
+    """The clients' own validators (`claude plugin validate`, `skills-ref validate`) are real programs, so the default
+    run never starts one: every test sees them as not installed unless it puts a stand-in in their place."""
+    from slate import skills_build
+
+    monkeypatch.setattr(skills_build, "find_tool", lambda name: None)
+
+
 @pytest.fixture
 def skills_src(tmp_path):
     """A copy of the fixture skills folder, safe to edit."""

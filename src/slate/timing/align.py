@@ -2,8 +2,11 @@
 
 Whisper runs exactly as the films ran it: `whisper <take> --model turbo --language <lang> --word_timestamps True
 --output_format json --fp16 False` (openai-whisper from Homebrew; the model name and the CLI's version go into every
-result as evidence). Results are cached per take in timing/align/<engine>/<shot>.json and reused while the take's
-SHA-256, the engine, the model and the language are unchanged, so a rebuild never re-transcribes an approved take.
+result as evidence). It runs through the voice module's one Whisper runner, `slate.voice.align.transcribe`, so
+SLATE_WHISPER (or slate.toml's [voice] whisper) names the CLI for timing exactly as it does for the voice stages, and
+the job queue's whisper slot keeps it to one at a time. Results are cached per take in
+timing/align/<engine>/<shot>.json and reused while the take's SHA-256, the engine, the model and the language are
+unchanged, so a rebuild never re-transcribes an approved take.
 
 In replay mode (SLATE_FAKE_VENDORS=1: tests, evals, `slate demo`) nothing is transcribed: a recorded fixture answers
 (`fixtures/vendors/whisper/<key>.json`), or a deterministic stand-in spreads the script line across the take, marked
@@ -17,9 +20,6 @@ from __future__ import annotations
 
 import contextlib
 import datetime as _dt
-import os
-import re
-import tempfile
 from pathlib import Path
 
 from slate import config, jsonio, log, procs, replay
@@ -46,36 +46,40 @@ def whisper_model(film: dict | None = None) -> str:
     return WHISPER_MODELS.get(chosen, chosen)
 
 
-# The voice module's switch, honoured here too, so both Whisper runners use the same CLI: SLATE_WHISPER (or slate.toml's
-# [voice] whisper) names one particular Whisper (a build outside Homebrew, or a test's stand-in). Slate's PATH puts
-# Homebrew first whatever the caller's PATH says, so a PATH entry can't do this job.
+# The voice module's switch, honoured here through the voice module itself, so every stage hears with one CLI:
+# SLATE_WHISPER (or slate.toml's [voice] whisper) names one particular Whisper (a build outside Homebrew, or a test's
+# stand-in). Slate's PATH puts Homebrew first whatever the caller's PATH says, so a PATH entry can't do this job.
 WHISPER_ENV = "SLATE_WHISPER"
 
 
+def _voice_align():
+    """slate.voice.align, the one Whisper runner every stage uses (imported when it's needed: timing loads light)."""
+    from slate.voice import align as voice_align  # noqa: PLC0415
+
+    return voice_align
+
+
 def whisper_exe(*, required: bool = True) -> str | None:
-    """The Whisper CLI to run: SLATE_WHISPER (or [voice] whisper), else `whisper` on Slate's PATH."""
-    chosen = os.environ.get(WHISPER_ENV) or (config.load().get("voice") or {}).get("whisper")
-    if chosen:
-        path = str(Path(str(chosen)).expanduser())
-        if os.path.isfile(path) and os.access(path, os.X_OK):
-            return path
-        if required:
-            raise MissingPrerequisite(f"{WHISPER_ENV} names {path}, which isn't an executable file.",
-                                      hint="Point it at a Whisper CLI, or unset it to use the one on Slate's PATH.")
+    """The Whisper CLI every stage runs (slate.voice.align's choice: SLATE_WHISPER, slate.toml's [voice] whisper, else
+    `whisper` on Slate's PATH). With required, a missing one is a MissingPrerequisite naming the fix."""
+    info = _voice_align().whisper_info()
+    if info.get("path"):
+        return str(info["path"])
+    if not required:
         return None
-    if required:
-        return procs.require("whisper", hint="Install openai-whisper (Homebrew) with `slate doctor --install`.")
-    return procs.which("whisper")
+    if info.get("override"):
+        raise MissingPrerequisite(f"{WHISPER_ENV} names {info['override']}, which isn't an executable file.",
+                                  hint="Point it at a Whisper CLI, or unset it to use the one on Slate's PATH.")
+    return procs.require("whisper", hint="Install openai-whisper (Homebrew) with `slate doctor --install`.")
 
 
 def whisper_version() -> str:
-    """openai-whisper's version, read from the Homebrew Cellar path of the `whisper` CLI (no Python import needed)."""
-    exe = whisper_exe(required=False)
-    if not exe:
+    """openai-whisper's version, read from the Homebrew Cellar path of the CLI every stage runs (no Python import
+    needed): "not installed" without one, "unknown" when its path doesn't say."""
+    info = _voice_align().whisper_info()
+    if not info.get("path"):
         return "not installed"
-    real = os.path.realpath(exe)
-    m = re.search(r"openai-whisper/([^/]+)/", real)
-    return m.group(1) if m else "unknown"
+    return str(info.get("version") or "unknown")
 
 
 def _fake_whisper(key: str, request: dict) -> dict:
@@ -113,17 +117,9 @@ def _hold_whisper_lock():
 
 
 def run_whisper(path: Path, *, model: str, language: str) -> dict:
-    """Transcribe one take with the whisper CLI and return its JSON (segments with word timestamps)."""
-    exe = whisper_exe()
-    with tempfile.TemporaryDirectory(prefix="slate-whisper-") as tmp:
-        procs.run([exe, str(path), "--model", model, "--language", language, "--word_timestamps", "True",
-                   "--output_format", "json", "--output_dir", tmp, "--fp16", "False"],
-                  check=True, timeout=WHISPER_TIMEOUT_S)
-        out = Path(tmp) / f"{path.stem}.json"
-        if not out.is_file():
-            raise SlateError(f"whisper ran on {path.name} but wrote no JSON.",
-                             hint="Run the same command by hand to see Whisper's own error.")
-        return jsonio.read(out)
+    """Transcribe one take and return Whisper's JSON (segments with word timestamps), through the voice module's one
+    runner (slate.voice.align.transcribe: the CLI SLATE_WHISPER names, the whisper slot held while it runs)."""
+    return _voice_align().transcribe(Path(path), model=model, language=language, timeout=WHISPER_TIMEOUT_S)
 
 
 def _elevenlabs_align(path: Path, line: str, film_dir: Path, film: dict | None) -> tuple[dict, dict]:

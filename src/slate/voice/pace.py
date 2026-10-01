@@ -207,8 +207,9 @@ def pace_take(vf: VoiceFilm, shot: str, *, tempo: float | None = None, pause_kee
     data = vf.take_json(shot, take)
     data.setdefault("stages", {})["pace"] = stage
     data["stages"].pop("polish", None)  # re-paced: the old polish was made from the old timing
+    data["stages"].pop("trim", None)  # ...and a trimmed play length was measured on it too
     vf.save_take_json(shot, take, data)
-    vf.update_take(shot, take, paced=vf.rel(out), polished=None, align=None)
+    vf.update_take(shot, take, paced=vf.rel(out), polished=None, align=None, dur=None, trim_sha256=None)
     record(vf.dir, vf.rel(out), producer="slate voice pace", inputs={src_rel: jsonio.sha256(src)},
            tool_version=f"rubberband {rb.get('version')}" if used_tempo != 1.0 else None)
     words = len(vf.line(shot).text.split())

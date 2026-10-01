@@ -90,6 +90,9 @@ node_modules/
 *.part
 *.tmp
 .DS_Store
+# keys never live in a film: the ElevenLabs CLI (and others) load a .env from the folder they run in
+.env
+.env.*
 """
 
 

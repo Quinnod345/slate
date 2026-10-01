@@ -2,15 +2,21 @@
 
 Two lists, both small on purpose:
 
-- `RUN`: quick stages the `run` tool may start. Those that touch media (QA sweeps, review packets, delivery) still go
-  to the job queue, so nothing blocks a chat.
-- `JOBS`: long stages the `job_submit` tool may queue: renders, voicing, alignment, the score, the mix, verification,
-  QA, review and delivery.
+- `RUN`: quick stages the `run` tool may start. Those that touch media (QA sweeps, render stability, review packets,
+  delivery) still go to the job queue, so nothing blocks a chat.
+- `JOBS`: long stages the `job_submit` tool may queue: renders, voicing, the tag loop's rounds and listening reels,
+  the voice polish and analysis, alignment, the score, the mix, verification, QA and render stability, review and
+  delivery.
 
 Each stage names the options it accepts, with a pattern for each value. Anything else is refused before the command
 line sees it: `--go` (After Effects starts only on a person's go), `--by`, `--approved-by` and `--accept` (a person's
 decisions), `--live` (spend is `spend=true`, never a flag), `--out` and `--dir` (nothing is written outside the film).
-The same checks hold whatever client calls the server.
+A stage can refuse more for itself (`refused`), such as `--force` on adopting a tag-loop take, which would replace an
+approved one. The same checks hold whatever client calls the server.
+
+A command whose sub-steps are positional choices rather than commands of their own (`slate qa triage`,
+`slate voice tags pick`, `slate qa stability strip`) names them as the stage's `action`: the words find the command,
+the action picks the step.
 """
 
 from __future__ import annotations
@@ -33,6 +39,8 @@ MODEL = r"[A-Za-z0-9][A-Za-z0-9_.-]{0,39}"
 TAKE = SHOT + r"(?:/[A-Za-z0-9][A-Za-z0-9_.-]{0,15})?"  # a shot, or a shot's take: S01, S01/t02
 STRENGTH = r"(?:A|B|0(?:\.[0-9]{1,3})?|1(?:\.0{1,3})?)"  # a voice's named polish strength, or 0 to 1
 STRENGTHS = STRENGTH + r"(?:," + STRENGTH + r"){0,5}"
+KEY = r"[A-Za-z0-9][A-Za-z0-9_.-]{0,39}"  # a shot or a tag-loop take key: S01, N1s101
+BOX = r"[0-9]{1,5},[0-9]{1,5},[0-9]{1,5},[0-9]{1,5}"  # x,y,w,h in pixels
 JOB_ID = re.compile(r"^j-[0-9]{8}-[0-9]{6}-[0-9a-f]{4}$")
 MONTH = re.compile(r"^[0-9]{4}-(?:0[1-9]|1[0-2])$")
 MAX_ARGS = 64
@@ -45,6 +53,9 @@ class Stage:
 
     how: "inline" runs now and returns its result; "detach" asks the stage to queue itself (`--detach`, so the
     stage's own planning, disk reservation and resources apply); "queue" is submitted to the job queue by the server.
+    words find the command (`slate voice tags`); action is the positional step it runs (`pick`), placed before any
+    names the agent passes. refused maps an option this stage never takes through the server to the reason it's
+    told. A paid stage is free when one of `free_when`'s flags is given (measuring a round voices nothing).
     """
 
     name: str
@@ -63,12 +74,17 @@ class Stage:
     resources: tuple[str, ...] = ()
     paid: bool = False
     paid_when: tuple[tuple[str, str], ...] = ()
+    action: tuple[str, ...] = ()
+    refused: tuple[tuple[str, str], ...] = ()
+    free_when: tuple[str, ...] = ()
 
     @property
     def cli(self) -> str:
-        return "slate " + " ".join(self.words)
+        return "slate " + " ".join((*self.words, *self.action))
 
     def is_paid(self, argv: list[str]) -> bool:
+        if any(flag in argv for flag in self.free_when):
+            return False
         if self.paid:
             return True
         return any(f"{opt}={value}" in argv for opt, value in self.paid_when)
@@ -78,6 +94,12 @@ _QA = Stage("qa", ("qa",), "detach", "every quality gate (or only the named ones
             "slate.qa.cli", flags=("--quick",), positional=GATE, max_positional=40,
             reserved=("triage", "psnr", "unpark"), extra=("--detach",))
 
+
+_STABILITY = Stage("qa stability", ("qa", "stability"), "detach",
+                   "render stability on every act's render, or one act (pops, snaps, shakes, reversals, flicker, "
+                   "shimmer), triaged against planned beats, the act's reference and its baseline; as a background job",
+                   "slate.qa.stability", flags=("--quick", "--no-strips"), options=(("--act", SMALL_INT),),
+                   extra=("--detach",))
 
 _REVIEW = Stage("review", ("review",), "queue",
                 "the review packet for the current version: phone cut, contact sheet, what changed, open questions",
@@ -100,10 +122,24 @@ RUN: dict[str, Stage] = {s.name: s for s in (
     _QA,
     Stage("qa list", ("qa",), "inline", "the gates, where each comes from, and its latest status", "slate.qa.cli",
           extra=("--list",)),
-    Stage("qa triage", ("qa", "triage"), "inline", "what isn't passing, most severe first, with the next step for each",
-          "slate.qa.cli"),
+    Stage("qa triage", ("qa",), "inline", "what isn't passing, most severe first, with the next step for each",
+          "slate.qa.cli", action=("triage",)),
+    _STABILITY,
     Stage("voice estimate", ("voice", "tts"), "inline", "what voicing the lines would cost; nothing is spent",
           "slate.voice.cli", options=(("--only", IDS),), extra=("--estimate",)),
+    Stage("voice tags estimate", ("voice", "tags"), "inline",
+          "what voicing the tag loop's next round would cost (the candidates not voiced yet); nothing is voiced",
+          "slate.voice.cli", flags=("--include-held",), options=(("--round", ID), ("--only", IDS)),
+          extra=("--estimate",), action=("optimize",)),
+    Stage("voice tags pick", ("voice", "tags"), "inline",
+          "gate and rank each line's tagged takes from a measured round (ranking.md); nothing is voiced",
+          "slate.voice.cli", options=(("--round", ID),), action=("pick",)),
+    Stage("voice tags adopt", ("voice", "tags"), "inline",
+          "put the take the person picked by ear into the film as that exact file, with its direction; never "
+          "re-voiced", "slate.voice.cli", options=(("--round", ID),), positional=KEY, min_positional=2,
+          max_positional=2, action=("adopt",),
+          refused=(("--force", "Adopting over an approved take replaces approved work: that's the person's go, in "
+                               "their own terminal (slate voice tags adopt <shot> <take> --force)."),)),
     Stage("score estimate", ("score", "compose"), "inline", "what composing the score would cost; nothing is spent",
           "slate.sound.cli", positional=PART, max_positional=40, extra=("--dry-run",)),
     _REVIEW,
@@ -144,10 +180,40 @@ JOBS: dict[str, Stage] = {s.name: s for s in (
           "natural speech", "slate.voice.cli", flags=("--sheet", "--spectrum"),
           options=(("--ab", TAKE), ("--stage", "raw|clean|paced|polished"), ("--name", ID)), positional=TAKE,
           min_positional=1, max_positional=20, kind="voice"),
+    Stage("voice tags optimize", ("voice", "tags"), "queue",
+          "the tag loop's round: voice every tagged candidate on its seeds (spends), then measure them against the "
+          "voice's untagged reads; --measure-only voices nothing", "slate.voice.cli",
+          flags=("--generate-only", "--measure-only", "--include-held"), options=(("--round", ID), ("--only", IDS)),
+          action=("optimize",), kind="voice-tags", resources=("elevenlabs_tts", "whisper"), paid=True,
+          free_when=("--measure-only",)),
+    Stage("voice tags abc", ("voice", "tags"), "queue",
+          "a level-matched listening reel of a line's best passing takes, with A/B sheets, for the person to pick by "
+          "ear", "slate.voice.cli", options=(("--round", ID), ("--n", SMALL_INT), ("--also", IDS)), positional=SHOT,
+          min_positional=1, max_positional=1, action=("abc",), kind="voice-tags"),
     _QA,
+    _STABILITY,
+    Stage("qa stability compare", ("qa", "stability"), "queue",
+          "a re-render meant to change rendering only, against the act's reference render: nothing moved, missing "
+          "or doubled, nothing softer at rest", "slate.qa.stability", flags=("--rest-only",),
+          options=(("--act", SMALL_INT),), action=("compare",), kind="qa", resources=("render",)),
+    Stage("qa stability strip", ("qa", "stability"), "queue",
+          "a before-and-after strip around one frame of an act, for a person's eyes (qa/stability/strips/)",
+          "slate.qa.stability",
+          options=(("--act", SMALL_INT), ("--frame", INT), ("--count", SMALL_INT), ("--box", BOX),
+                   ("--zoom", NUMBER)), action=("strip",), kind="qa", resources=("render",)),
     _REVIEW,
     _DELIVER,
 )}
+
+# Stages only a person runs, with where they run them (asked for by name, they're refused with this, not a bare no).
+PERSON_ONLY: dict[str, str] = {
+    "qa stability baseline": "Accepting an act's stability flags is a person's call, with their name and reason: slate "
+                             "qa stability baseline --act N --by NAME --reason TEXT, in their own terminal.",
+    "qa stability reference": "Choosing the render an act is compared with takes a file and a judgement: slate qa "
+                              "stability reference --act N <render> --by NAME --reason TEXT, in a terminal.",
+    "voice approve": "Approving a take is a person's, by ear: slate voice approve <shot> --by NAME, in their own "
+                     "terminal.",
+}
 
 # Options an agent may never pass through the server, with the reason it's told.
 REFUSED_OPTIONS: dict[str, str] = {
@@ -174,6 +240,8 @@ def stage(name: str, table: dict[str, Stage], *, tool: str) -> Stage:
     found = table.get((name or "").strip())
     if found:
         return found
+    if (name or "").strip() in PERSON_ONLY:
+        raise Refused(f"{name!r} isn't something the MCP server runs.", hint=PERSON_ONLY[(name or "").strip()])
     other = JOBS if table is RUN else RUN
     if (name or "").strip() in other:
         where = "job_submit" if other is JOBS else "run"
@@ -203,6 +271,7 @@ def check_args(st: Stage, args: list[str] | None) -> list[str]:
     if len(args) > MAX_ARGS:
         raise UsageError(f"Too many arguments ({len(args)}); {MAX_ARGS} is the most one stage takes here.")
     options = dict(st.options)
+    refused = dict(st.refused)
     flags_out: list[str] = []
     opts_out: list[str] = []
     positionals: list[str] = []
@@ -217,6 +286,8 @@ def check_args(st: Stage, args: list[str] | None) -> list[str]:
             name, has_value, value = arg.partition("=")
             if name in REFUSED_OPTIONS:
                 raise Refused(f"{name} isn't passed through the MCP server.", hint=REFUSED_OPTIONS[name])
+            if name in refused:
+                raise Refused(f"{name} isn't passed to {st.cli} through the MCP server.", hint=refused[name])
             if name == "--dry-run":
                 if has_value:
                     raise UsageError("--dry-run takes no value.")
@@ -260,7 +331,8 @@ def check_args(st: Stage, args: list[str] | None) -> list[str]:
 def require_spend(st: Stage, argv: list[str], spend: bool) -> None:
     """A stage that spends runs only with spend=true: the agent has shown the person the estimate and they agreed."""
     if st.is_paid(argv) and not spend:
-        estimate = {"voice tts": "run with 'voice estimate'", "score compose": "run with 'score estimate'"}
+        estimate = {"voice tts": "run with 'voice estimate'", "score compose": "run with 'score estimate'",
+                    "voice tags optimize": "run with 'voice tags estimate'"}
         how = estimate.get(st.name, "the command's --dry-run or --estimate")
         raise SpendRefused(
             f"{st.cli} spends vendor credits, so it needs spend=true.",
@@ -296,5 +368,5 @@ def check_value(what: str, value: str | None) -> str | None:
     return value
 
 
-__all__ = ["Stage", "RUN", "JOBS", "REFUSED_OPTIONS", "stage", "check_args", "require_spend", "check_job_id",
-           "check_month", "check_value"]
+__all__ = ["Stage", "RUN", "JOBS", "REFUSED_OPTIONS", "PERSON_ONLY", "stage", "check_args", "require_spend",
+           "check_job_id", "check_month", "check_value"]

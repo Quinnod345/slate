@@ -10,6 +10,8 @@ and citations, never code (docs/PLAN.md §7, Protections: "company source code i
 - `read_file_text(text, name)`: one file's text from anywhere else, for code that lives on another Mac: it arrives on
   stdin (`peer cat … | slate brand onboard … --stdin-as <path>`) and is never written to disk.
 - `read_website(url)`: a page's HTML and stylesheets over HTTPS (no browser, no JavaScript), or a saved copy of the page.
+  Besides the tokens, it returns the page's visible copy as leaf-text lines (`copy`, by the standard library's HTML
+  parser, so nothing extra is installed), so on-screen copy can be matched against the brand's real words.
   Replay mode (`SLATE_FAKE_VENDORS=1`) answers from recorded fixtures only, so tests stay offline.
 - `read_pdf(path)`: a guidelines PDF's text through macOS's PDFKit (or poppler's pdftotext), read in place.
 - `peer_procedure(spec, brand)`: for `work:<path>`, the read-only steps a person runs through the `peer` tool.
@@ -25,6 +27,7 @@ import json
 import os
 import re
 import urllib.parse
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -490,6 +493,87 @@ def fetch_website(url: str) -> dict:
     return data
 
 
+# ----------------------------------------------------------------------------------------------------- visible copy
+_SKIP_TAGS = frozenset({"script", "style", "noscript", "template", "svg", "canvas", "iframe", "head", "title", "object",
+                        "video", "audio", "select", "option"})
+_BLOCK_TAGS = frozenset({"p", "div", "section", "article", "header", "footer", "nav", "main", "aside", "h1", "h2", "h3",
+                         "h4", "h5", "h6", "li", "ul", "ol", "dl", "dt", "dd", "blockquote", "figure", "figcaption",
+                         "table", "tr", "td", "th", "caption", "form", "fieldset", "legend", "label", "button", "br",
+                         "hr", "pre", "address", "summary", "details", "body", "html"})
+_VOID_TAGS = frozenset({"br", "hr", "img", "input", "meta", "link", "source", "wbr", "area", "base", "col", "embed",
+                        "track", "param"})
+
+
+class _CopyParser(HTMLParser):
+    """Visible text, one line per block: text inside inline tags joins its block's line; hidden elements (the
+    `hidden` attribute, aria-hidden, display:none, scripts and styles) are left out."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.lines: list[str] = []
+        self.buf: list[str] = []
+        self.skip: list[str] = []  # the stack of open tags that hide their contents
+
+    def _flush(self) -> None:
+        text = " ".join("".join(self.buf).split())
+        self.buf = []
+        if text and re.search(r"[A-Za-z0-9]", text):
+            self.lines.append(text)
+
+    @staticmethod
+    def _hidden(attrs: list[tuple[str, str | None]]) -> bool:
+        a = {k.lower(): (v or "") for k, v in attrs}
+        style = a.get("style", "").replace(" ", "").lower()
+        return "hidden" in a or a.get("aria-hidden", "").lower() == "true" or "display:none" in style \
+            or "visibility:hidden" in style
+
+    def handle_starttag(self, tag, attrs):
+        tag = tag.lower()
+        if self.skip:
+            if tag not in _VOID_TAGS:
+                self.skip.append(tag)
+            return
+        if tag in _SKIP_TAGS or self._hidden(attrs):
+            if tag not in _VOID_TAGS:
+                self.skip.append(tag)
+            return
+        if tag in _BLOCK_TAGS:
+            self._flush()
+        if tag == "img":
+            alt = dict((k.lower(), v) for k, v in attrs).get("alt")
+            if alt:
+                self.buf.append(f" {alt} ")
+
+    def handle_endtag(self, tag):
+        tag = tag.lower()
+        if self.skip:
+            if tag in self.skip:
+                while self.skip and self.skip.pop() != tag:
+                    pass
+            return
+        if tag in _BLOCK_TAGS:
+            self._flush()
+
+    def handle_data(self, data):
+        if not self.skip:
+            self.buf.append(data)
+
+    def close(self):
+        super().close()
+        self._flush()
+
+
+def visible_copy(html: str) -> list[str]:
+    """A page's visible copy as leaf-text lines, in page order, each once."""
+    parser = _CopyParser()
+    try:
+        parser.feed(html or "")
+        parser.close()
+    except Exception:  # noqa: BLE001 - html.parser tolerates almost anything; a page it can't read has no copy
+        return []
+    return list(dict.fromkeys(parser.lines))
+
+
 def read_website(url_or_path: str) -> dict:
     """A website's tokens from its HTML and stylesheets (no browser, no JavaScript), or from a saved copy of a page."""
     target = str(url_or_path)
@@ -526,8 +610,8 @@ def read_website(url_or_path: str) -> dict:
                 f["source"] = {"kind": "kit", "url": name}
                 f["note"] = "served by a type service's kit: the pack names it by this stylesheet's URL"
         merge(found, sheet)
-    return {"source": source, "found": found, "files_read": 1 + len(data.get("stylesheets") or {}),
-            "problems": found["problems"]}
+    return {"source": source, "found": found, "copy": visible_copy(data["html"]),
+            "files_read": 1 + len(data.get("stylesheets") or {}), "problems": found["problems"]}
 
 
 # ----------------------------------------------------------------------------------------------------------- PDF

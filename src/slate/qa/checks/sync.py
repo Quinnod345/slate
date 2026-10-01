@@ -13,7 +13,13 @@ Four checks, each measured, none assumed:
                  (r ≥ 0.95, the sound module's floor too), or it isn't that take;
 4. word landings every beat that names a word (`"word": "…"`, optional `occ` and `offset`) lands within two frames
                  of that word in the take. A beat that lands off its word by design says so with
-                 `"sync_exception": "<why>"`: it becomes a REVIEW item for a person, never a silent pass.
+                 `"sync_exception": "<why>"`: it becomes a REVIEW item for a person, never a silent pass;
+5. gestures      every character beat keyed to a word (a mark or character's key pose, kind "character" with a
+                 `word`) lands early, never late: at its contact frame, no later than the end of the word's stressed
+                 syllable (`stress_end`, film seconds, as the kit records it with the beat; else the word's own end).
+                 Landing early is fine: a gesture "precedes or ends at, but does not follow" its syllable. These beats
+                 are judged here rather than by the two-frame word rule, because a contact sits on the stressed
+                 syllable (S + 2 frames), not on the word's first letter.
 """
 
 from __future__ import annotations
@@ -318,11 +324,82 @@ def word_time(ctx: FilmContext, shot: str, word: str, occ: int = 1) -> float | N
     return base + float(hits[occ - 1]["start"]) if len(hits) >= occ else None
 
 
+def word_span(ctx: FilmContext, shot: str, word: str, occ: int = 1) -> tuple[float, float] | None:
+    """Film seconds where a word starts and ends in a shot's take, or None (the same lookup as word_time)."""
+    record = ctx.vo_words.get(shot) or {}
+    cue = next((c for c in ctx.vo_cues if str(c.get("shot")) == shot), None)
+    s = ctx.shot_by_id.get(shot)
+    if cue is None or s is None:
+        return None
+    base = ctx.secs_of(int(s["frame_in"])) + float(cue.get("at") or 0.0)
+    lang = str(ctx.film.get("language") or "en")
+    try:
+        timing_words = importlib.import_module("slate.timing.words")
+        a = timing_words.lookup(record, word, occ, "start", lang)
+        b = timing_words.lookup(record, word, occ, "end", lang)
+        if a is not None and b is not None:
+            return base + float(a[0]), base + float(b[0])
+    except (ImportError, AttributeError):
+        pass
+    except Exception:  # noqa: BLE001 - a failing lookup falls back to the exact match below
+        pass
+    want = norm_word(word)
+    hits = [w for w in record.get("words") or [] if norm_word(str(w.get("w", ""))) == want]
+    if len(hits) < occ:
+        return None
+    hit = hits[occ - 1]
+    return base + float(hit["start"]), base + float(hit.get("end", hit["start"]))
+
+
+def _is_gesture(e: dict) -> bool:
+    return e.get("kind") == "character" and isinstance(e.get("word"), str) and bool(e["word"].strip())
+
+
+def _gestures(ctx: FilmContext) -> tuple[Sub | None, list]:
+    """Character beats keyed to a word: early allowed, never later than the stressed syllable's end."""
+    rows = []
+    for a in ctx.acts:
+        ev = ctx.act_events(a)
+        rows += [e for e in ev.events if _is_gesture(e)]
+    read = ["timing/vo_words.json", "timing/vo_cues.json"]
+    if not rows:
+        return None, read
+    half = 0.5 * (ctx.frame_seconds or 0.0) + 1e-6
+    late, missing, n, earliest = [], [], 0, 0.0
+    for e in rows:
+        sid, name = str(e["shot"]), str(e.get("gesture") or e["id"])
+        span = word_span(ctx, sid, e["word"], int(e.get("occ") or 1))
+        stress_end = e.get("stress_end")
+        end = float(stress_end) if isinstance(stress_end, (int, float)) and not isinstance(stress_end, bool) else (
+            span[1] if span else None)
+        if end is None:
+            missing.append(f"{sid}/{e['id']} ({name}): the word {e['word']!r} isn't in the take's words")
+            continue
+        start = e.get("stress_start")
+        start = float(start) if isinstance(start, (int, float)) and not isinstance(start, bool) else (
+            span[0] if span else end)
+        n += 1
+        t = float(e["t"])
+        if t > end + half:
+            late.append(f"{sid}/{e['id']}: the {name} lands at film frame {ctx.frame_of(t)}, "
+                        f"{(t - end) * 1000:.0f} ms after {e['word']!r}'s stressed syllable ends (frame "
+                        f"{ctx.frame_of(end)}): a gesture lands early, never late")
+        else:
+            earliest = max(earliest, start - t)
+    line = f"{n} gestures keyed to words" + (f", the earliest {earliest * 1000:.0f} ms before its syllable" if n else "")
+    if late or missing:
+        bad = late + missing
+        return Sub("gestures", "FAIL", f"{plural(len(bad), 'gesture')} after {'its' if len(bad) == 1 else 'their'} "
+                   f"word: {bad[0]}", [line] + bad[:30]), read
+    return Sub("gestures", "PASS", f"every gesture lands on or before its stressed syllable ends ({line})"), read
+
+
 def _landings(ctx: FilmContext) -> tuple[Sub | None, list]:
     anchored = []
     for a in ctx.acts:
         ev = ctx.act_events(a)
-        anchored += [(ev.path, e) for e in ev.events if isinstance(e.get("word"), str) and e["word"].strip()]
+        anchored += [(ev.path, e) for e in ev.events if isinstance(e.get("word"), str) and e["word"].strip()
+                     and not _is_gesture(e)]
     read = ["timing/vo_words.json", "timing/vo_cues.json"]
     if not anchored:
         return None, read
@@ -360,8 +437,8 @@ def _landings(ctx: FilmContext) -> tuple[Sub | None, list]:
 
 # ---------------------------------------------------------------------------------------------- the gate
 def sync(film_dir: Path) -> GateResult:
-    """Cues within a frame of their beats, VO takes exactly at their cues, word-anchored beats on their words, and
-    every act covered by beats."""
+    """Cues within a frame of their beats, VO takes exactly at their cues, word-anchored beats on their words,
+    gestures early and never late, and every act covered by beats."""
     ctx = context(film_dir)
     engine = gates.engine("slate sync", __version__, voice="numpy/scipy cross-correlation",
                           effects="the sound engine's verification record (sound/verify.json)")
@@ -373,7 +450,7 @@ def sync(film_dir: Path) -> GateResult:
     cov, r = _coverage(ctx)
     subs.append(cov)
     read += r
-    for fn in (_effects, _voice, _landings):
+    for fn in (_effects, _voice, _landings, _gestures):
         sub, r = fn(ctx)
         read += r
         if sub is not None:

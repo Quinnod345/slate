@@ -2,10 +2,20 @@
  "mcpServers": {
   "slate": {
    "command": "slate",
-   "args": ["mcp"],
+   "args": [
+    "mcp"
+   ],
    "env": {
     "BROWSER": "none"
    }
+  },
+  "elevenlabs": {
+   "type": "http",
+   "url": "https://api.elevenlabs.io/v1/mcp"
+  },
+  "higgsfield": {
+   "type": "http",
+   "url": "https://mcp.higgsfield.ai/mcp"
   }
  }
 }

@@ -16,13 +16,13 @@ measured. Nothing unchecked is ever reported as passed.
 | 1 | Brief: the request verbatim, then the checklist, format, brand and budget | pre-production sitting | every ask captured | `slate new` | [slate](../skills/slate/SKILL.md) |
 | 2 | Truth: pinned sources, research, sample data | pre-production sitting (claims) | every claim on the approved list or sourced | `brief/truth.json`, `slate script build` | [slate-story](../skills/slate-story/SKILL.md) |
 | 3 | Treatment and script (`script.json` to `storyboard.json`) | pre-production sitting | 2.6 words a second or less, read time, banned words, runtime within 10%, no unsourced numbers | `slate script build` | [slate-story](../skills/slate-story/SKILL.md) |
-| 4 | Voice: cast or design, then voice every line | pre-production sitting (the shortlist) | Whisper hears every word and the brand words; no leaked tails; each read fits its shot | `slate voice cast`, `slate voice design`, `slate voice tts` | [slate-voice](../skills/slate-voice/SKILL.md) |
+| 4 | Voice: cast or design, then voice every line | pre-production sitting (the shortlist) | Whisper hears every word and the brand words; no leaked tails; each read fits its shot | `slate voice cast`, `slate voice design`, `slate voice tts`, `slate voice polish` | [slate-voice](../skills/slate-voice/SKILL.md) |
 | 5 | Timing: shots from the real reads, words, events | none | frame-exact and contiguous | `slate script build --from-takes`, `slate timing` | [slate-story](../skills/slate-story/SKILL.md) |
 | 6 | Look test (skipped when the brand's look is approved) | pre-production sitting | none: a person judges a moving test | `slate render` of the test | [slate-motion](../skills/slate-motion/SKILL.md) |
 | 7 | Kit, builders' brief, act builds in Remotion or After Effects (in parallel where the agent can); captures | hero moments, in the packet | type check, an empty word-miss list, bit-identical contracts, every act's events exported | `slate emit-events`, `slate check`, `slate capture ios`, `slate capture web` | [slate-build](../skills/slate-build/SKILL.md) |
 | 8 | Generated shots (only when the film's generation setting allows, and code can't do the job) | takes, in the packet | estimate first; at least two takes judged; ugly or AI-looking takes never ship | `slate plates plan`, `slate gen run`, `slate gen judge`, `slate plates conform` | [slate-generate](../skills/slate-generate/SKILL.md) |
-| 9 | Score, sound and mix | sound proofs, in the packet | −14 LUFS within 0.5, at or under −1 dBTP, stems sum, cues within a frame, no repeats, no unplanned music gaps, levels against the brand's sound reference | `slate score plan`, `slate score assemble`, `slate mix`, `slate verify` | [slate-sound](../skills/slate-sound/SKILL.md) |
-| 10 | Render with true motion blur | none | frame counts, glitch scan triaged, act joins, motion checks | `slate render`, `slate qa` | [slate-finish](../skills/slate-finish/SKILL.md) |
+| 9 | Score, sound and mix | sound proofs, in the packet | −14 LUFS within 0.5, at or under −1 dBTP, stems sum, cues within a frame, no repeats, no unplanned music gaps, levels against the brand's sound reference, every word clear of the score and effects (the balance gates) | `slate score plan`, `slate score assemble`, `slate mix`, `slate verify` | [slate-sound](../skills/slate-sound/SKILL.md) |
+| 10 | Render with true motion blur | none | frame counts, glitch scan and render stability triaged, act joins, motion checks | `slate render`, `slate qa` | [slate-finish](../skills/slate-finish/SKILL.md) |
 | 11 | Master: After Effects for supervised films; ffmpeg for autonomous and draft films | the owner starts the AE finish | master against render PSNR of 40 dB or more on every frame, exact frame counts, the AE project audit | `slate master --ae --go`, `slate master --ffmpeg` | [slate-finish](../skills/slate-finish/SKILL.md) |
 | 12 | Validate and deliver | final-cut sitting | every film gate passes; the manifest is written last | `slate qa`, `slate deliver` | [slate-qa](../skills/slate-qa/SKILL.md) |
 | 13 | Review and correct | the owner's notes | the same gates, re-run on what changed | `slate review` | [slate-finish](../skills/slate-finish/SKILL.md) |
@@ -77,6 +77,8 @@ A production can run for days and outlive the agents working on it.
   limit stopped eight agents at once.
 - Nothing prompts: research slices run with stdin as a pipe and are killed after ten minutes, so every long step is a job
   they submit and poll, and keys are set by a person in their own Terminal.
+- From inside the OpenClaw gateway, whose network proxy blocks the vendors, every paid stage is a job too: the queue's
+  runner works outside the gateway, through the same ledger.
 - Builders get a first working version of every shot onto disk fast and keep their act's NOTES.md current.
 - Each job reserves disk space first and stops safely before the disk fills.
 - The goal survives summaries: after any compaction, the checklist is re-derived from the verbatim request in

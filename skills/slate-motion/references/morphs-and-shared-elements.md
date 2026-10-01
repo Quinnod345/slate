@@ -32,6 +32,9 @@ while everything else changes.
 - **When many pieces morph into shapes**, their union becomes the destination shape on arrival, and the solid shape takes
   over on that frame. Never fade in a second set at the destination while the first is still moving.
 - **When a small card grows into a large one**, its position leads its growth, so it grows out of where it is.
+- **A container that grows open** (a chat out of a button) reveals content that sits still in its own layer, clipped
+  to the growing paper. Carried inside the growing card, its type re-rasterises at a new sub-pixel phase every frame
+  and shimmers.
 - **Animate corner radii before a split or merge**: corners that snapped from 28 px to 8 px on a split's first frame
   popped.
 - **When segments merge into one shape** (a donut's groups into a ring), draw it as one continuous path once merged, so
