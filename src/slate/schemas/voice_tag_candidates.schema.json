@@ -1,0 +1,48 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "slate/voice_tag_candidates",
+ "title": "Tag candidates (voice/tags/candidates.json)",
+ "description": "The hand-written plan for a tag-optimization round (`slate voice tags optimize`): per line, the feeling to measure (intent), where it should show (emotion_from_word), the tagged candidates and their seeds, and extra untagged seeds so the voice's own baseline is several reads of the same words. Every candidate must strip back to the script line exactly, and no tag may lower vocal effort or add breath; both are checked before anything is voiced.",
+ "type": "object",
+ "required": ["lines"],
+ "properties": {
+  "note": {"type": "string"},
+  "lines": {
+   "type": "object",
+   "minProperties": 1,
+   "additionalProperties": {
+    "type": "object",
+    "required": ["candidates"],
+    "properties": {
+     "intent": {"enum": ["none", "smile", "smile_end", "reassure", "hopeful_end", "sincere", "rhetorical", "plain",
+                         "encourage", "warm", "alive_fall", "calmer"],
+                "description": "the feeling the pick must measurably show on its emotion span (none: the gates only)"},
+     "emotion_from_word": {"type": "integer", "minimum": 0,
+                           "description": "the script word (0-based) where the feeling should show; every take of the line is compared on the same words"},
+     "rhetorical": {"type": "boolean", "description": "a question the line answers itself: its question words must rise less than the voice's untagged reads"},
+     "reference": {"type": "string", "description": "for intent calmer: the take to be calmer than (a round key, or current for the film's take)"},
+     "hold": {"type": "boolean", "description": "planned but waiting for the person's go (voiced only with --include-held)"},
+     "baseline_seeds": {"type": "array", "items": {"type": "integer", "minimum": 0}, "uniqueItems": true},
+     "candidates": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+       "type": "object",
+       "required": ["key", "tagged", "seeds"],
+       "properties": {
+        "key": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]{0,15}$"},
+        "tagged": {"type": "string", "minLength": 1},
+        "seeds": {"type": "array", "items": {"type": "integer", "minimum": 0}, "minItems": 1, "uniqueItems": true},
+        "stability": {"type": "number", "minimum": 0, "maximum": 1},
+        "context": {"enum": ["neighbours", "no_next", "none"]},
+        "role": {"enum": ["candidate", "baseline"]}
+       },
+       "additionalProperties": false
+      }
+     }
+    },
+    "additionalProperties": false
+   }
+  }
+ }
+}

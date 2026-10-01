@@ -9,7 +9,7 @@ An act is built in After Effects when its folder holds `scenes/ae/actN.json`, a 
                 {"id": "title", "type": "text", "text": "…", "font": "display", "font_size": 48, "color": "ink"},
                 {"id": "mark", "type": "logo", "logo": "mark", "width": 200, "pos": [540, 500]}, …],
      "anims": [{"id": "card-in", "layer": "card", "prop": "position", "from": [640, 460], "to": [640, 360],
-                "ease": "enter", "dur": "base", "land": "S03/card",
+                "ease": "enter", "dur": "base", "land": "S03/card", "class": "carry",
                 "event": {"kind": "land", "size": "m", "note": "the card lands"}},
                {"id": "title-fade", "layer": "title", "prop": "opacity",
                 "keys": [{"at": {"shot": "S03", "t": 0.4}, "value": 0, "ease": "move"},
@@ -21,6 +21,13 @@ frame; {"event": "S03/card", "use": "start"} for its start), a moment in a shot 
 lands on an event starts T90 × its duration earlier, so it covers 90% of its travel on the event's frame, exactly as
 the Remotion kit's startFor does. Eases are the brand's named eases (or linear, hold, sine, spring0), durations its
 duration tokens or seconds, colours its palette tokens, fonts its roles, logos its logos.
+
+An event's beat `t` is the moment it names (`at`: "land", the default, "start" or "end"), except for a sustained
+motion: a draw or a count ends on its beat and gives its span (start and dur, from the animation's first and last key),
+and a whoosh or a swell gives its span with its beat inside, so every engine's beats mean the same (slate.timing.beats).
+A move may also say which speed limits `slate qa motion` holds it to (`class`: rig, ui, carry or whip; a rig part is rig
+without saying so), and declare an exemption (`exempt`: reading_sweep or steady, with a `reason`) or a deliberate
+`exception`.
 
 Python resolves every frame; the ExtendScript kit only reads the resolved scene from the build spec. Because both
 evaluate the same motion law (checked by the shared vectors), the act's motion trace (timing/motion/actN.json, the
@@ -40,6 +47,7 @@ from typing import Any, Callable
 
 from slate import clock as film_clock
 from slate import jsonio, log, paths, procs
+from slate.timing import beats as beat_rules
 from slate.ae import driver, eases, guard, masters as ae_masters, prefs
 from slate.errors import MissingPrerequisite, Refused, SlateError, UsageError
 
@@ -53,6 +61,10 @@ EVENT_KINDS = ("tap", "type", "land", "snap", "count", "draw", "data", "page", "
                "impact")
 EVENT_SIZES = ("s", "m", "l")
 BUILTIN_EASES = ("linear", "hold", "sine", "spring0")
+# The element classes and exemptions `slate qa motion` reads from a trace entry (and the other names it accepts).
+MOTION_CLASSES = {"rig": "rig", "character": "rig", "mark": "rig", "ui": "ui", "element": "ui", "carry": "carry",
+                  "page": "carry", "camera": "carry", "whip": "whip"}
+MOTION_EXEMPTIONS = ("reading_sweep", "steady")
 GENERATED = "do not edit by hand: slate ae acts export"
 
 Runner = Callable[..., Any]
@@ -294,25 +306,71 @@ def resolve_scene(scene: dict, *, act: dict, shots: dict, timeline: dict, fps: f
                       "keys": [[k[0] - a_in, k[1], k[2]] for k in keys]})
         moves.append({"id": aid, "layer": A["layer"], "prop": prop, "keys": keys, "entrance": A.get("entrance"),
                       "size": L.get("size"), "rig": A.get("rig"), "loop_period": A.get("loop_period"),
-                      "exception": A.get("exception"), **facts})
+                      "exception": A.get("exception"), **_trace_class(A), **facts})
         ev = A.get("event")
         if ev:
-            kind, size, note = ev.get("kind"), ev.get("size"), ev.get("note")
-            if kind not in EVENT_KINDS:
-                raise UsageError(f"Animation {aid}: event kind {kind!r} isn't one of {', '.join(EVENT_KINDS)}.")
-            if size not in EVENT_SIZES:
-                raise UsageError(f"Animation {aid}: event size {size!r} isn't s, m or l.")
-            if not isinstance(note, str) or not note.strip():
-                raise UsageError(f"Animation {aid}: an event needs a note saying what the viewer sees.")
-            at = ev.get("at", "land")
-            frame = (facts.get("land") if at == "land" and facts.get("land") is not None else
-                     keys[-1][0] if at == "end" else keys[0][0])
-            events.append({"id": ev.get("id", aid), "shot": shot_at(shots, act, frame), "t": round(frame / fps, 6),
-                           "frame": frame, "kind": kind, "size": size, "note": note.strip()})
+            events.append(_event(A, ev, keys, facts, shots=shots, act=act, fps=fps))
     if sum(1 for e in events if e["kind"] == "impact") > 1:
         raise UsageError(f"Act {act['index']} has more than one impact; an act has at most one big landing.")
     return {"layers": layers, "anims": anims, "moves": moves, "events": sorted(events, key=lambda e: e["t"]),
             "silent": scene.get("silent")}
+
+
+def _trace_class(A: dict) -> dict:
+    """The optional trace keys a move declares for `slate qa motion`: its element class (a rig part is rig without
+    saying so) and a declared exemption with its reason. A name the gate wouldn't know is refused here, at the scene."""
+    out: dict = {}
+    aid = A.get("id")
+    if A.get("class") is not None:
+        cls = MOTION_CLASSES.get("".join(ch for ch in str(A["class"]).lower() if ch.isalnum()))
+        if cls is None:
+            raise UsageError(f"Animation {aid}: class {A['class']!r} isn't one of rig, ui, carry or whip (or character, "
+                             "mark, element, page, camera).")
+        out["class"] = cls
+    elif A.get("rig"):
+        out["class"] = "rig"
+    if A.get("exempt") is not None:
+        key = "".join(ch for ch in str(A["exempt"]).lower() if ch.isalnum())
+        ex = next((k for k in MOTION_EXEMPTIONS if k.replace("_", "") == key), None)
+        if ex is None:
+            raise UsageError(f"Animation {aid}: exempt {A['exempt']!r} isn't one of {', '.join(MOTION_EXEMPTIONS)}.")
+        out["exempt"] = ex
+    if isinstance(A.get("reason"), str) and A["reason"].strip():
+        out["reason"] = A["reason"].strip()
+    return out
+
+
+def _event(A: dict, ev: dict, keys: list[list], facts: dict, *, shots: dict, act: dict, fps: float) -> dict:
+    """One animation's visual beat. `t` is the moment `at` names (land, start or end); a draw or a count ends on its
+    beat and carries its span (start and dur: the animation's first key to its last), and a whoosh or a swell carries
+    its span with its beat inside, as slate.timing.beats has every engine write them."""
+    aid = A.get("id")
+    kind, size, note = ev.get("kind"), ev.get("size"), ev.get("note")
+    if kind not in EVENT_KINDS:
+        raise UsageError(f"Animation {aid}: event kind {kind!r} isn't one of {', '.join(EVENT_KINDS)}.")
+    if size not in EVENT_SIZES:
+        raise UsageError(f"Animation {aid}: event size {size!r} isn't s, m or l.")
+    if not isinstance(note, str) or not note.strip():
+        raise UsageError(f"Animation {aid}: an event needs a note saying what the viewer sees.")
+    first, last = int(keys[0][0]), int(keys[-1][0])
+    at = ev.get("at", "land")
+    if at not in ("land", "start", "end"):
+        raise UsageError(f"Animation {aid}: an event's `at` is land, start or end (got {at!r}).")
+    if kind in beat_rules.ENDS_ON_BEAT:
+        # a draw ends where its stroke makes contact, a count where it reaches its last value
+        frame = last
+    else:
+        frame = (facts.get("land") if at == "land" and facts.get("land") is not None else
+                 last if at == "end" else first)
+    out = {"id": ev.get("id", aid), "shot": shot_at(shots, act, frame), "t": round(frame / fps, 6), "frame": frame,
+           "kind": kind, "size": size, "note": note.strip()}
+    if kind in beat_rules.SUSTAINED and last > first:
+        out["start"] = round(first / fps, 6)
+        out["dur"] = round((last - first) / fps, 6)
+    for k in ("from", "to", "x", "pan"):
+        if isinstance(ev.get(k), (int, float)) and not isinstance(ev.get(k), bool):
+            out[k] = ev[k]
+    return out
 
 
 def shot_at(shots: dict, act: dict, frame: int) -> str | None:
@@ -364,6 +422,9 @@ def trace_entries(resolved: dict, act: dict, shots: dict, *, eases_table: dict) 
                 entry["size"] = m["size"]
             if m.get("exception"):
                 entry["exception"] = m["exception"]
+            for key in ("class", "exempt", "reason"):
+                if m.get(key):
+                    entry[key] = m[key]
             if m.get("dur_token"):
                 entry["duration_token"] = m["dur_token"]
             out.append(entry)
@@ -378,10 +439,19 @@ def _is_zeroish(prop: str, v: Any) -> bool:
     return False
 
 
-def events_doc(resolved: dict, act: dict) -> Any:
-    """The act's visual beats, or {"silent": true, "reason"} when it has none and says why."""
-    evs = [{k: e[k] for k in ("id", "shot", "t", "kind", "size", "note")} for e in resolved["events"]]
+EVENT_KEYS = ("id", "shot", "t", "kind", "size", "note", "start", "dur", "from", "to", "x", "pan")
+
+
+def events_doc(resolved: dict, act: dict, *, fps: float | None = None) -> Any:
+    """The act's visual beats, or {"silent": true, "reason"} when it has none and says why. Every beat's span holds to
+    slate.timing.beats.problems (a draw or a count ends on its beat), checked here before anything is written."""
+    evs = [{k: e[k] for k in EVENT_KEYS if k in e} for e in resolved["events"]]
     if evs:
+        problems = beat_rules.problems(evs, fps=fps)
+        if problems:
+            raise Refused(f"AE-built act {act['index']}'s beats don't hold to their spans: {problems[0]}",
+                          hint="Each draw or count ends on its beat; fix the scene's keys or the event's `at`.",
+                          details={"problems": problems})
         return evs
     reason = resolved.get("silent")
     if not isinstance(reason, str) or not reason.strip():
@@ -404,7 +474,9 @@ def export(film_dir: str | os.PathLike, act: int, *, spec: dict | None = None) -
     shots = {s["id"]: s for s in spec["shots"]}
     resolved = entry["scene"]
     trace = trace_entries(resolved, entry, shots, eases_table=spec["brand"]["eases"])
-    evs = events_doc(resolved, entry)
+    film = spec.get("film") or {}
+    fps = (float(film["fps_num"]) / float(film["fps_den"])) if film.get("fps_num") and film.get("fps_den") else None
+    evs = events_doc(resolved, entry, fps=fps)
     motion_path = film_dir / "timing" / "motion" / f"act{act}.json"
     events_path = film_dir / "timing" / "visual_events" / f"act{act}.json"
     jsonio.write_atomic(motion_path, trace)

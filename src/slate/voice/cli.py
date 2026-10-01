@@ -1,16 +1,22 @@
-"""`slate voice …`: cast or design a voice, direct it, voice every line, clean, pace, align, caption and check it.
+"""`slate voice …`: cast or design a voice, direct it, voice every line, clean, pace, polish, align, measure, caption
+and check it.
 
     slate voice profile            the film's (or a brand's) voice profile and the cloning-policy verdict
     slate voice account            the ElevenLabs plan: tier, characters left, the best voice format it allows
     slate voice cast               several voices read the same lines; measured, ranked, and a listening reel
     slate voice design             Voice Design previews from a spec, measured and ranked; --save, --check
-    slate voice tags               direction: strip, check, set, clear, ab (tag A/B takes), rules
+    slate voice tags               direction: strip, check, set, clear, ab (tag A/B takes), rules; the tag loop:
+                                   optimize (voice and measure a round), pick, abc (listen), adopt (the exact file)
     slate voice tts                one take per line with neighbour context, pinned, fitted to its shot
     slate voice clean              diagnose and clean the takes (ffmpeg chain, Voice Isolator, or Voice Remix)
     slate voice pace               shorten pauses and quicken gently with Rubber Band (formants kept)
+    slate voice polish             the studio vocal chain on every take (de-esser, EQ, compression, a small room),
+                                   length and loudness kept, verified by measurement; --try A,B to hear strengths
     slate voice align              word timings: local Whisper, or ElevenLabs Forced Alignment to evaluate
+    slate voice analyze            measured inflection: pitch, breath, sibilance, endings, the Whisper checks, and
+                                   A/B spectrogram sheets for comparing takes, tags or polish strengths
     slate voice captions           SRT, WebVTT and timing/captions.json, timed to the words
-    slate voice check              the voice gates (policy, direction, takes, words, tails, fit)
+    slate voice check              the voice gates (policy, direction, takes, words, tails, fit, inflection, polish)
     slate voice approve            record the person's approval of a take and lock it by hash
 
 Paid calls go through the spend ledger and replay offline under SLATE_FAKE_VENDORS=1; --live spends.
@@ -164,7 +170,7 @@ def cmd_design(args) -> int:
         if args.save:
             if not args.voice_name:
                 raise UsageError("--save needs --voice-name.")
-            rec = design.save(folder, args.save, args.voice_name, film_dir=film)
+            rec = design.save(folder, args.save, args.voice_name, film_dir=film, brand=args.brand)
             log.result(rec, f"saved {rec['name']} as voice {rec['voice_id']}\nnext: {rec['next']}")
             return 0
         res = design.check(folder, text=args.text, models=_csv(args.models), film_dir=film, brand=args.brand)
@@ -352,6 +358,8 @@ def cmd_tags(args) -> int:
     from slate.voice.film import VoiceFilm  # noqa: PLC0415
 
     vf = VoiceFilm(_film(args))
+    if action in ("optimize", "pick", "abc", "adopt"):
+        return _tag_loop(args, vf)
     policy = vf.profile.get("tag_policy") or {}
     if action == "check":
         rows, bad = [], 0
@@ -392,6 +400,112 @@ def cmd_tags(args) -> int:
     raise UsageError(f"Unknown tags action {action!r}.")
 
 
+def cmd_polish(args) -> int:
+    from slate.voice import polish  # noqa: PLC0415
+
+    film = _film(args)
+    if args.try_:
+        res = polish.trial(film, _csv(args.try_) or [], only=args.only, sheet=args.sheet)
+        rows = []
+        for label, v in res["strengths"].items():
+            ch = v["effect"].get("change") or {}
+            rows.append(f"{label}: S peaks {polish._fmt(ch.get('sibilance_peaks_db'))}, "  # noqa: SLF001
+                        f"edge peaks {polish._fmt(ch.get('edge_peaks_db'))}, warmth "  # noqa: SLF001
+                        f"{polish._fmt(ch.get('warmth_db'))}, 1-5 kHz {polish._fmt(ch.get('clarity_1k_5k'))}, "  # noqa: SLF001
+                        f"overall change {v['effect'].get('spectral_distance_db')} dB")
+        human = "\n".join(rows) + f"\nlisten: {res['reel']} (level-matched; nothing pinned)" + \
+            (f"\nsheets: {', '.join(res['sheets'])}" if res["sheets"] else "") + \
+            "\nthen: slate voice polish --strength <the one you pick>"
+        log.result(res, human)
+        return 0
+    res = polish.run(film, only=args.only, strength=args.strength, repin=args.repin, approved_by=args.approved_by,
+                     reason=args.reason, force=args.force, approval_id=args.approval,
+                     dry_run=bool(cli.flag(args, "dry_run")))
+    if res.get("dry_run"):
+        log.result(res, f"would polish {len(res['would_polish'])} take(s) at strength {res['strength']}"
+                        + (" (the film's pinned polish)" if res["pinned"] else " (pinned at first use)"))
+        return 0
+    bad = [r for r in res["polished"] if not r["verified"]["ok"]]
+    if args.report:
+        human = polish.describe(res)
+    else:
+        human = "\n".join(f"{r['shot']} {r['take']}: {r['file']}" + ("" if r["verified"]["ok"] else
+                                                                       "  <- " + r["verified"]["problems"][0])
+                          for r in res["polished"]) or "nothing to polish"
+    human = f"strength {res['strength']} ({res['pin']})\n" + human
+    if res["skipped"]:
+        human += "\nskipped: " + ", ".join(f"{s['shot']} ({s['why']})" for s in res["skipped"])
+    human += f"\nnext: {res['next']}"
+    log.result(res, human)
+    return 1 if bad else 0
+
+
+def cmd_analyze(args) -> int:
+    from slate.voice import analyze  # noqa: PLC0415
+
+    film = _maybe_film(args)
+    res = analyze.run(args.takes, film_dir=film, ab_ref=args.ab, sheet=args.sheet, text=args.text,
+                      tagged=args.tagged, words_file=args.words, whisper=args.whisper, stage=args.stage, out=args.out,
+                      name=args.name)
+    rows = []
+    for t in res["takes"]:
+        line = t["measures"].get("line") or {}
+        w = t["measures"].get("whisper")
+        row = (f"{t['label']}: F0 {line.get('f0_median_hz')} Hz, range {line.get('f0_range_st')} st, voiced "
+               f"{line.get('voiced_frac')}, CPPS {line.get('cpps_db')} dB, tilt {line.get('tilt_db')} dB, "
+               f"{t['measures'].get('lufs')} LUFS")
+        if w:
+            row += ", Whisper " + ("word for word" if w["wer"] == 0 and not w["repeats"] else f"heard \"{w['heard']}\"")
+        vs = t.get("vs_reference")
+        if vs and vs.get("breath"):
+            b = vs["breath"]
+            row += f"; vs A: breath index {b['index']:+.2f}" + (" (whisper-like)" if b["whisper"] else
+                                                                 " (breathier)" if b["breathier"] else "")
+        rows.append(row)
+    human = "\n".join(rows) + f"\nanalysis: {res['file']}" + (f"\nsheet: {res['sheet']}" if res["sheet"] else "")
+    log.result(res, human)
+    return 0
+
+
+def _tag_loop(args, vf) -> int:
+    from slate.voice import tagloop  # noqa: PLC0415
+
+    action, rest = args.action, list(args.rest or [])
+    name = args.round or "main"
+    if action == "optimize":
+        res = tagloop.optimize(vf.dir, name=name, only=_csv(args.only), estimate_only=args.estimate,
+                               generate_only=args.generate_only, measure_only=args.measure_only,
+                               include_held=args.include_held)
+        est = res["estimate"]["estimate"]
+        human = (f"round {name}: {res['new']} new take(s) of {res['planned']} planned, "
+                 f"{res['estimate']['characters']} characters, about {est['amount']:g} {est['unit']} ({est['basis']})")
+        if res.get("voiced") is not None:
+            human += f"\nvoiced {len(res['voiced'])}"
+        if res.get("measured") is not None:
+            human += f"\nmeasured {res['measured']} take(s): {res['metrics']}\nnext: {res['next']}"
+        log.result(res, human)
+        return 0
+    if action == "pick":
+        res = tagloop.pick_round(vf, name)
+        human = "\n".join(f"{shot}: " + (f"pick {p['pick']}" + (f", runner-up {p['runner_up']}" if p["runner_up"] else "")
+                                         if p["pick"] else f"no pick ({p['why']})") for shot, p in res["picks"].items())
+        log.result(res, human + f"\nranking: {vf.rel(tagloop.round_dir(vf, name) / 'ranking.md')}")
+        return 0
+    if action == "abc":
+        if not rest:
+            raise UsageError("slate voice tags abc <shot> [--round R] [--n 3]")
+        res = tagloop.abc(vf, name, rest[0], n=args.n, also=_csv(args.also))
+        human = "\n".join(f"{k}: {v['take']}" + (f" ({v.get('tagged')})" if v.get("tagged") else "")
+                          for k, v in res["takes"].items())
+        log.result(res, human + f"\nlisten: {res['reel']} (level-matched; pick by ear, then adopt it)")
+        return 0
+    if len(rest) < 2:
+        raise UsageError("slate voice tags adopt <shot> <take key> [--round R]")
+    res = tagloop.adopt(vf, name, rest[0], rest[1], force=args.force)
+    log.result(res, f"{res['shot']}: {res['from']} is now {res['take']} ({res['tagged']})\nnext: {res['next']}")
+    return 0
+
+
 def cmd_check(args) -> int:
     from slate import gates as gates_mod  # noqa: PLC0415
     from slate.voice import gates  # noqa: PLC0415
@@ -403,7 +517,7 @@ def cmd_check(args) -> int:
 
 
 def cmd_approve(args) -> int:
-    from slate.voice.film import VoiceFilm, approve, lock_asset, now  # noqa: PLC0415
+    from slate.voice.film import TAKE_STAGES, VoiceFilm, approve, lock_asset, now  # noqa: PLC0415
 
     vf = VoiceFilm(_film(args))
     shot = args.shot
@@ -414,7 +528,7 @@ def cmd_approve(args) -> int:
     if not sel:
         raise MissingPrerequisite(f"{shot} has no take to approve.", hint=f"slate voice tts --only {shot}")
     take, info = sel
-    files = [info[s] for s in ("raw", "clean", "paced") if info.get(s)]
+    files = [info[s] for s in TAKE_STAGES if info.get(s)]
     final = vf.rel(vf.final_audio(shot))
     rec = approve(vf.dir, what="take", path=final, approved_by=args.by, note=args.note)
     for rel in files:
@@ -433,8 +547,8 @@ def cmd_approve(args) -> int:
 
 
 def register(sub) -> None:
-    stages = cli.add_group(sub, "voice", help="the voice stages: cast, design, tags, tts, clean, pace, align, "
-                                              "captions, check",
+    stages = cli.add_group(sub, "voice", help="the voice stages: cast, design, tags, tts, clean, pace, polish, "
+                                              "align, analyze, captions, check",
                            description=__doc__)
 
     def add(name, handler, help, **kw):
@@ -480,9 +594,19 @@ def register(sub) -> None:
     p.add_argument("--models", help="models for --check (default: the registry's TTS model)")
     p.add_argument("--detach", action="store_true", help="run as a job in the queue")
 
-    p = add("tags", cmd_tags, "direction with audio tags: strip, check, set, clear, ab, rules")
-    p.add_argument("action", choices=["strip", "check", "set", "clear", "ab", "rules"])
-    p.add_argument("rest", nargs="*", help="shot and tagged line, or text to strip")
+    p = add("tags", cmd_tags, "direction with audio tags: strip, check, set, clear, ab, rules; the tag loop: "
+                              "optimize, pick, abc, adopt")
+    p.add_argument("action", choices=["strip", "check", "set", "clear", "ab", "rules", "optimize", "pick", "abc",
+                                      "adopt"])
+    p.add_argument("rest", nargs="*", help="shot and tagged line, or text to strip; abc: shot; adopt: shot and take key")
+    p.add_argument("--round", help="the tag round (a folder under voice/tags/, default main)")
+    p.add_argument("--estimate", action="store_true", help="optimize: the cost only; voice nothing")
+    p.add_argument("--generate-only", action="store_true", help="optimize: voice the new takes, then stop")
+    p.add_argument("--measure-only", action="store_true", help="optimize: measure what's voiced; voice nothing")
+    p.add_argument("--include-held", action="store_true", help="optimize: also voice lines marked hold")
+    p.add_argument("--n", type=int, default=3, help="abc: how many passing candidates to hear (default 3)")
+    p.add_argument("--also", help="abc: near misses to hear too, labelled with what they missed (comma-separated)")
+    p.add_argument("--force", action="store_true", help="adopt: replace an approved take (the person's go)")
     p.add_argument("--only", help="shots to check (comma-separated)")
     p.add_argument("--text", help="a tagged line to check or strip without a film")
     p.add_argument("--line", help="the plain script line to check --text against")
@@ -523,6 +647,34 @@ def register(sub) -> None:
     p.add_argument("--no-tempo", action="store_true", help="shorten pauses only")
     p.add_argument("--check-tools", action="store_true", help="report Rubber Band's path, version and architecture")
 
+    p = add("polish", cmd_polish, "the studio vocal chain on every take: length and loudness kept, verified by "
+                                  "measurement, pinned per film")
+    p.add_argument("--strength", help="A, B (the voice's named strengths) or a number from 0 (untouched) to 1; "
+                                      "default: the film's pinned polish, else the voice's default")
+    p.add_argument("--report", action="store_true", help="show each take's measurements, before and after")
+    p.add_argument("--try", dest="try_", metavar="STRENGTHS", help="trial renders at these strengths (comma-separated) "
+                                                                   "for listening; nothing pinned or registered")
+    p.add_argument("--sheet", action="store_true", help="with --try: an A/B spectrogram sheet per line")
+    p.add_argument("--only", help="shots (comma-separated)")
+    p.add_argument("--repin", action="store_true", help="switch the film's pinned polish to --strength")
+    p.add_argument("--approved-by", help="who approved the re-pin")
+    p.add_argument("--reason", help="why the polish is re-pinned (the trial it follows)")
+    p.add_argument("--force", action="store_true", help="polish again over an approved, locked polished take")
+    p.add_argument("--approval", help="the person's approval id (needed with --force on approved work)")
+
+    p = add("analyze", cmd_analyze, "measured inflection and A/B spectrogram sheets for takes, tags or polish")
+    p.add_argument("takes", nargs="+", help="WAV files, or shots in the film (S01, or S01/t02)")
+    p.add_argument("--ab", metavar="REFERENCE", help="compare every take with this one (it's drawn first, as A)")
+    p.add_argument("--sheet", action="store_true", help="draw the A/B spectrogram sheet (PNG)")
+    p.add_argument("--text", help="the script line (for files outside a film)")
+    p.add_argument("--tagged", help="what was sent, tags included (measures the tag's scope)")
+    p.add_argument("--words", help="a Whisper JSON with the takes' words (files outside a film)")
+    p.add_argument("--whisper", action="store_true", help="transcribe takes without known words (local Whisper)")
+    p.add_argument("--stage", choices=["raw", "clean", "paced", "polished"],
+                   help="which stage of a shot's take (default: the take before the polish)")
+    p.add_argument("--out", help="write the analysis here")
+    p.add_argument("--name", help="the analysis folder's name (under voice/analysis/)")
+
     p = add("align", cmd_align, "word timings: local Whisper (default) or ElevenLabs Forced Alignment to evaluate")
     p.add_argument("--only", help="shots (comma-separated)")
     p.add_argument("--engine", choices=["whisper", "elevenlabs"], default="whisper")
@@ -534,7 +686,7 @@ def register(sub) -> None:
     p = add("captions", cmd_captions, "SRT, WebVTT and timing/captions.json, timed to the words")
     p.add_argument("--parity", action="store_true", help="the films' rules exactly (no reading-speed hold)")
 
-    p = add("check", cmd_check, "the voice gates: policy, direction, takes, words, tails, fit")
+    p = add("check", cmd_check, "the voice gates: policy, direction, takes, words, tails, fit, inflection, polish")
     p.add_argument("--gate", action="append", help="run only this gate (repeat for more)")
 
     p = add("approve", cmd_approve, "record the person's approval of a take and lock it by hash")

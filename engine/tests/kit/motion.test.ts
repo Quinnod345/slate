@@ -193,3 +193,28 @@ describe('defineMotion', () => {
     expect(traceMotions().length).toBe(2);
   });
 });
+
+describe('what the motion gate needs to know about a move (class, exempt, reason)', () => {
+  it('writes a declared class and exemption into the trace, and nothing for a move that declares none', () => {
+    defineMotion({id: 'page.carry', shot: 'K01', prop: 'x', ease: 'even', frame_in: 0, frame_out: 20, from: 0, to: 600, class: 'page'});
+    defineMotion({id: 'sweep', shot: 'K01', prop: 'x', ease: 'linear', frame_in: 0, frame_out: 20, from: 0, to: 100, exempt: 'Reading Sweep', reason: 'items resolve at a steady pace'});
+    defineMotion({id: 'plain', shot: 'K01', prop: 'opacity', ease: 'enter', frame_in: 0, frame_out: 10, from: 0, to: 1});
+    const rows = Object.fromEntries(traceMotions({act: 1}).map((r) => [r.id, r]));
+    expect(rows['page.carry']).toMatchObject({class: 'carry', ease: 'even'});
+    expect(rows.sweep).toMatchObject({exempt: 'reading_sweep', reason: 'items resolve at a steady pace'});
+    expect('class' in rows.plain || 'exempt' in rows.plain).toBe(false);
+    // "even" is the kit's own curve: no problem recorded for using it
+    expect(motionProblems().join(' ')).not.toMatch(/even/);
+  });
+
+  it('calls a rig part rig and the camera a carry without being told, and refuses a class the gate wouldn\'t know', () => {
+    defineMotion({id: 'mark.lean', shot: 'K01', prop: 'rotate', ease: 'move', frame_in: 0, frame_out: 12, from: 0, to: 4, rig: 'mark'});
+    defineMotion({id: 'camera.x', shot: 'K01', prop: 'x', ease: 'move', frame_in: 0, frame_out: 12, from: 0, to: 40});
+    defineMotion({id: 'odd', shot: 'K01', prop: 'x', ease: 'move', frame_in: 0, frame_out: 12, from: 0, to: 40, class: 'fast'});
+    const rows = Object.fromEntries(traceMotions({act: 1}).map((r) => [r.id, r]));
+    expect(rows['mark.lean'].class).toBe('rig');
+    expect(rows['camera.x'].class).toBe('carry');
+    expect('class' in rows.odd).toBe(false);
+    expect(motionProblems().join(' ')).toMatch(/motion "odd": class "fast" isn't one of rig, ui, carry, whip/);
+  });
+});

@@ -39,6 +39,33 @@ def slate_home(tmp_path, monkeypatch):
     return {"data": data, "films": films, "brands": brands, "tmp": tmp_path}
 
 
+@pytest.fixture(autouse=True)
+def _vision_off_unless_asked(monkeypatch):
+    """Apple Vision's text recognizer is a real model, so the default run never loads it, whether or not Slate's ocr
+    extra is installed (SLATE_TEST_VISION=1 opts in). OCR gates then say UNCHECKED, as on a Mac without the extra;
+    tests that need text read script a backend (slate.qa.ocr.use_backend). The probe's verdict is cached per test, so
+    no test inherits another's."""
+    if os.environ.get("SLATE_TEST_VISION") == "1":
+        yield
+        return
+    try:
+        from slate.qa import ocr
+    except Exception:  # noqa: BLE001 - qa not importable: nothing to switch off
+        yield
+        return
+
+    def off(lvl: str):
+        return None, {"name": ocr.ENGINE_NAME, "version": "not installed", "recognition_level": lvl,
+                      "macos": ocr._macos(),
+                      "reason": "ocrmac isn't importable in Slate's environment in the default test run (Vision is "
+                                "off unless SLATE_TEST_VISION=1)",
+                      "hint": ocr.INSTALL_HINT}
+
+    monkeypatch.setattr(ocr, "_probe", off)
+    monkeypatch.setattr(ocr, "_STATE", {})
+    yield
+
+
 @pytest.fixture
 def filmroot():
     """The film project, read-only. Skips when it isn't on this machine (e.g. CI)."""

@@ -6,7 +6,7 @@ import React, {useId} from 'react';
 import {AbsoluteFill} from 'remotion';
 import {brandPack} from './core/brand';
 import {alpha} from './core/color';
-import {planLogoBuild, type LogoBuildSpec, type LogoPlan} from './core/logo';
+import {GUIDE_STAGGER_S, MARK_DUR, MARK_SPREAD, planLogoBuild, type LogoBuildSpec, type LogoPlan} from './core/logo';
 import {dur, durRank, easeNamed, exitDur, roleEase} from './core/motion';
 import {clamp01, lerp} from './core/spline';
 import type {LogoInput} from './core/types';
@@ -117,7 +117,7 @@ export function LogoBuild({logo, spec, t0, x, y, w, t: tOverride, settleBy, dark
   const shapeColor = (fill: string | null) => fill ?? (dark ? tk.color.onInverse : tk.color.ink);
 
   // the survey: guides draw out along the mark's edges, vertex marks arrive
-  const guideIn = (i: number) => enter((rel - i * 0.05) / T.constructDur);
+  const guideIn = (i: number) => enter((rel - i * GUIDE_STAGGER_S) / T.constructDur);
   const guides: React.ReactNode[] = [];
   plan.guides.h.forEach((v, i) => {
     const g = guideIn(i);
@@ -129,10 +129,10 @@ export function LogoBuild({logo, spec, t0, x, y, w, t: tOverride, settleBy, dark
     if (g <= 0) return;
     guides.push(<line key={`v${i}`} x1={X(u)} x2={X(u)} y1={Y(box.y0 - pad)} y2={Y(box.y0 - pad + (box.y1 - box.y0 + 2 * pad) * g)} stroke={surveyInk} strokeWidth={hair} strokeDasharray={dash} />);
   });
-  const markStep = plan.marks.length > 1 ? (0.6 * T.constructDur) / (plan.marks.length - 1) : 0;
+  const markStep = plan.marks.length > 1 ? (MARK_SPREAD * T.constructDur) / (plan.marks.length - 1) : 0;
   const markSize = 0.0075 * short;
   const marks = plan.marks.map((p, i) => {
-    const a = enter((rel - i * markStep) / (0.5 * T.constructDur));
+    const a = enter((rel - i * markStep) / (MARK_DUR * T.constructDur));
     if (a <= 0) return null;
     const s = markSize * (0.85 + 0.15 * a);
     return <rect key={`m${i}`} x={X(p.x) - s / 2} y={Y(p.y) - s / 2} width={s} height={s} fill={paper} stroke={surveyInk} strokeWidth={hair} opacity={a} />;

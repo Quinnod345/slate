@@ -76,8 +76,9 @@ def test_a_draft_delivery_is_never_publishable(make_film):
     filmkit.cli(d, "master", "--ffmpeg")
     filmkit.cli(d, "deliver", "--draft")
     rel = "deliver/drafts/v1.1/masters/dr_H264.mp4"
-    approvals.record(d, what="final_cut", path=rel, approved_by="Test Person")
-    with pytest.raises(Refused, match="draft delivery"):
+    with pytest.raises(Refused, match="drafts are never final"):  # refused where the approval would be recorded
+        approvals.record(d, what="final_cut", path=rel, approved_by="Test Person")
+    with pytest.raises(Refused, match="isn't approved for publishing"):  # so its bytes are never publishable
         approved.check(d / rel)
 
 

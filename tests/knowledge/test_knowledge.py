@@ -1,8 +1,8 @@
 """The knowledge ledger's check (slate.knowledge), on small fixture checkouts and then on the real ledger.
 
 Each fixture is a tiny repo in a temp folder: a harvest, one module, one test file, one skill and a ledger built per
-test. The real run at the end checks `slate knowledge check` on this checkout without --run-tests: it may report gaps,
-so it asserts the report is well-formed, not that it passes.
+test. The real run at the end checks `slate knowledge check` on this checkout without --run-tests: it may report gaps
+(and lessons still pending), so it asserts the report is well-formed, not that it passes.
 """
 
 from __future__ import annotations
@@ -149,6 +149,35 @@ def test_a_gap_fails_until_it_is_closed(repo):
     assert gates.overall(results.values()) == "FAIL"
 
 
+def test_a_pending_destination_fails_until_it_is_re_mapped_and_says_when_it_has_landed(repo):
+    ledger = good_ledger()
+    ledger["lessons"][3]["destination"] = {"type": "pending", "file": "src/slate/later.py", "symbol": "build",
+                                           "module": "sound", "what": "the mix's guards, built in this run"}
+    results = run(repo, ledger)
+    r = results["knowledge.gaps"]
+    assert r.status == "FAIL" and "1 still pending" in r.summary and r.details["pending_landed"] == []
+    assert results["knowledge.destinations"].status == "PASS"
+    _write(repo, "src/slate/later.py", "def build():\n    return 1\n")
+    r = run(repo, ledger)["knowledge.gaps"]
+    assert r.status == "FAIL" and r.details["pending_landed"] == ["L-demo-004"] and "re-map them" in r.summary
+
+
+def test_a_pending_destination_must_name_its_plan(repo):
+    ledger = good_ledger()
+    ledger["lessons"][3]["destination"] = {"type": "pending", "file": "src/slate/later.py", "module": "sound"}
+    r = run(repo, ledger)["knowledge.destinations"]
+    assert r.status == "FAIL" and "planned file" in r.summary
+
+
+def test_a_gate_type_lesson_may_wait_on_a_pending_gate(repo):
+    ledger = good_ledger()
+    ledger["lessons"][1]["destination"] = {"type": "pending", "file": "src/slate/later.py", "symbol": "gate",
+                                           "module": "qa", "what": "the gate, built in this run"}
+    results = run(repo, ledger)
+    assert results["knowledge.destinations"].status == "PASS"
+    assert results["knowledge.gaps"].status == "FAIL"
+
+
 def test_a_gap_must_say_what_closes_it(repo):
     ledger = good_ledger()
     ledger["lessons"][3]["destination"] = {"type": "gap", "module": "sound", "change": ""}
@@ -207,6 +236,23 @@ def test_a_gate_type_lesson_must_land_on_a_gate(repo):
     assert r.status == "FAIL" and "gate-type lesson" in r.summary
 
 
+def test_a_gate_enforced_by_construction_needs_its_tests_but_no_gate_name(repo):
+    ledger = good_ledger()
+    ledger["lessons"][1]["destination"] = {"type": "gate", "gate": "demo.never_named", "file": "src/slate/demo.py",
+                                           "symbol": "pace_limit", "enforced": "construction",
+                                           "tests": ["tests/test_demo.py::test_demo_gate_passes"]}
+    assert run(repo, ledger)["knowledge.destinations"].status == "PASS"
+    del ledger["lessons"][1]["destination"]["enforced"]
+    r = run(repo, ledger)["knowledge.destinations"]
+    assert r.status == "FAIL" and "never names the demo.never_named gate" in r.summary
+    ledger["lessons"][1]["destination"].update(enforced="construction", tests=[])
+    r = run(repo, ledger)["knowledge.destinations"]
+    assert r.status == "FAIL" and "a gate without tests" in r.summary
+    ledger["lessons"][1]["destination"].update(enforced="by hand", tests=["tests/test_demo.py::test_demo_gate_passes"])
+    r = run(repo, ledger)["knowledge.destinations"]
+    assert r.status == "FAIL" and "unknown enforcement" in r.summary
+
+
 def test_an_also_destination_is_checked_too(repo):
     ledger = good_ledger()
     ledger["lessons"][0]["also"] = [{"type": "code_default", "file": "src/slate/demo.py", "symbol": "nowhere"}]
@@ -220,6 +266,17 @@ def test_a_moved_symbol_still_resolves_and_is_reported(repo):
     r = run(repo, ledger)["knowledge.destinations"]
     assert r.status == "PASS" and r.details["moved"]["L-demo-001"] == {
         "file": "src/slate/demo.py", "symbol": "pace_limit", "was": 99, "now": 6}
+
+
+def test_every_harvest_file_counts(repo):
+    _write(repo, "knowledge/harvest/second_harvest.json",
+           json.dumps([{"id": "L-demo-S001", "text": "a lesson from the second harvest"}]))
+    r = run(repo, good_ledger())["knowledge.mapped"]
+    assert r.status == "FAIL" and r.details["missing"] == ["L-demo-S001"]
+    ledger = good_ledger()
+    ledger["lessons"][3]["absorbed"] = ["L-demo-S001"]
+    r = run(repo, ledger)["knowledge.mapped"]
+    assert r.status == "PASS" and r.details["harvested"] == 6 and "knowledge/harvest/second_harvest.json" in r.evidence
 
 
 def test_without_the_harvest_the_ledger_cannot_be_proved_complete(repo):
@@ -330,6 +387,19 @@ def test_a_guarded_name_in_shipped_text_fails_but_provenance_and_guards_pass(rep
     assert NAME not in json.dumps(r.to_dict()).lower()  # the report never spells the name out
 
 
+def test_the_ledger_may_cite_film_paths_but_its_own_words_are_scanned(repo):
+    ledger = good_ledger()
+    ledger["lessons"][0]["sources"] = [f"FILMROOT/sound/{NAME}_voice/V4_TAGS.md:250-266"]
+    _write(repo, "knowledge/lessons.json", json.dumps(ledger))
+    r = knowledge.gate_left_behind(Repo(repo), film_root=None)
+    assert r.status == "PASS", r.details["hits"]
+    ledger["lessons"][1]["destination"]["note"] = f"Tuned on {NAME.capitalize()}'s voice."
+    _write(repo, "knowledge/lessons.json", json.dumps(ledger))
+    r = knowledge.gate_left_behind(Repo(repo), film_root=None)
+    assert r.status == "FAIL" and "knowledge/lessons.json: L-demo-002's note: a guarded name" in r.summary
+    assert NAME not in json.dumps(r.to_dict()).lower()
+
+
 def test_a_copy_of_a_film_project_file_is_found_under_any_name(repo, tmp_path):
     film = tmp_path / "film"
     body = "export function Scene() { return null; }\n" * 10
@@ -359,7 +429,7 @@ def test_stats_counts_destinations_and_merges(repo, monkeypatch):
     code, out, _ = cli.run_cli(["knowledge", "stats", "--json"])
     doc = json.loads(out)
     assert code == 0 and doc["lessons"] == 4 and doc["harvested"] == 5 and doc["merged"] == 1
-    assert doc["by_type"] == {"code_default": 1, "gate": 1, "skill_rule": 1, "dropped": 1, "gap": 0}
+    assert doc["by_type"] == {"code_default": 1, "gate": 1, "skill_rule": 1, "dropped": 1, "gap": 0, "pending": 0}
     assert doc["next_harvest"] == "once films B and C and the p3 sound are approved"
 
 
@@ -385,8 +455,12 @@ def test_the_real_check_gives_a_well_formed_report():
         assert "Traceback" not in json.dumps(g)
     assert doc["status"] == gates.overall(gates.GateResult.from_dict(g) for g in doc["gates"])
     counts = doc["counts"]
-    assert counts["harvested"] == 1696 and counts["lessons"] + counts["merged"] == counts["harvested"]
+    harvested = knowledge.harvested_ids(knowledge.paths.REPO)
+    assert harvested and len(harvested) == len(set(harvested))
+    assert counts["harvested"] == len(harvested) and counts["lessons"] + counts["merged"] == counts["harvested"]
     assert sum(counts["by_type"].values()) == counts["lessons"]
-    assert counts["harvests"][0]["date"] == "2026-09-30"
+    assert [h["date"] for h in counts["harvests"]] == ["2026-09-30", "2026-10-01"]
     assert counts["next_harvest"] == "once films B and C and the p3 sound are approved"
     assert (code == 0) == (doc["status"] == "PASS")
+    gaps = next(g for g in doc["gates"] if g["gate"] == "knowledge.gaps")
+    assert (gaps["status"] == "PASS") == (counts["by_type"]["gap"] + counts["by_type"]["pending"] == 0)

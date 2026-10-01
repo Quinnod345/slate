@@ -19,7 +19,8 @@ and make can place it), the tool version, the SHA-256 of every input and of the 
 
 Inputs are film-relative or absolute paths, or named inputs that aren't film files: `brand:<name>` (the brand pack's
 brand.json), `film:<dotted.key>` (one film.json value, e.g. film:targets.runtime_s, so a new pin doesn't make
-everything made from the film's targets stale) and `format:<name>`. Any other `scheme:name` keeps the producer's own
+everything made from the film's targets stale), `film:*` (all of film.json except its bookkeeping: pins, the pin log,
+versions, budgets, model overrides, stamps) and `format:<name>`. Any other `scheme:name` keeps the producer's own
 marker and is reported as not checkable here, never guessed fresh or stale.
 """
 
@@ -129,9 +130,15 @@ def _hash(hasher: _util.Hasher, path: Path) -> str | None:
 
 
 # Named inputs that aren't film files: "brand:<name>" (the pack's brand.json), "film:<dotted.key>" (one film.json
-# value, so a new pin doesn't make everything made from the film's targets stale) and "format:<name>".
+# value, so a new pin doesn't make everything made from the film's targets stale), "film:*" (all of film.json except
+# its bookkeeping, for a step or gate that reads more than a few keys) and "format:<name>".
 SCHEME_RE = re.compile(r"^([a-z][a-z0-9_-]*):([^/].*)$")
 UNVERIFIABLE = "unverifiable"
+FILM_ALL = "film:*"
+# film.json keys that record what happened rather than what the film is: pins (each is its own input,
+# film:pins.<key>), the pin log, versions, budgets and raises, model overrides, and the stamps. A change to one of them
+# never makes anything made from film:* stale.
+FILM_BOOKKEEPING = ("pins", "pin_log", "versions", "budget", "models", "created_at", "slate_version", "schema")
 
 
 def _named_input(film_dir: Path, key: str) -> tuple[bool, str | None]:
@@ -152,6 +159,10 @@ def _named_input(film_dir: Path, key: str) -> tuple[bool, str | None]:
         return True, (jsonio.sha256(path) if path.is_file() else None)
     if scheme == "film":
         data = jsonio.read(Path(film_dir) / "film.json", default=None)
+        if name == "*":
+            if not isinstance(data, dict):
+                return True, None
+            return True, jsonio.sha256_obj({k: v for k, v in data.items() if k not in FILM_BOOKKEEPING})
         node: Any = data
         for part in name.split("."):
             if not isinstance(node, dict) or part not in node:

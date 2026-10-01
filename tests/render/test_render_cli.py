@@ -64,7 +64,7 @@ def test_detach_submits_a_render_job_and_returns_its_id(fakes, film):
     assert job["kind"] == "render" and job["resources"] == ("render",) and job["priority"] == "supervised"
     assert job["film"] == str(film.resolve()) and job["disk_gb"] > 0
     argv = job["argv"]
-    assert argv[:4] == [sys.executable, "-m", "slate", "render"]
+    assert argv[:2] == ["slate", "render"] and job["via"] == "detach_current"  # the queue's --detach convention
     assert "--in-queue" in argv and argv[argv.index("--act") + 1] == "1"
     assert argv[argv.index("--samples") + 1] == "16" and argv[argv.index("--engine") + 1] == "remotion"
     assert fakes.bridge.calls == []  # nothing rendered in the foreground
@@ -86,7 +86,7 @@ def test_autonomous_films_queue_behind_supervised_ones(fakes, slate_home):
 def test_the_queued_job_renders_in_its_own_process(fakes, film, monkeypatch):
     code, _out, _err = cli("render", "--film", str(film), "--act", "1", "--detach", "--json")
     monkeypatch.setenv("SLATE_JOB_ID", "job-1")  # what the queue's supervisor sets for the job's command
-    argv = fakes.jobs.submitted[0]["argv"][3:]  # what the queue's worker runs, minus the interpreter
+    argv = fakes.jobs.submitted[0]["argv"][1:]  # what the queue's worker runs, minus the leading `slate`
     code, out, err = cli(*argv)
     assert code == 0, err
     assert out["ran"] == "queue" and registry.find(film, 1) is not None
@@ -214,7 +214,7 @@ def test_resume_through_the_cli(fakes, film, slate_home, monkeypatch):
     assert code == 0, err
     assert out["ran"] == "queue" and "--resume" in fakes.jobs.submitted[-1]["argv"]
     monkeypatch.setenv("SLATE_JOB_ID", "job-2")
-    code, out, err = cli(*fakes.jobs.submitted[-1]["argv"][3:])
+    code, out, err = cli(*fakes.jobs.submitted[-1]["argv"][1:])
     assert code == 0, err
     assert registry.find(film, 1)["samples"] == 3
     code, out, _err = cli("render", "--film", str(film), "--resume", "--json")
@@ -298,3 +298,19 @@ def test_web_engine_that_isnt_built_is_exit_three(fakes, film, slate_home, monke
     monkeypatch.setattr(sys.modules["slate.engine.bridge"], "call", call)
     code, out, _err = cli("render", "--film", str(film), "--act", "1", "--engine", "web", "--json")
     assert code == 3 and "web renderer" in out["message"]
+
+
+def test_render_queues_through_the_real_detach_convention(film, monkeypatch):
+    """No fakes: runner.submit reaches slate.jobs.client.detach_current itself, which queues `slate render … --in-queue`
+    holding the render slot (only the queue's own submit is caught here)."""
+    from slate.jobs import client
+    from slate.render import runner
+
+    captured = []
+    monkeypatch.setattr(client, "submit", lambda kind, argv, **kw: captured.append((kind, list(argv), kw)) or "job-9")
+    film_json, p = runner.prepare(film, act=1)
+    argv = runner.job_argv(film, p, act=1, frames=None, out=None, go=False, fresh=False, resume=False)
+    assert runner.submit(film, film_json, p, argv) == "job-9"
+    [(kind, queued, kw)] = captured
+    assert kind == "render" and queued[:2] == ["slate", "render"] and "--in-queue" in queued and "--detach" not in queued
+    assert tuple(kw["resources"]) == ("render",) and kw["film"] == str(film) and kw["resumable"] is True

@@ -36,6 +36,22 @@ def test_events_complete_fails_on_a_missing_act(film_builder):
     assert r.inputs["timing/visual_events/act1.json"] is None
 
 
+def test_events_complete_holds_draws_and_counts_to_their_spans(film_builder):
+    """t is always the beat: a draw or a count ends on it (start + dur, to half a frame), and gives its span; a whoosh
+    or a swell peaks inside its own. slate.timing.beats.problems is the one check every engine and reader shares."""
+    fb = film_builder(shots=[(1, 30)])
+    t = fb.secs(20)
+    fb.events(1, [fb.beat("S01", "line", 20, kind="draw")])  # a draw with no span: when did it start?
+    r = structure.events_complete(fb.path)
+    assert r.status == "FAIL" and any("line" in p for row in r.details["acts"] for p in row.get("problems", []))
+    fb.events(1, [fb.beat("S01", "line", 20, kind="draw", start=round(t - 0.4, 6), dur=0.4)])  # ends on its beat
+    assert structure.events_complete(fb.path).status == "PASS"
+    fb.events(1, [fb.beat("S01", "line", 20, kind="draw", start=round(t - 0.6, 6), dur=0.4)])  # ends 0.2 s early
+    assert structure.events_complete(fb.path).status == "FAIL"
+    fb.events(1, [fb.beat("S01", "air", 20, kind="whoosh", start=round(t - 0.1, 6), dur=0.3)])  # peaks inside
+    assert structure.events_complete(fb.path).status == "PASS"
+
+
 def test_events_complete_accepts_silent_with_a_reason_only(film_builder):
     fb = film_builder()
     fb.events(1, [fb.beat("S01", "a", 3), fb.beat("S02", "b", 25)])

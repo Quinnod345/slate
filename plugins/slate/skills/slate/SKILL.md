@@ -164,8 +164,9 @@ When the owner approves something and adds notes, the notes are perfecting notes
 keep everything else as it was, and check the revision against the approved version by measurement (levels against
 the voice, sync, palette). A note that seems to need a new approach gets a question first. Research only fixes a named
 flaw; it never becomes a redesign. (One film's sound went off the rails exactly this way: small notes were answered
-with a new sound system, and the effects that had stood out ended up buried.) Slate's revise stage, listed in
-`slate --help`, turns notes into a checklist of changes to that file and refuses to close while anything else moved.
+with a new sound system, and the effects that had stood out ended up buried.) `slate revise start <file> --notes …
+--by <name>` turns the notes into a checklist of changes to that file, `slate revise check` measures the revision
+against the approved version, and `slate revise done` refuses to close while anything else moved.
 See [review and correct](references/review-and-correct.md).
 
 ## 10. Resilience
@@ -173,8 +174,9 @@ See [review and correct](references/review-and-correct.md).
 A production can run for days and outlive every agent that works on it.
 - Everything a film knows is in its folder; `slate status` tells any agent where it stands.
 - Long work (renders, masters, word timings, score composition, generation batches) runs as detached jobs in the
-  queue: `--detach` returns a job id at once; follow it with `slate job status <id>` and `slate job log <id>`. A dying
-  agent, a sleeping Mac or a rate limit doesn't lose it.
+  queue: `--detach` returns a job id at once; follow it with `slate job status <id>`, `slate job wait <id>` and
+  `slate job log <id>`. A dying agent, a sleeping Mac or a rate limit doesn't lose it: a job turned away by a vendor's
+  rate limit (exit 75) goes back in the queue and tries again after the vendor's own wait.
 - **Nothing prompts.** Research slices are killed after ten minutes with stdin as a pipe, so never start anything that
   waits for input. Keys are typed by a person in their own Terminal with `slate connect`, never in chat.
 - Save early and often: a session can end without warning.

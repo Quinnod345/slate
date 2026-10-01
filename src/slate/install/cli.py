@@ -80,31 +80,29 @@ def cmd_uninstall(args: argparse.Namespace) -> int:
 
 
 def register(sub) -> None:
-    """Add `install` and `uninstall`, unless another module registered them first (argparse refuses duplicates)."""
-    choices = getattr(sub, "choices", {}) or {}
-    if "install" not in choices:
-        p = add_command(sub, "install", cmd_install, "wire Slate into every agent here: skills, CLI, MCP, job runner",
-                        description=INSTALL_DESCRIPTION, epilog=EPILOG)
-        p.add_argument("--agents", metavar="LIST", default=None,
-                       help="which agents: claude,codex,openclaw (default: the ones on this Mac)")
-        p.add_argument("--home", metavar="PATH", default=None,
-                       help="install into this home instead of yours (a sandbox; see below)")
-        p.add_argument("--yes", action="store_true",
-                       help="the person said yes: load the job runner (a login item) and, when visionary and "
-                            "goal-fidelity are here, set them up for every personal agent")
-        p.add_argument("--exclude-agent", action="append", default=[], metavar="ID",
-                       help="an OpenClaw agent that must never get visionary and goal-fidelity (repeatable)")
-        p.add_argument("--check", action="store_true", help="check the wiring only; change nothing")
-        p.add_argument("--no-higgsfield", action="store_true", help="don't link Higgsfield's skills for Codex/OpenClaw")
-        p.add_argument("--no-mcp", action="store_true", help="don't register the MCP server")
-        p.add_argument("--no-jobs-agent", action="store_true", help="leave the launchd job runner alone")
-        p.add_argument("--no-quinn-skills", action="store_true", help="don't offer the visionary/goal-fidelity setup")
-        p.add_argument("--no-doctor", action="store_true", help="skip the doctor run at the end")
-        p.add_argument("--interactive", action="store_true", help=argparse.SUPPRESS)  # install.sh, in a real Terminal
-    if "uninstall" not in choices:
-        p = add_command(sub, "uninstall", cmd_uninstall, "undo the installer's links, shims, MCP entries and runner",
-                        description=UNINSTALL_DESCRIPTION, epilog=EPILOG)
-        p.add_argument("--home", metavar="PATH", default=None, help="the home to uninstall from (default: yours)")
-        p.add_argument("--yes", action="store_true", help="the person said yes (removing the job runner)")
-        p.add_argument("--keep-backups", action="store_true",
-                       help="leave what the installer moved aside in its backup folder")
+    """Add `install` and `uninstall` (slate.cli.MODULES lists this module for both)."""
+    p = add_command(sub, "install", cmd_install, "wire Slate into every agent here: skills, CLI, MCP, job runner",
+                    description=INSTALL_DESCRIPTION, epilog=EPILOG)
+    p.add_argument("--agents", metavar="LIST", default=None,
+                   help="which agents: claude,codex,openclaw (default: the ones on this Mac)")
+    p.add_argument("--home", metavar="PATH", default=None,
+                   help="install into this home instead of yours (a sandbox; see below)")
+    p.add_argument("--yes", action="store_true",
+                   help="the person said yes: load the job runner (a login item) and, when visionary and "
+                        "goal-fidelity are here, set them up for every personal agent")
+    p.add_argument("--exclude-agent", action="append", default=[], metavar="ID",
+                   help="an OpenClaw agent that must never get visionary and goal-fidelity (repeatable)")
+    p.add_argument("--check", action="store_true", help="check the wiring only; change nothing")
+    p.add_argument("--no-higgsfield", action="store_true", help="don't link Higgsfield's skills for Codex/OpenClaw")
+    p.add_argument("--no-mcp", action="store_true", help="don't register the MCP server")
+    p.add_argument("--no-jobs-agent", action="store_true", help="leave the launchd job runner alone")
+    p.add_argument("--no-quinn-skills", action="store_true", help="don't offer the visionary/goal-fidelity setup")
+    p.add_argument("--no-doctor", action="store_true", help="skip the doctor run at the end")
+    p.add_argument("--interactive", action="store_true", help=argparse.SUPPRESS)  # install.sh, in a real Terminal
+
+    p = add_command(sub, "uninstall", cmd_uninstall, "undo the installer's links, shims, MCP entries and runner",
+                    description=UNINSTALL_DESCRIPTION, epilog=EPILOG)
+    p.add_argument("--home", metavar="PATH", default=None, help="the home to uninstall from (default: yours)")
+    p.add_argument("--yes", action="store_true", help="the person said yes (removing the job runner)")
+    p.add_argument("--keep-backups", action="store_true",
+                   help="leave what the installer moved aside in its backup folder")

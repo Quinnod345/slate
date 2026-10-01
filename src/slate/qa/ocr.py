@@ -67,13 +67,25 @@ def _ocrmac_version() -> str:
         return str(getattr(mod, "__version__", "unknown"))
 
 
+def _flush_c_stdio() -> None:
+    """Flush the C library's stdio buffers (fflush(NULL)). Vision prints through C stdio, which holds its text in a
+    buffer when stdout isn't a terminal and writes it out later, at exit, long after a redirect has ended."""
+    try:
+        import ctypes  # noqa: PLC0415
+
+        ctypes.CDLL(None).fflush(None)
+    except (OSError, AttributeError):  # pragma: no cover - no libc to flush: nothing buffered there either
+        pass
+
+
 @contextlib.contextmanager
 def stdout_to_stderr() -> Iterator[None]:
     """Send file descriptor 1 to stderr for the duration of the block.
 
-    Apple Vision writes diagnostics ("Unable to find a valid E5 …") straight to fd 1 from native code, below Python's
-    sys.stdout, so a `slate … --json` run that reads the picture would print them into its JSON. Everything the block
-    writes to fd 1 lands on stderr instead, where logs go; stdout carries only the command's own output."""
+    Apple Vision prints diagnostics ("Unable to find a valid E5 …") from native code through C stdio, below Python's
+    sys.stdout, so a `slate … --json` run that reads the picture would get them in its JSON. Everything the block
+    writes to fd 1 lands on stderr instead, where logs go, and the C buffers are flushed before fd 1 comes back (else
+    the text would sit in them and reach stdout at exit). stdout carries only the command's own output."""
     try:
         sys.stdout.flush()
     except (AttributeError, ValueError, OSError):
@@ -91,6 +103,7 @@ def stdout_to_stderr() -> Iterator[None]:
             sys.stdout.flush()
         except (AttributeError, ValueError, OSError):
             pass
+        _flush_c_stdio()
         os.dup2(saved, 1)
         os.close(saved)
 

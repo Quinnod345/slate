@@ -169,7 +169,7 @@ def test_unknown_gate_is_a_usage_error(voice_film):
 
 def test_gates_are_offered_to_qa():
     assert set(gates.GATES) == {"voice_policy", "voice_direction", "voice_takes", "voice_words", "voice_tails",
-                                "voice_fit"}
+                                "voice_fit", "voice_inflection", "voice_polish"}
     assert all(callable(fn) for fn in gates.GATES.values())
 
 

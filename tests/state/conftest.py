@@ -25,8 +25,10 @@ REFS = ("truth", "look_motion", "voice", "sound")
 def _fake_formats() -> types.ModuleType:
     mod = types.ModuleType("slate.formats")
 
-    def load(name: str) -> dict:
-        path = FORMATS / f"{name}.json"
+    def load(name: str, *, aspect: str | None = None) -> dict:
+        # like the real one: a name, or a path to a format file (which the real one validates)
+        given = Path(str(name)).expanduser()
+        path = given if given.suffix == ".json" and given.is_file() else FORMATS / f"{name}.json"
         if not path.is_file():
             from slate.errors import UsageError
 
@@ -39,7 +41,19 @@ def _fake_formats() -> types.ModuleType:
     def safe_zones(fmt: dict, platform: str) -> dict:
         return (fmt.get("safe_zones") or {}).get(platform) or {}
 
-    mod.load, mod.names, mod.safe_zones = load, names, safe_zones
+    def route_for(channel: str) -> dict:  # the real one reads formats/_platforms.json and _shared.json
+        social = channel in ("tiktok", "instagram_reels", "youtube_shorts")
+        if channel not in ("tiktok", "instagram_reels", "youtube_shorts", "youtube", "website"):
+            from slate.errors import UsageError
+
+            raise UsageError(f"No channel called {channel!r} (fake)")
+        return {"channel": channel, "label": channel, "route": "social" if social else "hero",
+                "route_label": "Social cut-down" if social else "Hero placement",
+                "quality": "fast" if social else "master", "pipeline": "fast" if social else "full",
+                "render_samples": "render.draft_samples" if social else "render.motion_blur_samples",
+                "master": "ffmpeg" if social else "After Effects for supervised films; ffmpeg otherwise"}
+
+    mod.load, mod.names, mod.safe_zones, mod.route_for = load, names, safe_zones, route_for
     mod.FAKE = True
     return mod
 

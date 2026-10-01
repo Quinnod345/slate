@@ -1,13 +1,115 @@
 {
  "name": "plain-reel",
- "note": "Test fixture: a neutral vertical reel-shaped format.",
- "width": 720,
- "height": 1280,
- "fps": "25/1",
- "runtime_s": [15, 45],
- "lufs": -14,
- "true_peak": -1,
- "budget": {"elevenlabs": 3000, "higgsfield": 0},
- "type_scale": 1.25,
- "safe_zones": {"reels": {"top": 0.1, "bottom": 0.18}}
+ "title": "Plain reel",
+ "summary": "Test fixture: a neutral vertical reel at 720 x 1280 and 25 fps.",
+ "use_when": "The packaging tests' films.",
+ "runtime_s": {
+  "min": 15,
+  "max": 45,
+  "target": 30
+ },
+ "aspects": {
+  "9:16": {
+   "width": 720,
+   "height": 1280,
+   "channels": [
+    "instagram_reels",
+    "tiktok",
+    "youtube_shorts"
+   ],
+   "type_scale": 1.25
+  }
+ },
+ "default_aspect": "9:16",
+ "fps_num": 25,
+ "fps_den": 1,
+ "pace": {
+  "max_words_per_second": 2.6,
+  "lead": 0.2,
+  "tail": 0.25,
+  "act_tail": 0.5,
+  "note": "Tighter than a brand film's placement: every half second of air is a real share of a 30-second reel."
+ },
+ "on_screen_max_words": 8,
+ "structure": {
+  "acts": {
+   "min": 1,
+   "max": 3
+  },
+  "beats": [
+   {
+    "name": "hook",
+    "job": "The reason to stay, inside the first two seconds, readable with the sound off.",
+    "share": 0.1
+   },
+   {
+    "name": "idea",
+    "job": "One idea, shown: a reel is a single thought, not a trailer for one.",
+    "share": 0.6
+   },
+   {
+    "name": "payoff",
+    "job": "The turn or the answer the hook promised.",
+    "share": 0.2
+   },
+   {
+    "name": "end",
+    "job": "A frame that loops cleanly back to the start, or one clear next step.",
+    "share": 0.1
+   }
+  ],
+  "rules": [
+   "Every word the voice says is on screen as a burned-in caption, inside every channel's safe zone.",
+   "Put the subject in the middle band: the platforms cover the top, the bottom and the right-hand buttons."
+  ]
+ },
+ "audio": "required",
+ "loudness": {
+  "lufs": -14,
+  "true_peak": -1,
+  "tolerance_lu": 0.5,
+  "standard": "web, social and streaming delivery"
+ },
+ "captions": {
+  "needed": true,
+  "burn_in": true,
+  "renderer": "remotion",
+  "font": "brand",
+  "sidecar": [
+   "srt"
+  ],
+  "max_lines": 2,
+  "max_chars": 32,
+  "max_cps": 17,
+  "min_s": 1.0,
+  "position": "lower middle, above the bottom 35% the platforms keep for their own captions and buttons"
+ },
+ "budget": {
+  "family": "reel_or_ad",
+  "elevenlabs": {
+   "vo": [
+    500,
+    3000
+   ],
+   "score": [
+    0,
+    0
+   ]
+  },
+  "higgsfield": [
+   0,
+   0
+  ],
+  "rework_factor": 1.5,
+  "note": "Test fixture: a small voice budget and nothing for generation."
+ },
+ "broadcast": false,
+ "generation": "rarely",
+ "engines": [
+  "remotion",
+  "web"
+ ],
+ "notes": [
+  "Test fixture for tests/packaging: a valid format (slate.formats validates format files)."
+ ]
 }

@@ -62,7 +62,7 @@ A composed score is part of most films: Eleven Music on its best model, composed
 never playing the effects' own materials.
 
 ```
-slate score plan          # one composition plan per act: 3 s pre-rolls, parts under 90 s, sections of 3 s or more
+slate score plan          # one composition plan per act: 3 s pre-rolls, parts under 90 s, blocks of 3 s or more
 slate score compose       # composes the missing takes (spends; estimated and budget-checked first)
 slate score assemble      # measured placement, equal-power joins, freeze repairs, the gap check
 slate score qa            # silence and noise in the takes and the score
@@ -76,8 +76,13 @@ splits at a story turn, styles. The playbook, and why each rule exists: [score](
 ```
 slate mix                 # voice, score and any effect stems, mixed to the film's targets
 slate mix --calibrate     # trim each effect stem to its palette level against the voice first
-slate verify              # the sound gates
+slate verify              # the sound gates, the balance gates included
+slate sound balance       # the balance on its own: every word clear of the score and effects, each family in place
 ```
+
+The balance gates (`sound.balance.*` and `sound.planned_stops`) measure the mix word by word against the voice: every
+word at least 12 dB clear of everything else in the consonant band, nothing louder than the voice while it speaks,
+textures and accents where the brand's palette puts them. A delivery needs them to pass like every other sound gate.
 
 The mix places the voice from its cue sheet, sets the score under the voice with ducking, sets effect stems at the
 palette's levels, and takes the whole to −14 LUFS with the true peak at or under −1 dBTP, in 48 kHz, 24-bit, exactly as

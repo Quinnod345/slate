@@ -36,7 +36,10 @@ def test_the_request_is_written_and_never_sent_from_a_test(auto_film, monkeypatc
     saved = jsonio.read(auto_film / req["file"])
     assert deps.validate_part({k: v for k, v in saved.items() if k != "generated"}, "generation",
                               "approval_request") == []
-    assert saved["takes"] == 2 and saved["estimate_usd_total"] == pytest.approx(1.848)
+    from slate import config
+
+    per_take = round(config.model_info("bytedance/seedance-2.5/image-to-video")["price"]["per_second"] * 2, 4)
+    assert saved["takes"] == 2 and saved["estimate_usd_total"] == pytest.approx(2 * per_take)  # registry price, 2 s
     assert req["id"] in saved["message"] and "Reply yes" in saved["message"]
 
 

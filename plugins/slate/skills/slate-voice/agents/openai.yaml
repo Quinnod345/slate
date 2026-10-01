@@ -1,6 +1,6 @@
 # do not edit by hand: slate skills build (from skills/slate-voice/SKILL.md). Edit the skill, not this file.
 interface:
   display_name: "Slate Voice"
-  short_description: "Cast, design, direct and record the voice of a Slate film, then clean, pace, align and caption it."
+  short_description: "Cast, design, direct and record the voice of a Slate film, then clean, pace, polish, align and caption it."
 policy:
   allow_implicit_invocation: true

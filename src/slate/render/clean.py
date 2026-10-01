@@ -9,6 +9,9 @@ bundles leaked by earlier runs; and `slate render clean` sweeps on demand:
 - leaked bundles (in Slate's bundle cache, or Remotion's own in the temp folder) untouched for three hours and leased
   by no live process (a long render keeps its bundle in use for hours);
 - engine webpack caches untouched for ten minutes;
+- the engine's own temp folders (cache/tmp and cache/chrome under Slate's data folder, where headless Chrome's
+  profiles live instead of $TMPDIR): what a stopped engine process left, untouched for a day and used by no running
+  Chrome;
 - in a film: finished chunk folders, half-written `.part` chunks, `.new` renders a killed join left behind, splice work
   folders, and `.pre-splice` / `.previous` safety copies (restored when the registry still describes them, removed
   when it doesn't);
@@ -31,6 +34,7 @@ from slate.render.engines import BUNDLE_PREFIXES, temp_roots
 
 BUNDLE_AGE_MIN = 180.0
 CACHE_AGE_MIN = 10.0
+ENGINE_TMP_AGE_MIN = 24 * 60.0
 
 
 def dir_bytes(path: Path) -> int:
@@ -166,6 +170,74 @@ def sweep_caches(*, older_than_min: float = CACHE_AGE_MIN, dry_run: bool = False
     return out
 
 
+def engine_tmp_roots() -> list[Path]:
+    """The engine's own temp folders under Slate's data folder: cache/tmp (TMPDIR for every engine process, Remotion's
+    Chrome profiles included) and cache/chrome (the web renderer's Chrome profiles)."""
+    return [paths.cache_dir() / "tmp", paths.cache_dir() / "chrome"]
+
+
+def _newest_mtime(path: Path, limit: int = 5000) -> float:
+    """The newest modification time in a folder (a bounded walk): a live Chrome writes into its profile all the time,
+    while the folder's own time only moves when its top level changes."""
+    newest = 0.0
+    seen = 0
+    for dirpath, dirnames, filenames in os.walk(path):
+        for name in [*dirnames, *filenames]:
+            seen += 1
+            try:
+                newest = max(newest, (Path(dirpath) / name).lstat().st_mtime)
+            except OSError:
+                pass
+            if seen >= limit:
+                return newest
+    try:
+        newest = max(newest, path.lstat().st_mtime)
+    except OSError:
+        pass
+    return newest
+
+
+def _profiles_in_use() -> set[str]:
+    """Profile folders a running Chrome names (--user-data-dir=…), so a sweep never removes a live one."""
+    try:
+        proc = procs.run(["ps", "-axww", "-o", "command="], timeout=20)
+    except Exception:  # noqa: BLE001 - unknown means "in use" below
+        return {"*"}
+    found: set[str] = set()
+    for line in (getattr(proc, "stdout", "") or "").splitlines():
+        for part in line.split("--user-data-dir=")[1:]:
+            found.add(part.split(" --", 1)[0].strip().strip("'\""))
+    return found
+
+
+def sweep_engine_tmp(*, older_than_min: float = ENGINE_TMP_AGE_MIN, dry_run: bool = False) -> list[dict]:
+    """What stopped engine processes left in the engine's temp folders: headless Chrome profiles and scratch folders a
+    killed process couldn't remove. Only entries nothing has written to for `older_than_min` (a day) and that no
+    running Chrome names as its profile."""
+    stale: list[tuple[Path, float]] = []
+    for root in engine_tmp_roots():
+        if not root.is_dir():
+            continue
+        for entry in sorted(root.iterdir()):
+            idle = (time.time() - _newest_mtime(entry)) / 60.0 if entry.is_dir() else age_min(entry)
+            if idle >= older_than_min:
+                stale.append((entry, idle))
+    if not stale:
+        return []
+    in_use = _profiles_in_use()
+    if "*" in in_use:
+        return []
+    live = [Path(p).resolve() for p in in_use if p]
+    out = []
+    for entry, idle in stale:
+        resolved = entry.resolve()
+        if any(resolved == x or x.is_relative_to(resolved) for x in live):
+            continue
+        out.append(_item(entry, f"left in the engine's temp folder by a stopped process, untouched for {idle / 60:.0f} h",
+                         dry_run))
+    return out
+
+
 SAFETY_SUFFIXES = (".pre-splice", ".previous")
 
 
@@ -239,6 +311,7 @@ def sweep(film_dir: Path | None = None, *, older_than_min: float = BUNDLE_AGE_MI
                 "freed_bytes": 0}
     items = sweep_bundles(older_than_min=older_than_min, dry_run=dry_run)
     items += sweep_caches(dry_run=dry_run)
+    items += sweep_engine_tmp(dry_run=dry_run)
     if film_dir is not None:
         items += sweep_film(film_dir, everything=everything, dry_run=dry_run)
     freed = sum(i["bytes"] for i in items if i["action"] == "removed")

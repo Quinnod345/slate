@@ -149,4 +149,49 @@ describe.skipIf(!kitCore)('a kit-built act, end to end through the engine', () =
       fs.writeFileSync(beats, before);
     }
   });
+
+  it("hands in a web act through the open web renderer: its page opens once, nothing is written, every gate passes", () => {
+    const made = ok('web-render', {film: dir, act: 2, scaffold: true}, {data});
+    expect(made).toMatchObject({scaffolded: true, act: 2});
+    // a dry run reads the page's beats and writes nothing; Chrome's profile lives under Slate's data folder
+    const dry = call('emit-events', {act: 2, dry_run: true, gl: 'swangle'});
+    const [d] = dry.acts;
+    expect(d).toMatchObject({act: 2, engine: 'web', dry_run: true, written: false, events: 1, problems: [], misses: []});
+    expect(d.beats.map((b) => b.id)).toEqual(['template.line-lands']);
+    expect(fs.existsSync(path.join(dir, 'timing', 'visual_events', 'act2.json'))).toBe(false);
+    // the page's Chrome kept its profile under Slate's data folder (never $TMPDIR), and it's gone with the browser
+    expect(d.browser.profile.startsWith(path.join(data, 'cache', 'chrome') + path.sep)).toBe(true);
+    expect(fs.existsSync(d.browser.profile)).toBe(false);
+    const emitted = call('emit-events', {act: 2, gl: 'swangle'});
+    expect(emitted.acts[0]).toMatchObject({act: 2, engine: 'web', events: 1});
+    const r = call('check', {act: 2, banned_words: ['guaranteed', 'risk-free'], gl: 'swangle'});
+    const byName = Object.fromEntries(r.gates.map((g) => [g.gate.split('.').slice(2).join('.'), g]));
+    expect(Object.keys(byName).sort()).toEqual(['banned_words', 'contracts', 'events', 'fonts', 'kit_problems', 'network', 'page', 'typecheck', 'word_misses']);
+    expect(r.passed, JSON.stringify(r.gates.filter((g) => g.status !== 'PASS'), null, 1)).toBe(true);
+    expect(byName.events.summary).toBe('1 beats, valid and current with the page');
+    expect(byName.banned_words.summary).toMatch(/none of the brand's 2 banned words in \d+ on-screen strings/);
+    expect(byName.typecheck.summary).toMatch(/no type errors in \d+ scene file/);
+  });
+
+  it("fails a web act's hand-in on a banned word in its page, and when its beats file is out of date", () => {
+    const page = path.join(dir, 'scenes', 'act2', 'web', 'index.html');
+    const before = fs.readFileSync(page, 'utf8');
+    const eventsFile = path.join(dir, 'timing', 'visual_events', 'act2.json');
+    const beats = readJson(eventsFile);
+    try {
+      fs.writeFileSync(page, before.replace('</body>', '<p class="small">Results guaranteed.</p></body>'));
+      fs.writeFileSync(eventsFile, JSON.stringify(beats.map((b) => ({...b, t: b.t + 0.04}))));
+      const r = cli('check', {film: dir, brand_path: KIT_BRAND, act: 2, banned_words: ['guaranteed'], contracts: false, gl: 'swangle'}, {data});
+      expect(r.code).toBe(0);
+      const gate = (n) => r.json.gates.find((g) => g.gate === `handin.act2.${n}`);
+      expect(gate('banned_words').status).toBe('FAIL');
+      expect(gate('banned_words').summary).toMatch(/index\.html:\d+: "Results guaranteed\." \(guaranteed\)/);
+      expect(gate('events').status).toBe('FAIL');
+      expect(gate('events').summary).toMatch(/out of date with the page/);
+      expect(r.json.passed).toBe(false);
+    } finally {
+      fs.writeFileSync(page, before);
+      fs.writeFileSync(eventsFile, JSON.stringify(beats, null, 1) + '\n');
+    }
+  });
 });

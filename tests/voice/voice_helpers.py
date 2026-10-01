@@ -146,3 +146,87 @@ for f in files:
     stem = os.path.splitext(os.path.basename(f))[0]
     json.dump(doc, open(os.path.join(out, stem + ".json"), "w"))
 '''
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Richer synthetic voices for the polish and analysis tests (numpy only): a formant-shaped glottal pulse train per
+# word, sibilant noise on the words that have an S, SH or Z, and optional breath. Nothing here is a real voice.
+
+FORMANTS = ((500.0, 80.0), (1500.0, 120.0), (2500.0, 160.0), (3400.0, 250.0))
+
+
+def _resonate(x: np.ndarray, sr: int, f: float, bw: float) -> np.ndarray:
+    from scipy.signal import lfilter
+
+    r = np.exp(-np.pi * bw / sr)
+    a = [1.0, -2 * r * np.cos(2 * np.pi * f / sr), r * r]
+    return lfilter([1 - r], a, x)
+
+
+def _voiced(n: int, sr: int, f0: np.ndarray, rng: np.random.Generator, breath: float, noise_only: bool) -> np.ndarray:
+    if noise_only:
+        src = rng.standard_normal(n) * 0.25
+    else:
+        phase = 2 * np.pi * np.cumsum(f0) / sr
+        kmax = int(min(7000.0, 0.45 * sr) / max(f0.max(), 60.0))
+        src = sum(np.sin(k * phase) / k for k in range(1, kmax + 1))
+        src = src + breath * rng.standard_normal(n) * 0.5
+    y = sum(_resonate(src, sr, f, bw) for f, bw in FORMANTS)
+    return y
+
+
+def rich_voice(text: str, *, f0: float = 180.0, sr: int = 48000, sibilance: float = 1.0, breath: float = 0.0,
+               whisper: bool = False, last_glide_st: float = 0.0, seed: int = 0, end_cut: bool = False,
+               level: float = 0.25) -> tuple[np.ndarray, list[dict]]:
+    """A speech-like take and its exact word times. `last_glide_st` bends the last word's pitch (+ rises, - falls);
+    `whisper` replaces the voice with shaped noise; `breath` mixes noise into the voice; `end_cut` stops the last
+    word at full level (a take cut off mid-word)."""
+    from scipy import signal as sg
+
+    rng = np.random.default_rng(seed)
+    words = text.split()
+    pieces, timed, t = [np.zeros(int(0.15 * sr))], [], 0.15
+    sib_sos = sg.butter(4, [4500, min(9500, 0.45 * sr)], "bandpass", fs=sr, output="sos")
+    for i, w in enumerate(words):
+        dur = 0.12 + 0.05 * max(1, sum(ch.isalnum() for ch in w))
+        n = int(dur * sr)
+        tt = np.arange(n) / sr
+        contour = f0 * (1.0 + 0.03 * np.sin(2 * np.pi * 2.0 * tt))
+        if i == len(words) - 1 and last_glide_st:
+            contour = contour * 2 ** (last_glide_st * (tt / dur) / 12)
+        y = _voiced(n, sr, contour, rng, breath, whisper)
+        env = np.sin(np.pi * np.clip(tt / dur, 0, 1)) ** 0.5
+        if end_cut and i == len(words) - 1:
+            env = np.minimum(1.0, 4 * tt / dur)
+        y = y / (np.max(np.abs(y)) + 1e-9) * env
+        if sibilance and any(c in w.lower() for c in "szx") or (sibilance and "sh" in w.lower()):
+            m = int(0.07 * sr)
+            burst = sg.sosfilt(sib_sos, rng.standard_normal(m)) * np.hanning(m)
+            y[:m] += sibilance * 0.9 * burst / (np.max(np.abs(burst)) + 1e-9)
+        pieces.append(level * y)
+        timed.append({"word": w, "start": round(t, 4), "end": round(t + n / sr, 4)})
+        t += n / sr
+        if i + 1 < len(words):
+            gap = 0.3 if w[-1] in ".!?" else (0.15 if w[-1] in ",;:" else 0.06)
+            pieces.append(np.zeros(int(gap * sr)))
+            t += int(gap * sr) / sr
+    if not end_cut:
+        pieces.append(np.zeros(int(0.2 * sr)))
+    return np.concatenate(pieces), timed
+
+
+def write_rich(path: Path, text: str, **kw) -> list[dict]:
+    from slate.voice import audio
+
+    x, words = rich_voice(text, **kw)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    audio.write_wav(path, x, kw.get("sr", 48000), 24)
+    return words
+
+
+def rich_take(vf, shot: str, text: str | None = None, *, take: str = "t01", sent: str | None = None, **kw):
+    """A non-replayed take of the shot made with rich_voice, registered and selected (as a real read would land)."""
+    wav = vf.take_dir(shot) / f"{take}.wav"
+    words = write_rich(wav, text or vf.line(shot).text, **kw)
+    register_take(vf, shot, wav, sent=sent, take=take)
+    return wav, words

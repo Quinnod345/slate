@@ -16,7 +16,7 @@ import {spawn} from 'node:child_process';
 import {renderFrames, selectComposition} from '@remotion/renderer';
 import {EngineError, childEnv, log, refused, requireTool, run, sha256File, usage} from './lib/common.mjs';
 import {parseTarget} from './lib/film.mjs';
-import {chromiumOptions} from './browser.mjs';
+import {browserExecutable, chromiumOptions} from './browser.mjs';
 import {useBundle} from './bundle.mjs';
 import {ensureEntry, refuseBroken} from './entry.mjs';
 import {browserLogCollector, fontGate} from './kit_bridge.mjs';
@@ -140,7 +140,7 @@ export async function renderMb(ctx, args, {onTrace = null} = {}) {
   };
   process.once('exit', stop);
   try {
-    const composition = await selectComposition({serveUrl: b.serve_url, id: target.comp, inputProps, chromiumOptions: chromiumOptions(gl), logLevel: 'warn', onBrowserLog: logs.onBrowserLog});
+    const composition = await selectComposition({serveUrl: b.serve_url, id: target.comp, inputProps, chromiumOptions: chromiumOptions(gl), browserExecutable: browserExecutable(), logLevel: 'warn', onBrowserLog: logs.onBrowserLog});
     const masterFrames = Math.round(composition.durationInFrames / sub);
     if (masterFrames !== target.frames) {
       throw refused(
@@ -192,6 +192,8 @@ export async function renderMb(ctx, args, {onTrace = null} = {}) {
       frameRange,
       concurrency,
       chromiumOptions: chromiumOptions(gl),
+      // every tile finished before a sample is drawn (chrome-complete.sh)
+      browserExecutable: browserExecutable(),
       logLevel: 'warn',
       onBrowserLog: logs.onBrowserLog,
       onStart: () => {},

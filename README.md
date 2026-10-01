@@ -8,9 +8,9 @@ It's built from the pipeline behind three brand films, with every brand pulled o
 one gets its own look, motion, voice and sound during onboarding.
 
 > **Status:** 0.1.0 is being built. Every stage has its command, from `slate doctor` and `slate connect` to
-> `slate deliver`, along with the installer, `slate update`, the MCP server, the ten skills and the open web renderer;
-> brand onboarding, formats and the finish stages are being finished. Still to come: `slate demo` (a neutral
-> 15-second film, end to end) and `slate knowledge check`. `CHANGELOG.md` keeps the list.
+> `slate deliver`, along with the installer, `slate update`, the MCP server, the ten skills, the open web renderer and
+> the knowledge ledger (`slate knowledge check`). Still to come: `slate demo` (a neutral 15-second film, end to end).
+> `CHANGELOG.md` keeps the list.
 
 ## Download
 

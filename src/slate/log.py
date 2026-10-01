@@ -7,6 +7,7 @@ Progress and warnings always go to stderr, so an agent parsing stdout never trip
 from __future__ import annotations
 
 import json
+import os
 import sys
 import time
 from typing import Any
@@ -54,6 +55,31 @@ def emit(obj: Any) -> None:
     """A command's machine result: one JSON object on stdout (only printed in --json mode)."""
     if _state["json"]:
         print(json.dumps(obj, ensure_ascii=False, default=str), flush=True)
+
+
+def _real_stdout() -> bool:
+    try:
+        return sys.stdout is sys.__stdout__ and sys.__stdout__ is not None and sys.__stdout__.fileno() == 1
+    except (AttributeError, OSError, ValueError):
+        return False
+
+
+def seal_stdout() -> bool:
+    """After a --json command's one object is out: send file descriptor 1 to stderr for the rest of the process.
+
+    Native code (Apple Vision's "Unable to find a valid E5 …" lines) writes below Python, some of it buffered in C stdio
+    and flushed at exit, after the JSON. Sealing fd 1 sends whatever comes later (that buffered text included: it's
+    deliberately not flushed first) to stderr, where logs go, so stdout stays exactly one object. Only the real
+    process stdout is sealed: in-process callers (slate.cli.run_cli, the MCP server, tests) capture sys.stdout in a
+    buffer and are left alone. True when it sealed."""
+    if not _real_stdout():
+        return False
+    try:
+        sys.stdout.flush()
+        os.dup2(2, 1)
+    except OSError:  # pragma: no cover - no fd 2 to point at
+        return False
+    return True
 
 
 def result(obj: Any, human: str | None = None) -> None:

@@ -4,7 +4,7 @@ import {readFileSync} from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {describe, expect, it} from 'vitest';
-import {BUILTIN, aeKeyframeEase, evalEase, makeEase, monoSpline, parseEase, startForSpec, t90, tAt, type EaseSpec} from '@slate/kit/core';
+import {BUILTIN, EVEN_KEYS, aeKeyframeEase, evalEase, makeEase, monoSpline, parseEase, startForSpec, t90, tAt, type EaseSpec} from '@slate/kit/core';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const vectors = path.resolve(here, '../../../tests/vectors');
@@ -121,5 +121,28 @@ describe('monotone splines', () => {
     const h = 1e-6;
     expect(Math.abs(monoSpline(h, keys) - monoSpline(0, keys)) / h).toBeLessThan(1e-3);
     expect(Math.abs(monoSpline(2, keys) - monoSpline(2 - h, keys)) / h).toBeLessThan(1e-3);
+  });
+});
+
+describe('the even travel profile (a carry\'s curve)', () => {
+  it('runs rest to rest through a third of the travel at each third of the time, exact at both ends', () => {
+    const e = BUILTIN.even;
+    expect(e(0)).toBe(0);
+    expect(e(1)).toBe(1);
+    expect(e(1 / 3)).toBeCloseTo(1 / 3, 12);
+    expect(e(2 / 3)).toBeCloseTo(2 / 3, 12);
+    for (let i = 0; i <= 100; i++) expect(e(i / 100)).toBeCloseTo(monoSpline(i / 100, EVEN_KEYS), 15);
+    // at rest at both ends: the first and last hundredth move far less than an even hundredth
+    expect(e(0.01)).toBeLessThan(0.002);
+    expect(1 - e(0.99)).toBeLessThan(0.002);
+  });
+
+  it('peaks at 4/3 of its average speed (a glide peaks near 3), which is why long carries of type use it', () => {
+    let peak = 0;
+    const N = 3000;
+    for (let i = 0; i < N; i++) peak = Math.max(peak, (BUILTIN.even((i + 1) / N) - BUILTIN.even(i / N)) * N);
+    expect(peak).toBeCloseTo(4 / 3, 2);
+    expect(evalEase({kind: 'even'}, 0.5)).toBeCloseTo(0.5, 12);
+    expect(t90(BUILTIN.even)).toBeGreaterThan(0.8);
   });
 });

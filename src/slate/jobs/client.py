@@ -205,6 +205,17 @@ def retry(job_id: str) -> dict:
     return snapshot
 
 
+def note_try_later(job_id: str, *, retry_after_s: float | None = None, reason: str | None = None) -> None:
+    """Called by a job's own command as it exits 75 (slate.errors.TryLater): how long the vendor asked it to wait,
+    and why. The supervisor reads it when it puts the job back in the queue, so the job's backoff is never shorter
+    than the vendor's Retry-After."""
+    with store.update(job_id) as job:
+        if job.get("state") != "running":
+            return
+        job["try_later"] = {"retry_after_s": float(retry_after_s) if retry_after_s is not None else None,
+                            "reason": (reason or "")[:300] or None, "at": model.iso()}
+
+
 def list_jobs(*, states: Iterable[str] | None = None, film: str | None = None, limit: int | None = None) -> list[dict]:
     """Jobs, active first (in queue order), then the most recent finished ones."""
     wanted = set(states) if states else None

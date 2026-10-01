@@ -75,17 +75,23 @@ def test_an_unknown_agent_is_exit_2(home):
     assert json.loads(out)["error"] == "usage"
 
 
-def test_register_twice_is_harmless():
+def test_each_command_is_registered_once_by_its_own_module():
+    """slate.cli.MODULES lists slate.install.cli for install and uninstall and slate.update for update. A second
+    registration is a bug argparse refuses (slate.cli files it in BROKEN), never something skipped quietly."""
+    from slate import cli, update
     from slate.install import cli as install_cli
-    from slate import update
 
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers()
     install_cli.register(sub)
-    install_cli.register(sub)
     update.register(sub)
-    update.register(sub)
-    assert {"install", "uninstall", "update"} <= set(sub.choices)
+    assert set(sub.choices) == {"install", "uninstall", "update"}
+    for again in (install_cli.register, update.register):
+        with pytest.raises(argparse.ArgumentError):
+            again(sub)
+    cli.build_parser()
+    assert cli.REGISTERED["install"] == cli.REGISTERED["uninstall"] == "slate.install.cli"
+    assert cli.REGISTERED["update"] == "slate.update" and not cli.BROKEN
 
 
 def test_nothing_ever_prompts_in_an_agent(monkeypatch):

@@ -317,6 +317,22 @@ export function landOn(land: number, duration: string | number, name?: string): 
 // ------------------------------------------------------------------------------------------------ the registry
 export type MotionValue = number | number[];
 
+/**
+ * The element classes `slate qa motion` holds to different speed limits: a rig part, a UI element, a page, card or
+ * camera carried across the frame, and a deliberate whip (a person's call).
+ */
+export const MOTION_CLASSES = ['rig', 'ui', 'carry', 'whip'] as const;
+export type MotionClass = (typeof MOTION_CLASSES)[number];
+/** The other names the gate reads for each class (character and mark are rig; element is ui; page and camera carry). */
+const CLASS_ALIASES: Record<string, MotionClass> = {rig: 'rig', character: 'rig', mark: 'rig', ui: 'ui', element: 'ui', carry: 'carry', page: 'carry', camera: 'carry', whip: 'whip'};
+/** Exemptions a move may declare, each a lesson from the films: a reading sweep, and steadiness as the meaning. */
+export const MOTION_EXEMPTIONS = ['reading_sweep', 'steady'] as const;
+/** A move whose id or property starts with one of these words is the camera: a carry (the gate reads it the same way). */
+const CAMERA_WORDS = new Set(['camera', 'cam']);
+
+const matchKey = (v: unknown): string => String(v).toLowerCase().replace(/[^a-z0-9]/g, '');
+const firstWord = (v: unknown): string => String(v).toLowerCase().trim().split(/[^a-z0-9]+/)[0] ?? '';
+
 export type MotionSpec = {
   id: string;
   shot: string;
@@ -329,6 +345,18 @@ export type MotionSpec = {
   entrance: boolean;
   loop_period: number | null;
   rig: string | null;
+  // Optional keys `slate qa motion` reads, written only when a move has them (docs/ARCHITECTURE.md §12):
+  /** which speed limits hold it: rig, ui, carry or whip (a rig part is rig, the camera a carry, without saying so) */
+  class?: MotionClass;
+  /** a declared exemption (reading_sweep or steady) and why */
+  exempt?: string;
+  reason?: string;
+  /** why this move breaks the law on purpose: its violations become REVIEW items a person accepts */
+  exception?: string;
+  /** the element's size in px, so a scale or a turn is speed-checked at its edges */
+  size?: number | [number, number];
+  /** what the values are in (px, deg, rad …) */
+  unit?: string;
 };
 
 export type MotionInput<V extends MotionValue> = {
@@ -343,7 +371,39 @@ export type MotionInput<V extends MotionValue> = {
   entrance?: boolean;
   loop_period?: number | null;
   rig?: string | null;
+  /** rig, ui, carry or whip (or the gate's other names: character, mark, element, page, camera) */
+  class?: MotionClass | string;
+  exempt?: string;
+  reason?: string;
+  exception?: string;
+  size?: number | [number, number];
+  unit?: string;
 };
+
+/**
+ * The optional trace keys for a move, checked the way `slate qa motion` reads them. A class or exemption it wouldn't
+ * know is recorded (motionProblems) and left off, never written for the gate to trip on.
+ */
+function traceKeys(input: {id: string; prop: string; rig?: string | null; class?: string; exempt?: string; reason?: string; exception?: string; size?: number | [number, number]; unit?: string}): Partial<MotionSpec> {
+  const out: Partial<MotionSpec> = {};
+  if (input.class !== undefined && input.class !== null) {
+    const c = CLASS_ALIASES[matchKey(input.class)];
+    if (c) out.class = c;
+    else problem(`motion "${input.id}": class "${input.class}" isn't one of ${MOTION_CLASSES.join(', ')} (or character, mark, element, page, camera)`);
+  }
+  if (!out.class && input.rig) out.class = 'rig';
+  if (!out.class && (CAMERA_WORDS.has(firstWord(input.id)) || CAMERA_WORDS.has(firstWord(input.prop)))) out.class = 'carry';
+  if (input.exempt !== undefined && input.exempt !== null) {
+    const ex = MOTION_EXEMPTIONS.find((k) => matchKey(k) === matchKey(input.exempt));
+    if (ex) out.exempt = ex;
+    else problem(`motion "${input.id}": exempt "${input.exempt}" isn't one of ${MOTION_EXEMPTIONS.join(', ')}`);
+  }
+  if (typeof input.reason === 'string' && input.reason.trim()) out.reason = input.reason.trim();
+  if (typeof input.exception === 'string' && input.exception.trim()) out.exception = input.exception.trim();
+  if (typeof input.size === 'number' ? input.size > 0 : Array.isArray(input.size) && input.size.length === 2 && input.size.every((v) => v > 0)) out.size = input.size;
+  if (typeof input.unit === 'string' && input.unit.trim()) out.unit = input.unit.trim();
+  return out;
+}
 
 export type MotionFn<V extends MotionValue> = ((frame: number) => V) & {
   spec: MotionSpec;
@@ -375,6 +435,11 @@ function mixValue(from: MotionValue, to: MotionValue, u: number): MotionValue {
  * every move of an act into timing/motion/actN.json for `slate qa motion`. Frames are film frames (fractional frames,
  * the motion-blur sub-samples, are fine). Before frame_in it is `from`, after frame_out it is `to`; a looping move
  * (loop_period frames) cycles between them from frame_in to frame_out.
+ *
+ * Say what the element is when the gate can't tell: `class: 'carry'` for a page or card carried across the frame (a
+ * rig part is rig and the camera a carry without saying so), `exempt` with a `reason` for a declared exemption,
+ * `exception` for a deliberate break a person signs off. A carry may use the kit's "even" curve without the brand
+ * naming it.
  *
  * Never throws: an id defined twice with a different spec, an unknown shot or ease, reversed frames or mismatched
  * values are recorded in motionProblems(), and the function still returns something drawable.
@@ -410,6 +475,7 @@ export function defineMotion<V extends MotionValue>(input: MotionInput<V>): Moti
     entrance: !!input.entrance,
     loop_period: period,
     rig: input.rig ?? null,
+    ...traceKeys(input),
   };
 
   const progress = (frame: number): number => {
@@ -440,7 +506,8 @@ export function defineMotion<V extends MotionValue>(input: MotionInput<V>): Moti
 
 /**
  * Register a rig channel: a value that isn't one eased move (a mark's part through several gestures) but should still
- * be traced and checked. `fn` must be a pure function of the frame. `ease` names the curve its segments use.
+ * be traced and checked. `fn` must be a pure function of the frame. `ease` names the curve its segments use. A rig
+ * channel is traced as class "rig" (its own speed limits).
  */
 export function defineChannel(input: {id: string; shot: string; prop: string; ease: string; frame_in: number; frame_out: number; rig: string; entrance?: boolean; fn: (frame: number) => number}): void {
   const spec: MotionSpec = {
@@ -455,6 +522,7 @@ export function defineChannel(input: {id: string; shot: string; prop: string; ea
     entrance: !!input.entrance,
     loop_period: null,
     rig: input.rig,
+    ...traceKeys({id: input.id, prop: input.prop, rig: input.rig}),
   };
   if (!registry.has(spec.id)) registry.set(spec.id, {spec, fn: input.fn});
 }

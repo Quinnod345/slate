@@ -79,8 +79,47 @@ describe('emit-events', () => {
     expect(problems).toMatch(/2 impacts in act 1: at most one/);
     expect(problems).toMatch(/\(f\): from must be a number/);
     expect(problems).toMatch(/\(f\): x must be a number/);
-    expect(problems).toMatch(/\(f\): dur must be a positive number of seconds/);
+    expect(problems).toMatch(/\(f\): a count runs over time, so it needs start and dur \(it ends on t\)/);
     expect(problems).toMatch(/\(f\): pan must be a number from -1 \(left\) to 1 \(right\)/);
+  });
+
+  it('holds every span to its beat, word for word as slate.timing.beats.problems() does', () => {
+    // a draw and a count end on t; a whoosh peaks inside its span; start and dur go together
+    const good = withEvents(
+      'spans-ok',
+      [
+        'export const events = [',
+        "  {shot: 'S01', id: 'rule', t: 0.3, start: 0.1, dur: 0.2, kind: 'draw', size: 's', note: 'a rule draws across'},",
+        "  {shot: 'S02', id: 'tally', t: 0.9, start: 0.6, dur: 0.3, kind: 'count', size: 'm', note: 'the tally counts up', from: 0, to: 64},",
+        "  {shot: 'S01', id: 'rush', t: 0.25, start: 0.1, dur: 0.4, kind: 'whoosh', size: 's', note: 'the card rushes past'},",
+        '];',
+      ].join('\n'),
+    );
+    const r = ok('emit-events', {film: good}, {data});
+    expect(r.acts[0]).toMatchObject({events: 3, kinds: {draw: 1, count: 1, whoosh: 1}});
+    expect(readJson(path.join(good, 'timing/visual_events/act1.json')).find((b) => b.id === 'rule')).toMatchObject({start: 0.1, dur: 0.2, t: 0.3});
+
+    const bad = withEvents(
+      'spans-bad',
+      [
+        'export const events = [',
+        "  {shot: 'S01', id: 'no_span', t: 0.3, kind: 'draw', size: 's', note: 'a draw with no span'},",
+        "  {shot: 'S01', id: 'starts_on_t', t: 0.1, start: 0.1, dur: 0.2, kind: 'draw', size: 's', note: 'timed at its start, as one film did'},",
+        "  {shot: 'S01', id: 'half', t: 0.2, start: 0.1, kind: 'tap', size: 's', note: 'a start with no dur'},",
+        "  {shot: 'S02', id: 'backwards', t: 0.7, start: 0.8, dur: 0, kind: 'land', size: 's', note: 'a span of nothing'},",
+        "  {shot: 'S02', id: 'late_peak', t: 0.95, start: 0.5, dur: 0.2, kind: 'swell', size: 'm', note: 'peaks after its span'},",
+        '];',
+      ].join('\n'),
+    );
+    const res = cli('emit-events', {film: bad}, {data});
+    expect(res.code).toBe(1);
+    const problems = res.json.details.problems.join('\n');
+    expect(problems).toMatch(/\(no_span\): a draw runs over time, so it needs start and dur \(it ends on t\)/);
+    expect(problems).toMatch(/\(starts_on_t\): a draw ends on its beat, but start \+ dur is 0\.300 s and t is 0\.100 s \(\+200 ms\)/);
+    expect(problems).toMatch(/\(half\): start and dur go together \(the span a sustained motion runs over\)/);
+    expect(problems).toMatch(/\(backwards\): the span 0\.800–0\.800 s isn't a forward stretch of film time/);
+    expect(problems).toMatch(/\(late_peak\): a swell peaks inside its span, but t 0\.950 s is outside 0\.500–0\.700 s/);
+    expect(fs.existsSync(path.join(bad, 'timing/visual_events/act1.json'))).toBe(false);
   });
 
   it('refuses an act whose module throws while loading, and says why', () => {
@@ -173,10 +212,13 @@ describe('emit-events', () => {
         "import fs from 'node:fs';",
         "import path from 'node:path';",
         'export async function webRender(args) {',
+        "  const beats = [{shot: 'S02', id: 'page.lands', t: 0.8, kind: 'land', size: 'm', note: 'the page lands'}];",
+        "  const rel = `timing/visual_events/act${args.act}.json`;",
+        '  if (args.dry_run) return {acts: [{act: args.act, file: rel, silent: false, events: 1, beats, problems: [], dry_run: true, written: false, asked: args}], skipped: [], dry_run: true};',
         "  const file = path.join(args.film, 'timing', 'visual_events', `act${args.act}.json`);",
         '  fs.mkdirSync(path.dirname(file), {recursive: true});',
-        "  fs.writeFileSync(file, JSON.stringify([{shot: 'S02', id: 'page.lands', t: 0.8, kind: 'land', size: 'm', note: 'the page lands'}]));",
-        '  return {acts: [{act: args.act, file: `timing/visual_events/act${args.act}.json`, silent: false, events: 1, asked: args}], skipped: []};',
+        '  fs.writeFileSync(file, JSON.stringify(beats));',
+        '  return {acts: [{act: args.act, file: rel, silent: false, events: 1, asked: args}], skipped: []};',
         '}',
         '',
       ].join('\n'),
@@ -186,9 +228,15 @@ describe('emit-events', () => {
     expect(r.acts[1].asked).toEqual({film: dir, act: 2, emit: true});
     expect(r.acts[1]).toMatchObject({events: 2, capture_beats: 1, kinds: {tap: 1, land: 1}});
     expect(readJson(path.join(dir, 'timing/visual_events/act2.json')).map((b) => [b.id, b.size])).toEqual([['demo.tap', 's'], ['page.lands', 'm']]);
-    // a dry run doesn't open a page, and says so
+    // a dry run asks the page too (dry_run: nothing written), and judges its beats with the captures' taps merged in
+    const before = fs.readFileSync(path.join(dir, 'timing/visual_events/act2.json'), 'utf8');
     const dry = ok('emit-events', {film: dir, dry_run: true}, {data, env: {SLATE_WEB_RENDER_MODULE: fake}});
-    expect(dry.skipped).toEqual([{act: 2, reason: "a web scene: its beats are read from its page, which a dry run doesn't open", engine: 'web'}]);
+    expect(dry.skipped).toEqual([]);
+    const web = dry.acts.find((a) => a.act === 2);
+    expect(web.asked).toEqual({film: dir, act: 2, emit: true, dry_run: true});
+    expect(web).toMatchObject({engine: 'web', events: 2, capture_beats: 1, problems: [], dry_run: true, written: false});
+    expect(web.beats.map((b) => b.id)).toEqual(['demo.tap', 'page.lands']);
+    expect(fs.readFileSync(path.join(dir, 'timing/visual_events/act2.json'), 'utf8')).toBe(before);
   });
 
   it.skipIf(!kitCore)("refuses to write while a word lookup falls back to an estimate (film C's rule)", () => {

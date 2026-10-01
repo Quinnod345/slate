@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from slate import jsonio, procs
-from slate.errors import UsageError
+from slate.errors import Refused, UsageError
 from slate.state import _util
 
 APPROVALS = "approvals.json"
@@ -61,6 +61,7 @@ ALIASES = {"plate-take": "plate", "plate_take": "plate", "generation": "spend", 
 WHAT_RE = re.compile(r"^[a-z][a-z0-9_-]{0,39}(:[A-Za-z0-9][A-Za-z0-9._/-]{0,119})?$")
 # Approvals that belong to Slate rather than one film. They live in DATA/approvals.json, where the module that
 # waits on them reads them (proof 3: slate.sound.effects.require_proof3, which gates the effects engine).
+DRAFTS = "deliver/drafts/"  # `slate deliver --draft` writes here: never final, so never the approved final cut
 GLOBAL_KINDS: dict[str, str] = {
     "proof3": "proof 3 of the sound design; the effects engine starts only after a person approves it",
 }
@@ -151,6 +152,9 @@ def record(film_dir: Path, *, what: str, path: str, approved_by: str, note: str 
         raise UsageError("An approval needs the person who gave it (--by NAME).")
     modes.check(film_dir, "approve", what=kind)
     rel = _util.film_rel(film_dir, path)
+    if kind == "final_cut" and (rel == DRAFTS.rstrip("/") or rel.startswith(DRAFTS)):
+        raise Refused(f"{rel} is a draft delivery, and drafts are never final, so it can't be the approved final cut.",
+                      hint="Deliver the version for real (`slate deliver`, without --draft) and approve its master.")
     digest, basis = content_hash(film_dir, kind, rel)
     if digest is None and kind != "spend":  # a yes to spend may name something not made yet (a plate to generate)
         raise UsageError(f"{rel} doesn't exist (or is an empty folder), so there's nothing to approve.")

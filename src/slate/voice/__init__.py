@@ -1,4 +1,5 @@
-"""Voice: cast or design a voice, direct it with audio tags, voice every line, clean, pace, align and caption it.
+"""Voice: cast or design a voice, direct it with audio tags, voice every line, clean, pace, polish, align and caption
+it, and measure every read (pitch, breath, sibilance, endings, the Whisper checks) before anyone listens.
 
 The stages are `slate voice …` commands (see slate.voice.cli). Other modules call these (docs/ARCHITECTURE.md §12):
 

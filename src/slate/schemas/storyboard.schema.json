@@ -47,7 +47,8 @@
         "enter_token": {"type": ["string", "null"]},
         "lead": {"type": "number", "minimum": 0},
         "hold": {"type": "number", "minimum": 0},
-        "generate": {"type": "object", "description": "the shot's generation request from script.json, carried through to timing/shots.json"}
+        "generate": {"type": "object", "description": "the shot's generation request from script.json, carried through to timing/shots.json"},
+        "reading": {"type": "object", "description": "the shot's reading declaration from script.json (voice_matched, not_for_reading, reason), for the script gates and `slate qa readtime`"}
        }
       }
      }

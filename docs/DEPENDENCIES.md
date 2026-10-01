@@ -42,12 +42,14 @@ each one lives in Slate. Ids like `ve-011` below point into it.
 4. **puppeteer 25.10.0 expects Chrome for Testing 152.0.7977.75**, and `~/.cache/puppeteer` holds only 131, 137 and
    142. The open web renderer needs that download (for local pages only) or an `executablePath` pointed at Remotion's
    headless shell. Owner: web.
-5. **There's no `uv.lock` yet.** `pyproject.toml` sets floors only, and the venv resolved numpy 2.5.3, scipy 1.18.1 and
-   Pillow 12.3.0 on CPython 3.13.3. The plan's "today" versions are the film project's (numpy 2.4.4, scipy 1.18.0,
-   Pillow 12.2.0 on CPython 3.14.7). Golden-data parity has to be proven on locked versions. The `mcp` floor (≥ 1.2)
-   spans a major version, with 2.2.0 installed, so pin the major. Owner: packaging.
-6. **ocrmac isn't in Slate's venv.** It's in the optional `ocr` extra and otherwise only in the uv cache, so every OCR
-   gate is UNCHECKED until it's installed. Owners: qa-core, doctor.
+5. **`uv.lock` exists since 2026-10-01**, resolved for Apple-silicon Macs only (`[tool.uv] environments`), and it pins
+   what the venv runs: numpy 2.5.3, scipy 1.18.1 and Pillow 12.3.0 on CPython 3.13. The plan's "today" versions are
+   the film project's (numpy 2.4.4, scipy 1.18.0, Pillow 12.2.0 on CPython 3.14.7); golden-data parity is proven on the
+   locked ones. `mcp` is pinned to its major, `>=2.2,<3`. The `analyze` extra (demucs 4.1.0, librosa 0.11.0) is
+   recorded there but never installed into Slate's environment: both run through uvx.
+6. **ocrmac is in Slate's venv** (the `ocr` extra, installed 2026-10-01: ocrmac 1.0.1 with pyobjc 12.2.2), so the OCR
+   gates run on Apple Vision. Vision prints diagnostics through C stdio; Slate sends them to stderr, so `--json` stays
+   one object. The default test run never loads Vision (`SLATE_TEST_VISION=1` opts in).
 7. **There's no `analyze` extra for Demucs and librosa** in `pyproject.toml` yet. Owner: finish (analyze).
 8. **`@remotion/media-utils` 4.0.521 is declared in `engine/package.json` but isn't in the plan.** It stays only if
    something imports it; otherwise it goes, like the other declared-but-unused packages. Owner: engine-core.
@@ -58,8 +60,9 @@ each one lives in Slate. Ids like `ve-011` below point into it.
     the render-parity check. Owner: engine-core.
 11. **The music model in `registry.json` hasn't been proven with composition plans.** The music role defaults to
     `music_v2_5`, but V4_TAGS.md records that the films' scores used `music_v1` because v2.5 rejected section plans.
-    The tracer reel composes a score, so the sound module has to prove plans on the best model first, or pin
-    `music_v1` per film with the reason written down. Owner: sound.
+    Since 2026-10-01 registry.json records each music model's plan shape (`chunks` for music_v2_5, `sections` for
+    music_v1) and the sound module builds the shape the model takes; the tracer reel's score is the first live proof
+    on the best model. Owner: sound.
 12. **Higgsfield's video analysis only ever ran through the hosted connector** (`video_analysis_create`, 0 credits).
     `slate analyze` runs in the CLI lane, so the analyze module has to find a CLI or Cloud API route to it, or report
     that step UNCHECKED. Owner: finish (analyze).
@@ -86,7 +89,7 @@ pin, and Whisper's large-v3-turbo model on disk (1.6 GB).
 | esbuild | 0.28.1 | Keep, declared | Every event emitter and the hand-in check bundle an act's beats to run in Node | In place: declared (the films relied on it without declaring it) |
 | Chrome headless shell | 149, Remotion-managed (not installed for Slate yet) | Keep | Headless rendering with ANGLE GL | Owed: doctor runs `remotion browser ensure` (doctor); `film.json` pins the Chrome version at first use (state) |
 | three, @react-three/fiber, @react-three/drei | 0.180.0, 9.7.0, 10.7.8 | Keep | 3D for the open web renderer, and inside Remotion through @remotion/three | In place: pinned |
-| gsap | 3.15.0 | Keep, for the open web renderer | Timelines seeked frame by frame | In place: pinned. Owed: a licence check before any public release (packaging) |
+| gsap | 3.15.0 | Keep, for the open web renderer | Timelines seeked frame by frame | In place: pinned; its licence facts are in registry.json (the Standard "No Charge" License: commercial use and the bonus plugins included, AI-generated code allowed; no no-code tools that compete with Webflow). Owed: before a public release, Quinn decides whether a talk-to-make-a-video tool counts as one (packaging) |
 | puppeteer | 25.10.0 (its Chrome 152 not downloaded) | Keep, for the open web renderer | Captures frames of Slate's own local pages | In place: pinned, and every child process runs with `BROWSER=none` (`procs.child_env`, tested). Owed: the web engine loads only `file://` pages or a localhost server it started itself, never a website, with a test (web) |
 | postprocessing, @react-three/postprocessing, framer-motion | not declared | Drop | Blank under Remotion; never imported | In place: absent from the manifest |
 | vitest, @types/node, @types/react, @types/three † | 5.0.3, 26.6.3, 19.2.2, 0.180.0 | Keep, dev only | Engine tests and types | In place: pinned dev dependencies |
@@ -218,7 +221,7 @@ These aren't dependencies; they're the front doors. Checked on 2026-09-30.
 |---|---|---|
 | Claude Code | 2.1.282 | Skills symlinked into `~/.claude/skills`; `claude mcp add --scope user`; the CLI in `~/.local/bin` |
 | Codex | 0.153.4 (npm); 0.155 inside ChatGPT.app, per the inventory | `~/.agents/skills` only; `codex mcp add` |
-| OpenClaw | 2026.9.4 | `~/.agents/skills`; `openclaw mcp set`; the CLI also linked into `/opt/homebrew/bin` |
+| OpenClaw | 2026.9.4 | `~/.agents/skills`; `openclaw mcp add <name> --command … --arg … --connect-timeout 30` (2026.9.4 refuses an existing name and probes the server first; the plan's `openclaw mcp set` is the older form); the CLI also linked into `/opt/homebrew/bin` |
 
 Doctor checks that each Slate skill appears exactly once in each host.
 

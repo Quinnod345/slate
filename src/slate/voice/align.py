@@ -100,6 +100,25 @@ def run_whisper(files: list[Path], out_dir: Path, *, model: str | None = None, l
     return results
 
 
+def transcribe(path: str | Path, *, model: str | None = None, language: str = "en", timeout: float = 900) -> dict:
+    """One file through Whisper, the way every Slate module should run it: SLATE_WHISPER (or slate.toml's [voice]
+    whisper) names the CLI, the job queue's whisper lock keeps it to one at a time, and the result is Whisper's own
+    JSON (segments with word timestamps). For other modules' Whisper runs (timing, analyze), so a stand-in or a
+    particular build named once is the one every stage hears with."""
+    path = Path(path)
+    with tempfile.TemporaryDirectory(prefix="slate-whisper-out-") as out:
+        results = run_whisper([path], Path(out), model=model, language=language, timeout=timeout)
+    if path not in results:
+        raise MissingPrerequisite(f"Whisper ran on {path.name} but wrote no transcript.",
+                                  hint="Run the same Whisper command by hand to see its own error.")
+    return results[path]
+
+
+def whisper_executable() -> str | None:
+    """The Whisper CLI Slate runs (SLATE_WHISPER first, then Homebrew's), or None when there isn't one."""
+    return whisper_info()["path"]
+
+
 def _hold(resource: str, fn):
     """Run under the job queue's resource lock when the queue is installed (one Whisper at a time on this Mac)."""
     try:
@@ -144,7 +163,7 @@ def replay_words(vf: VoiceFilm, shot: str, take: str) -> list[dict] | None:
     if not words:
         return None
     pace = (data.get("stages") or {}).get("pace")
-    if pace and vf.final_stage(shot) == "paced":
+    if pace and vf.timing_stage(shot) == "paced":  # a polished take keeps its source's timing
         cuts, tempo = pace.get("cuts") or [], float(pace.get("tempo") or 1.0)
         return [{"word": w["word"], "start": round(map_time(w["start"], cuts, tempo), 4),
                  "end": round(map_time(w["end"], cuts, tempo), 4)} for w in words]

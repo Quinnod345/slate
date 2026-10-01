@@ -8,6 +8,13 @@ write anything when any of them FAILs.
 - script.read_time     on-screen text holds long enough once it has settled: max(1.5 s, 0.4 s + 0.3 s x words),
                        measured as dur − entrance − 0.75 x entrance, and 2 s for a number (MOTION.md §7)
 - script.on_screen     at most 12 on-screen words a shot
+
+A shot may declare how its text is read (`"reading": {"voice_matched": true, "reason": "…"}` or
+`{"not_for_reading": true, "reason": "…"}`, the declarations `slate qa readtime` honours too, L-qa-D053): a
+voice-matched definition, read along by the voice as it lands, may run past the word budget and needs only the 1.5 s
+floor; a surface shown too small to read on purpose isn't timed or counted. Without a reason a declaration counts for
+nothing (and says so). A list of statements instead of true is for the picture's QA, which reads each statement; here
+it exempts nothing.
 - script.banned_words  none of the brand's banned words in the VO, on screen or in the picture
 - script.runtime       within ±10% of the requested runtime
 - script.numbers       every number said or shown is approved, sample data, or tied to a pinned source
@@ -72,13 +79,33 @@ def _has_number(text: str, lang: str) -> bool:
     return any(m.counts for m in numbers.mentions(text, lang))
 
 
+def reading(s: PlannedShot) -> tuple[set[str], str | None]:
+    """The shot's whole-shot reading declarations ({"voice_matched", "not_for_reading"} with `true`) and a problem
+    with them, if any. A declaration needs its reason; a list of statements is for the picture's QA."""
+    raw = s.data.get("reading")
+    if raw is None:
+        return set(), None
+    if not isinstance(raw, dict):
+        return set(), f'{s.id}: "reading" should be an object like {{"voice_matched": true, "reason": "…"}}'
+    flags = {f for f in ("voice_matched", "not_for_reading") if raw.get(f) is True}
+    if flags and not str(raw.get("reason") or "").strip():
+        return set(), f"{s.id}: declares {', '.join(sorted(flags))} without a reason, so it counts for nothing"
+    return flags, None
+
+
 def check_read_time(plan: Plan, brand: dict, rules: dict) -> GateResult:
     scale = inputs.durations(brand)
-    short, unknown = [], set()
+    short, unknown, notes = [], set(), []
     for s in plan.shots:
         text = s.data.get("on_screen") or ""
         n = spoken.word_count(text, plan.lang)
         if not n:
+            continue
+        flags, problem = reading(s)
+        if problem:
+            notes.append(problem)
+        if "not_for_reading" in flags:
+            notes.append(f"{s.id}: not for reading ({s.data['reading']['reason']}), so not timed")
             continue
         token = s.data.get("enter_token")
         if token and token in scale:
@@ -88,14 +115,18 @@ def check_read_time(plan: Plan, brand: dict, rules: dict) -> GateResult:
             if token:
                 unknown.add(str(token))
         settled = s.dur - ent - float(rules["exit_factor"]) * ent
-        need = max(float(rules["floor"]), float(rules["base"]) + float(rules["per_word"]) * n)
+        if "voice_matched" in flags:  # the voice reads it along as it lands: only the floor
+            need = float(rules["floor"])
+            notes.append(f"{s.id}: voice-matched ({s.data['reading']['reason']}), held to the {need:g} s floor")
+        else:
+            need = max(float(rules["floor"]), float(rules["base"]) + float(rules["per_word"]) * n)
         if _has_number(text, plan.lang):
             need = max(need, 2.0)
         if settled + 1e-9 < need:
             short.append(f"{s.id}: {_plural(n, 'on-screen word')} need {need:.1f} s settled, the shot gives "
                          f"{settled:.1f} s ({s.dur:.2f} s − {ent:.2f} s in − {float(rules['exit_factor']) * ent:.2f} s out)")
     evidence = short + ([f"entrance tokens not in the brand's duration scale (used {rules['default_entrance']} s): "
-                         f"{', '.join(sorted(unknown))}"] if unknown else [])
+                         f"{', '.join(sorted(unknown))}"] if unknown else []) + notes
     if short:
         return _g("FAIL", "script.read_time", f"{_plural(len(short), 'shot')} hold on-screen text too briefly", evidence)
     return _g("PASS", "script.read_time", "every on-screen line holds long enough to read", evidence)
@@ -103,17 +134,29 @@ def check_read_time(plan: Plan, brand: dict, rules: dict) -> GateResult:
 
 def check_on_screen(plan: Plan, rules: dict) -> GateResult:
     cap = int(rules["max_words"])
-    dense = [f"{s.id}: {spoken.word_count(s.data.get('on_screen') or '', plan.lang)} on-screen words (at most {cap})"
-             for s in plan.shots if spoken.word_count(s.data.get("on_screen") or "", plan.lang) > cap]
+    dense, notes = [], []
+    for s in plan.shots:
+        n = spoken.word_count(s.data.get("on_screen") or "", plan.lang)
+        if n <= cap:
+            continue
+        flags, problem = reading(s)
+        if problem:
+            notes.append(problem)
+        if flags and cap > 0:  # a voice-matched definition (or a surface not for reading) may run past the budget
+            why = "voice-matched" if "voice_matched" in flags else "not for reading"
+            notes.append(f"{s.id}: {n} on-screen words, past {cap}: {why} ({s.data['reading']['reason']})")
+            continue
+        dense.append(f"{s.id}: {n} on-screen words (at most {cap})")
     if dense and cap == 0:
         return _g("FAIL", "script.on_screen", f"{_plural(len(dense), 'shot')} put words on screen, and this format's "
-                  "picture carries none", dense, max_words=cap)
+                  "picture carries none", dense + notes, max_words=cap)
     if dense:
         return _g("FAIL", "script.on_screen", f"{_plural(len(dense), 'shot')} carry more than {cap} on-screen words",
-                  dense, max_words=cap)
+                  dense + notes, max_words=cap)
     if cap == 0:
-        return _g("PASS", "script.on_screen", "no words on screen, as the format asks", max_words=cap)
-    return _g("PASS", "script.on_screen", f"every shot at or under {cap} on-screen words", max_words=cap)
+        return _g("PASS", "script.on_screen", "no words on screen, as the format asks", notes, max_words=cap)
+    return _g("PASS", "script.on_screen", f"every shot at or under {cap} on-screen words"
+              + (" (or declared voice-matched)" if notes else ""), notes, max_words=cap)
 
 
 def check_runtime(plan: Plan, target: dict) -> GateResult:

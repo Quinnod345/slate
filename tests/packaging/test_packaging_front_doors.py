@@ -18,7 +18,7 @@ REPO = Path(__file__).resolve().parents[2]
 DOCS = ["README.md", "AGENTS.md", "CHANGELOG.md", "plugins/slate/README.md", "mcpb/README.md", "docs/DECISIONS.md"]
 # Commands a document may name before their module lands, because it says they're still to come. Each must really be
 # missing: once it's built, the exemption goes (the test below says so).
-NOT_YET = {"demo", "knowledge"}
+NOT_YET = {"demo"}
 GLOBAL_VALUE_FLAGS = {"--film"}
 BARE = re.compile(r"^[a-z][a-z0-9-]*$")
 
@@ -79,7 +79,7 @@ def test_every_command_a_front_door_cites_exists(doc):
 
 
 def test_the_not_yet_list_is_honest():
-    """When `slate demo` or `slate knowledge` lands, drop it from NOT_YET and from the 'still to come' wording."""
+    """When `slate demo` lands, drop it from NOT_YET and from the 'still to come' wording."""
     built = sorted(NOT_YET & REGISTERED)
     assert not built, f"now built: {built}; remove them from NOT_YET and update README's status and CHANGELOG"
     readme = (REPO / "README.md").read_text()

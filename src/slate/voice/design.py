@@ -25,7 +25,7 @@ from slate.vendors import elevenlabs
 from slate.voice import align as align_mod
 from slate.voice import measure, rank
 from slate.voice import profile as profile_mod
-from slate.voice.cast import slug
+from slate.voice.cast import onboarding_billing, slug
 from slate.voice.film import VoiceFilm, now
 
 
@@ -72,7 +72,8 @@ def run(film_dir: str | Path | None = None, *, brand: str | None = None, spec: d
     name = slug(name or f"design-{time.strftime('%Y%m%d-%H%M%S')}")
     folder = _folder(vf, prof, name, out)
     model = spec.get("model_id") or config.model("voice_design")
-    client = elevenlabs.Client(mode=vf.mode if vf else "supervised", film=vf.dir if vf else None)
+    client = elevenlabs.Client(mode=vf.mode if vf else "supervised",
+                               film=vf.dir if vf else onboarding_billing(prof.get("brand") or brand))
     fmt = client.choose_format(prof.get("output_format") or "pcm_48000")
     manifest_path = folder / "previews.json"
     manifest = jsonio.read(manifest_path, default=None) or {"previews": [], "saved_voices": []}
@@ -119,7 +120,7 @@ def run(film_dir: str | Path | None = None, *, brand: str | None = None, spec: d
 
 
 def save(folder: str | Path, preview: str, voice_name: str, *, film_dir: str | Path | None = None,
-         labels: dict | None = None) -> dict:
+         labels: dict | None = None, brand: str | None = None) -> dict:
     """Keep a preview (by preview id or generated voice id) as a voice in the account."""
     folder = Path(folder)
     manifest_path = folder / "previews.json"
@@ -135,7 +136,8 @@ def save(folder: str | Path, preview: str, voice_name: str, *, film_dir: str | P
     if row is None:
         raise UsageError(f"No preview {preview!r} in {folder}.", hint="The ids are in previews.json (or remix.json).")
     vf = VoiceFilm(film_dir) if film_dir else None
-    client = elevenlabs.Client(mode=vf.mode if vf else "supervised", film=vf.dir if vf else None)
+    client = elevenlabs.Client(mode=vf.mode if vf else "supervised",
+                               film=vf.dir if vf else onboarding_billing(brand))
     res = client.save_voice(generated_voice_id=row["generated_voice_id"], voice_name=voice_name,
                             voice_description=row.get("voice_description") or voice_name,
                             labels={"made_with": "slate", **(labels or {})})
@@ -165,7 +167,8 @@ def check(folder: str | Path, *, text: str | None = None, models: list[str] | No
     if not text:
         raise UsageError("Pass --text for the check read.")
     models = models or [config.model("tts")]
-    client = elevenlabs.Client(mode=vf.mode if vf else "supervised", film=vf.dir if vf else None)
+    client = elevenlabs.Client(mode=vf.mode if vf else "supervised",
+                               film=vf.dir if vf else onboarding_billing(prof.get("brand") or brand))
     rows = []
     for sv in saved:
         for m in models:

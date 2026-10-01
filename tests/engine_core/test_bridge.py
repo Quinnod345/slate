@@ -241,12 +241,46 @@ def test_prepare_writes_the_languages_match_rules_for_the_kit(slate_home):
     assert (film / ".slate" / "lang.json").stat().st_mtime_ns == before
 
 
-def test_call_resolves_a_browser_path_from_where_the_caller_stands(fake, slate_home, tmp_path, monkeypatch):
+def test_call_resolves_every_path_from_where_the_caller_stands(fake, slate_home, tmp_path, monkeypatch):
+    """The engine runs from its own folder, so a relative path is made absolute here, from the caller's folder: the
+    browser, and a web scene's `scene` and `frames_dir` too (engine/cli.mjs promises the same for every path arg)."""
     monkeypatch.chdir(tmp_path)
-    res = bridge.call("anything", {"browser": "bin/chrome", "scene": "scenes/act1/web"})
+    res = bridge.call("anything", {"browser": "bin/chrome", "scene": "my-scene", "frames_dir": "frames"})
     assert res["echo"]["browser"] == str((tmp_path / "bin" / "chrome").resolve())
-    # a web scene's own path belongs to the film: the web renderer resolves it against the film folder
-    assert res["echo"]["scene"] == "scenes/act1/web"
+    assert res["echo"]["scene"] == str((tmp_path / "my-scene").resolve())
+    assert res["echo"]["frames_dir"] == str((tmp_path / "frames").resolve())
+    assert set(bridge.PATH_ARGS) >= {"film", "out", "out_dir", "entry", "serve_url", "brand_path", "browser", "scene",
+                                     "frames_dir"}
+
+
+def test_the_engine_keeps_its_temp_folders_under_slates_data_folder(tmp_path, monkeypatch, slate_home):
+    """Headless Chrome's profiles live where no other tool's temp cleanup reaches them: TMPDIR for the engine is
+    <Slate data>/cache/tmp (another session's $TMPDIR sweep once deleted a live Slate Chrome's profile)."""
+    folder = fake_engine(tmp_path, """
+        import os from 'node:os';
+        process.stdout.write(JSON.stringify({ok: true, protocol: 1, tmpdir: os.tmpdir(), env: process.env.TMPDIR}) + '\\n');
+    """)
+    monkeypatch.setenv("SLATE_ENGINE_DIR", str(folder))
+    monkeypatch.setenv("TMPDIR", str(tmp_path / "system-temp"))
+    res = bridge.call("anything", {})
+    want = paths.cache_dir() / "tmp"
+    assert res["env"] == str(want) and Path(res["tmpdir"]) == want and want.is_dir()
+
+
+def test_a_try_later_from_the_engine_exits_75_so_the_queue_retries(tmp_path, monkeypatch, slate_home):
+    from slate import errors
+
+    try_later = getattr(errors, "TryLater", None)
+    if try_later is None:
+        pytest.skip("slate.errors has no TryLater yet (the foundation's)")
+    folder = fake_engine(tmp_path, """
+        process.stdout.write(JSON.stringify({ok: false, kind: 'try_later', error: 'a download was rate limited'}) + '\\n');
+        process.exitCode = 75;
+    """)
+    monkeypatch.setenv("SLATE_ENGINE_DIR", str(folder))
+    with pytest.raises(try_later) as info:
+        bridge.call("anything", {})
+    assert info.value.exit_code == 75
 
 
 # --- derived films: what the engine reads may live in the parent, by reference ---------------------------------------

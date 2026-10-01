@@ -12,7 +12,10 @@ The block says what the shot needs in words and files; this module turns it into
 - File inputs are local: a film-relative path, `take:<shot>` (another shot's approved take) or `brand:<path>` (a
   file in the brand pack). They're uploaded only at run time, and only when the brand pack allows uploads of brand
   material; estimates use a placeholder URL, since the price never depends on the picture.
-- Size and aspect come from film.json (the short side as the resolution, the frame's ratio as the aspect).
+- Aspect comes from film.json (the frame's ratio). Resolution: a video plate renders at its role's default in
+  registry.json (720p) unless slate.toml `[gen] video_resolution` or the shot's own `resolution` says otherwise; the
+  full-HD option costs 2.46x as much, so it is a person's choice (registry.json questions: plate_video_resolution). A
+  still uses the film's short side, within what the model offers.
 """
 
 from __future__ import annotations
@@ -139,7 +142,7 @@ def build(role: str, model: str, block: dict, film: dict, *, urls: dict[str, str
         if not seconds:
             raise UsageError("A generated video needs a duration: add `duration` (seconds) to the generate block.")
         body["duration"] = int(math.ceil(float(seconds) - 1e-9))  # the models take whole seconds; never cut short
-    body["resolution"] = str(block.get("resolution") or f"{min(width, height)}p")
+    body["resolution"] = str(block.get("resolution") or default_resolution(role, width, height))
     aspect = block.get("aspect_ratio") or (aspect_of(width, height) if role != "plate_video_extend" else None)
     if aspect:
         body["aspect_ratio"] = aspect
@@ -151,6 +154,29 @@ def build(role: str, model: str, block: dict, film: dict, *, urls: dict[str, str
     for key, value in (block.get("params") or {}).items():
         body[key] = value
     return body
+
+
+def _role_options(role: str) -> dict:
+    return dict((config.registry().get("roles", {}).get(role) or {}).get("options") or {})
+
+
+def default_resolution(role: str, width: int, height: int) -> str:
+    """The resolution a shot gets when its block doesn't name one.
+
+    Video plates: slate.toml `[gen] video_resolution`, else the role's `resolution_default` in registry.json (720p).
+    Best quality would say full HD, but it costs 2.46x as much, so moving up is a person's call, never a default.
+    Stills: the film's short side, rounded down to a resolution the model offers (the price doesn't change with it).
+    """
+    opts = _role_options(role)
+    offered = [str(r) for r in opts.get("resolution") or []]
+    if role in VIDEO_ROLES:
+        chosen = (config.load().get("gen") or {}).get("video_resolution") or opts.get("resolution_default") or "720p"
+        return str(chosen)
+    short = f"{min(width, height)}p"
+    if not offered or short in offered:
+        return short
+    fits = [r for r in offered if r.rstrip("p").isdigit() and int(r.rstrip("p")) <= min(width, height)]
+    return max(fits, key=lambda r: int(r.rstrip("p"))) if fits else offered[0]
 
 
 def placeholders(inputs: list[tuple[str, Path]]) -> dict[str, str | list[str]]:

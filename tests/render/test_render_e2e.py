@@ -85,11 +85,15 @@ def test_slate_renders_hands_in_and_emits_a_kit_act_and_a_web_act(kit_film):
     assert set(statuses.values()) == {"PASS"}, statuses
     assert "handin.act1.word_misses" in statuses and "handin.act1.banned_words" in statuses
 
-    # ---- act 2, the open web renderer's template: scaffolded through the bridge, rendered through `slate render`
-    from slate.engine import bridge
+    # the render's own gates are kept in qa/gates.json, tied to the render they judged
+    report = json.loads((film / "qa" / "gates.json").read_text())["gates"]
+    assert report["render.act1.frames"]["status"] == "PASS" and report["render.act1.fonts"]["status"] == "PASS"
+    assert report["render.act1.fonts"]["inputs"] == {entries[1]["file"]: entries[1]["sha256"]}
 
-    made = bridge.call("web-render", {"film": str(film), "act": 2, "scaffold": True}, timeout=120)
-    assert made["scaffolded"] is True
+    # ---- act 2, the open web renderer's template: started with `slate engine scaffold`, rendered by `slate render`
+    code, out, err = _slate("--film", str(film), "engine", "scaffold", "--act", "2", "--engine", "web", cwd=film)
+    assert code == 0, (out, err[-3000:])
+    assert out["scaffolded"] is True and (film / "scenes" / "act2" / "web" / "scene.ts").is_file()
     code, out, err = _slate("--film", str(film), "render", "--act", "2", "--engine", "web", "--samples", "4", cwd=film)
     assert code == 0, (out, err[-3000:])
     [r2] = out["renders"]
@@ -103,12 +107,30 @@ def test_slate_renders_hands_in_and_emits_a_kit_act_and_a_web_act(kit_film):
     web_trace = json.loads((film / "timing" / "motion" / "act2.json").read_text())
     assert {row["id"] for row in web_trace} == {"template.object-turn", "template.line-in.opacity", "template.line-in.y"}
 
-    # ---- one emit for the whole film: the kit act from its modules, the web act from its page
+    # ---- a dry run reads both acts (the web act from its page) and writes nothing; then one emit for the whole film
+    code, out, err = _slate("--film", str(film), "emit-events", "--dry-run", cwd=film)
+    assert code == 0, (out, err[-3000:])
+    assert {a["act"]: a["written"] for a in out["acts"]} == {1: False, 2: False} and out["skipped"] == []
+    assert not (film / "timing" / "visual_events" / "act2.json").exists()
     code, out, err = _slate("--film", str(film), "emit-events", cwd=film)
     assert code == 0, (out, err[-3000:])
     by_act = {a["act"]: a for a in out["acts"]}
     assert by_act[1]["events"] == 2 and by_act[2]["engine"] == "web"
     assert json.loads((film / "timing" / "visual_events" / "act2.json").read_text())[0]["id"] == "template.line-lands"
+    # the page's Chrome kept its profile under Slate's data folder, and it went with the browser
+    profile = Path(by_act[2]["browser"]["profile"])
+    assert profile.parent == Path(os.environ["SLATE_DATA"]) / "cache" / "chrome" and not profile.exists()
+
+    # ---- the web act's hand-in, through the open web renderer, and every act at once
+    code, out, err = _slate("--film", str(film), "check", "2", cwd=film)
+    assert code == 0, (out, err[-3000:])
+    statuses = {g["gate"]: g["status"] for g in out["gates"]}
+    assert set(statuses) == {f"handin.act2.{n}" for n in ("typecheck", "page", "word_misses", "kit_problems",
+                                                          "network", "fonts", "banned_words", "events", "contracts")}
+    assert set(statuses.values()) == {"PASS"}, statuses
+    code, out, err = _slate("--film", str(film), "check", "all", cwd=film)
+    assert code == 0, (out, err[-3000:])
+    assert out["acts"] == [1, 2] and out["summary"]["status"] == "PASS"
 
     # ---- a web still: one frame of the web renderer's range, scaled like the Remotion engine's
     code, out, err = _slate("--film", str(film), "render", "stills", "--engine", "web", "--frames", "15", "--scale",

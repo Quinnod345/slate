@@ -131,7 +131,7 @@ def test_emit_events_records_what_made_the_file(film):
     assert set(entry["inputs"]) == {"scenes/act1/index.tsx", "timing/shots.json"}
 
 
-def test_check_all_lists_a_web_scene_as_not_checked(film):
+def _two_acts(film: Path) -> None:
     shots = json.loads((film / "timing" / "shots.json").read_text())
     shots["shots"][1]["act"] = 2
     shots["acts"] = [{"index": 1, "name": "One", "shots": ["S01"]}, {"index": 2, "name": "Two", "shots": ["S02"]}]
@@ -140,11 +140,72 @@ def test_check_all_lists_a_web_scene_as_not_checked(film):
     text = scene.read_text()
     start = text.index("export const events = [")
     scene.write_text(text[:start] + "export const silent = 'the first of two acts';" + text[text.index("];", start) + 2:])
+
+
+def test_check_all_hands_in_web_acts_too_through_the_web_renderer(film, monkeypatch):
+    """A web scene is checked like any act (through the open web renderer, in the engine), not skipped."""
+    from slate.engine import bridge
+
+    _two_acts(film)
     (film / "scenes" / "act2" / "web").mkdir(parents=True)
     (film / "scenes" / "act2" / "web" / "index.html").write_text("<!doctype html>\n")
-    assert run("emit-events", "--film", str(film), "--act", "1")[0] == 0
+    asked = []
+    real = bridge.call
+
+    def watching(command, args=None, *, timeout=None):
+        if command == "check":
+            asked.append(args)
+            return {"ok": True, "gates": [], "acts": []}
+        return real(command, args, timeout=timeout)
+
+    monkeypatch.setattr(bridge, "call", watching)
     code, out, _ = run("check", "all", "--film", str(film), "--no-contracts", "--json")
-    assert out["acts"] == [1]
-    assert out["skipped"] == [{"act": 2, "reason": "a web scene: the hand-in check reads Remotion acts only"}]
-    code, text, _ = run("check", "all", "--film", str(film), "--no-contracts")
-    assert "act 2: not checked (a web scene: the hand-in check reads Remotion acts only)" in text
+    assert asked and asked[0]["acts"] == [1, 2]
+    assert out["acts"] == [1, 2] and out["skipped"] == []
+
+
+def test_banned_words_unknown_is_never_none(film, slate_home):
+    """A pack that states no banned-word list is unknown (None: the gate is UNCHECKED), never an empty list (a PASS);
+    a pack that says [] means it bans none."""
+    from slate.engine import cli as engine_cli
+
+    pack = slate_home["brands"] / "engine-fixture-brand" / "brand.json"
+    pack.write_text(json.dumps({"name": "engine-fixture-brand", "truth": {}}))
+    assert engine_cli.banned_words(film) is None
+    pack.write_text(json.dumps({"name": "engine-fixture-brand"}))
+    assert engine_cli.banned_words(film) is None
+    pack.write_text(json.dumps({"name": "engine-fixture-brand", "truth": {"banned_words": []}}))
+    assert engine_cli.banned_words(film) == []
+    pack.write_text(json.dumps({"name": "engine-fixture-brand", "truth": {"banned_words": ["gratis", {"word": "free"}]}}))
+    assert engine_cli.banned_words(film) == ["gratis", "free"]
+
+
+def test_check_with_a_pack_that_states_no_list_is_unchecked_not_passed(film, slate_home):
+    pack = slate_home["brands"] / "engine-fixture-brand" / "brand.json"
+    pack.write_text(json.dumps({"name": "engine-fixture-brand", "truth": {"sources": []}}))
+    run("emit-events", "--film", str(film))
+    code, out, _ = run("check", "1", "--film", str(film), "--json")
+    assert code == 1
+    banned = {g["gate"]: g for g in out["gates"]}["handin.act1.banned_words"]
+    assert banned["status"] == "UNCHECKED"
+
+
+def test_engine_scaffold_starts_a_web_act_from_the_template(film, slate_home):
+    _two_acts(film)
+    code, out, err = run("engine", "scaffold", "--act", "2", "--engine", "web", "--film", str(film), "--json")
+    assert code == 0, err
+    assert out["scaffolded"] is True and out["act"] == 2
+    web = film / "scenes" / "act2" / "web"
+    assert (web / "index.html").is_file() and (web / "scene.ts").is_file()
+    # nothing is replaced without --force
+    code, out, _ = run("engine", "scaffold", "--act", "2", "--engine", "web", "--film", str(film), "--json")
+    assert code == 1 and "already has a web scene" in out["message"]
+    # the brand's look picks the engine when --engine isn't given; a Remotion act starts as the kit's placeholder
+    code, out, _ = run("engine", "scaffold", "--act", "1", "--film", str(film), "--json")
+    assert code == 2 and "placeholder" in out["message"]
+    pack = slate_home["brands"] / "engine-fixture-brand" / "brand.json"
+    pack.write_text(json.dumps({"name": "engine-fixture-brand", "truth": {"banned_words": []},
+                                "look": {"id": "flat", "engine": "web"}}))
+    code, out, err = run("engine", "scaffold", "--act", "1", "--film", str(film), "--json")
+    assert code == 0, err
+    assert (film / "scenes" / "act1" / "web" / "index.html").is_file()

@@ -37,10 +37,11 @@
     },
     "inputs": {
      "type": "object",
-     "description": "Film-relative (or absolute) path to the sha256 it had when checked; null for a file the gate expected but didn't find.",
+     "description": "What the gate read, each with the sha256 it had when checked: a film-relative (or absolute) path, or a named input (film:<dotted.key>, film:* for film.json without its bookkeeping, brand:<name>, format:<name>; see slate.state.lock). null for a file the gate expected but didn't find; 'unverifiable' for a named input of a kind Slate can't check.",
      "additionalProperties": {
       "anyOf": [
        {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+       {"const": "unverifiable"},
        {"type": "null"}
       ]
      }

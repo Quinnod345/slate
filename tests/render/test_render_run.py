@@ -2,6 +2,7 @@
 draft samples, the refusals, the engines, and bundle cleanup."""
 
 import json
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -556,3 +557,66 @@ def test_ae_stills_are_refused_with_the_way_to_get_them(fakes, film):
     with pytest.raises(Refused, match="whole acts") as err:
         stills.stills(film, frames=[3], engine="ae")
     assert "slate render --engine ae --act N --go" in err.value.hint
+
+
+def test_a_film_renders_gates_are_kept_in_qa_gates_json_and_go_stale_with_the_render(fakes, film):
+    """`slate qa`, `slate status` and deliver read qa/gates.json: the frame count and the engine's own gates (the kit's
+    font gate, the web renderer's network wall) land there, each tied to the render file it judged."""
+    from slate import gates
+
+    def gate(name, status):
+        return {"gate": name, "status": status, "summary": f"{name} {status}", "evidence": [], "engine": {"name": "kit"},
+                "inputs": {}, "checked_at": "2026-09-30T00:00:00+00:00", "details": {}}
+
+    fakes.bridge.gates[(1, 0)] = [gate("fonts", "PASS")]
+    fakes.bridge.gates[(2, 0)] = [gate("web.network", "PASS"), gate("fonts", "PASS")]
+    runner.run(film, act=1)
+    runner.run(film, act=2, engine="web")
+    report = gates.load_report(film)
+    for name in ("render.act1.frames", "render.act1.fonts", "render.act2.frames", "render.act2.web.network"):
+        assert report[name].status == "PASS", name
+        assert report[name].details["stage"] == "render"
+    entry = registry.find(film, 1)
+    assert report["render.act1.fonts"].inputs == {entry["file"]: entry["sha256"]}
+    # a render that changes afterwards turns its gates STALE
+    (film / entry["file"]).write_bytes(b"something else")
+    assert gates.load_report(film)["render.act1.fonts"].status == "STALE"
+
+
+def test_a_range_to_a_file_of_your_choosing_keeps_its_gates_out_of_the_films_report(fakes, film, tmp_path):
+    runner.run(film, act=1, out=tmp_path / "look.mov")
+    assert not (film / "qa" / "gates.json").exists()
+
+
+def test_a_social_cut_down_renders_fast_but_isnt_a_draft(fakes, slate_home):
+    """formats' social route (a derived film made for a social channel) renders at render.draft_samples, so a cut-down
+    takes minutes; the hero route and films that don't say keep the delivery bar."""
+    film_dir = make_film(slate_home["films"], film_id="social-cut")
+    film_json = json.loads((film_dir / "film.json").read_text())
+    film_json["derivation"] = {"route": {"route": "social", "channel": "reels"}}
+    (film_dir / "film.json").write_text(json.dumps(film_json))
+    runner.run(film_dir, act=1)
+    assert {a["sub"] for a in fakes.bridge.renders()} == {4}
+    entry = registry.find(film_dir, 1)
+    assert entry["samples"] == 4 and entry["draft"] is False
+
+
+def test_a_try_later_goes_back_to_the_queue_whole_instead_of_being_retried_here(fakes, film, monkeypatch):
+    from slate import errors
+
+    try_later = getattr(errors, "TryLater", None)
+    if try_later is None:
+        pytest.skip("slate.errors has no TryLater yet (the foundation's)")
+    calls = []
+    real = fakes.bridge.call
+
+    def limited(command, args, *, timeout=None):
+        if command == "render":
+            calls.append(args)
+            raise try_later("rate limited")
+        return real(command, args, timeout=timeout)
+
+    monkeypatch.setattr(sys.modules["slate.engine.bridge"], "call", limited)
+    with pytest.raises(try_later):
+        runner.run(film, act=1)
+    assert len(calls) == 1  # not tried again in this process; the queue retries the job after its backoff

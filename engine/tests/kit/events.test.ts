@@ -1,6 +1,6 @@
 // Visual events: the kit side of `slate emit-events`.
 import {beforeEach, describe, expect, it} from 'vitest';
-import {EVENT_KINDS, actEvents, clearEvents, defineEvent, eventProblems, events, setFilmData, validateEvents, word} from '@slate/kit/core';
+import {EVENT_KINDS, actEvents, clearEvents, defineEvent, eventProblems, events, setFilmData, spanProblems, validateEvents, word} from '@slate/kit/core';
 import FILM from './fixtures/film-data';
 
 beforeEach(() => {
@@ -66,5 +66,36 @@ describe('the rules for an act file', () => {
   it('knows the thirteen kinds', () => {
     expect(EVENT_KINDS.length).toBe(13);
     expect(EVENT_KINDS).toContain('character');
+  });
+});
+
+describe('spans: t is always the beat (slate.timing.beats)', () => {
+  it('works out a draw\'s beat from its span: it ends on t', () => {
+    const t = defineEvent({shot: 'K01', id: 'rule', start: 1, dur: 0.4, kind: 'draw', size: 's', note: 'a rule draws'});
+    expect(t).toBeCloseTo(1.4, 12);
+    expect(events()[0]).toMatchObject({start: 1, dur: 0.4, t});
+    expect(eventProblems()).toEqual([]);
+    expect(validateEvents(actEvents(1) as never, 1)).toEqual([]);
+  });
+
+  it('holds draws, counts and peaks to their spans, word for word as the Python rules do', () => {
+    const list = [
+      {shot: 'K01', id: 'no_span', t: 1, kind: 'draw', size: 's', note: ''},
+      {shot: 'K01', id: 'starts_on_t', t: 1, start: 1, dur: 0.5, kind: 'count', size: 's', note: ''},
+      {shot: 'K01', id: 'half', t: 1, dur: 0.5, kind: 'tap', size: 's', note: ''},
+      {shot: 'K01', id: 'late', t: 2, start: 1, dur: 0.5, kind: 'whoosh', size: 's', note: ''},
+      {shot: 'K01', id: 'fine', t: 1.5, start: 1, dur: 0.5, kind: 'draw', size: 's', note: ''},
+      {shot: 'K01', id: 'inside', t: 1.2, start: 1, dur: 0.5, kind: 'swell', size: 's', note: ''},
+    ];
+    const problems = spanProblems(list, 25);
+    expect(problems).toEqual([
+      'beat 1 (no_span): a draw runs over time, so it needs start and dur (it ends on t)',
+      'beat 2 (starts_on_t): a count ends on its beat, but start + dur is 1.500 s and t is 1.000 s (+500 ms)',
+      'beat 3 (half): start and dur go together (the span a sustained motion runs over)',
+      'beat 4 (late): a whoosh peaks inside its span, but t 2.000 s is outside 1.000–1.500 s',
+    ]);
+    // half a frame of slack at the film's rate, two milliseconds without one
+    expect(spanProblems([{id: 'x', kind: 'draw', t: 1.519, start: 1, dur: 0.5}], 25)).toEqual([]);
+    expect(spanProblems([{id: 'x', kind: 'draw', t: 1.519, start: 1, dur: 0.5}])).toHaveLength(1);
   });
 });

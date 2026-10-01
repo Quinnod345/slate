@@ -27,11 +27,16 @@ gate. See [done means verified](references/done-means-verified.md).
 
 ```
 slate qa                      # every film gate, in film order (writes qa/gates.json)
-slate qa --quick              # skip the gates that read the whole picture (ocr, readtime, glitch, psnr)
+slate qa --quick              # skip the gates that read the whole picture (ocr, readtime, glitch, psnr); it says
+                              # which it skipped, and motion, access and stability reuse what a full run read
 slate qa loudness sync        # just these gates; a module's name (motion) selects all of its gates
+slate qa motion --act 2       # the motion and access gates take their own flags (--act, --render, --only, ...)
+slate qa stability baseline --act 3 --by <name> --reason "<why>"   # accept an act's open stability flags
 slate qa --list               # the gates, where each comes from, and each one's latest status
 slate qa --detach             # queue a full run as a job (it holds the render slot)
 ```
+
+A narrowed run (`--act`, `--only`, one render) reports what it finds but can't pass the gate.
 
 Exit 0 only when every result is PASS. Each stage has its own gates too, run by its own command (the script build,
 the voice checks, the timing build, the hand-in check, `slate verify` for sound). Every gate, what it checks and how to

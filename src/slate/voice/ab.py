@@ -107,7 +107,7 @@ def run(film_dir: str | Path, shot: str, variants: list[str], *, seed: int | Non
         t.update({"clean": str(clean), "paced": str(paced)})
         takes[key] = t
 
-    current = vf.final_audio(shot)
+    current = vf.unpolished_audio(shot)  # like for like: the variants below aren't polished either
     sel = vf.selected(shot)
     if current and sel and not vf.take_json(shot, sel[0]).get("replay") and not tags_mod.tags_in(
             vf.take_json(shot, sel[0]).get("sent", "")):

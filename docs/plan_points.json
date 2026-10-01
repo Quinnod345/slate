@@ -318,8 +318,8 @@
   "id": "P036",
   "owner": "foundation",
   "status": "done",
-  "evidence": "src/slate/cli.py: every stage is a subcommand registered by its module (MODULES list); MCP is a thin wrapper (packaging). Exit codes shared via src/slate/errors.py.",
-  "source": "foundation.build.json"
+  "evidence": "src/slate/cli.py: every stage is a subcommand registered by exactly one module; MODULES names each module's commands exactly (REGISTERED records who added what, BROKEN is empty), `slate --help` lists every command, and ARCHITECTURE §4 matches the CLI both ways (tests/test_cli_surface.py, tests/skills/test_skills_commands.py::test_section_4_names_every_stage_the_cli_has). MCP is a thin wrapper (packaging). Exit codes shared via src/slate/errors.py, now with 75 (TryLater). Integration, 2026-10-01.",
+  "source": "integration-python.json"
  },
  {
   "section": "How it fits together",
@@ -1606,9 +1606,9 @@
   "text": "- **One OCR engine:** Apple Vision through the uv environment. When it's unavailable the gate is UNCHECKED, never a quiet pass from another engine.",
   "id": "P180",
   "owner": "qa-core",
-  "status": "partial",
-  "evidence": "One engine in code (ocr.py VisionBackend through ocrmac; UNCHECKED, never another engine, when unavailable; no tesseract or Swift binary is ever started: test_qa_core_text.py::test_ocr_is_unchecked_without_vision_and_never_falls_back). Vision's fd-1 noise now kept out of JSON. Left: ocrmac isn't installed in Slate's venv, so Vision itself hasn't run through Slate here.",
-  "source": "qa-core.review.json"
+  "status": "done",
+  "evidence": "One engine in code (ocr.py VisionBackend through ocrmac; UNCHECKED, never another engine, when unavailable). The ocr extra is installed in .venv (ocrmac 1.0.1, pyobjc 12.2.2) and proven end to end on 2026-10-01: `slate --json qa ocr` on a scratch film's rendered act read the picture with Apple Vision at the accurate level (PASS), stdout one JSON object, Vision's E5 lines on stderr (ocr.stdout_to_stderr now flushes C stdio inside the redirect; tests/qa_core/test_qa_core_ocr_stdout.py). The default test run keeps Vision off (SLATE_TEST_VISION=1 opts in).",
+  "source": "integration-python.json"
  },
  {
   "section": "Quality: gates, tests and evals",
@@ -2234,8 +2234,8 @@
   "id": "P252",
   "owner": "formats",
   "status": "partial",
-  "evidence": "The per-channel quality split is data and resolved per format (load()['delivery'], route_for()). Left: slate variant, render and master must take the route when making a variant (state and render; in needs).",
-  "source": "formats.review.json"
+  "evidence": "The per-channel split is data (formats route_for). `slate variant … --channel <channel>` records the channel's route in derivation.route, and `slate master` follows it (a social cut-down masters with ffmpeg: tests/state/test_state_integration_requests.py). Left: render using render.draft_samples for a social route (render, engine integrator).",
+  "source": "integration-python.json"
  },
  {
   "section": "Decisions for you",
@@ -2604,18 +2604,18 @@
   "text": "| demucs, librosa | uvx, analysis only | Keep, in the analyze extra | Reference analysis |",
   "id": "P295",
   "owner": "formats",
-  "status": "partial",
-  "evidence": "demucs==4.1.0 and librosa==0.11.0 run through uvx, pinned and offline by default, never installed into Slate's environment (src/slate/analyze/stems.py, beats.py); verified live that --stems is UNCHECKED with the fix (exit 3) while the weights aren't cached. Left: pyproject's `analyze` extra (a shared file, in needs) and one live Demucs split.",
-  "source": "formats.review.json"
+  "status": "needs-quinn",
+  "evidence": "demucs==4.1.0 and librosa==0.11.0 run through uvx, pinned and offline by default, never installed into Slate's environment (src/slate/analyze/stems.py, beats.py); pyproject declares the `analyze` extra and uv.lock records it (resolved for Apple-silicon Macs: demucs needs numpy < 2 on Intel). Left: Quinn runs `slate analyze <clip> --stems --allow-download` once to cache htdemucs's weights (about 80 MB).",
+  "source": "integration-python.json"
  },
  {
   "section": "Appendix A: dependency ledger",
   "text": "| ocrmac (Apple Vision) | uv cache | Keep | The one OCR engine |",
   "id": "P296",
   "owner": "qa-core",
-  "status": "partial",
-  "evidence": "ocrmac is the one OCR engine and the pyproject `ocr` extra declares it; it isn't installed in .venv (installs weren't allowed in this review), so every OCR gate is UNCHECKED here.",
-  "source": "qa-core.review.json"
+  "status": "done",
+  "evidence": "The pyproject `ocr` extra (ocrmac) is installed in ~/code/slate/.venv (uv pip install -e .[ocr], 2026-10-01), and install.sh installs it on every install; `slate qa ocr` ran live on Apple Vision (see P180).",
+  "source": "integration-python.json"
  },
  {
   "section": "Appendix A: dependency ledger",
@@ -3261,9 +3261,9 @@
   "origin": "paragraph",
   "id": "P367",
   "owner": "state",
-  "status": "partial",
-  "evidence": "Film state's part is done and run for real (revise start snapshots the approved version, writes the notes as a checklist; check measures the change; done refused until it lands). Left: the level-vs-voice, sync and palette measures that sound and qa register through revise.register_hook.",
-  "source": "state.review.json"
+  "status": "done",
+  "evidence": "Film state's part is done (revise start, check, done). The measures are registered: slate.sound.revise_hooks registers level_vs_voice and slate.qa.revise_hooks registers palette and sync through revise.register_hook (tests/sound/test_sound_revise_hooks.py, tests/qa_core/test_qa_core_revise_hooks.py, tests/state/test_revise.py, which now isolates its hook modules).",
+  "source": "integration-python.json"
  },
  {
   "section": "8. Formats and costs",
@@ -3282,8 +3282,8 @@
   "id": "P369",
   "owner": "formats",
   "status": "partial",
-  "evidence": "Hero placements route to the full pipeline at master quality and social cut-downs to the fast route, with Higgsedit as a candidate only if the benchmark keeps it (formats/_shared.json routes). Left: variant, render and master honouring the route (state and render), and the Higgsedit decision (needs Quinn).",
-  "source": "formats.review.json"
+  "evidence": "Routes are data (formats/_shared.json); variants record theirs (`slate variant --channel`) and master honours it. Left: render's samples for the social route (engine integrator) and the Higgsedit decision (phase 8, Quinn).",
+  "source": "integration-python.json"
  },
  {
   "section": "8. Formats and costs",
@@ -3368,7 +3368,34 @@
   "id": "P378",
   "owner": "foundation",
   "status": "partial",
-  "evidence": "src/slate/paths.py: films ~/Movies/Slate, runtime ~/Library/Application Support/Slate, brand store ~/code/slate-brands (env-overridable). Repo layout per ARCHITECTURE §2 being filled by the module builders.",
-  "source": "foundation.build.json"
+  "evidence": "The layout is as drawn (docs/ARCHITECTURE.md §2, updated 2026-10-01: install/, formats.py, bench/, knowledge.py, qa stability, sound balance), with pyproject.toml and uv.lock (resolved for Apple-silicon Macs). Left: src/slate/demo.py (`slate demo`), not built yet.",
+  "source": "integration-python.json"
+ },
+ {
+  "section": "Quinn's additions (2026-10-01)",
+  "text": "Voice polish as a Slate stage, from the film session's newest work: the studio vocal chain (high-pass, low-mid cleanup, compression, a dynamic cut on the glassy 2-5 kHz edge, a de-esser on 5-9 kHz, warmth shelves, a small room, loudness back to the take's own), per-voice tuning and strengths, a polish report, every stage length-preserving so no word moves.",
+  "origin": "quinn-2026-10-01",
+  "owner": "voice",
+  "id": "P379",
+  "status": "open",
+  "evidence": ""
+ },
+ {
+  "section": "Quinn's additions (2026-10-01)",
+  "text": "Voice analysis as a Slate stage: spectrogram A/B sheets and measured inflection (pitch contour and range, breathiness, spectral tilt, sibilance) plus the Whisper checks, used to judge takes, audio tags and polish by measurement, not by ear alone.",
+  "origin": "quinn-2026-10-01",
+  "owner": "voice",
+  "id": "P380",
+  "status": "open",
+  "evidence": ""
+ },
+ {
+  "section": "Quinn's additions (2026-10-01)",
+  "text": "Keep up with the film session: harvest the pipelines it added after the first inventory (voice polish, tag optimization, p3 balance and spotting v2, visual stability triage) into Slate's modules and knowledge ledger, and leave out what the plan leaves behind (website tooling).",
+  "origin": "quinn-2026-10-01",
+  "owner": "knowledge",
+  "id": "P381",
+  "status": "open",
+  "evidence": ""
  }
 ]

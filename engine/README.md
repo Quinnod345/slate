@@ -40,9 +40,18 @@ the kit, the web renderer and the bundles on disk.
 ## The command line
 
 Every command takes one JSON object and prints one: `{ok: true, engine_version, protocol, command, …}`, or
-`{ok: false, error, hint, kind}` with Slate's exit codes (1 refused, 2 usage, 3 missing prerequisite, 5 busy, 130
-stopped). Progress goes to stderr. Paths may be absolute or relative to the caller's folder. The Python bridge adds
-`brand_path` (the film's brand pack) itself, so every call sees the same `@film/data`.
+`{ok: false, error, hint, kind}` with Slate's exit codes (1 refused, 2 usage, 3 missing prerequisite, 5 busy, 75 try
+later, 130 stopped). Progress goes to stderr. Every path arg (`film`, `out`, `out_dir`, `entry`, `serve_url`,
+`brand_path`, `bundle_root`, `browser`, and a web scene's `scene` and `frames_dir`) may be absolute or relative to the
+caller's folder; the engine runs from its own folder, so `cli.mjs` and the Python bridge resolve them first. The
+Python bridge adds `brand_path` (the film's brand pack) itself, so every call sees the same `@film/data`.
+
+**Temp folders.** Every engine process keeps its temp folders under Slate's data folder, never in `$TMPDIR`: `cli.mjs`
+points `TMPDIR` at `<SLATE_DATA>/cache/tmp` before Remotion loads (Remotion makes each headless Chrome's profile with
+`os.tmpdir()`), and the open web renderer gives its Chrome a fresh profile under `<SLATE_DATA>/cache/chrome`, removed
+when the browser closes. At 17:19 on 2026-09-30 another session's temp cleanup deleted a live Slate Chrome's profile
+out of `$TMPDIR`; under Slate's data folder only `slate render clean` sweeps, and only what a stopped process left a day
+ago and no running Chrome names as its profile.
 
 **Stopping.** A signal (SIGINT, SIGTERM, SIGHUP) still ends in one JSON object (`kind: "stopped"`), and the exit
 handlers clean up: headless Chrome's process group, this process's bundles (a half-made one included) and any
@@ -58,10 +67,10 @@ kill is a SIGKILL: it skips every cleanup, and Chrome, which runs in its own pro
 | `bundle` | `film`; `release: true` deletes it; `{cleanup: true}` alone deletes every unused bundle | `serve_url`, `bundle_hash`, `reused`, `compositions`, `broken` (acts left out because they don't build) |
 | `render` | `film`, `act` (or `"film"`), `from`/`to` (master frames, inclusive), `sub` (default 16; `draft: true` is 4), `out` (`.mov` ProRes, `.mkv` lossless chunk), `concurrency`, `gl`, `serve_url`, `trace` | `file`, `frames`, `film_frames`, `frame_count`, `samples`, `sha256`, `bundle_hash`, the stream's facts, `trace` |
 | `stills` | `film` (optional with `entry`), `specs: ["Act2:120"]`, `scale`, `out_dir`, `contact_sheet: {comp, every_s \| count \| frames, columns, scale}`, `entry`, `serve_url`, `gl`, `pixels` | the stills (with sha256 and, asked, a pixel hash), the sheet and its index (per cell: frame, shot, timecode; for the sheet: `cell` [w, h], `padding`, `margin`, `labels`) |
-| `emit-events` | `film`, `act` (default: every built act), `dry_run` (check everything, write nothing) | per act: the file, beats or silence, kinds, capture beats, the motion trace; in a dry run its problems and word misses |
+| `emit-events` | `film`, `act` (default: every built act), `dry_run` (check everything, write nothing; a web act's page is opened and read, nothing written) | per act: the file, beats or silence, kinds, capture beats, the motion trace; in a dry run its problems and word misses |
 | `trace` | `film`, `act` | one act's motion trace from the kit's motion registry, as the act is now (`slate render` refreshes it after each act render); a web act says its renderer writes its own |
-| `check` | `film`, `act` (or `acts: [N, …]`: one run, one bundle between them), `banned_words` (the brand's list; absent means UNCHECKED), `contracts`, `hold` | gate results (each filed under the `scenes` stage) and the worst status (per act, with `acts`) |
-| `web-render` | whatever the open web renderer takes | `engine/web/render.mjs`'s `webRender(args)` result |
+| `check` | `film`, `act` (or `acts: [N, …]`: one run, one bundle between them), `banned_words` (the brand's list; absent or null means UNCHECKED, `[]` means it bans none), `contracts`, `hold` | gate results (each filed under the `scenes` stage) and the worst status (per act, with `acts`); a web act is checked through the open web renderer |
+| `web-render` | whatever the open web renderer takes: a render, `{emit: true}` (with `dry_run`), `{scaffold: true}` | `engine/web/render.mjs`'s `webRender(args)` result |
 
 A caller that renders several acts or stills makes one bundle (`bundle`), passes its `serve_url` to each call, then
 releases it (`bundle` with `release: true`). A command given no `serve_url` makes its own bundle and deletes it when it
@@ -159,19 +168,31 @@ and never substituted), and the refusal carries that gate result in its details.
 GL: `angle` (the GPU through Metal), as the films rendered. `swangle` (software) is bit-exact run to run, so the
 contract check and golden stills use it; the GPU raster differs by about one level between runs.
 
+Every tile, every sample: renders, stills and the check's contract stills launch Remotion's headless shell through
+`remotion/chrome-complete.sh`, which adds `--run-all-compositor-stages-before-draw --disable-checker-imaging`, so Chrome
+rasterises every tile and decodes every image before a sample is drawn. Without them a tile that isn't ready in time is
+left out of its sub-frame and whatever is behind it shows through: a faint grey veil for one frame (the films' lesson
+L-kit-S008, from their 2026-09-30 renders; about 6% more render time). Remotion's `openBrowser` takes no extra flags,
+so they ride on the executable, as the films' renderer did. The open web renderer passes the same two flags itself.
+
 ## Events, motion traces and the hand-in check
 
 `emit-events` loads each act's modules in Node with esbuild (no rendering), so the beats land on the frames the
-picture uses, and writes `timing/visual_events/actN.json` (`[{shot, id, t, kind, size, note}]`, kinds tap, type, land,
-snap, count, draw, data, page, stamp, whoosh, swell, character, impact) or `{silent: true, reason}`. The beats are the
+picture uses, and writes `timing/visual_events/actN.json` (`[{shot, id, t, kind, size, note, start?, dur?, …}]`, kinds
+tap, type, land, snap, count, draw, data, page, stamp, whoosh, swell, character, impact) or `{silent: true, reason}`.
+`t` is always the beat, the film second the motion lands. A sustained motion also gives its span, `start` (film
+seconds) and `dur`: a draw and a count must, and end on `t` (t = start + dur; the kit's `defineEvent` works `t` out from
+them); a whoosh and a swell peak on `t`, inside theirs; any other kind may give one, with its beat inside.
+`spanProblems()` holds these rules word for word as `slate.timing.beats.problems()` states them, to half a frame
+(`tests/engine_core/test_beats_parity.py` keeps the two the same). The beats are the
 act's own `events`, what it registered with the kit's `defineEvent()`, and the taps of every placed capture
 (`captures/<name>/beats.json`, each on its shot's act, kept with `source: "capture:<name>"`, sizes spelled s/m/l),
 sorted by time, then id.
 
 It checks what the films' best emitters checked: known kinds and sizes, a time inside the act (to half a frame, the
 kit's rule) and inside its shot, unique ids, a note that says what the viewer sees, at most one impact per act, and
-numbers where the sound side reads optional ones (a count's `from`/`to`, `x` across the frame, `dur` in seconds above
-0, `pan` from -1 to 1); any other field passes through untouched. It
+numbers where the sound side reads optional ones (a count's `from`/`to`, `x` across the frame, `pan` from -1 to 1, a
+whole film `frame`), every span true to its beat; any other field passes through untouched. It
 writes nothing while any of these fail, while the kit recorded a problem with a `defineEvent()`, while a capture tap
 lands in no act, or while a word lookup fell back to an estimate: film C's emitter refused that too, because a beat on
 a guessed time is a sound in the wrong place. `dry_run` (`slate emit-events --dry-run`) runs every check, writes
@@ -195,10 +216,21 @@ syntax error comes back as failed gates with its file and line, never as a crash
 in one run: the bundle for their contracts is made once, only if a contract needs pixels, and deleted at the end
 (`slate check all` does this).
 
+A web act (`scenes/actN/web/index.html`, built for the open web renderer) is handed in through that renderer, with the
+same gates where they mean the same thing: `typecheck` (its scene scripts, from the film folder, with `@slate/web`
+mapped), `page` (the page loads and draws its first frame without an error), `word_misses` and `kit_problems` (read
+from the page: the kit runs inside it), `network` and `fonts` (the page's own wall and font gate), `banned_words` (its
+scripts, its page's visible text and its JSON and text copy), `events` (the file against what the page says now) and
+`contracts` (a web scene declares no rest states; when a neighbour declares one at their boundary the gate says it
+can't compare them yet, UNCHECKED, rather than passing). The page is opened once, in a dry-run emit: nothing is
+written.
+
 ## Browsers
 
-Every child process runs with `BROWSER=none`. The engine drives headless Chrome only through Remotion, against its
-own local bundle server; nothing here browses the web. Nothing here starts Remotion Studio. If a person ever does:
+Every child process runs with `BROWSER=none`. The engine drives headless Chrome only through Remotion (as
+`remotion/chrome-complete.sh`, the shell with every tile finished) and the open web renderer, against their own local
+servers; nothing here browses the web. Their profiles live under Slate's data folder, never `$TMPDIR` (see Temp
+folders above). Nothing here starts Remotion Studio. If a person ever does:
 
 ```
 BROWSER=none npx --no-install remotion studio <film>/.slate/entry.tsx --no-open --config=remotion/remotion.config.ts

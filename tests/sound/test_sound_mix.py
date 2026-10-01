@@ -186,7 +186,8 @@ def test_the_mix_is_recorded_in_the_films_lock_file(sound_film):
 
 def test_a_derived_film_mixes_the_voice_it_reuses_from_its_parent(slate_home):
     """A new-aspect version reuses its parent's cues, words and takes by reference (nothing copied): the mix reads
-    them through slate.state.lock.resolve and writes only into the derived film."""
+    them through slate.state.lock.resolve and writes only into the derived film. Its clock file is its own (shots.json
+    names the frame size, so `slate timing` makes one per film: the same frames at the child's size)."""
     derive = pytest.importorskip("slate.state.derive")
     lock = pytest.importorskip("slate.state.lock")
     H.brand(slate_home["brands"])
@@ -197,6 +198,12 @@ def test_a_derived_film_mixes_the_voice_it_reuses_from_its_parent(slate_home):
         lock.record(parent, str(take.relative_to(parent)), producer="slate voice tts", inputs=[])
     child = derive.create(parent, "child", aspect="16:9", git=False)
     assert not (child / "timing" / "vo_cues.json").exists() and not list(child.glob("voice/**/*.wav"))  # by reference
+    assert not (child / "timing" / "shots.json").exists()  # never by reference: it names the frame size
+    with pytest.raises(MissingPrerequisite):
+        mix.run(child)  # no clock of its own yet: `slate timing` first
+    cj, shots = jsonio.read(child / "film.json"), jsonio.read(parent / "timing" / "shots.json")
+    jsonio.write_atomic(child / "timing" / "shots.json", {**shots, "width": cj["width"], "height": cj["height"]})
+    lock.record(child, "timing/shots.json", producer="slate timing", inputs=["script/storyboard.json"])
     path = mix.run(child)
     assert path.is_relative_to(child)
     rep = jsonio.read(path.with_name("final_mix.json"))

@@ -8,6 +8,11 @@
 // say why ({"silent": true, "reason"}), because "no file" and "no beats" look the same to a sound engine and only one
 // of them is a decision.
 //
+// Time: t is always the beat, the film second the motion lands. A sustained motion also carries its span, start (film
+// seconds) and dur: a draw and a count must give it and end on t; a whoosh and a swell peak on t, inside theirs; any
+// other kind may give one, with its beat inside. spanProblems() holds slate.timing.beats.problems()'s rules, word for
+// word, so the engines and every reader (sound, QA) agree on what t means.
+//
 // Beats come from three places, merged and sorted by time (then id):
 //   - the act's own `events` export (events.*, then beats.*, then index.*),
 //   - what the act registered with the kit's defineEvent() (the kit's actEvents(act), as its collectAct() reads it),
@@ -33,24 +38,63 @@ export function webScene(filmDir, act) {
 /** The open web renderer's module (SLATE_WEB_RENDER_MODULE swaps it, as for cli.mjs's web-render). */
 const webModule = () => (process.env.SLATE_WEB_RENDER_MODULE ? path.resolve(process.env.SLATE_WEB_RENDER_MODULE) : path.join(ENGINE_DIR, 'web', 'render.mjs'));
 
-/**
- * A web act's beats come from its page, so the web renderer's own emit mode writes them (engine/web/render.mjs,
- * webRender({emit: true})), with these same rules (it calls validateEvents above). One command still emits every act.
- */
-async function emitWebAct(ctx, act, args, captures) {
-  if (captures.strays.length) {
-    throw refused(`Capture taps no act holds; nothing was written:\n  ${captures.strays.join('\n  ')}`, 'Place the capture on the film clock again (`slate capture beatmap`).', {problems: captures.strays});
-  }
+/** The open web renderer's webRender(), or the missing-prerequisite error that says how to get it. */
+async function webRenderer(act) {
   const file = webModule();
   if (!fs.existsSync(file)) {
     throw missing(`Act ${act} is a web scene, but the open web renderer isn't in this engine (${file}).`, 'Update Slate and run `slate engine install` again.');
   }
   const mod = await import(pathToFileURL(file).href);
   if (typeof mod.webRender !== 'function') throw missing(`${file} doesn't export webRender(args).`);
-  const res = await mod.webRender({film: ctx.dir, act, emit: true, ...(args.brand_path ? {brand_path: args.brand_path} : {}), ...(args.gl ? {gl: args.gl} : {})});
-  const out = (res?.acts ?? []).map((a) => ({...a, engine: 'web'}));
-  // The web emitter reads the page; placed captures' taps on this act join its beats here, under the same rules.
+  return mod.webRender;
+}
+
+/**
+ * A web act's beats come from its page, so the web renderer's own emit mode reads them (engine/web/render.mjs,
+ * webRender({emit: true})), with these same rules (it calls validateEvents below). One command still emits every act.
+ * Placed captures' taps on the act join its beats here. With `dryRun` nothing is written: the summary carries what
+ * would be (`beats`), every problem that would stop the write, and the page's own gates (network, fonts), which is
+ * what `slate emit-events --dry-run` and the hand-in check read. `extra` passes render options (on_blocked, gl).
+ */
+export async function emitWebAct(ctx, act, args, captures, {dryRun = false, extra = {}} = {}) {
+  if (captures.strays.length && !dryRun) {
+    throw refused(`Capture taps no act holds; nothing was written:\n  ${captures.strays.join('\n  ')}`, 'Place the capture on the film clock again (`slate capture beatmap`).', {problems: captures.strays});
+  }
+  const webRender = await webRenderer(act);
+  const res = await webRender({
+    film: ctx.dir,
+    act,
+    emit: true,
+    ...(dryRun ? {dry_run: true} : {}),
+    ...(args.brand_path ? {brand_path: args.brand_path} : {}),
+    ...(args.gl ? {gl: args.gl} : {}),
+    ...extra,
+  });
+  // the browser that read the page (its pid and profile folder), so a caller can check nothing was left behind
+  const out = (res?.acts ?? []).map((a) => ({...a, engine: 'web', ...(res?.browser ? {browser: res.browser} : {})}));
+  const summary = out.find((a) => Number(a.act) === Number(act));
   const taps = captures.byAct.get(Number(act)) ?? [];
+  if (dryRun) {
+    if (!summary) return out;
+    const problems = [...(summary.problems ?? []), ...captures.strays.map((s) => `a capture tap no act holds: ${s}`)];
+    if (taps.length) {
+      if (!Array.isArray(summary.beats)) {
+        problems.push(`act ${act} (a web scene) says it's silent, but ${taps.length} capture tap${taps.length > 1 ? 's land' : ' lands'} in it: keep one, its taps or its silence`);
+      } else {
+        const merged = [...summary.beats, ...taps].sort(byTimeThenId);
+        // the page's beat-by-beat problems are numbered within its own list; judge the merged list afresh
+        const kept = problems.filter((p) => !/^beat \d+/.test(p));
+        for (const p of validateEvents(ctx, act, merged)) if (!kept.includes(p)) kept.push(p);
+        problems.splice(0, problems.length, ...kept);
+        const kinds = {};
+        for (const e of merged) kinds[e.kind] = (kinds[e.kind] ?? 0) + 1;
+        Object.assign(summary, {beats: merged, events: merged.length, kinds, span_s: [merged[0].t, merged.at(-1).t], capture_beats: taps.length, captures: {beats: taps.length, files: captures.files}});
+      }
+    }
+    summary.problems = problems;
+    return out;
+  }
+  // The web emitter reads the page; placed captures' taps on this act join its beats here, under the same rules.
   if (taps.length) {
     const target = eventsFile(ctx, act);
     const data = readJson(target);
@@ -65,13 +109,18 @@ async function emitWebAct(ctx, act, args, captures) {
     writeJsonAtomic(target, merged);
     const kinds = {};
     for (const e of merged) kinds[e.kind] = (kinds[e.kind] ?? 0) + 1;
-    const summary = out.find((a) => Number(a.act) === Number(act));
     if (summary) Object.assign(summary, {events: merged.length, kinds, span_s: [merged[0].t, merged.at(-1).t], capture_beats: taps.length, captures: {beats: taps.length, files: captures.files}});
   }
   return out;
 }
 
 export const KINDS = ['tap', 'type', 'land', 'snap', 'count', 'draw', 'data', 'page', 'stamp', 'whoosh', 'swell', 'character', 'impact'];
+/** Kinds whose beat is the end of their span: a draw ends on t, a count reaches its `to` at t. */
+export const ENDS_ON_BEAT = ['draw', 'count'];
+/** Kinds whose beat is their peak, somewhere inside their span. */
+export const PEAKS_ON_BEAT = ['whoosh', 'swell'];
+/** How far a beat may sit from its span's edge without a frame rate: writers round to the millisecond, so two. */
+export const NO_CLOCK_TOLERANCE_S = 0.002;
 export const SIZES = ['s', 'm', 'l'];
 /** Sizes other writers spell out (the capture beat map's default is "small"). */
 export const SIZE_ALIASES = {small: 's', medium: 'm', large: 'l'};
@@ -80,9 +129,62 @@ export const GENERATED = 'do not edit by hand: slate emit-events';
 export const eventsFile = (ctx, act) => path.join(ctx.dir, 'timing', 'visual_events', `act${act}.json`);
 export const motionFile = (ctx, act) => path.join(ctx.dir, 'timing', 'motion', `act${act}.json`);
 
+const isSeconds = (v) => typeof v === 'number' && Number.isFinite(v);
+
+/**
+ * The span rules beyond the schema, exactly as slate.timing.beats.problems() states them (same checks, same order, same
+ * words; tests/engine_core holds the two together): a draw and a count need start and dur and end on t; start and dur
+ * go together and make a forward stretch of film time; any other beat with a span sits inside it. `fps` sets the
+ * tolerance: half a frame on the film's clock, else two milliseconds. A silent act's object has nothing to check.
+ */
+export function spanProblems(list, fps = null) {
+  if (!Array.isArray(list)) return [];
+  const tol = fps ? 0.5 / fps : NO_CLOCK_TOLERANCE_S;
+  const out = [];
+  list.forEach((e, i) => {
+    if (!e || typeof e !== 'object' || Array.isArray(e)) return;
+    const where = e.id ? `beat ${i + 1} (${e.id})` : `beat ${i + 1}`;
+    const kind = e.kind;
+    const hasStart = 'start' in e;
+    const hasDur = 'dur' in e;
+    if (ENDS_ON_BEAT.includes(kind) && !(hasStart && hasDur)) {
+      out.push(`${where}: a ${kind} runs over time, so it needs start and dur (it ends on t)`);
+      return;
+    }
+    if (hasStart !== hasDur) {
+      out.push(`${where}: start and dur go together (the span a sustained motion runs over)`);
+      return;
+    }
+    if (!hasStart) return;
+    if (!isSeconds(e.start) || !isSeconds(e.dur)) {
+      out.push(`${where}: start and dur must be numbers of seconds`);
+      return;
+    }
+    const start = e.start;
+    const end = e.start + e.dur;
+    if (start < 0 || end <= start) {
+      out.push(`${where}: the span ${start.toFixed(3)}–${end.toFixed(3)} s isn't a forward stretch of film time`);
+      return;
+    }
+    if (!isSeconds(e.t)) return; // the beat's own check reports a beat without a time
+    const t = e.t;
+    if (ENDS_ON_BEAT.includes(kind)) {
+      if (Math.abs(end - t) > tol) {
+        const ms = Math.round((end - t) * 1000);
+        out.push(`${where}: a ${kind} ends on its beat, but start + dur is ${end.toFixed(3)} s and t is ${t.toFixed(3)} s (${ms >= 0 ? '+' : ''}${ms} ms)`);
+      }
+    } else if (!(start - tol <= t && t <= end + tol)) {
+      const what = PEAKS_ON_BEAT.includes(kind) ? 'peaks' : 'lands';
+      out.push(`${where}: a ${kind} ${what} inside its span, but t ${t.toFixed(3)} s is outside ${start.toFixed(3)}–${end.toFixed(3)} s`);
+    }
+  });
+  return out;
+}
+
 /**
  * Problems with an act's events (empty when they're good). `list` is the array of beats. The act's span allows half a
- * frame either side, as the kit's validateEvents() does, so the two never disagree about a beat on a boundary.
+ * frame either side, as the kit's validateEvents() does, so the two never disagree about a beat on a boundary; a span
+ * (start, dur) is held to spanProblems().
  */
 export function validateEvents(ctx, act, list) {
   const problems = [];
@@ -122,14 +224,15 @@ export function validateEvents(ctx, act, list) {
         problems.push(`${where}: says ${e.shot} but lands at ${e.t.toFixed(3)} s, outside ${e.shot} (${(shot.frame_in / fps).toFixed(3)}–${(shot.frame_out / fps).toFixed(3)} s)`);
       }
     }
-    // optional fields the sound side reads: a count's from/to, a sound's length, where it sits across the frame
+    // optional fields the sound side reads: a count's from/to, where it sits across the frame (its span: below)
     for (const k of ['from', 'to', 'x']) {
       if (k in e && (typeof e[k] !== 'number' || !Number.isFinite(e[k]))) problems.push(`${where}: ${k} must be a number`);
     }
-    if ('dur' in e && !(typeof e.dur === 'number' && Number.isFinite(e.dur) && e.dur > 0)) problems.push(`${where}: dur must be a positive number of seconds`);
+    if ('frame' in e && !(Number.isInteger(e.frame) && e.frame >= 0)) problems.push(`${where}: frame must be a whole film frame`);
     if ('pan' in e && !(typeof e.pan === 'number' && e.pan >= -1 && e.pan <= 1)) problems.push(`${where}: pan must be a number from -1 (left) to 1 (right)`);
   });
   if (impacts > 1) problems.push(`${impacts} impacts in act ${a.act}: at most one (it is the act's one big landing)`);
+  problems.push(...spanProblems(list, fps));
   return problems;
 }
 
@@ -334,11 +437,8 @@ export async function emitEvents(ctx, args) {
   const skipped = [];
   for (const act of acts) {
     if (webScene(ctx.dir, act)) {
-      if (dryRun) {
-        skipped.push({act, reason: "a web scene: its beats are read from its page, which a dry run doesn't open", engine: 'web'});
-      } else {
-        results.push(...(await emitWebAct(ctx, act, args, captures)));
-      }
+      // a web act's beats are read from its page: the open web renderer opens it (and writes nothing in a dry run)
+      results.push(...(await emitWebAct(ctx, act, args, captures, {dryRun})));
       continue;
     }
     try {

@@ -389,9 +389,16 @@ def stop_tree(root: int, *, grace: float = 10.0, spare: int | None = None, inclu
     return "killed"
 
 
+# A Slate command stopped by SIGTERM or SIGHUP exits 128 + the signal after its cleanup (slate.cli), as shells report a
+# signalled child; Ctrl-C exits 130. Those codes name their signal too.
+SIGNAL_EXITS = {128 + signal.SIGHUP: "SIGHUP", 128 + signal.SIGINT: "SIGINT", 128 + signal.SIGTERM: "SIGTERM"}
+
+
 def signal_name(returncode: int | None) -> str | None:
-    if returncode is None or returncode >= 0:
+    if returncode is None:
         return None
+    if returncode >= 0:
+        return SIGNAL_EXITS.get(returncode)
     try:
         return signal.Signals(-returncode).name
     except ValueError:

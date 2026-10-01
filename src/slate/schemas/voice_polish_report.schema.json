@@ -1,0 +1,67 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "slate/voice_polish_report",
+ "title": "Voice polish report (one take)",
+ "description": "What `slate voice polish` did to one take: the chain it ran (the film's pinned polish), what each stage did, the take measured before and after at one loudness (sibilance and edge energy and peaks, spectral tilt, warmth, low-mid, 1-5 kHz clarity, third-octave change), loudness and true peak, and the verification against the polish gate's rules. The polished file sits beside the take; the raw, clean and paced files are never changed.",
+ "type": "object",
+ "required": ["film", "shot", "take", "source", "source_stage", "source_sha256", "file", "sha256", "strength", "chain",
+              "chain_sha256", "replay", "stages", "effect", "verified", "at"],
+ "properties": {
+  "generated": {"type": "string"},
+  "film": {"type": "string"},
+  "shot": {"type": "string"},
+  "take": {"type": "string"},
+  "source": {"type": "string", "description": "the unpolished stage file the polish read (film-relative)"},
+  "source_stage": {"enum": ["paced", "clean", "raw"]},
+  "source_sha256": {"type": "string"},
+  "file": {"type": "string", "description": "the polished take (film-relative): <take>.polished.wav"},
+  "sha256": {"type": "string"},
+  "strength": {"type": "string", "description": "a named strength (A, B, …) or a number from 0 to 1 as text"},
+  "position": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+  "chain": {"type": ["object", "null"], "description": "the resolved chain (null: strength 0, the take untouched)"},
+  "chain_sha256": {"type": "string"},
+  "replay": {"type": "boolean", "description": "the take is a replayed stand-in (the gates report it as unchecked)"},
+  "stages": {
+   "type": "object",
+   "required": ["samples", "samples_out", "sample_rate", "lufs_in", "lufs_out", "true_peak_in_dbtp", "true_peak_out_dbtp",
+                "peak_trim_db"],
+   "properties": {
+    "samples": {"type": "integer", "minimum": 0},
+    "samples_out": {"type": "integer", "minimum": 0},
+    "sample_rate": {"type": "integer", "minimum": 1},
+    "lufs_in": {"type": "number"},
+    "lufs_out": {"type": "number"},
+    "true_peak_in_dbtp": {"type": "number"},
+    "true_peak_out_dbtp": {"type": "number"},
+    "peak_trim_db": {"type": "number", "maximum": 0},
+    "compressor_gr_db": {"type": "object"},
+    "edge": {"type": "object"},
+    "deess": {"type": "object"},
+    "note": {"type": "string"}
+   }
+  },
+  "effect": {
+   "type": "object",
+   "description": "before, after and change (dB) at one loudness; negative change means the polish removed energy there",
+   "properties": {
+    "before": {"type": "object"},
+    "after": {"type": "object"},
+    "change": {"type": "object"},
+    "spectral_distance_db": {"type": ["number", "null"], "minimum": 0},
+    "clarity_1k_5k_removed_db": {"type": ["number", "null"]},
+    "empty_bands": {"type": "array", "items": {"type": "string"}, "description": "bands the take barely uses (more than 60 dB under its loudest third-octave), left out of every comparison"},
+    "thirds_change_db": {"type": "object"}
+   }
+  },
+  "verified": {
+   "type": "object",
+   "required": ["ok", "problems", "checks"],
+   "properties": {
+    "ok": {"type": "boolean"},
+    "problems": {"type": "array", "items": {"type": "string"}},
+    "checks": {"type": "object"}
+   }
+  },
+  "at": {"type": "string"}
+ }
+}

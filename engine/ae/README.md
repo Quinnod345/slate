@@ -59,7 +59,10 @@ scene with each ease as AE speed and influence (sines and springs through an exa
 anticipates or overshoots is keyed per dimension, because AE's spatial speed can't run backwards). The act's motion
 trace (`timing/motion/actN.json`) and visual events (`timing/visual_events/actN.json`) are written by Slate without
 AE, `slate ae acts render N --go` renders it with aerender and registers it, and it faces the same gates as a Remotion
-act.
+act. Its beats mean what every engine's mean: `t` is the beat, a draw or a count carries its span (`start`, `dur`, from
+the animation's first key to its last) and ends on `t`, a whoosh or a swell peaks inside its span. A move can say which
+speed limits `slate qa motion` holds it to (`class`: rig, ui, carry or whip; a rig part is rig unasked) and declare an
+exemption (`exempt` with a `reason`).
 
 ## Dialogs
 

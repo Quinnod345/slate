@@ -15,7 +15,7 @@
 import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
-import {childEnv, missing, usage} from '../../remotion/lib/common.mjs';
+import {chromeProfileDir, childEnv, missing, usage} from '../../remotion/lib/common.mjs';
 import {installPageClock} from './page-clock.mjs';
 
 /** The GL flags Remotion 4.0.521 passes for each of its modes (open-browser.js getOpenGlRenderer, v4 behaviour). */
@@ -140,7 +140,13 @@ export async function startWall() {
   };
 }
 
-/** Launch the headless shell. Signals are Slate's to handle (cli.mjs turns them into one JSON result). */
+/**
+ * Launch the headless shell. Signals are Slate's to handle (cli.mjs turns them into one JSON result).
+ *
+ * Its profile folder is a fresh one under Slate's data folder (cache/chrome), never in $TMPDIR, where another tool's
+ * temp cleanup once deleted a live Slate Chrome's profile. puppeteer only removes profiles it made itself, so the folder
+ * rides along as `browser.slateProfileDir` and closeBrowser() removes it.
+ */
 export async function launchBrowser({executablePath, gl, width, height, wallPort, timeoutMs = 60000}) {
   const puppeteer = (await import('puppeteer')).default;
   const args = [
@@ -151,19 +157,39 @@ export async function launchBrowser({executablePath, gl, width, height, wallPort
     '--host-resolver-rules=MAP * ~NOTFOUND , EXCLUDE 127.0.0.1',
     ...CHROME_FLAGS,
   ];
-  return puppeteer.launch({
-    executablePath,
-    headless: 'shell',
-    pipe: true,
-    args,
-    defaultViewport: {width, height, deviceScaleFactor: 1},
-    env: childEnv(),
-    timeout: timeoutMs,
-    protocolTimeout: Math.max(timeoutMs, 180000),
-    handleSIGINT: false,
-    handleSIGTERM: false,
-    handleSIGHUP: false,
-  });
+  const userDataDir = chromeProfileDir('web');
+  let browser;
+  try {
+    browser = await puppeteer.launch({
+      executablePath,
+      headless: 'shell',
+      pipe: true,
+      args,
+      userDataDir,
+      defaultViewport: {width, height, deviceScaleFactor: 1},
+      env: childEnv(),
+      timeout: timeoutMs,
+      protocolTimeout: Math.max(timeoutMs, 180000),
+      handleSIGINT: false,
+      handleSIGTERM: false,
+      handleSIGHUP: false,
+    });
+  } catch (err) {
+    removeProfile(userDataDir);
+    throw err;
+  }
+  browser.slateProfileDir = userDataDir;
+  return browser;
+}
+
+/** Remove a profile folder launchBrowser() made (after its Chrome has exited). Never throws. */
+export function removeProfile(dir) {
+  if (!dir) return;
+  try {
+    fs.rmSync(dir, {recursive: true, force: true, maxRetries: 3, retryDelay: 100});
+  } catch {
+    // a leftover is swept later by `slate render clean`
+  }
 }
 
 /**

@@ -8,7 +8,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {ensureBrowser} from '@remotion/renderer';
-import {NODE_MODULES, log, usage} from './lib/common.mjs';
+import {NODE_MODULES, REMOTION_DIR, log, usage} from './lib/common.mjs';
 
 export const EXPECTED_MAJOR = 149;
 export const GL_MODES = ['angle', 'swangle', 'egl', 'swiftshader', 'vulkan', 'angle-egl'];
@@ -17,6 +17,33 @@ export const DEFAULT_GL = 'angle';
 export function chromiumOptions(gl = DEFAULT_GL) {
   if (!GL_MODES.includes(gl)) throw usage(`Unknown GL mode ${JSON.stringify(gl)}. Use one of: ${GL_MODES.join(', ')}.`);
   return {gl};
+}
+
+/** The flags that make Chrome finish every tile and decode every image before it draws a frame (chrome-complete.sh). */
+export const COMPLETE_FLAGS = ['--run-all-compositor-stages-before-draw', '--disable-checker-imaging'];
+/** Remotion's headless shell with COMPLETE_FLAGS: Remotion's openBrowser takes no extra flags, so they ride on the executable. */
+export const COMPLETE_SHELL = path.join(REMOTION_DIR, 'chrome-complete.sh');
+
+let warned = false;
+
+/**
+ * The browser executable every Remotion render, still and contract still passes: chrome-complete.sh, so no tile is
+ * left out of a sub-frame (a one-frame grey veil, the films' lesson L-kit-S008). Null, so Remotion falls back to its
+ * own shell as it is, only while the shell isn't downloaded yet (Remotion then says what's missing) or when the wrapper
+ * isn't executable (said once on stderr: a render without it can show the veil).
+ */
+export function browserExecutable() {
+  if (!browserStatus().present) return null;
+  try {
+    fs.accessSync(COMPLETE_SHELL, fs.constants.X_OK);
+    return COMPLETE_SHELL;
+  } catch {
+    if (!warned) {
+      warned = true;
+      log(`warning: ${COMPLETE_SHELL} isn't executable, so Chrome may leave unfinished tiles out of a sub-frame (chmod +x it, or run \`slate engine install\` again)`);
+    }
+    return null;
+  }
 }
 
 /** What's on disk, without downloading anything: {present, version, path}. */

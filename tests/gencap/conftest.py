@@ -16,6 +16,7 @@ import pytest
 from slate import replay
 from slate.vendors import higgsfield
 
+from format_fixtures import write_format
 from gencap_helpers import FPS, SIZE, write_brand, write_timing
 
 
@@ -45,10 +46,9 @@ def make_film(slate_home):
     def make(film_id: str = "f1", *, mode: str = "supervised", generation: str = "rarely", uploads: bool = True,
              shots: list[dict] | None = None) -> Path:
         write_brand(slate_home["brands"], uploads=uploads)
-        fmt = slate_home["tmp"] / "fmt-test.json"
-        fmt.write_text(json.dumps({"name": "test", "width": SIZE[0], "height": SIZE[1], "fps_num": FPS[0],
-                                   "fps_den": FPS[1], "runtime_s": 12, "budget": {"higgsfield": 50,
-                                                                                  "elevenlabs": 1000}}))
+        # a real, valid format (slate new validates format files): this size and clock, 12 s, $50 of generation
+        fmt = write_format(slate_home["tmp"] / "fmt-test.json", name="test", width=SIZE[0], height=SIZE[1], fps=FPS,
+                           runtime_s=12, elevenlabs=1000, higgsfield=50)
         try:
             from slate.state import film as state_film
         except ImportError:

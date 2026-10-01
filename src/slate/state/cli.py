@@ -322,7 +322,7 @@ def cmd_variant(args: argparse.Namespace) -> int:
         return 0
     child = derive.create(parent_dir, args.child, format=args.format, aspect=args.aspect, language=args.language,
                           cut=args.cut, title=args.title, mode=args.mode, films_dir=args.dir,
-                          git=False if args.no_git else None)
+                          git=False if args.no_git else None, channel=args.channel)
     fj = film.load(child)
     d = fj["derivation"]
     reuse = d.get("reuse") or {}
@@ -331,7 +331,9 @@ def cmd_variant(args: argparse.Namespace) -> int:
              f"{fj['fps_num']}/{fj['fps_den']}\n"
              f"  reuses {reuse.get('count', 0)} parent files by reference (nothing copied): "
              + ", ".join(f"{k} {v}" for k, v in (reuse.get("by_folder") or {}).items()) + "\n"
-             f"  to do: {'; '.join(d['redo'])}")
+             f"  to do: {'; '.join(d['redo'])}"
+             + (f"\n  route: {d['route']['label']} for {d['route']['channel']} (render {d['route']['render_samples']}; "
+                f"master {d['route']['master']})" if d.get("route") else ""))
     log.result({"film": fj["id"], "dir": str(child), "parent": fj["parent"], "derivation": d}, human)
     return 0
 
@@ -497,22 +499,23 @@ def register(sub) -> None:
     p.add_argument("--source", required=True, help="what raised it (a gate, a claim check, an agent)")
     p.add_argument("--evidence", action="append", help="a path or measurement (repeatable)")
 
-    if "variant" not in sub.choices:
-        p = cli.add_command(sub, "variant", cmd_variant, "derive a cut-down, a new aspect or a new language",
-                            epilog=EPILOG, description=(
-                                "Makes a derived film that reuses the parent's approved takes, timings, beats and "
-                                "assets by reference (nothing is copied), keeps the parent's clock, records the "
-                                "re-staging and sound re-plan it owes, runs every gate and needs its own approval."))
-        p.add_argument("parent", help="the parent film (id or path)")
-        p.add_argument("child", help="the new film's id")
-        p.add_argument("--aspect", help="e.g. 9:16, 1:1, 4:5")
-        p.add_argument("--cut", type=float, help="a cut-down's length in seconds")
-        p.add_argument("--language", help="a new language (BCP 47, e.g. fr); v1 speaks English")
-        p.add_argument("--format", help="the derived film's format (size, loudness, safe zones)")
-        p.add_argument("--title")
-        p.add_argument("--mode", choices=film.MODES)
-        p.add_argument("--dir", help="make it in this folder instead of ~/Movies/Slate")
-        p.add_argument("--no-git", action="store_true")
+    p = cli.add_command(sub, "variant", cmd_variant, "derive a cut-down, a new aspect or a new language",
+                        epilog=EPILOG, description=(
+                            "Makes a derived film that reuses the parent's approved takes, timings, beats and "
+                            "assets by reference (nothing is copied), keeps the parent's clock, records the "
+                            "re-staging and sound re-plan it owes, runs every gate and needs its own approval."))
+    p.add_argument("parent", help="the parent film (id or path)")
+    p.add_argument("child", help="the new film's id")
+    p.add_argument("--aspect", help="e.g. 9:16, 1:1, 4:5")
+    p.add_argument("--cut", type=float, help="a cut-down's length in seconds")
+    p.add_argument("--language", help="a new language (BCP 47, e.g. fr); v1 speaks English")
+    p.add_argument("--format", help="the derived film's format (size, loudness, safe zones)")
+    p.add_argument("--channel", help="the channel it's for (tiktok, youtube, ...): its route decides the render "
+                                     "quality and the master (social: draft samples and ffmpeg; hero: the full pipeline)")
+    p.add_argument("--title")
+    p.add_argument("--mode", choices=film.MODES)
+    p.add_argument("--dir", help="make it in this folder instead of ~/Movies/Slate")
+    p.add_argument("--no-git", action="store_true")
 
     grp = cli.add_group(sub, "revise", "perfect, don't replace: revise approved work by its notes")
     p = cli.add_command(grp, "start", cmd_revise_start, "notes on an approved artifact become its checklist",

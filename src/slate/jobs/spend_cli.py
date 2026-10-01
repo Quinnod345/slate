@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import math
+from pathlib import Path
 
 from slate import cli as slate_cli
 from slate import config, gates, jsonio, ledger, log, paths
@@ -151,10 +152,28 @@ def cmd_budget_set(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_budget_film(args: argparse.Namespace) -> int:
+ONBOARDING_PREFIX = "onboarding-"  # slate.brand.onboard.billing(name)["id"]: a brand's onboarding spend, not a film
+
+
+def _budget_target(args: argparse.Namespace) -> dict:
+    """The film.json a raise applies to, or a brand's onboarding billing context (`--film onboarding-<brand>`), which
+    has no folder: its spend is counted per brand against the onboarding budget, and raises are keyed by its id."""
+    ref = str(slate_cli.flag(args, "film") or "")
+    if ref.startswith(ONBOARDING_PREFIX) and not Path(ref).exists():
+        try:
+            from slate.brand import onboard  # noqa: PLC0415
+
+            return onboard.billing(ref[len(ONBOARDING_PREFIX):])
+        except ImportError:  # pragma: no cover - the brand module is part of every install
+            pass
     film_dir = slate_cli.film(args)
     fj = jsonio.read(film_dir / "film.json")
     fj.setdefault("id", film_dir.name)
+    return fj
+
+
+def cmd_budget_film(args: argparse.Namespace) -> int:
+    fj = _budget_target(args)
     provider = args.provider
     if not provider:
         limits = ledger.film_limits(fj)["providers"]

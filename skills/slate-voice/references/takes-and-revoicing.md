@@ -31,11 +31,16 @@ line ended with the first consonant of the next line's first word, and the owner
 When a line's words change (a correction, a claim removed):
 1. Change the script, rebuild it (slate-story).
 2. Re-voice **only the changed lines**, with their neighbouring lines as context, at the same delivery (the same voice,
-   model, settings and cleanup), so they match the lines around them.
+   model, settings, cleanup and pinned polish), so they match the lines around them.
 3. Whisper must hear the new lines word for word; the new takes must fit their shots.
 4. Re-time, re-render the affected range and splice it (slate-finish), re-mix, re-run the gates.
 
 Because every beat is keyed to words, the picture follows the new timing automatically; nothing is re-timed by hand.
+
+A film that uses the studio polish pinned its strength and chain at first use, so a re-voiced line gets exactly the
+same polish, and the polish check fails until it has it ([polish](polish.md)). A tagged line's pick from a tag round
+goes in as that exact file ([the tag loop](tag-loop.md)): seeds aren't fully deterministic, so it's never re-voiced in
+the hope of getting it back.
 
 ## Fitting the shot
 

@@ -19,7 +19,10 @@ frame size or rate; everything reads film.json.
 | Kinetic type or logo sting | 3 to 15 seconds | any | Type-led; the editorial look or the logo build. |
 | Character-led | any | any | The brand's motif or mark as a character (slate-motion, character-and-motif-motion). |
 
-The format files are the source of truth for exact values; this table is the overview.
+The format files are the source of truth for exact values; this table is the overview. `slate formats list` names them
+all, and `slate formats show <name> [--aspect 9:16]` gives one in full: its runtime and clock, the read time and the
+planning rate the script gates use, its caption rules at that aspect, its channels and their safe zones, its budget,
+and the platform files `slate deliver` makes for it (each platform's size, clock and limits).
 
 ## Derived films: cut-downs, aspects and languages
 
@@ -28,11 +31,12 @@ timings, beats and assets by reference (nothing is copied), keeps the parent's c
 type scale and safe zones, re-plans its sound, runs every gate, and needs its own approval:
 
 ```
-slate new <child-id> --brand <brand> --format <format> --parent <parent-id> --derivation '{"aspect": "9:16"}'
+slate variant <parent-id> <child-id> --aspect 9:16
 ```
 
-Other derivations: `{"cut_s": 15}` for a cut-down, `{"language": "fr"}` for a new language (v1 speaks English; the
-code carries no English literals, so languages arrive as data). See slate-finish, derived-films.md.
+Other derivations: `--cut 15` for a cut-down, `--language fr` for a new language (v1 speaks English; the code carries no
+English literals, so languages arrive as data). `slate new` with `--parent` and `--derivation` makes the same film from
+its own command line. See slate-finish, derived-films.md.
 
 ## Variants by channel
 

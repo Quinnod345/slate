@@ -155,7 +155,7 @@
   },
   "motion": {
    "type": "object",
-   "description": "The brand's motion law. eases: named eases with lineage; durations: the duration scale ({token: seconds}); staggers: units ({unit: seconds} or {frames, at_fps}); stagger_cap: {seconds, fraction}; exit_factor; roles: which ease does each job (entrance, move, state, exit, relayout); overshoot: the policy ({allowed, max, where}); signature: the brand motif's signature motion; linear_props, loops, rigs, banned: the law's other rules.",
+   "description": "The brand's motion law. eases: named eases with lineage; durations: the duration scale ({token: seconds}); staggers: units ({unit: seconds} or {frames, at_fps}); stagger_cap: {seconds, fraction}; exit_factor; roles: which ease does each job (entrance, move, state, exit, relayout); overshoot: the policy ({allowed, max, where}); signature: the brand motif's signature motion; linear_props, loops, rigs, banned: the law's other rules; extra_curves and speed_limits: what `slate qa motion` allows beyond Slate's defaults.",
    "properties": {
     "eases": {"type": "object", "additionalProperties": {"$ref": "#/$defs/ease"}},
     "durations": {"anyOf": [{"type": "null"}, {"type": "object", "additionalProperties": {"anyOf": [{"type": "number", "exclusiveMinimum": 0}, {"type": "object"}]}}, {"type": "array", "items": {"type": "object"}}], "description": "null (or left out) lets the kit's neutral scale stand in until onboarding writes one"},
@@ -169,6 +169,12 @@
     "loops": {"type": ["object", "null"]},
     "rigs": {"type": ["object", "null"]},
     "banned": {"type": "array"},
+    "extra_curves": {"type": "array", "items": {"enum": ["sway", "land", "spring0", "even"]},
+                     "description": "The generic curves `slate qa motion` lets any move use besides the brand's named eases (by default only a rig part may use sway, land or spring0, and a carry even): sway ((1 - cos pi u)/2), land (cubic-bezier(0.25, 0, 0.25, 1)), spring0 (the kit's zero-bounce spring), even (the even travel profile). A brand ease of the same name always wins."},
+    "speed_limits": {"type": ["object", "null"],
+                     "description": "The brand's own speed and acceleration limits per motion class, replacing Slate's defaults (rig 30 px/frame and 8 px/frame squared, ui 60 and 16, carry 170 and 45, at a 1080 px short side): {rig|ui|carry: {speed, accel}} as fractions of the frame's short side, or as px with the short_side they were measured on ({speed: 30, accel: 8, short_side: 1080}). A whip has no limit of its own: a person judges it.",
+                     "propertyNames": {"enum": ["rig", "ui", "carry"]},
+                     "additionalProperties": {"type": "object", "properties": {"speed": {"type": "number", "exclusiveMinimum": 0}, "accel": {"type": "number", "exclusiveMinimum": 0}, "short_side": {"type": "number", "exclusiveMinimum": 0}}}},
     "notes": {"$ref": "#/$defs/text"}
    },
    "additionalProperties": true

@@ -24,7 +24,11 @@ Compose runs through the ledger (estimated and budget-checked before the first c
 - **One composition per act**, not one for the film: a single six-minute composition came back with 21 seconds of
   silence over the film's biggest moment and 18 seconds of noise near the end.
 - **Split any part longer than about 90 seconds** at a story turn: longer plans ran out of material and went silent early.
-- **Every section at least 3 seconds.**
+- **The plan's shape follows the model.** music_v2 and music_v2_5 (the default) take plans made of **chunks**, with the
+  brand's styles on every chunk; only music_v1 takes the older **sections**, and the v2 models reject a section plan
+  outright (the source films hit this). `slate score plan` builds the shape the model takes, read from registry.json,
+  so a plan made before a model change has to be made again.
+- **Every block (chunk or section) at least 3 seconds.**
 - **A 3-second pre-roll**, cut at assembly, and every part runs at least 3 seconds past its hand-over: Eleven Music fades
   in and out at a take's edges regardless of the plan.
 - **An exact moment must be a part boundary on the word's time**, not a section inside a take.

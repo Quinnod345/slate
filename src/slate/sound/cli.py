@@ -265,7 +265,8 @@ def register(sub) -> None:
 
     p = add_command(sub, "verify", _verify, help="the sound gates on the mix (recorded in qa/gates.json)",
                     description="loudness, stems sum, gap, voice sync, cue sync, repeats, glides, drone, levels, "
-                                "reference, clarity, music licence. Exit 0 only when every gate passes.")
+                                "reference, clarity, music licence, and the balance gates (slate.sound.balance) once "
+                                "they're installed. Exit 0 only when every gate passes.")
     p.add_argument("gates", nargs="*", help="only these gates (e.g. loudness gap)")
     p.add_argument("--no-write", dest="no_write", action="store_true", help="don't record the results")
 
@@ -275,7 +276,7 @@ def register(sub) -> None:
     p.add_argument("stage", nargs="?", choices=("status", "spot", "render"), default=None,
                    help="status (the gate), spot (beats to cues) or render (cues to stems)")
 
-    snd = add_group(sub, "sound", help="sound tools: instruments, loudness")
+    snd = add_group(sub, "sound", help="sound tools: instruments, loudness, balance")
     p = add_command(snd, "instruments", _instruments, help="the sampled instruments for tonal roles, and what's missing",
                     description="Reports the Apple sampled instruments the palette's tonal roles play on (installed "
                                 "with GarageBand and Logic), where they are, and what to download from GarageBand's "
@@ -283,3 +284,31 @@ def register(sub) -> None:
     p = add_command(snd, "loudness", _loudness, help="BS.1770-4 loudness, true peak and LRA of audio files")
     p.add_argument("files", nargs="+", help="audio files")
     p.add_argument("--no-ffmpeg", dest="no_ffmpeg", action="store_true", help="skip ffmpeg's cross-check")
+    _register_extra(snd)
+
+
+# `slate sound <stage>` stages served by other sound modules once they're installed (import-guarded: a module that
+# isn't there adds nothing, and one that fails to import or register is reported, never fatal to `slate sound`).
+EXTRA_STAGES = ("slate.sound.balance",)
+
+
+def _register_extra(group) -> None:
+    import importlib  # noqa: PLC0415
+
+    for module_name in EXTRA_STAGES:
+        try:
+            module = importlib.import_module(module_name)
+        except ModuleNotFoundError as exc:
+            if exc.name != module_name:
+                log.warn(f"{module_name} failed to import ({exc}); its `slate sound` stage is missing")
+            continue
+        except Exception as exc:  # noqa: BLE001
+            log.warn(f"{module_name} failed to import ({type(exc).__name__}: {exc}); its `slate sound` stage is missing")
+            continue
+        register = getattr(module, "register", None)
+        if not callable(register):
+            continue
+        try:
+            register(group)
+        except Exception as exc:  # noqa: BLE001 - a clash or a bug there mustn't lose instruments and loudness
+            log.warn(f"{module_name} couldn't add its `slate sound` stage: {type(exc).__name__}: {exc}")

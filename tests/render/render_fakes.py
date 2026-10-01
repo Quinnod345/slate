@@ -206,10 +206,23 @@ class FakeJobs:
         self.refuse_disk: SlateError | None = None
         self.busy = False
 
-    def submit(self, kind, argv, *, film=None, resources=(), priority="supervised", disk_gb=0.0, cwd=None):
+    def submit(self, kind, argv, *, film=None, resources=(), priority="supervised", disk_gb=0.0, cwd=None,
+               resumable=True):
         self.submitted.append({"kind": kind, "argv": list(argv), "film": film, "resources": tuple(resources),
-                               "priority": priority, "disk_gb": disk_gb, "cwd": cwd})
+                               "priority": priority, "disk_gb": disk_gb, "cwd": cwd, "resumable": resumable,
+                               "via": self._via})
+        self._via = "submit"
         return f"job-{len(self.submitted)}"
+
+    _via = "submit"
+
+    def detach_current(self, kind, resources=(), *, film=None, disk_gb=0.0, priority="supervised", argv=None,
+                       resumable=True):
+        """slate.jobs.client.detach_current as the jobs module wrote it: `slate` plus the words, --detach dropped."""
+        words = [a for a in (list(argv) if argv is not None else sys.argv[1:]) if a != "--detach"]
+        self._via = "detach_current"
+        return self.submit(kind, ["slate", *words], film=film, resources=resources, priority=priority,
+                           disk_gb=disk_gb, resumable=resumable)
 
     def wait(self, job_id, timeout=None):
         return {"id": job_id, "state": "done"}
@@ -335,7 +348,8 @@ class Fakes:
             "slate.engine.bridge": _module("slate.engine.bridge", call=self.bridge.call,
                                            engine_dir=self.bridge.engine_dir),
             "slate.jobs": _package("slate.jobs"),
-            "slate.jobs.client": _module("slate.jobs.client", submit=self.jobs.submit, wait=self.jobs.wait),
+            "slate.jobs.client": _module("slate.jobs.client", submit=self.jobs.submit, wait=self.jobs.wait,
+                                         detach_current=self.jobs.detach_current),
             "slate.jobs.locks": _module("slate.jobs.locks", hold=self.jobs.hold),
             "slate.jobs.disk": _module("slate.jobs.disk", reserve=self.jobs.reserve),
             "slate.state": _package("slate.state"),

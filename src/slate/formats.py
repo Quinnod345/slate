@@ -789,11 +789,9 @@ def cmd_channels(args: argparse.Namespace) -> int:
 
 
 def register(sub) -> None:
-    """Add `slate formats list|show|check|channels` (skipped when another module already added `formats`)."""
+    """Add `slate formats list|show|check|channels` (slate.cli.MODULES lists this module for `formats`)."""
     from slate import cli  # noqa: PLC0415 - avoid an import cycle at module load
 
-    if "formats" in getattr(sub, "choices", {}):
-        return
     group = cli.add_group(sub, "formats", "the format templates: list, show, check, channels",
                           description="Format templates: the kinds of film Slate makes (formats/<name>.json), each with "
                                       "its runtime, frame, clock, pace, structure, loudness, captions, safe zones, "

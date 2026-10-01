@@ -5,11 +5,15 @@
 - Keys travel only in headers. A URL that contains a key is refused before it is sent.
 - Reads (GET, HEAD) retry with backoff on rate limits and server errors. Anything that can bill (POST, PUT, PATCH,
   DELETE) is never retried automatically: a retry after an ambiguous timeout can create, and bill, a duplicate job.
+- A rate limit (429) or an unavailable service (503) that ends a request raises `RateLimited`: an HttpError (so every
+  vendor's own handling still sees the status) that is also `slate.errors.TryLater`, exit 75, which the job queue
+  answers by trying the job again later instead of failing it. It carries the vendor's Retry-After when there is one.
 - Error bodies are redacted before they are shown.
 """
 
 from __future__ import annotations
 
+import datetime as _dt
 import json
 import mimetypes
 import os
@@ -20,15 +24,18 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any, Mapping
 
 from slate import __version__
-from slate.errors import SlateError
+from slate.errors import SlateError, TryLater
 from slate.secrets import _seen_values, redact
 
 USER_AGENT = f"slate/{__version__} (video pipeline; +https://github.com/Quinnod345/slate)"
 RETRYABLE = {408, 425, 429, 500, 502, 503, 504}
+TRY_LATER = {429, 503}  # ends a request as RateLimited (exit 75): the queue tries the job again later
+BILLING_METHODS = ("POST", "PUT", "PATCH", "DELETE")
 SYSTEM_CA_FILES = ("/etc/ssl/cert.pem", "/private/etc/ssl/cert.pem")
 
 _ssl_context: ssl.SSLContext | None = None
@@ -63,8 +70,62 @@ class HttpError(SlateError):
         self.body = clean
 
 
+class RateLimited(HttpError, TryLater):
+    """A 429 or a 503 that ended the request. Still an HttpError (vendors map statuses their own way), and a
+    TryLater (exit 75), so an error nobody handles sends a queued job back to the queue instead of failing it.
+
+    For a call that can bill, nothing was retried here: the vendor turned it away, and sending it again is the
+    queue's job, after a backoff, never this function's."""
+
+    kind = "try_later"
+    exit_code = 75
+
+    def __init__(self, status: int, url: str, body: str, *, method: str = "GET", retry_after_s: float | None = None):
+        clean = redact(body[:2000])
+        what = ("a rate limit (HTTP 429)" if status == 429 else "the service is unavailable for now (HTTP 503)")
+        billing = method.upper() in BILLING_METHODS
+        then = ("Nothing was sent again, because this call can bill." if billing else
+                "The retries ran out.")
+        wait = f" It asked for {retry_after_s:g} s." if retry_after_s is not None else ""
+        SlateError.__init__(
+            self, f"HTTP {status} from {_host(url)}: {what}. {then}{wait}" + (f" ({clean[:300]})" if clean else ""),
+            hint="Wait a minute, then run the same command again (a queued job goes back in the queue and retries by "
+                 "itself).",
+            details={"status": status, "method": method.upper(),
+                     **({"retry_after_s": retry_after_s} if retry_after_s is not None else {})})
+        self.status = status
+        self.body = clean
+        self.retry_after_s = retry_after_s
+
+
 def _host(url: str) -> str:
     return urllib.parse.urlparse(url).netloc or url
+
+
+def retry_after_seconds(value: str | None) -> float | None:
+    """A Retry-After header in seconds (the delta form; an HTTP date is read too), or None."""
+    if not value:
+        return None
+    text = str(value).strip()
+    try:
+        return max(0.0, float(text))
+    except ValueError:
+        pass
+    try:
+        when = parsedate_to_datetime(text)
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=_dt.timezone.utc)
+        return max(0.0, (when - _dt.datetime.now(_dt.timezone.utc)).total_seconds())
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def http_error(status: int, url: str, body: str, *, method: str = "GET", headers: Any = None) -> HttpError:
+    """The error for a non-2xx answer: RateLimited (exit 75) for 429 and 503, HttpError otherwise."""
+    if status in TRY_LATER:
+        retry_after = retry_after_seconds(headers.get("Retry-After") if headers is not None else None)
+        return RateLimited(status, url, body, method=method, retry_after_s=retry_after)
+    return HttpError(status, url, body)
 
 
 def _check_url(url: str) -> None:
@@ -96,7 +157,7 @@ def request(method: str, url: str, *, headers: Mapping[str, str] | None = None, 
             if exc.code in RETRYABLE and attempt + 1 < attempts:
                 _sleep(attempt, exc.headers.get("Retry-After") if exc.headers else None)
                 continue
-            raise HttpError(exc.code, url, payload) from None
+            raise http_error(exc.code, url, payload, method=method, headers=exc.headers) from None
         except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
             last_exc = exc
             if attempt + 1 < attempts:
@@ -142,7 +203,8 @@ def download(url: str, dest: str | os.PathLike, *, headers: Mapping[str, str] | 
         os.replace(tmp, dest)
     except urllib.error.HTTPError as exc:
         tmp.unlink(missing_ok=True)
-        raise HttpError(exc.code, url, exc.read().decode("utf-8", "replace") if exc.fp else "") from None
+        raise http_error(exc.code, url, exc.read().decode("utf-8", "replace") if exc.fp else "",
+                         headers=exc.headers) from None
     except BaseException:
         tmp.unlink(missing_ok=True)
         raise

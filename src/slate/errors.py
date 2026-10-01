@@ -3,7 +3,7 @@
 Raise one of these anywhere in Slate. `slate.cli` catches it, prints its message in plain words (or as JSON with
 `--json`) and exits with its code, so every agent sees the same code for the same situation:
 
-    0 ok · 1 gate failed or refused · 2 usage · 3 missing prerequisite · 4 spend refused · 5 busy
+    0 ok · 1 gate failed or refused · 2 usage · 3 missing prerequisite · 4 spend refused · 5 busy · 75 try later
 """
 
 from __future__ import annotations
@@ -63,3 +63,24 @@ class Busy(SlateError):
 
     exit_code = 5
     kind = "busy"
+
+
+class TryLater(SlateError):
+    """Nothing is wrong with the request, but it can't happen now: a vendor's rate limit (HTTP 429), a service that's
+    briefly unavailable (503), an answer that never came back for a request that's safe to send again.
+
+    Exit 75 (EX_TEMPFAIL). The job queue puts a job that exits 75 back in line and tries it again after a backoff
+    (at least `retry_after_s`, when the vendor said how long to wait), so a rate limit costs a little time instead of a
+    failed job. Run by hand, it means: wait a minute, then run the same command again.
+    """
+
+    exit_code = 75
+    kind = "try_later"
+
+    def __init__(self, message: str, *, hint: str | None = None, details: dict | None = None,
+                 retry_after_s: float | None = None):
+        extra = {"retry_after_s": retry_after_s} if retry_after_s is not None else {}
+        super().__init__(message, hint=hint or "Wait a minute, then run the same command again (a queued job goes "
+                                               "back in the queue and retries by itself).",
+                         details={**(details or {}), **extra})
+        self.retry_after_s = retry_after_s

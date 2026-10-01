@@ -34,12 +34,26 @@ DEFAULTS: dict[str, Any] = {
         "motion_blur_samples": 16,  # render_mb sub-frames averaged in 16-bit
         "draft_samples": 4,  # draft mode and the tracer bullet
         "chunk_frames": 600,
+        "foreground_max_subframes": 2400,  # bigger renders (frames x samples) go to the job queue, not the terminal
+        "chunk_tries": 2,  # a chunk that fails is rendered again once before the render stops
     },
     "jobs": {
         "disk_reserve_gb": 5.0,  # never start a job that would leave less than this free
+        "disk_stop_gb": 4.0,  # a running job is stopped safely (and stays resumable) below this
         "poll_seconds": 2.0,
+        "kill_grace_s": 10.0,  # SIGTERM, then this long, then SIGKILL, for a cancelled or stopped job's processes
+        "max_load_per_core": 3.0,  # renders wait while the load average is above this per core (0 turns it off)
+        "nice": 5,  # queued jobs run a little below interactive work
+        "agent_label": "dev.slate.jobs",  # the launchd agent that keeps the runner alive
+        # Slots per resource beyond render (render's are [render] slots). After Effects can only ever have one.
+        "slots": {"ae": 1, "elevenlabs_tts": 4, "elevenlabs_music": 1, "higgsfield": 2, "whisper": 1},
     },
     "films": {"git_init": True},
+    "gen": {
+        # Video plates render at the registry's default (720p) unless this names another (e.g. "1080p", 2.46x the
+        # price: a person's choice; registry.json questions: plate_video_resolution).
+        "video_resolution": None,
+    },
     "ae": {"app": None, "aerender": None},
     "models": {},
 }

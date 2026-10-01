@@ -36,6 +36,8 @@ export type PlannedShape = SvgShape & {
 
 export type LogoTimes = {
   constructDur: number;
+  /** when the survey is done: the last guide drawn out, the last vertex mark arrived (seconds from the build's start) */
+  constructEnd: number;
   outlineStart: number;
   outlineDur: number;
   fillStart: number;
@@ -64,6 +66,23 @@ export type LogoPlan = {
   impact: boolean;
   problems: string[];
 };
+
+/** Seconds between one construction guide and the next as they draw out (logo.tsx draws them; the plan times them). */
+export const GUIDE_STAGGER_S = 0.05;
+/** The vertex marks arrive one after another across this fraction of the construction time… */
+export const MARK_SPREAD = 0.6;
+/** …each over this fraction of it. */
+export const MARK_DUR = 0.5;
+
+/**
+ * When the survey is done, in seconds from the build's start: the last guide's draw (each takes the construction time,
+ * staggered by GUIDE_STAGGER_S) or the last mark's arrival, whichever ends later. 0 when there's nothing to survey.
+ */
+export function surveyEnd(guides: number, marks: number, constructDur: number): number {
+  const lastGuide = guides > 0 ? (guides - 1) * GUIDE_STAGGER_S + constructDur : 0;
+  const lastMark = marks > 0 ? (marks > 1 ? MARK_SPREAD * constructDur : 0) + MARK_DUR * constructDur : 0;
+  return Math.max(lastGuide, lastMark);
+}
 
 function asSeconds(v: number | string | undefined, fallback: number, dur: (s: string | number) => number): number {
   if (v === undefined) return fallback;
@@ -180,13 +199,15 @@ export function planLogoBuild(svg: string | ParsedSvg, spec: LogoBuildSpec = {},
     marks = thin(kept, spec.max_marks ?? 40);
   }
 
+  const constructEnd = surveyEnd(guides.h.length + guides.v.length, marks.length, constructDur);
+
   return {
     viewBox: parsed.viewBox,
     box: unionBox(parsed.shapes.map((s) => s.bbox)),
     shapes: shapesPlanned,
     guides,
     marks,
-    times: {constructDur, outlineStart, outlineDur, fillStart, fillEnd, hangStart, dropStart, dropDur, land, echoDur, outStart, outDur, end},
+    times: {constructDur, constructEnd, outlineStart, outlineDur, fillStart, fillEnd, hangStart, dropStart, dropDur, land, echoDur, outStart, outDur, end},
     keystone,
     keystoneFrom: spec.keystone_from ?? 'above',
     wipe,
@@ -219,13 +240,20 @@ function exitDurSafe(s: number): number {
   }
 }
 
-/** The events a build makes, for the act's events file (draw, snap, impact), relative to its start t0. */
-export function logoEvents(plan: LogoPlan, t0: number, shotId: string, idPrefix = 'logo'): {shot: string; id: string; t: number; kind: string; size: string; note: string}[] {
-  const out = [
-    {shot: shotId, id: `${idPrefix}_construct`, t: t0 + 0.6 * plan.times.constructDur, kind: 'draw', size: 's', note: 'construction lines and vertex marks survey the mark'},
-  ];
-  if (plan.outline) out.push({shot: shotId, id: `${idPrefix}_outline`, t: t0 + plan.times.outlineStart + 0.9 * plan.times.outlineDur, kind: 'draw', size: 's', note: 'the outlines draw'});
-  out.push({shot: shotId, id: `${idPrefix}_fill`, t: t0 + plan.times.fillEnd, kind: 'land', size: 'm', note: 'the last part fills'});
-  if (plan.times.land !== null) out.push({shot: shotId, id: `${idPrefix}_keystone`, t: t0 + plan.times.land, kind: plan.impact ? 'impact' : 'snap', size: 'l', note: 'the keystone lands'});
+export type LogoEvent = {shot: string; id: string; t: number; kind: string; size: string; note: string; start?: number; dur?: number};
+
+/**
+ * The events a build makes, for the act's events file (draw, land, impact), relative to its start t0. Each draw gives
+ * its span (start and dur, film seconds) and its beat t at the span's end, where the stroke makes contact: a draw ends
+ * on its beat everywhere in Slate (slate.timing.beats), so the sound engine never has to guess which end was meant.
+ */
+export function logoEvents(plan: LogoPlan, t0: number, shotId: string, idPrefix = 'logo'): LogoEvent[] {
+  const T = plan.times;
+  const out: LogoEvent[] = [];
+  const draw = (id: string, start: number, dur: number, note: string) => out.push({shot: shotId, id, t: start + dur, kind: 'draw', size: 's', note, start, dur});
+  if (T.constructEnd > 0) draw(`${idPrefix}_construct`, t0, T.constructEnd, 'construction lines and vertex marks survey the mark');
+  if (plan.outline && T.outlineDur > 0) draw(`${idPrefix}_outline`, t0 + T.outlineStart, T.outlineDur, 'the outlines draw');
+  out.push({shot: shotId, id: `${idPrefix}_fill`, t: t0 + T.fillEnd, kind: 'land', size: 'm', note: 'the last part fills'});
+  if (T.land !== null) out.push({shot: shotId, id: `${idPrefix}_keystone`, t: t0 + T.land, kind: plan.impact ? 'impact' : 'snap', size: 'l', note: 'the keystone lands'});
   return out;
 }

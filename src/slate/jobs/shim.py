@@ -19,6 +19,7 @@ outlives whoever submitted it: a dying agent, a closed Terminal, a rate-limited 
 from __future__ import annotations
 
 import datetime as _dt
+import math
 import os
 import shlex
 import signal
@@ -32,6 +33,7 @@ from slate.errors import Refused, SlateError
 from slate.jobs import disk, locks, model, proc, resume, runner, store
 
 DEFAULT_NICE = 5
+MAX_RETRY_AFTER_S = 3600  # a vendor's Retry-After is honoured up to an hour; past that, the backoff is the queue's
 
 
 def _say(text: str) -> None:
@@ -137,16 +139,21 @@ def _outcome(job: dict, rc: int) -> None:
         job["reason"] = None
     elif rc in model.RETRY_LATER_CODES and attempts < most:
         wait_s = min(60 * 2 ** (attempts - 1), 900)
+        noted = job.pop("try_later", None) or {}  # the command's own note (slate.cli, on exit 75): the vendor's wait
+        asked = noted.get("retry_after_s") if isinstance(noted, dict) else None
+        if isinstance(asked, (int, float)) and asked > wait_s:
+            wait_s = int(min(math.ceil(asked), MAX_RETRY_AFTER_S))
         job["state"] = "queued"
         job["queued_at"] = model.iso()
         job["not_before"] = model.iso(model.now() + _dt.timedelta(seconds=wait_s))
-        what = "busy" if rc == 5 else "a temporary failure"
+        what = "busy" if rc == 5 else (
+            "a temporary failure" + (f": {noted['reason']}" if isinstance(noted, dict) and noted.get("reason") else ""))
         job["reason"] = f"exited with {rc} ({what}); back in the queue to try again in {wait_s}s"
     elif rc == model.SPEND_REFUSED_CODE:
         job["state"] = "failed"
         job["reason"] = ("spend refused (exit 4): it's waiting for a person to raise the budget, approve the call or "
                          f"top up the balance; then `slate job retry {job['id']}`")
-    elif rc < 0:
+    elif rc < 0 or proc.signal_name(rc):
         job["state"] = "failed"
         job["reason"] = f"stopped by {proc.signal_name(rc)}"
     else:

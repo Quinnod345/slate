@@ -296,7 +296,7 @@ def test_a_crash_between_the_answer_and_the_row_closing_settles_the_row(live, fx
     assert res["request_id"] == again["request_id"] == "req_live_1"
 
 
-def test_a_rate_limit_is_busy_and_an_empty_balance_stops_and_asks(live, fx, monkeypatch):
+def test_a_rate_limit_is_try_later_and_an_empty_balance_stops_and_asks(live, fx, monkeypatch):
     def refuse(status, body):
         def fake(method, url, *, headers=None, json_body=None, data=None, timeout=60, retries=3):
             if url.endswith("/v1/user/subscription"):
@@ -304,10 +304,13 @@ def test_a_rate_limit_is_busy_and_an_empty_balance_stops_and_asks(live, fx, monk
             raise http.HttpError(status, url, body)
         return fake
 
-    monkeypatch.setattr(http, "request", refuse(429, '{"detail": {"status": "too_many_concurrent_requests"}}'))
-    with pytest.raises(Exception) as exc:
-        Client().tts(voice_id="v", text="Twelve chars", output_format="pcm_44100")
-    assert exc.value.exit_code == 5 and "Nothing was billed" in exc.value.message
+    from slate.errors import TryLater
+
+    for status in (429, 503):  # the queue puts a job that exits 75 back in line and retries it after a backoff
+        monkeypatch.setattr(http, "request", refuse(status, '{"detail": {"status": "too_many_concurrent_requests"}}'))
+        with pytest.raises(TryLater) as exc:
+            Client().tts(voice_id="v", text="Twelve chars", output_format="pcm_44100")
+        assert exc.value.exit_code == 75 and "Nothing was billed" in exc.value.message
     monkeypatch.setattr(http, "request", refuse(401, '{"detail": {"status": "quota_exceeded"}}'))
     with pytest.raises(SpendRefused) as exc:
         Client().tts(voice_id="v", text="Twelve chars", output_format="pcm_44100")

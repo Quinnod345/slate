@@ -11,7 +11,9 @@ Measures (numpy and scipy only; frames 10 ms apart):
 - h1h2_db: first minus second harmonic. A glottis that stays open longer (breathy phonation) raises it.
 - tilt_db: energy 50-1,000 Hz over 1-5 kHz. A soft, low-effort voice tilts more steeply.
 - level_db: the span's level. Softening lowers it.
-Plus creak (voiced frames under 115 Hz or 0.6x the median) and pitch statistics for reporting.
+Plus creak (voiced frames under 115 Hz or 0.6x the median), irregular pitch (frames more than 20% off a 5-frame running
+median), pitch statistics, the level contour's spread, and the first two formants (LPC, order 12, at 10 kHz: a smile
+shortens the vocal tract and lifts F2), for reporting. `slate.voice.analyze` builds the full inflection report on these.
 """
 
 from __future__ import annotations
@@ -104,12 +106,47 @@ def _cpps(x24: np.ndarray, sr: int, n: int, win: float = 0.040, t_smooth: int = 
     return full
 
 
+def formants(x10: np.ndarray, sr: int, voiced: np.ndarray, order: int = 12, win: float = 0.025
+             ) -> tuple[np.ndarray, np.ndarray]:
+    """F1 and F2 per voiced frame (LPC by autocorrelation and Levinson, pre-emphasis 0.97, Hamming window). NaN where
+    no plausible pair is found. Only meaningful between takes of the same words."""
+    from scipy.signal import lfilter  # noqa: PLC0415
+
+    fr = _frames(lfilter([1, -0.97], [1], x10), sr, win, len(voiced))
+    w = np.hamming(fr.shape[1])
+    f1s, f2s = np.full(len(voiced), np.nan), np.full(len(voiced), np.nan)
+    for i in range(len(fr)):
+        if not voiced[i]:
+            continue
+        s = fr[i] * w
+        r = np.correlate(s, s, "full")[len(s) - 1: len(s) + order]
+        if r[0] <= 0:
+            continue
+        a = np.zeros(order + 1)
+        a[0], e = 1.0, r[0]
+        for m in range(1, order + 1):
+            k = -(r[m] + np.dot(a[1:m], r[m - 1:0:-1])) / e if e > 0 else 0.0
+            a[1:m] = a[1:m] + k * a[m - 1:0:-1]
+            a[m] = k
+            e *= (1 - k * k)
+        cands = sorted(math.atan2(z.imag, z.real) * sr / (2 * math.pi) for z in np.roots(a)
+                       if z.imag > 0 and -sr / math.pi * math.log(abs(z) + 1e-12) < 400
+                       and 200 < math.atan2(z.imag, z.real) * sr / (2 * math.pi) < 3500)
+        f1 = next((f for f in cands if 250 <= f <= 1000), None)
+        f2 = next((f for f in cands if f1 and f >= f1 + 250 and 800 <= f <= 3000), None)
+        if f1 and f2:
+            f1s[i], f2s[i] = f1, f2
+    return f1s, f2s
+
+
 class Frames:
-    """Every per-frame track of one take, computed once."""
+    """Every per-frame track of one take, computed once (formants only when first asked for)."""
 
     def __init__(self, path: str | Path):
         self.path = str(path)
         x, sr = audio_mod.load(path)
+        self._x10 = audio_mod.resample(x, sr, 10000)
+        self._f1f2: tuple[np.ndarray, np.ndarray] | None = None
         x44 = audio_mod.resample(x, sr, 44100)
         self.duration = len(x44) / 44100.0
         fr44 = _frames(x44, 44100, 0.025)
@@ -142,9 +179,23 @@ class Frames:
                 return 20 * math.log10(mag[i, sel].max() + 1e-12) if sel.any() else -240.0
             self.h1h2[i] = peak_db(self.f0[i]) - peak_db(2 * self.f0[i])
 
+    @property
+    def f1(self) -> np.ndarray:
+        return self._formants()[0]
 
-def summarize(F: Frames, mask: np.ndarray) -> dict | None:
-    """Every measure over the speech frames in `mask`. None when fewer than five speech frames are selected."""
+    @property
+    def f2(self) -> np.ndarray:
+        return self._formants()[1]
+
+    def _formants(self) -> tuple[np.ndarray, np.ndarray]:
+        if self._f1f2 is None:
+            self._f1f2 = formants(self._x10, 10000, self.voiced)
+        return self._f1f2
+
+
+def summarize(F: Frames, mask: np.ndarray, *, formants_too: bool = False) -> dict | None:
+    """Every measure over the speech frames in `mask`. None when fewer than five speech frames are selected.
+    `formants_too` adds median F1 and F2 (LPC per voiced frame; the slowest measure, so only when asked for)."""
     sel = mask[: len(F.act)] & F.act
     sv = sel & F.voiced
     if sel.sum() < 5:
@@ -160,7 +211,15 @@ def summarize(F: Frames, mask: np.ndarray) -> dict | None:
         a = a[np.isfinite(a)]
         return round(float(np.median(a)), 2) if len(a) else None
 
-    return {
+    rm = np.array([np.nanmedian(F.f0[max(0, k - 2): k + 3]) if F.voiced[k] else np.nan for k in range(len(F.f0))])
+    with np.errstate(invalid="ignore", divide="ignore"):
+        irregular = sv & (np.abs(np.nan_to_num(F.f0 / rm, nan=1.0) - 1) > 0.2)
+    extra = {"f0_mean_hz": round(float(np.mean(v)), 1) if len(v) else None,
+             "level_range_db": round(float(np.percentile(lv100, 90) - np.percentile(lv100, 10)), 2),
+             "irregular_frac": round(float(irregular.sum() / max(1, sv.sum())), 4)}
+    if formants_too:
+        extra.update({"f1_hz": med_or_none(F.f1[sv]), "f2_hz": med_or_none(F.f2[sv])})
+    return {**extra, **{
         "voiced_frac": round(float(sv.sum() / sel.sum()), 3),
         "cpps_db": med_or_none(F.cpps[sel]),
         "hnr_db": med_or_none(F.hnr[sel]),
@@ -176,7 +235,7 @@ def summarize(F: Frames, mask: np.ndarray) -> dict | None:
         "level_sd_db": round(float(np.std(lv100)), 2),
         "creak_frac": round(float(low.sum() / max(1, sv.sum())), 4),
         "voiced_frames": int(sv.sum()),
-    }
+    }}
 
 
 def span(F: Frames, start_s: float | None) -> dict | None:

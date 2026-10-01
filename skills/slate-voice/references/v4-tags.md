@@ -95,6 +95,11 @@ Tag sparingly, then A/B a handful of key lines for the owner (the current take, 
 side by side) before re-voicing everything. Because every beat is keyed to the voice's words, a re-voice re-times the
 film automatically; the renders and the mix still rebuild.
 
+When a line's direction really matters, a single A/B isn't enough to know: the same tag can pass on one seed and measure
+breathier on the next. Run a round of the tag loop instead (several candidates, several seeds, extra untagged seeds,
+gates and a measured feeling, then an ABC reel), and adopt the pick as that exact file: [the tag loop](tag-loop.md).
+How each measure is read: [measuring a read](measuring-reads.md).
+
 ## Settings and context
 
 Tags work with the voice's stored settings (stability about 0.5). Neighbouring lines go in as plain words, never tagged

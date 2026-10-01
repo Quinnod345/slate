@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import shutil
 
+import pytest
+
 from slate import cli, paths
 
 
@@ -74,14 +76,20 @@ def test_channels_lists_routes_zones_and_their_basis():
 
 
 def test_formats_and_bench_register_once_and_never_break_analyze():
+    """formats and bench have their own lines in slate.cli.MODULES; each is registered once, by its own module."""
+    import argparse
+
     parser = cli.build_parser()
     choices = next(a for a in parser._actions if getattr(a, "choices", None) and "analyze" in a.choices).choices
     assert {"analyze", "formats", "bench"} <= set(choices)
     assert not {k: v for k, v in cli.BROKEN.items() if k in ("slate.analyze.cli", "slate.formats", "slate.bench.cli")}
-    # registering again (say, once slate.cli lists these modules itself) skips names already taken
+    assert (cli.REGISTERED["analyze"], cli.REGISTERED["formats"], cli.REGISTERED["bench"]) == (
+        "slate.analyze.cli", "slate.formats", "slate.bench.cli")
+    # registering a name twice is a bug argparse refuses (and slate.cli files it in BROKEN): nothing skips quietly
     from slate import formats
     from slate.bench import cli as bench_cli
 
     sub = next(a for a in parser._actions if getattr(a, "choices", None) and "analyze" in a.choices)
-    formats.register(sub)
-    bench_cli.register(sub)
+    for again in (formats.register, bench_cli.register):
+        with pytest.raises(argparse.ArgumentError):
+            again(sub)

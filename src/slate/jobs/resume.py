@@ -81,8 +81,9 @@ def _load(provider: str) -> None:
 def _higgsfield_poll(request_id: str | None, row: dict) -> dict:
     """The default Higgsfield hook: one status GET through the vendor module's own client (replay-aware).
 
-    Completed requests book the quoted price (the Cloud API has no balance endpoint); failed, moderated and cancelled
-    ones aren't billed.
+    Completed requests book the quoted price, the estimate's amount: /estimate's `usd`, which is already after any
+    discount (`discount.usd` is the saving, never the price; the Cloud API has no balance endpoint). Failed, moderated
+    and cancelled ones aren't billed.
     """
     if not request_id:
         return {"status": "unknown", "why": "no request id to poll"}
@@ -92,9 +93,8 @@ def _higgsfield_poll(request_id: str | None, row: dict) -> dict:
     state = answer.get("status")
     if state == "completed":
         est = row.get("estimate") or {}
-        discounted = (est.get("details") or {}).get("discounted_usd")
-        actual = float(discounted) if isinstance(discounted, (int, float)) else float(est.get("amount") or 0.0)
-        return {"status": "done", "actual": actual, "result": {"status": state, "recovered": True}}
+        return {"status": "done", "actual": float(est.get("amount") or 0.0),
+                "result": {"status": state, "recovered": True}}
     if state in getattr(higgsfield, "UNBILLED", ("failed", "nsfw", "canceled")):
         return {"status": "failed", "actual": 0.0, "why": f"Higgsfield finished it as {state} (not billed)"}
     return {"status": "running"}

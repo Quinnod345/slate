@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any, Iterable, Iterator
 
 from slate import clock as _clock
-from slate import jsonio
+from slate import gates, jsonio
 from slate.errors import SlateError
 
 # Visual-event kinds (docs/ARCHITECTURE.md §5). The sound engine maps each kind to a sound, so an unknown kind would
@@ -109,12 +109,21 @@ class FilmContext:
 
     def inputs(self, paths: Iterable[str | os.PathLike | None]) -> dict[str, str | None]:
         """{film-relative path: sha256 or None} for what a gate read, including files it expected but didn't find
-        (None), so the result turns STALE when they appear or change."""
+        (None), so the result turns STALE when they appear or change.
+
+        film.json is recorded as `film:*` (all of it except its bookkeeping), and named inputs (`film:…`, `brand:…`,
+        `format:…`) are hashed the way slate.state.lock defines them, so a pin, a new version or a budget raise
+        written to film.json doesn't turn the gate STALE."""
         out: dict[str, str | None] = {}
-        for p in paths:
-            if p is None:
+        named: list[str] = []
+        for p in gates.expand_film_json(self.dir, [p for p in paths if p is not None]):
+            if gates.is_named(p, self.dir):
+                named.append(str(p))
+                out[str(p)] = None
                 continue
             out[self.rel(p)] = self.sha(p)
+        if named:
+            out.update(gates.inputs_for(self.dir, named))
         return out
 
     # ------------------------------------------------------------------ film.json and the clock
@@ -326,6 +335,14 @@ class FilmContext:
                 out.problems.append(f"{where}: the id is used twice")
             seen.add((str(e["shot"]), str(e["id"])))
             out.events.append(e)
+        # t is always the beat: a draw or count ends on it (start + dur), a whoosh or swell peaks inside its span.
+        # The arithmetic the schema can't hold, checked the one way every engine and reader shares.
+        try:
+            from slate.timing import beats as _beats  # noqa: PLC0415
+
+            out.problems += _beats.problems(out.events, fps=float(self.fps) if self.fps else None)
+        except ImportError:  # pragma: no cover - the timing module is part of every install
+            pass
         self._memo[key] = out
         return out
 

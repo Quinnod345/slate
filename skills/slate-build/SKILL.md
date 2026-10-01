@@ -89,14 +89,24 @@ and end with the hand-in checklist. See [builder briefs](references/builder-brie
 - **Product UI drawn in code** follows the product exactly: its copy, its states, its order, its hierarchy. See
   [app UI](references/app-ui.md) and [charts](references/charts.md).
 
-## 8. Building in After Effects
+## 8. Web scenes: the open web renderer
+
+A brand whose look needs what the browser does best (GSAP timelines, three.js and React Three Fiber, live DOM) can build
+an act as a **web scene** instead: a local page that draws its act at any time t, rendered frame by frame with the same
+motion blur, clock, events and gates (`look.engine: "web"` in the brand pack makes it the default for new acts).
+`slate engine scaffold --act <N>` starts one; `slate render --act <N> --engine web` renders it. The page can't reach the
+network, its clock is frozen to the frame, and its fonts must pass the font gate. Everything else (beats keyed to words,
+events, contracts, hand-in) is the same as a kit act. The page contract and its traps are in the engine's own
+`engine/web/README.md`.
+
+## 9. Building in After Effects
 
 After Effects is a second way to build acts, on the same film clock and through the same gates, when a look calls for
 it (the AE bridge's looks, or a brand whose motion lives in AE). Every AE step needs the owner's go, never runs for an
 autonomous film, and never touches AE's preferences outside Slate's byte-safe tool. See [AE scenes](references/ae-scenes.md)
 and [the AE bridge](references/ae-bridge.md).
 
-## 9. Renderer traps
+## 10. Renderer traps
 
 Headless Chrome snaps text to whole pixels under slow motion, races its 3D sorting when planes stack, fails some clip
 paths silently, and can't see locally installed web-kit fonts. Know them before you build:

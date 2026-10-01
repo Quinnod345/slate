@@ -8,7 +8,9 @@ The Python CLI never imports Node. Every engine call goes through `call()`, whic
 - prepares the film first, so every bundle, still, check and render sees the same `@film/data`: the brand pack's path
   and `.slate/spoken.json` (how each number and symbol in the reads is said, from `slate.timing.spoken`);
 - maps an engine error onto Slate's errors, so the exit codes match (1 refused, 2 usage, 3 missing prerequisite,
-  5 busy);
+  5 busy, 75 try later);
+- keeps the engine's temp folders (Remotion's headless Chrome profiles among them) under Slate's data folder, never in
+  $TMPDIR, where another tool's temp cleanup once deleted a live render's Chrome profile;
 - gives the engine a deadline a little inside the call's timeout (SLATE_ENGINE_DEADLINE_S), so a slow render stops
   itself cleanly (its Chrome, bundle and partial file gone) instead of being killed mid-write.
 """
@@ -21,8 +23,12 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from slate import config, jsonio, log, paths, procs
+from slate import config, errors, jsonio, log, paths, procs
 from slate.errors import Busy, MissingPrerequisite, Refused, SlateError, SpendRefused, UsageError
+
+# slate.errors.TryLater is exit 75 (try later: the queue retries). Read defensively: a foundation without it maps the
+# engine's "try_later" to Busy (exit 5), the nearest meaning.
+TryLater: type[SlateError] = getattr(errors, "TryLater", Busy)
 
 PROTOCOL = 1
 ARGS_FILE_OVER = 200_000  # bytes of JSON args; above this they travel in a file, not argv
@@ -47,8 +53,17 @@ _KINDS: dict[str, type[SlateError]] = {
     "missing_prerequisite": MissingPrerequisite,
     "spend_refused": SpendRefused,
     "busy": Busy,
+    "try_later": TryLater,
     "stopped": Stopped,
 }
+
+# Args that name a file or folder: each is resolved from where the caller stands (the engine runs from its own folder).
+PATH_ARGS = ("film", "out", "out_dir", "entry", "serve_url", "brand_path", "browser", "scene", "frames_dir")
+
+
+def engine_tmp_dir() -> Path:
+    """The engine's temp folder: <Slate data>/cache/tmp (engine/remotion/lib/common.mjs engineTmpDir)."""
+    return paths.cache_dir() / "tmp"
 
 
 def deadline_for(timeout: float | None) -> float | None:
@@ -324,9 +339,8 @@ def call(command: str, args: dict | None = None, *, timeout: float | None = None
     engine = engine_dir()
     node = procs.require("node", hint="Install Node 24 or newer (`slate doctor --install` offers it).")
     payload: dict[str, Any] = {k: v for k, v in (args or {}).items() if v is not None}
-    # Paths that mean "from where I'm standing". A web scene's `scene` and `frames_dir` are the film's own paths, which
-    # the web renderer resolves against the film folder, so they pass through as given.
-    for key in ("film", "out", "out_dir", "entry", "serve_url", "brand_path", "browser"):
+    # Paths mean "from where I'm standing": the engine runs from its own folder, so they're made absolute here.
+    for key in PATH_ARGS:
         if isinstance(payload.get(key), (str, os.PathLike)):
             payload[key] = str(Path(payload[key]).expanduser().resolve())
     if payload.get("film"):
@@ -347,7 +361,8 @@ def call(command: str, args: dict | None = None, *, timeout: float | None = None
         argv += ["--json", text]
     if log._state.get("quiet"):  # noqa: SLF001
         argv.append("--quiet")
-    env = {"SLATE_DATA": str(paths.data())}
+    # Temp folders under Slate's data folder (cli.mjs sets the same itself; this covers every child from the start).
+    env = {"SLATE_DATA": str(paths.data()), "TMPDIR": str(paths.ensure_dir(engine_tmp_dir()))}
     deadline = deadline_for(timeout)
     if deadline is not None:
         env["SLATE_ENGINE_DEADLINE_S"] = f"{deadline:g}"

@@ -208,13 +208,25 @@ def segments(film_first: int, film_last: int, acts: list[Act]) -> list[tuple[Act
     return out
 
 
+def route_of(film: dict) -> str | None:
+    """The route a derived film was made for (film.json derivation.route: "hero" or "social", or the
+    slate.formats.route_for dict carrying it), or None for a film that doesn't say."""
+    derivation = film.get("derivation")
+    route = derivation.get("route") if isinstance(derivation, dict) else None
+    if isinstance(route, dict):
+        route = route.get("route")
+    return route if isinstance(route, str) and route else None
+
+
 def resolve_samples(film: dict, *, engine: str, samples: int | None = None, draft: bool = False,
                     settings: dict | None = None) -> tuple[int | None, bool]:
     """(motion-blur samples, draft?) for a render.
 
     An explicit count wins. Draft mode (the film's mode, or `--draft`) renders with the draft count, 4 by default:
-    animatics and quick variants, never delivered as final. Otherwise the delivery bar, 16. After Effects keeps its
-    own motion blur, so an AE render has no sample count.
+    animatics and quick variants, never delivered as final. A social cut-down (a derived film on formats' "social"
+    route) renders with the draft count too, so it takes minutes, but it isn't a draft: it's delivered as itself.
+    Otherwise the delivery bar, 16 (the "hero" route's render.motion_blur_samples). After Effects keeps its own motion
+    blur, so an AE render has no sample count.
     """
     settings = settings if settings is not None else render_settings()
     is_draft = bool(draft) or film.get("mode") == "draft"
@@ -227,8 +239,9 @@ def resolve_samples(film: dict, *, engine: str, samples: int | None = None, draf
         if int(samples) < 1:
             raise UsageError(f"--samples must be at least 1 (got {samples}).")
         return int(samples), is_draft
-    key = "draft_samples" if is_draft else "motion_blur_samples"
-    return int(settings.get(key, 4 if is_draft else 16)), is_draft
+    fast = is_draft or route_of(film) == "social"
+    key = "draft_samples" if fast else "motion_blur_samples"
+    return int(settings.get(key, 4 if fast else 16)), is_draft
 
 
 def bytes_per_frame(width: int, height: int) -> float:

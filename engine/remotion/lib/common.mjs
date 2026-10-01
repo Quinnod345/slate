@@ -18,7 +18,8 @@ export const NODE_MODULES = path.join(ENGINE_DIR, 'node_modules');
 /** The JSON command protocol. Bump it when a command's arguments or result change shape. */
 export const PROTOCOL = 1;
 
-// Exit codes shared with the Python CLI (docs/ARCHITECTURE.md §4).
+// Exit codes shared with the Python CLI (docs/ARCHITECTURE.md §4). 75 is "try later" (EX_TEMPFAIL): nothing is wrong
+// with the request, but it can't happen now, and the job queue tries it again after a backoff.
 export const EXIT = {
   error: 1,
   refused: 1,
@@ -26,6 +27,7 @@ export const EXIT = {
   missing_prerequisite: 3,
   spend_refused: 4,
   busy: 5,
+  try_later: 75,
   stopped: 130,
 };
 
@@ -186,6 +188,31 @@ export function slateData() {
   return process.env.SLATE_DATA
     ? path.resolve(process.env.SLATE_DATA.replace(/^~(?=$|\/)/, os.homedir()))
     : path.join(os.homedir(), 'Library', 'Application Support', 'Slate');
+}
+
+/** The engine's own temp folder, inside Slate's data folder (slate.paths.cache_dir()/tmp). */
+export const engineTmpDir = () => path.join(slateData(), 'cache', 'tmp');
+
+/**
+ * Point this process's temp folder (and every child's) at the engine's own, under Slate's data folder.
+ *
+ * Remotion makes each headless Chrome's profile folder with os.tmpdir(), which reads TMPDIR. A temp folder other tools
+ * clean on their own schedule is the wrong home for a profile a render is still using: at 17:19 on 2026-09-30 another
+ * session's temp cleanup deleted a live Slate Chrome's profile out from under it. Under Slate's data folder only Slate
+ * sweeps (`slate render clean`, and only what no render can be using). Returns the folder.
+ */
+export function useEngineTmp() {
+  const dir = engineTmpDir();
+  fs.mkdirSync(dir, {recursive: true});
+  process.env.TMPDIR = dir;
+  return dir;
+}
+
+/** A fresh profile folder for a headless Chrome the engine starts itself, under Slate's data folder (never $TMPDIR). */
+export function chromeProfileDir(tag = 'chrome') {
+  const root = path.join(slateData(), 'cache', 'chrome');
+  fs.mkdirSync(root, {recursive: true});
+  return fs.mkdtempSync(path.join(root, `${tag}-`));
 }
 
 /** Every file under a folder (sorted, relative paths), skipping dot-folders we generate and macOS litter. */

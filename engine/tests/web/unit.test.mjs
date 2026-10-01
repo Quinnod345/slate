@@ -13,7 +13,7 @@ import {DEFAULT_EPOCH_MS, installPageClock} from '../../web/lib/page-clock.mjs';
 import {fontUrl, startServer} from '../../web/lib/server.mjs';
 import {createBundler} from '../../web/lib/bundle.mjs';
 import {RUNTIME_DIR} from '../../web/lib/job.mjs';
-import {faceOfFile, filmDataFor, fontFolders} from '../../web/render.mjs';
+import {faceOfFile, filmDataFor, fontFolders, mediaMounts} from '../../web/render.mjs';
 import {KIT_DIR, NODE_MODULES} from '../../remotion/lib/common.mjs';
 import {loadFilm} from '../../remotion/lib/film.mjs';
 import {BRAND, ENGINE, FILM, film, readJson, scratch} from './helpers.mjs';
@@ -116,6 +116,35 @@ describe('resolving a call', () => {
     expect(job.trace).toBe(true);
     expect(job.brandJson.name).toBe('web-fixture');
     expect(job.scene.dir).toBe(fs.realpathSync(path.join(f, 'scenes', 'act1', 'web')));
+  });
+
+  it("resolves a relative scene, out and frames_dir from the caller's folder, film or no film (as cli.mjs promises)", async () => {
+    const f = film(root, {name: 'caller-film', scene: 'clock'});
+    const caller = path.join(root, 'caller');
+    fs.mkdirSync(caller, {recursive: true});
+    fs.cpSync(path.join(f, 'scenes', 'act1', 'web'), path.join(caller, 'my-scene'), {recursive: true});
+    const job = await resolveJob({film: f, act: 1, scene: 'my-scene', out: 'out.mkv', frames_dir: 'frames', brand_path: BRAND}, {cwd: caller});
+    expect(job.scene.dir).toBe(fs.realpathSync(path.join(caller, 'my-scene')));
+    expect(job.out).toBe(path.join(caller, 'out.mkv'));
+    expect(job.framesDir).toBe(path.join(caller, 'frames'));
+  });
+
+  it('reads a dry run only with emit: it checks beats without writing them', async () => {
+    const f = film(root, {name: 'dry-film', scene: 'clock'});
+    await expect(resolveJob({film: f, act: 1, dry_run: true})).rejects.toMatchObject({kind: 'usage', message: expect.stringMatching(/"dry_run" goes with "emit"/)});
+    const job = await resolveJob({film: f, act: 1, emit: true, dry_run: true, brand_path: BRAND});
+    expect([job.mode, job.dryRun]).toEqual(['emit', true]);
+  });
+
+  it("serves a derived film's reused captures and plates from its parent, where .slate/refs.json says they are", () => {
+    const parent = film(root, {name: 'parent-film'});
+    fs.mkdirSync(path.join(parent, 'captures', 'demo', 'frames'), {recursive: true});
+    const child = film(root, {name: 'child-film'});
+    fs.mkdirSync(path.join(child, '.slate'), {recursive: true});
+    fs.writeFileSync(path.join(child, '.slate', 'refs.json'), JSON.stringify({captures: path.join(parent, 'captures')}));
+    expect(mediaMounts(loadFilm(child))).toEqual({'/_slate/film/captures/': path.join(parent, 'captures')});
+    // a film with its own copies needs no extra mount
+    expect(mediaMounts(loadFilm(parent))).toEqual({});
   });
 
   it("refuses an arg it doesn't read, naming the one that was probably meant", () => {

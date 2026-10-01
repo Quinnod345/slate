@@ -595,24 +595,88 @@ GATES: dict[str, Callable[[_Ctx], gates.GateResult]] = {
     "sound.reference": gate_reference, "sound.clarity": gate_clarity, "sound.music_licence": gate_music_licence,
 }
 
+# Gate modules merged into `slate verify` when they're installed: slate.sound.balance (the p3 balance gates) exports
+# GATES = {"sound.<name>": fn}, where fn takes the film folder (or, like these, the loaded mix context). A missing
+# module is simply not there yet; a core gate's name is never replaced.
+EXTERNAL = ("slate.sound.balance",)
+EXTERNAL_STATUS: dict[str, str] = {}
+
+
+def external_gates() -> dict[str, Callable]:
+    """{name: gate} from the EXTERNAL modules that are installed (import-guarded: a broken one is reported, not fatal)."""
+    import importlib  # noqa: PLC0415
+
+    out: dict[str, Callable] = {}
+    for module_name in EXTERNAL:
+        try:
+            module = importlib.import_module(module_name)
+        except ModuleNotFoundError as exc:
+            EXTERNAL_STATUS[module_name] = ("not installed yet" if exc.name == module_name
+                                            else f"import failed: {exc}")
+            continue
+        except Exception as exc:  # noqa: BLE001 - another module's bug must not take the core sound gates down
+            EXTERNAL_STATUS[module_name] = f"import failed: {type(exc).__name__}: {exc}"
+            continue
+        exported = getattr(module, "GATES", None)
+        added = []
+        for name, fn in (exported.items() if isinstance(exported, dict) else ()):
+            key = str(name) if str(name).startswith("sound.") else f"sound.{name}"
+            if callable(fn) and key not in GATES and key not in out:
+                out[key] = fn
+                added.append(key)
+        EXTERNAL_STATUS[module_name] = f"merged: {', '.join(added)}" if added else "installed, but it exports no gates"
+    return out
+
+
+def gate_names() -> list[str]:
+    """Every gate `slate verify` runs: the core sound gates, then any merged in (deliver requires them all)."""
+    return [*GATE_NAMES, *[n for n in external_gates() if n not in GATE_NAMES]]
+
+
+PATH_PARAMS = ("film_dir", "folder", "path", "film_path")
+
+
+def _call_external(fn: Callable, ctx: _Ctx) -> gates.GateResult:
+    """A merged gate gets verify's loaded context (ctx.film is the sound Film), as slate.sound.balance's gates expect,
+    unless its first parameter says it wants the film folder (film_dir, folder, path)."""
+    import inspect  # noqa: PLC0415
+
+    try:
+        params = list(inspect.signature(fn).parameters)
+    except (TypeError, ValueError):
+        params = []
+    return fn(ctx.film.dir if params and params[0] in PATH_PARAMS else ctx)
+
 
 def run(film_dir: Path, names: list[str] | None = None, *, write: bool = True) -> list[gates.GateResult]:
     """Run the sound gates on the delivered mix, record them in qa/gates.json and sound/mix/verify.json, and return them."""
     film = load(film_dir)
     ctx = _Ctx(film)
-    chosen = names or list(GATES)
-    unknown = [n for n in chosen if n not in GATES and f"sound.{n}" not in GATES]
+    merged = external_gates()
+    known = {**GATES, **merged}
+    chosen = names or list(known)
+    unknown = [n for n in chosen if n not in known and f"sound.{n}" not in known]
     if unknown:
         from slate.errors import UsageError  # noqa: PLC0415
 
-        raise UsageError(f"Unknown sound gate(s): {', '.join(unknown)}. Known: {', '.join(GATES)}.")
+        raise UsageError(f"Unknown sound gate(s): {', '.join(unknown)}. Known: {', '.join(known)}.")
     results = []
     for name in chosen:
-        key = name if name in GATES else f"sound.{name}"
+        key = name if name in known else f"sound.{name}"
         try:
-            results.append(GATES[key](ctx))
+            if key in GATES:
+                results.append(GATES[key](ctx))
+            else:
+                out = _call_external(known[key], ctx)
+                results += [r if isinstance(r, gates.GateResult) else gates.GateResult.from_dict({"gate": key, **r})
+                            for r in (out if isinstance(out, (list, tuple)) else [out])]
         except MissingPrerequisite as exc:
             results.append(gates.GateResult.unchecked(key, exc.message, engine=_engine(), details={"hint": exc.hint}))
+        except Exception as exc:  # noqa: BLE001 - a merged gate that crashes is UNCHECKED, never a crashed verify
+            if key in GATES:
+                raise
+            results.append(gates.GateResult.unchecked(key, f"the gate couldn't run: {type(exc).__name__}: {exc}",
+                                                      engine=_engine(), details={"module": EXTERNAL[0]}))
     for r in results:
         r.details.setdefault("stage", "sound")  # sound.voice_sync would otherwise read as a voice gate in `slate status`
     if write:

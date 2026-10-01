@@ -152,12 +152,16 @@ def master_finish(film: Film, method: str) -> GateResult:
 
 
 def required_gates(film: Film) -> list[str]:
-    """The gates a final delivery needs: every film gate slate.qa knows, plus the master gates for this master."""
+    """The gates a final delivery needs: every film gate slate.qa knows, the sound gates when the master carries sound
+    (`slate verify` records them; `slate qa` doesn't re-run them, so a film that never ran it can't deliver), plus
+    the master gates for this master."""
     names = list(deps.qa_gate_names() or [])
     if not names:
         names = ["psnr"]
-    names += ["master.frames", "master.finish"]
     rec = film.master_record() or {}
+    if any(m.get("audio") for m in rec.get("masters") or []):
+        names += deps.sound_gate_names()
+    names += ["master.frames", "master.finish"]
     if settings.load().get("gate_h264_psnr", True) and any(m.get("kind") == "h264" for m in rec.get("masters") or []):
         names.append("master.psnr_h264")
     seen, out = set(), []

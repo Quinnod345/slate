@@ -84,7 +84,10 @@ def test_replay_runs_the_whole_path_without_the_network(slate_home, monkeypatch,
     client = higgsfield.Client()
     assert client.fake and client.lane == "cloud-api"
     quote = client.estimate(PATH, BODY)
-    assert quote["replay"] is True and quote["usd"] == pytest.approx(0.924)  # registry: $0.462/s × 2 s
+    from slate import config
+
+    per_second = config.model_info(PATH)["price"]["per_second"]  # registry.json's 720p list price ($0.4622 today)
+    assert quote["replay"] is True and quote["usd"] == pytest.approx(per_second * 2)  # × 2 s
     first, second = client.submit(PATH, BODY), client.submit(PATH, BODY)
     assert first["request_id"] != second["request_id"]  # two submits are two jobs, in replay too
     final = client.wait(first["request_id"])

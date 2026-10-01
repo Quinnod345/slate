@@ -1,6 +1,6 @@
 // SVG geometry and the logo build plan.
 import {beforeEach, describe, expect, it} from 'vitest';
-import {parsePath, parseSvg, parseTransform, planLogoBuild, logoEvents, segsBBox, segsVertices, setBrand, setFilmData} from '@slate/kit/core';
+import {parsePath, parseSvg, parseTransform, planLogoBuild, logoEvents, segsBBox, segsVertices, setBrand, setFilmData, spanProblems} from '@slate/kit/core';
 import FILM from './fixtures/film-data';
 import BRAND from './fixtures/neutral-brand.json';
 
@@ -90,6 +90,15 @@ describe('the fixture logo', () => {
     expect(t.constructDur).toBe(0.8);
     const ev = logoEvents(plan, 2, 'K01');
     expect(ev.map((e) => e.kind)).toEqual(['draw', 'draw', 'land', 'impact']);
+    // each draw gives its span and ends on its beat (the contact), as slate.timing.beats has every engine write it
+    const [construct, outline] = ev;
+    expect(construct).toMatchObject({start: 2, dur: t.constructEnd});
+    expect(construct.t).toBeCloseTo(2 + t.constructEnd, 12);
+    // the survey ends when the last guide has drawn out or the last mark arrived, whichever is later
+    expect(t.constructEnd).toBeGreaterThanOrEqual(t.constructDur);
+    expect(outline).toMatchObject({start: 2 + t.outlineStart, dur: t.outlineDur});
+    expect(outline.t).toBeCloseTo(2 + t.outlineStart + t.outlineDur, 12);
+    expect(spanProblems(ev, 25)).toEqual([]);
   });
 
   it('says when the keystone or the order names shapes the logo lacks', () => {

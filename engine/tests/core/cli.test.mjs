@@ -117,15 +117,27 @@ describe('web-render dispatch', () => {
     expect(r.browser).toBe('none');
   });
 
-  it("tells webRender where the caller stands, so a scene rendered on its own resolves from there, not from engine/", () => {
+  it("resolves every path arg from where the caller stands, never from engine/ (scene, frames_dir and browser too)", () => {
     const mod = path.join(root, 'fake-web-cwd.mjs');
-    fs.writeFileSync(mod, 'export async function webRender(args, opts = {}) { return {cwd: opts.cwd ?? null, scene: args.scene, exe: args.browser}; }\n');
+    fs.writeFileSync(mod, 'export async function webRender(args, opts = {}) { return {cwd: opts.cwd ?? null, scene: args.scene, frames_dir: args.frames_dir, exe: args.browser, out: args.out}; }\n');
     // helpers.cli runs node from os.tmpdir(): that's the caller's folder here
-    const r = ok('web-render', {scene: 'my-scene', browser: 'bin/chrome'}, {data, env: {SLATE_WEB_RENDER_MODULE: mod}});
+    const r = ok('web-render', {scene: 'my-scene', frames_dir: 'frames', browser: 'bin/chrome', out: 'x.mkv'}, {data, env: {SLATE_WEB_RENDER_MODULE: mod}});
     const caller = fs.realpathSync(os.tmpdir());
     expect(fs.realpathSync(r.cwd)).toBe(caller);
-    expect(r.scene).toBe('my-scene'); // the web renderer resolves a scene itself (against the film, or cwd)
+    expect(r.scene).toBe(path.join(r.cwd, 'my-scene'));
+    expect(r.frames_dir).toBe(path.join(r.cwd, 'frames'));
     expect(r.exe).toBe(path.join(r.cwd, 'bin', 'chrome'));
+    expect(r.out).toBe(path.join(r.cwd, 'x.mkv'));
+  });
+
+  it("keeps every temp folder (Remotion's Chrome profiles among them) under Slate's data folder, never $TMPDIR", () => {
+    const mod = path.join(root, 'fake-web-tmp.mjs');
+    fs.writeFileSync(mod, "import os from 'node:os';\nexport async function webRender() { return {tmpdir: os.tmpdir(), env: process.env.TMPDIR}; }\n");
+    const r = ok('web-render', {}, {data, env: {SLATE_WEB_RENDER_MODULE: mod, TMPDIR: os.tmpdir()}});
+    const want = path.join(data, 'cache', 'tmp');
+    expect(r.tmpdir).toBe(want);
+    expect(r.env).toBe(want);
+    expect(fs.statSync(want).isDirectory()).toBe(true);
   });
 });
 

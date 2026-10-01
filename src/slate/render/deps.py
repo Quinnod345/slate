@@ -131,6 +131,13 @@ def submit(kind: str, argv: list[str], **kw: Any) -> str:
     return str(client.submit(kind, argv, **kw))
 
 
+def detach(kind: str, argv: list[str], *, resources=(), **kw: Any) -> str:
+    """Queue `slate <argv…>` as a job and return its id at once, through the queue's --detach convention
+    (slate.jobs.client.detach_current, with the command spelled out rather than read from this process's argv)."""
+    client = module("slate.jobs.client", "The job queue", hint="slate doctor (install.sh sets up the queue)")
+    return str(client.detach_current(kind, tuple(resources), argv=list(argv), **kw))
+
+
 def job_wait(job_id: str, timeout: float | None = None) -> dict:
     client = module("slate.jobs.client", "The job queue")
     return client.wait(job_id, timeout=timeout)

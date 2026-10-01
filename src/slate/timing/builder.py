@@ -94,7 +94,8 @@ def load_storyboard(film_dir: Path) -> dict:
 
 
 def load_shots(film_dir: Path) -> dict:
-    path = Path(film_dir) / FILES["shots"]
+    """timing/shots.json: the film's own, or its parent's when a derived film reuses the clock by reference."""
+    path = film_file(Path(film_dir), FILES["shots"])
     if not path.is_file():
         raise MissingPrerequisite("This film has no timing/shots.json yet.", hint="Run `slate timing`.")
     return jsonio.read(path)

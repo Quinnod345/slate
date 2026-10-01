@@ -43,25 +43,30 @@ def _warn_once(key: str, message: str) -> None:
 # Formats
 
 
-def format_load(name_or_path: str) -> tuple[dict, str]:
-    """(format dict, where it came from). Accepts a format name or a path to a format JSON file."""
+def format_load(name_or_path: str, *, aspect: str | None = None) -> tuple[dict, str]:
+    """(format dict, where it came from). Accepts a format name or a path to a format JSON file.
+
+    Both go through slate.formats.load, which validates them: a format file `slate formats check` would refuse is
+    refused here too, not read raw. `aspect` resolves a multi-aspect format at one aspect (its zones, size and
+    captions there)."""
     raw = str(name_or_path).strip()
     if not raw:
         raise UsageError("A film needs a format (--format).", hint=f"Known formats: {', '.join(format_names()) or 'none yet'}.")
     candidate = Path(raw).expanduser()
-    if candidate.suffix == ".json" and candidate.is_file():
+    is_file = candidate.suffix == ".json" and candidate.is_file()
+    mod = _module("slate.formats")
+    if mod is not None and hasattr(mod, "load"):
+        data = mod.load(str(candidate) if is_file else raw, **({"aspect": aspect} if aspect else {}))
+        if not isinstance(data, dict):
+            raise UsageError(f"slate.formats.load({raw!r}) didn't return a format.")
+        data.setdefault("name", candidate.stem if is_file else raw)
+        return data, (str(candidate.resolve()) if is_file else "slate.formats")
+    if is_file:  # no formats module installed: read the file as it is
         data = jsonio.read(candidate)
         if not isinstance(data, dict):
             raise UsageError(f"{candidate} isn't a format (expected a JSON object).")
         data.setdefault("name", candidate.stem)
         return data, str(candidate.resolve())
-    mod = _module("slate.formats")
-    if mod is not None and hasattr(mod, "load"):
-        data = mod.load(raw)
-        if not isinstance(data, dict):
-            raise UsageError(f"slate.formats.load({raw!r}) didn't return a format.")
-        data.setdefault("name", raw)
-        return data, "slate.formats"
     path = paths.FORMATS_DIR / f"{raw}.json"
     if path.is_file():
         data = jsonio.read(path)
@@ -71,6 +76,14 @@ def format_load(name_or_path: str) -> tuple[dict, str]:
     raise UsageError(f"No format called {raw!r}.",
                      hint=(f"Known formats: {', '.join(known)}." if known else
                            "No formats are installed yet; pass a format file with --format path/to/format.json."))
+
+
+def route_for(channel: str) -> dict:
+    """How a film for this channel is made (slate.formats.route_for): {channel, route: hero|social, …}."""
+    mod = _module("slate.formats")
+    if mod is None or not hasattr(mod, "route_for"):
+        raise UsageError("Channels and their routes come from the formats module, which isn't installed.")
+    return mod.route_for(channel)
 
 
 def format_names() -> list[str]:

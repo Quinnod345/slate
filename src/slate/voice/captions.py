@@ -21,6 +21,7 @@ and the problems) and voice/captions/<film>.srt and .vtt.
 from __future__ import annotations
 
 import difflib
+import math
 from pathlib import Path
 
 from slate import jsonio
@@ -220,18 +221,55 @@ def to_vtt(cues: list[dict]) -> str:
 # A film's captions
 
 
+def format_captions(film_json: dict) -> dict:
+    """The film's format's caption rules at the film's own aspect: a 9:16 cut of a 16:9 format is captioned with the
+    9:16 line length (32 characters, not 42), which is what the QA gate holds it to.
+
+    The format is loaded from where the film got it (film.json "format_source" when that's a format file, else by
+    name). A film whose aspect the format doesn't list (a derived cut at a new aspect) takes the shared table's line
+    length for its aspect, or for portrait or landscape. Returns {} when there's no format to read."""
+    name = film_json.get("format")
+    if not name:
+        return {}
+    try:
+        from slate import formats  # noqa: PLC0415
+    except ImportError:  # pragma: no cover - the formats module is part of every install
+        return {}
+    source = film_json.get("format_source")
+    ref = source if source and str(source).endswith(".json") and Path(str(source)).is_file() else name
+    aspect = film_json.get("aspect")
+    try:
+        fmt = formats.load(ref, aspect=aspect) if aspect else formats.load(ref)
+        return dict(fmt.get("captions") or {})
+    except Exception:  # noqa: BLE001 - the format doesn't come in this aspect, or can't be read: try without it
+        pass
+    try:
+        fmt = formats.load(ref)
+    except Exception:  # noqa: BLE001 - no such format: the defaults stand
+        return {}
+    cap = dict(fmt.get("captions") or {})
+    width, height = film_json.get("width"), film_json.get("height")
+    if aspect or (width and height):
+        try:
+            table = formats.shared()["captions"]["max_chars_by_aspect"]
+            key = str(aspect) if aspect in table else None
+            if key is None and width and height:
+                g = math.gcd(int(width), int(height))
+                key = f"{int(width) // g}:{int(height) // g}"
+                if key not in table:
+                    key = "portrait" if int(height) > int(width) else "landscape"
+            if key in table:
+                cap["max_chars"] = min(int(cap.get("max_chars") or table[key]), int(table[key]))
+        except Exception:  # noqa: BLE001 - no shared table: the format's own length stands
+            pass
+    return cap
+
+
 def settings_for(film_json: dict, table: dict, *, parity: bool = False) -> dict:
-    """Reading rules: defaults < the language table < the film's format < film.json "captions"."""
+    """Reading rules: defaults < the language table < the film's format at its aspect < film.json "captions"."""
     st = dict(DEFAULTS)
     st.update({k: v for k, v in (table.get("reading") or {}).items() if k in DEFAULTS})
-    fmt_name = film_json.get("format")
-    if fmt_name:
-        try:
-            from slate import formats  # noqa: PLC0415
-            fmt = formats.load(fmt_name) if hasattr(formats, "load") else {}
-        except Exception:  # noqa: BLE001 - formats not installed yet, or no such format: the defaults stand
-            fmt = {}
-        st.update({k: v for k, v in ((fmt or {}).get("captions") or {}).items() if k in DEFAULTS})
+    st.update({k: v for k, v in format_captions(film_json).items() if k in DEFAULTS})
     st.update({k: v for k, v in (film_json.get("captions") or {}).items() if k in DEFAULTS})
     if parity:
         st.update(PARITY)

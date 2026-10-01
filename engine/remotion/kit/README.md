@@ -63,13 +63,24 @@ export const Act2 = ({sub}: {sub: number}) => (
 - **Motion law** (`core/eases.ts`, `spline.ts`, `motion.ts`): exact-endpoint eases, T90, `startFor()`, `landOn()`,
   monotone splines, `dur()` / `durRank()`, capped staggers, and `defineMotion()`, whose registry
   `traceMotions({act})` samples into `timing/motion/actN.json`. The Python mirror is `slate.motion`; both are held to
-  `tests/vectors/eases.json` and `t90.json`.
+  `tests/vectors/eases.json` and `t90.json`. Besides the brand's named eases the kit knows `linear`, `sine`,
+  `spring0` and `even` (the even travel profile: rest to rest through a third of the travel at each third of the time,
+  peak speed 4/3 of the average, for long carries and camera drifts; `slate qa motion` knows it by the same name).
+  `defineMotion` also takes what the motion gate needs to know about a move, written into the trace only when given:
+  `class` (`rig`, `ui`, `carry` or `whip`: a page or card carried across the frame says `carry`; a rig part is `rig`
+  and a move named for the camera is `carry` without saying so), `exempt` (`reading_sweep` or `steady`) with its
+  `reason`, `exception`, `size` and `unit`.
+- **Events** (`core/events.ts`): `defineEvent()` next to the move that makes the sound. `t` is always the beat; a draw
+  or a count gives its span (`start`, `dur`) and ends on `t` (give `start` and `dur` and `defineEvent` works `t` out),
+  a whoosh or a swell peaks on `t` inside its span. `validateEvents()` holds slate.timing.beats' span rules word for
+  word (`spanProblems()`); the logo build's draws (`logoEvents()`) give their spans, with `t` where each stroke ends.
 - **Tokens and fonts** (`core/tokens.ts`, `core/fontplan.ts`, `fonts.tsx`): typed tokens, CSS variables
   (`<TokenScope>`), and the font gate.
 - **Looks** (`core/looks.ts`): `paper-2.5d` (papery brands only), `flat` (the default), `editorial`, `blueprint`; the
   AE bridge's 13 looks by name.
 - **Components**: `Card`, `FadeCard`, `Ground`, `Grain` (`paper.tsx`); `Camera`, `LookAtCamera`, `WorldLayer`, 2D
-  camera helpers (`camera.tsx`); `PerChar`, `PerWord`, `Arrive`, `CountUp` (`type.tsx`); app UI (`ui.tsx`); charts
+  camera helpers (`camera.tsx`); `PerChar`, `PerWord`, `Arrive`, `CountUp` (`type.tsx`: the final value, unseen, sets
+  the count's box, so a face without tabular figures never re-centres it); app UI (`ui.tsx`); charts
   (`charts.tsx`); `LogoBuild`, `LogoSting`, `Ripple` (`logo.tsx`); `MotifMark`, `MarkCharacter`, `gesture()`
   (`motif.tsx`); `KineticWords`, `KineticStack` (`kinetic.tsx`); `Captions`; `PlaceholderAct`; `KitReviewSheet`.
 

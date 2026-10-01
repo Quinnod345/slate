@@ -152,7 +152,7 @@ def test_both_caption_gates_read_one_rule_tightened_never_loosened(film_builder,
     assert core.details["rules_from"].endswith("film.json (max_cps 15)")
     acc = access.check_captions(FilmContext(fb.path))
     assert acc.status == "FAIL" and "the limit is 15" in acc.summary
-    assert "film.json" in core.inputs and any(k.endswith("reel.json") for k in core.inputs)
+    assert "film:*" in core.inputs and any(k.endswith("reel.json") for k in core.inputs)  # film.json, sans pins
 
 
 def test_the_voice_modules_captions_are_what_the_gates_read(film_builder):

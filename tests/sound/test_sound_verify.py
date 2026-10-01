@@ -33,18 +33,50 @@ def test_every_gate_passes_on_a_good_mix(slate_home, sound_film):
     mix.run(sound_film)
     rep = jsonio.read(sound_film / "sound/mix/final_mix.json")
     _approve_reference(slate_home["brands"], {"music": rep["levels_vs_voice_lu"]["music"]})
-    res = _by_name(verify.run(sound_film))
+    every = _by_name(verify.run(sound_film))
+    # `slate verify` runs the core sound gates and every gate merged in from slate.sound.balance (its own tests prove
+    # those); here every core gate passes, and the run reports exactly what it ran
+    assert set(every) == set(verify.gate_names())
+    res = {k: r for k, r in every.items() if k in verify.GATE_NAMES}
     assert set(res) == set(verify.GATE_NAMES)
     bad = {k: (r.status, r.summary) for k, r in res.items() if r.status != "PASS"}
     assert not bad, bad
     assert gates.overall(res.values()) == "PASS"
     report = jsonio.read(sound_film / "qa/gates.json")
-    assert set(verify.GATE_NAMES) <= set(report["gates"])
-    assert jsonio.read(sound_film / "sound/mix/verify.json")["summary"]["status"] == "PASS"
+    assert set(verify.gate_names()) <= set(report["gates"])
+    assert jsonio.read(sound_film / "sound/mix/verify.json")["summary"]["status"] == gates.overall(every.values())
     lr = res["sound.loudness"]
     assert lr.engine["name"] == "slate bs1770-4" and lr.inputs  # evidence names its meter and the file it measured
-    code, out, _ = run_cli(["verify", "--film", str(sound_film), "--json"])
+    code, out, _ = run_cli(["verify", "--film", str(sound_film), "--json", *verify.GATE_NAMES])
     assert code == 0 and json.loads(out)["summary"]["status"] == "PASS"
+
+
+def test_merged_gates_run_in_verify_and_a_broken_one_is_unchecked(sound_film, monkeypatch):
+    """slate.sound.balance's gates join `slate verify` once that module is installed (an import guard otherwise), and
+    a merged gate that crashes is UNCHECKED, never a crashed verify or a pass."""
+    import sys
+    import types
+
+    mix.run(sound_film)
+
+    def boom(ctx):
+        raise RuntimeError("a bug in the merged gate")
+
+    def fine(film_dir):
+        return gates.GateResult.pass_("sound.extra_ok", f"read {film_dir.name}", engine=gates.engine("fixture", "1"))
+
+    fake = types.ModuleType("slate.sound.balance")
+    fake.GATES = {"sound.extra_boom": boom, "extra_ok": fine, "sound.loudness": boom}  # a core name is never replaced
+    monkeypatch.setitem(sys.modules, "slate.sound.balance", fake)
+    res = _by_name(verify.run(sound_film, write=False))
+    assert res["sound.extra_boom"].status == "UNCHECKED" and "a bug in the merged gate" in res["sound.extra_boom"].summary
+    assert res["sound.extra_ok"].status == "PASS" and res["sound.extra_ok"].summary == f"read {sound_film.name}"
+    assert res["sound.loudness"].engine["name"] == "slate bs1770-4"  # still the core gate
+    assert verify.EXTERNAL_STATUS["slate.sound.balance"] == "merged: sound.extra_boom, sound.extra_ok"
+    assert verify.gate_names()[-2:] == ["sound.extra_boom", "sound.extra_ok"]
+    monkeypatch.setitem(sys.modules, "slate.sound.balance", None)  # not installed: the core gates alone
+    assert set(_by_name(verify.run(sound_film, write=False))) == set(verify.GATE_NAMES)
+    assert verify.EXTERNAL_STATUS["slate.sound.balance"] == "not installed yet"
 
 
 def test_reference_is_unchecked_until_onboarding_approves_one(sound_film):

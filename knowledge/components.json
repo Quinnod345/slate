@@ -5923,7 +5923,7 @@
    "destination": {
     "module": "install.sh",
     "status": "generalized",
-    "reason": "The installer registers Slate's MCP server per client (claude mcp add, codex mcp add, openclaw mcp set) and doctor checks each. Credentials become slate.secrets' names (ELEVENLABS_API_KEY or the Keychain item elevenlabs-api-key; HF_KEY or higgsfield-cloud-api; the Higgsfield CLI's own sign-in, run by the person). The other servers in these files aren't Slate's (docs/DEPENDENCIES.md)."
+    "reason": "The installer registers Slate's MCP server per client (claude mcp add, codex mcp add, openclaw mcp add) and doctor checks each. Credentials become slate.secrets' names (ELEVENLABS_API_KEY or the Keychain item elevenlabs-api-key; HF_KEY or higgsfield-cloud-api; the Higgsfield CLI's own sign-in, run by the person). The other servers in these files aren't Slate's (docs/DEPENDENCIES.md)."
    },
    "source_ref": {
     "reader": "coverage-missed",

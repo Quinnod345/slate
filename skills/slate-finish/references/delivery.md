@@ -12,6 +12,7 @@ manifest only ever describes a complete set.
 | Captions | SRT and WebVTT sidecars; burned in as well where the format asks (reels) |
 | Review cut, phone cut, contact sheets | a half-resolution review copy, a small phone copy, 0.5-second contact sheets |
 | Thumbnails and covers | per platform, at the platform's size |
+| Platform files | the format's per-platform encodes (size, clock, bitrate, length limits), in `deliver/vN/platform/`; `slate formats show <format>` lists them |
 | The AE project | for supervised films finished in AE |
 | Synthetic-media flags | which voices and shots are synthetic: internal only, never published |
 | The manifest | every file with its bytes, SHA-256 and probe; anything missing listed; the approval status |
@@ -29,7 +30,9 @@ manifest only ever describes a complete set.
 
 - A draft film (drafts are never delivered as final).
 - Plates or captures made in replay (tests), and plates without an approved take.
-- A film whose gates don't all pass: only PASS counts; REVIEW items need a person's decision first (slate-qa).
+- A film whose gates don't all pass: only PASS counts; REVIEW items need a person's decision first (slate-qa). That
+  includes the sound gates `slate verify` records, the balance gates among them, whenever the master carries sound.
+- A platform file over its platform's size or length limit.
 - Overwriting a delivered version: the next delivery is a new version.
 
 ## Publishing

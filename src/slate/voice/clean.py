@@ -108,8 +108,9 @@ def clean_take(vf: VoiceFilm, shot: str, *, method: str = "dsp", chain: str | No
                   "after": after, "at": now()})
     data = vf.take_json(shot, take)
     data.setdefault("stages", {})["clean"] = stage
+    data["stages"].pop("polish", None)  # a new clean-up means the old polish was made from something else
     vf.save_take_json(shot, take, data)
-    vf.update_take(shot, take, clean=vf.rel(out), paced=None, align=None)
+    vf.update_take(shot, take, clean=vf.rel(out), paced=None, polished=None, align=None)
     record(vf.dir, vf.rel(out), producer=f"slate voice clean ({method})", inputs={vf.rel(raw): jsonio.sha256(raw)})
     return {"shot": shot, "take": take, "file": vf.rel(out), "method": method, "before": before, "after": after,
             **({"chain": stage["chain"]} if "chain" in stage else {})}

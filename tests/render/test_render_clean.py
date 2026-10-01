@@ -142,3 +142,47 @@ def test_a_render_stopped_mid_move_gets_the_registered_file_back(fakes, film):
     [item] = clean.sweep_film(film)
     assert item["action"] == "restored" and f.read_bytes() == b"registered render"
     assert not (film / "renders" / "act1.previous.mov").exists()
+
+
+def _aged_tree(folder, minutes):
+    """A folder with a file inside, everything last touched `minutes` ago (a stopped engine's leftover)."""
+    (folder / "Default").mkdir(parents=True)
+    (folder / "Default" / "Preferences").write_text("{}")
+    for p in (folder / "Default" / "Preferences", folder / "Default", folder):
+        _age(p, minutes)
+    return folder
+
+
+def test_the_engines_own_temp_folders_lose_only_what_no_live_chrome_uses(fakes, monkeypatch):
+    """Chrome profiles live under Slate's data folder (cache/tmp for Remotion's, cache/chrome for the web renderer's),
+    where only Slate sweeps: what a stopped process left a day ago goes; a recent one, or one a running Chrome names
+    as its --user-data-dir, stays."""
+    tmp, chrome = clean.engine_tmp_roots()
+    stale = _aged_tree(tmp / "puppeteer_dev_chrome_profile-stale", 26 * 60)
+    fresh = _aged_tree(tmp / "puppeteer_dev_chrome_profile-fresh", 30)
+    live = _aged_tree(chrome / "web-live", 30 * 60)
+    # a long render's profile: its folder looks old, but Chrome wrote inside it a minute ago
+    busy = _aged_tree(chrome / "web-busy", 30 * 60)
+    (busy / "Default" / "Preferences").write_text('{"x": 1}')
+    monkeypatch.setattr(clean, "_profiles_in_use", lambda: {str(live)})
+    removed = {item["path"] for item in clean.sweep_engine_tmp()}
+    assert removed == {str(stale)}
+    assert not stale.exists() and fresh.exists() and live.exists() and busy.exists()
+    # unsure what's running: nothing is removed
+    _aged_tree(tmp / "puppeteer_dev_chrome_profile-old2", 26 * 60)
+    monkeypatch.setattr(clean, "_profiles_in_use", lambda: {"*"})
+    assert clean.sweep_engine_tmp() == []
+
+
+def test_profiles_in_use_reads_every_running_chromes_user_data_dir(fakes, monkeypatch):
+    import subprocess
+
+    out = ("/x/chrome-headless-shell about:blank --no-first-run --remote-debugging-port=0 "
+           "--user-data-dir=/Users/me/Library/Application Support/Slate/cache/tmp/puppeteer_dev_chrome_profile-AbC\n"
+           "/x/chrome-headless-shell --user-data-dir=/data/cache/chrome/web-1 --headless=old\n"
+           "/usr/bin/python3 -m slate render\n")
+    monkeypatch.setattr(clean.procs, "run", lambda argv, **kw: subprocess.CompletedProcess(argv, 0, out, ""))
+    assert clean._profiles_in_use() == {
+        "/Users/me/Library/Application Support/Slate/cache/tmp/puppeteer_dev_chrome_profile-AbC",
+        "/data/cache/chrome/web-1",
+    }

@@ -1,0 +1,55 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "slate/voice_analysis",
+ "title": "Voice analysis",
+ "description": "What `slate voice analyze` measured: per take, pitch (F0 median, range, movement, contour), breath and effort (voiced fraction, CPPS, HNR, H1-H2, spectral tilt, level), brightness and formants, sibilance and edge, loudness and true peak, pacing, creak, the last word's movement and contour, question rises, a clean ending, and the Whisper checks when the take's words are known. With a reference (--ab), each take's change against it and its breath verdict.",
+ "type": "object",
+ "required": ["takes", "at"],
+ "properties": {
+  "generated": {"type": "string"},
+  "film": {"type": ["string", "null"]},
+  "reference": {"type": ["string", "null"]},
+  "sheet": {"type": ["string", "null"]},
+  "note": {"type": "string"},
+  "at": {"type": "string"},
+  "takes": {
+   "type": "array",
+   "minItems": 1,
+   "items": {
+    "type": "object",
+    "required": ["label", "file", "measures"],
+    "properties": {
+     "label": {"type": "string"},
+     "ref": {"type": "string"},
+     "file": {"type": "string"},
+     "shot": {"type": ["string", "null"]},
+     "take": {"type": ["string", "null"]},
+     "words_source": {"type": ["string", "null"]},
+     "replay": {"type": "boolean"},
+     "reference": {"type": "boolean"},
+     "measures": {
+      "type": "object",
+      "required": ["duration_s", "line", "bands", "complete"],
+      "properties": {
+       "duration_s": {"type": "number"},
+       "lufs": {"type": ["number", "null"]},
+       "true_peak_dbtp": {"type": ["number", "null"]},
+       "line": {"type": ["object", "null"]},
+       "bands": {"type": "object"},
+       "complete": {"type": "object"},
+       "pacing": {"type": ["object", "null"]},
+       "whisper": {"type": ["object", "null"]},
+       "f0_contour": {"type": "object"},
+       "last_word_rise_st": {"type": ["number", "null"]},
+       "last_word_contour": {"type": ["object", "null"]},
+       "question_words": {"type": "object"},
+       "scope": {"type": ["object", "null"]},
+       "tails": {"type": "array"}
+      }
+     },
+     "vs_reference": {"type": "object"}
+    }
+   }
+  }
+ }
+}

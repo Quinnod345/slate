@@ -61,6 +61,11 @@ def choose(film: Film, *, ae: bool = False, ffmpeg: bool = False) -> tuple[str, 
             raise Refused("Draft films are mastered with ffmpeg; the After Effects finish is for films a person "
                           "supervises.", hint="slate master --ffmpeg")
         return "ffmpeg", "draft films are mastered with ffmpeg and held (never delivered as final)"
+    route = (film.data.get("derivation") or {}).get("route") or {}
+    if route.get("master") == "ffmpeg" and not ae:
+        # a variant made for a social channel takes the fast route (slate variant --channel): an ffmpeg master
+        return "ffmpeg", f"{route.get('label') or 'a social cut-down'} for {route.get('channel')}: the fast route " \
+                         "masters with ffmpeg"
     configured = str(settings.load().get("supervised_master") or "ae")
     if ffmpeg:
         if configured == "ffmpeg":

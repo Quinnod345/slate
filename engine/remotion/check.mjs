@@ -12,6 +12,12 @@
 //                                kit's registrations and the captures' taps) says now, with no word lookup missing
 //   handin.act<N>.contracts      the act's boundary frames are bit-identical to its neighbours' and to the named rest
 //                                state, and held still for `hold` frames, so parallel builders meet exactly
+//
+// An act built for the open web renderer (scenes/act<N>/web/index.html) is handed in the same way, through that
+// renderer: its scene scripts are type-checked from the film folder like any act; its page is opened once in a dry-run
+// emit (nothing written), which proves it loads and draws (handin.act<N>.page), and hands back its beats, its word
+// lookups, what the kit had to assume, and its own network and font gates (handin.act<N>.network, .fonts); its banned
+// words are read from its scripts, its page's text and its copy files.
 import fs from 'node:fs';
 import path from 'node:path';
 import ts from 'typescript';
@@ -19,7 +25,7 @@ import {EngineError, listFiles, log, refused, sha256FileSync, usage} from './lib
 import {actOf} from './lib/film.mjs';
 import {ensureEntry, contractsModule, missingIndexNote, sceneIndex, slateDir} from './entry.mjs';
 import {declarations, loadAct} from './load_act.mjs';
-import {computeEvents, eventsFile, validateEventsFile, webScene} from './events.mjs';
+import {captureBeats, computeEvents, emitWebAct, eventsFile, validateEventsFile, webScene} from './events.mjs';
 import {useBundle} from './bundle.mjs';
 import {pixelHash, psnr, renderStills} from './stills.mjs';
 import {browserLogCollector, fontGate} from './kit_bridge.mjs';
@@ -163,6 +169,32 @@ export function jsonStrings(text) {
 /** Plain-text copy an act imports (the engine loads .txt as text): each non-empty line is a candidate. */
 const textLines = (text) => text.split('\n').map((t, i) => ({line: i + 1, text: t})).filter((s) => s.text.trim());
 
+const HTML_VISIBLE_ATTRS = /\s(?:alt|title|placeholder|aria-label|value|content)\s*=\s*("([^"]*)"|'([^']*)')/gi;
+
+/**
+ * On-screen string candidates in a web scene's page: its text between tags and the attributes a viewer can read (alt,
+ * title, placeholder, aria-label, value, content), never what's inside <script> or <style> (the scripts are read as
+ * code, by onScreenStrings) or a comment. Each with its line.
+ */
+export function htmlStrings(text) {
+  // blank out what's never drawn, keeping line breaks so line numbers still match the file
+  const blank = (m) => m.replace(/[^\n]/g, ' ');
+  const visible = text.replace(/<!--[\s\S]*?-->/g, blank).replace(/<(script|style)\b[\s\S]*?<\/\1\s*>/gi, blank);
+  const found = [];
+  const lineAt = (i) => visible.slice(0, i).split('\n').length;
+  for (const m of visible.matchAll(/>([^<]+)</g)) {
+    const value = m[1].replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+    if (value.trim()) found.push({line: lineAt(m.index + 1), text: value.trim()});
+  }
+  for (const m of visible.matchAll(/<[a-z][^>]*>/gi)) {
+    for (const a of m[0].matchAll(HTML_VISIBLE_ATTRS)) {
+      const value = a[2] ?? a[3] ?? '';
+      if (value.trim()) found.push({line: lineAt(m.index), text: value.trim()});
+    }
+  }
+  return found.sort((a, b) => a.line - b.line);
+}
+
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 export function bannedMatcher(words) {
@@ -178,7 +210,12 @@ export function bannedMatcher(words) {
 function screenFiles(ctx, act, loaded) {
   const own = actSources(ctx, act);
   const imported = (loaded?.inputs ?? []).filter((f) => SOURCE_EXT.test(f) || /\.(json|txt)$/.test(f));
-  return [...new Set([...own, ...imported])].sort();
+  // a web scene's page and the copy it serves itself (the renderer doesn't report what a page fetched, so every page,
+  // JSON and text file in its folder counts)
+  const web = webScene(ctx.dir, act)
+    ? listFiles(path.join(ctx.dir, 'scenes', `act${act}`, 'web')).filter((f) => /\.(html?|json|txt)$/i.test(f)).map((f) => path.join('scenes', `act${act}`, 'web', f))
+    : [];
+  return [...new Set([...own, ...imported, ...web])].sort();
 }
 
 export function bannedWords(ctx, act, words, name, loaded = null) {
@@ -194,7 +231,7 @@ export function bannedWords(ctx, act, words, name, loaded = null) {
   let strings = 0;
   for (const rel of files) {
     const text = fs.readFileSync(path.join(ctx.dir, rel), 'utf8');
-    const list = rel.endsWith('.json') ? jsonStrings(text) : rel.endsWith('.txt') ? textLines(text) : onScreenStrings(rel, text);
+    const list = rel.endsWith('.json') ? jsonStrings(text) : rel.endsWith('.txt') ? textLines(text) : /\.html?$/i.test(rel) ? htmlStrings(text) : onScreenStrings(rel, text);
     if (list === null) {
       unreadable.push(`${rel} isn't valid JSON, so its strings couldn't be read`);
       continue;
@@ -457,14 +494,150 @@ export async function checkActs(ctx, args) {
   return {acts, gates, status, passed: acts.every((a) => a.passed)};
 }
 
+// ---------------------------------------------------------------- web acts
+
+const worstOf = (gates) => ['FAIL', 'STALE', 'UNCHECKED', 'REVIEW', 'PASS'].find((s) => gates.some((g) => g.status === s));
+
+/** What a page's refusal says about where it broke: the page's own errors and the bundler's, for the evidence. */
+function pageEvidence(err) {
+  const d = err?.details ?? {};
+  const lines = [];
+  for (const e of d.page_errors ?? []) lines.push(`page error: ${String(e.message ?? e).split('\n')[0]}`);
+  for (const b of d.bundle_problems ?? []) lines.push(`couldn't compile ${b.file ? path.basename(b.file) : 'a script'}: ${String(b.message ?? '').split('\n')[0]}`);
+  if (err?.hint) lines.push(`next: ${err.hint}`);
+  return lines.slice(0, 20);
+}
+
+/** The events gate for a web act: the file against what the page says now (from the dry-run emit). */
+function webEventsGate(ctx, act, page, name, inputsBase) {
+  const engine = {name: 'slate emit-events (web scene, dry run)', version: 'protocol 1'};
+  const file = eventsFile(ctx, act);
+  const rel = path.relative(ctx.dir, file);
+  const inputs = inputsFor(ctx, [rel, ...inputsBase, ...(page?.captures?.files ?? [])]);
+  if (!fs.existsSync(file)) return gate(name, 'FAIL', `no ${rel}: run \`slate emit-events --act ${act}\``, {engine, inputs});
+  let data;
+  try {
+    data = JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch (e) {
+    return gate(name, 'FAIL', `${rel} isn't valid JSON: ${e.message}`, {engine, inputs});
+  }
+  const problems = validateEventsFile(ctx, act, data);
+  if (problems.length) return gate(name, 'FAIL', `${rel} has ${problems.length} problem${problems.length > 1 ? 's' : ''}: ${problems[0]}`, {engine, evidence: problems.slice(0, 30), inputs});
+  if (!page) return gate(name, 'UNCHECKED', `${rel} is valid, but the page didn't open, so it can't be compared with the act`, {engine, inputs});
+  if (page.problems?.length) {
+    const n = page.problems.length;
+    return gate(name, 'FAIL', `${rel} can't be current: the page's beats have ${n} problem${n > 1 ? 's' : ''} now; the first: ${page.problems[0]}`, {engine, evidence: page.problems.slice(0, 30), inputs});
+  }
+  const want = Array.isArray(page.beats) ? page.beats : {silent: true, reason: page.beats?.reason};
+  const have = Array.isArray(data) ? data : {silent: data.silent, reason: data.reason};
+  if (canonical(want) !== canonical(have)) {
+    return gate(name, 'FAIL', `${rel} is out of date with the page: run \`slate emit-events --act ${act}\``, {engine, inputs, details: {file_beats: Array.isArray(data) ? data.length : 0, page_beats: Array.isArray(want) ? want.length : 0}});
+  }
+  return gate(name, 'PASS', Array.isArray(want) ? `${want.length} beats, valid and current with the page` : `the act is silent: ${want.reason}`, {engine, inputs, details: {beats: Array.isArray(want) ? want.length : 0}});
+}
+
+/**
+ * A web act's boundary contracts. A web scene declares no rest states of its own; when a neighbour declares one at the
+ * boundary they share, the web act's frames would have to match it, and that comparison isn't built for web acts yet,
+ * so the gate says so (UNCHECKED) rather than passing. With nothing declared on either side there's nothing to meet.
+ */
+async function webContractsGate(ctx, act, args, name, inputs) {
+  const engine = {name: 'slate boundary contracts', version: 'protocol 1'};
+  if (args.contracts === false) return gate(name, 'UNCHECKED', 'contracts were skipped for this run (contracts: false)', {engine, inputs});
+  const idx = ctx.acts.findIndex((a) => a.act === act);
+  const declared = async (n) => {
+    if (!sceneIndex(ctx.dir, n)) return {};
+    try {
+      return declarations(await loadAct(ctx, n)).contracts ?? {};
+    } catch (e) {
+      return {error: String(e?.message ?? e).split('\n')[0]};
+    }
+  };
+  const asks = [];
+  const unreadable = [];
+  if (idx > 0) {
+    const prev = ctx.acts[idx - 1].act;
+    const c = await declared(prev);
+    if (c.error) unreadable.push(`act ${prev} didn't load, so its rest states are unknown (${c.error})`);
+    else if (c.out) asks.push(`act ${prev} ends on its rest state "${c.out}"`);
+  }
+  if (idx >= 0 && idx < ctx.acts.length - 1) {
+    const next = ctx.acts[idx + 1].act;
+    const c = await declared(next);
+    if (c.error) unreadable.push(`act ${next} didn't load, so its rest states are unknown (${c.error})`);
+    else if (c.in) asks.push(`act ${next} starts from its rest state "${c.in}"`);
+  }
+  if (asks.length) {
+    return gate(name, 'UNCHECKED', `${asks[0]}, and a web act's boundary frames aren't compared with rest states yet`, {engine, evidence: [...asks, ...unreadable], inputs});
+  }
+  if (unreadable.length) return gate(name, 'UNCHECKED', unreadable[0], {engine, evidence: unreadable, inputs});
+  return gate(name, 'PASS', ctx.acts.length > 1 ? 'no pixel contracts at this act\'s boundaries (neither neighbour declares a rest state there)' : 'the film has one act: no boundaries', {engine, inputs});
+}
+
+/**
+ * The hand-in check for a web act (scenes/act<N>/web/index.html), through the open web renderer. See the header: the
+ * same gates as a Remotion act's where they mean the same thing, read from the page itself.
+ */
+export async function checkWebAct(ctx, act, args) {
+  await ensureEntry(ctx, {brandPath: args.brand_path ?? null});
+  const p = `handin.act${act}`;
+  const gates = [];
+  log(`act ${act}: type check (a web scene)`);
+  gates.push(typecheck(ctx, act, `${p}.typecheck`));
+  const files = screenFiles(ctx, act, null);
+  const srcInputs = inputsFor(ctx, files);
+  const engine = {name: 'slate web renderer (a dry-run emit: nothing written)', version: 'protocol 1'};
+  let page = null;
+  let failed = null;
+  log(`act ${act}: opening its page (a dry run: nothing is written)`);
+  try {
+    // a network attempt is a gate here, not a refusal; a caller may give a page less time to register itself
+    const extra = {on_blocked: 'report', ...(args.load_timeout_ms ? {load_timeout_ms: args.load_timeout_ms} : {})};
+    const out = await emitWebAct(ctx, act, args, captureBeats(ctx), {dryRun: true, extra});
+    page = out.find((a) => Number(a.act) === Number(act)) ?? null;
+    if (!page) failed = refused('The open web renderer said nothing about the act.');
+  } catch (e) {
+    if (!(e instanceof EngineError)) throw e;
+    failed = e;
+  }
+  if (failed) {
+    const status = failed.kind === 'missing_prerequisite' ? 'UNCHECKED' : 'FAIL';
+    gates.push(gate(`${p}.page`, status, failed.message.split('\n')[0], {engine, evidence: pageEvidence(failed), inputs: srcInputs, details: {kind: failed.kind}}));
+    gates.push(gate(`${p}.word_misses`, 'UNCHECKED', "the page didn't open, so its word lookups couldn't run", {inputs: srcInputs}));
+  } else {
+    const loads = `${page.events ?? 0} beat${page.events === 1 ? '' : 's'}${page.silent ? ' (silent)' : ''}`;
+    gates.push(gate(`${p}.page`, 'PASS', `the page loads and draws its first frame in the open web renderer without an error (${loads})`, {engine, inputs: srcInputs}));
+    const wordEngine = {name: 'slate kit word lookup (in the page)', version: 'unknown'};
+    const misses = page.misses ?? [];
+    if (!page.declared_misses) {
+      gates.push(gate(`${p}.word_misses`, 'UNCHECKED', "the scene doesn't report its word lookups (a scene built with defineScene() from '@slate/web' does)", {engine: wordEngine, inputs: srcInputs}));
+    } else if (misses.length) {
+      gates.push(gate(`${p}.word_misses`, 'FAIL', `${misses.length} word${misses.length > 1 ? 's' : ''} fell back to an estimate: ${misses.slice(0, 5).join(', ')}`, {engine: wordEngine, evidence: misses.slice(0, 40), inputs: srcInputs}));
+    } else {
+      gates.push(gate(`${p}.word_misses`, 'PASS', 'every word the page looks up was found in the timings', {engine: wordEngine, inputs: srcInputs}));
+    }
+    const missSet = new Set(misses);
+    const kit = [...new Set((page.scene_problems ?? []).filter((x) => !missSet.has(x)))];
+    const notes = kit.filter((x) => /neutral law/.test(x));
+    const list = kit.filter((x) => !/neutral law/.test(x));
+    const kitEngine = {name: 'slate kit registries (in the page)', version: 'unknown'};
+    if (list.length) gates.push(gate(`${p}.kit_problems`, 'REVIEW', `the kit recorded ${list.length} thing${list.length > 1 ? 's' : ''} it had to assume or refuse; the first: ${list[0]}`, {engine: kitEngine, evidence: [...list, ...notes].slice(0, 40), inputs: srcInputs, details: {notes}}));
+    else gates.push(gate(`${p}.kit_problems`, 'PASS', notes.length ? `nothing refused; noted: ${notes[0]}` : 'the kit assumed and refused nothing', {engine: kitEngine, evidence: notes, inputs: srcInputs, details: {notes}}));
+    // the page's own gates: what it reached for (always refused) and whether its fonts were the brand's
+    for (const g of page.gates ?? []) {
+      const suffix = g.gate === 'web.network' ? 'network' : g.gate;
+      gates.push({...g, gate: `${p}.${suffix}`, inputs: {...(g.inputs ?? {}), ...srcInputs}, details: {...(g.details ?? {}), stage: STAGE}});
+    }
+  }
+  gates.push(bannedWords(ctx, act, args.banned_words, `${p}.banned_words`, null));
+  gates.push(webEventsGate(ctx, act, page, `${p}.events`, files));
+  gates.push(await webContractsGate(ctx, act, args, `${p}.contracts`, inputsFor(ctx, [...files, 'timing/shots.json'])));
+  return {act, engine: 'web', gates, status: worstOf(gates), passed: gates.every((g) => g.status === 'PASS')};
+}
+
 export async function checkAct(ctx, args, {bundles = null} = {}) {
   const act = actOf(ctx, args.act).act;
-  if (webScene(ctx.dir, act)) {
-    throw refused(
-      `Act ${act} is a web scene (scenes/act${act}/web/index.html): the hand-in check reads Remotion acts only, so it can't hand this one in yet.`,
-      `Its render (\`slate render --act ${act} --engine web\`) gates its fonts, its network and its frame count, and \`slate emit-events --act ${act}\` writes and checks its beats.`,
-    );
-  }
+  if (webScene(ctx.dir, act)) return checkWebAct(ctx, act, args);
   if (!sceneIndex(ctx.dir, act)) throw usage(`Act ${act} isn't built yet (${missingIndexNote(ctx.dir, act)}): there's nothing to hand in.`);
   await ensureEntry(ctx, {brandPath: args.brand_path ?? null});
   const p = `handin.act${act}`;

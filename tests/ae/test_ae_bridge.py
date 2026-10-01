@@ -287,3 +287,14 @@ def test_the_bridge_server_gets_no_keys(monkeypatch, tmp_path):
     env = bridge.BridgeSession(d)._env()
     assert env["BROWSER"] == "none" and env["AE_MCP_READONLY"] == "1"
     assert "ELEVENLABS_API_KEY" not in env and "HF_KEY" not in env
+
+
+def test_openclaw_registers_the_bridge_with_mcp_add():
+    """OpenClaw 2026.9.4 registers a server with `openclaw mcp add <name> --command … --arg …` (it refuses `mcp set`),
+    and probes the server first, so the connect timeout is 30 s, as for Slate's own server."""
+    from slate.ae import bridge as ae_bridge
+
+    oc = ae_bridge.install_plan()["register"]["openclaw"]
+    assert oc[:4] == ["openclaw", "mcp", "add", ae_bridge.SERVER_NAME]
+    assert oc[oc.index("--arg") + 1].endswith("dist/index.js") and oc[-2:] == ["--connect-timeout", "30"]
+    assert "set" not in oc

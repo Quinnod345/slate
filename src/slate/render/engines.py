@@ -294,8 +294,10 @@ def get(name: str, film_dir: Path, film: dict, *, go: bool = False) -> Engine:
 
 
 def temp_roots() -> list[Path]:
-    """Where Remotion puts bundles: the system temp folder ($TMPDIR on macOS)."""
-    roots = [Path(tempfile.gettempdir())]
+    """Where Remotion may put bundles of its own: the engine's temp folder under Slate's data folder (the engine points
+    TMPDIR there, so no other tool's temp cleanup can reach a live render's files), and the system temp folder ($TMPDIR
+    on macOS) for engines from before that."""
+    roots = [paths.cache_dir() / "tmp", Path(tempfile.gettempdir())]
     env = os.environ.get("TMPDIR")
     if env and Path(env).resolve() not in {r.resolve() for r in roots}:
         roots.append(Path(env))

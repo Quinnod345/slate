@@ -7,6 +7,12 @@
 - voice_tails      nothing leaked in from a neighbouring line (extra words from the line before or after, or voiced
                    audio after the last word)
 - voice_fit        each read fits its shot: it starts `lead` in and ends at least `tail` before the cut
+- voice_inflection emotion through a full voice, by measurement: no whisper-like read (the voice dropping out), no
+                   tagged read breathier than the voice's own untagged reads of the same words, no statement ending
+                   that rises like a question, no read that stops mid-word
+- voice_polish     every polished take verified by measurement: length identical, loudness back within 0.5 LU,
+                   sibilance and edge reduced within the chain's reach, not over-processed, made with the film's
+                   pinned polish (a film that doesn't use the polish passes with that said)
 
 Only PASS counts as passed. A replayed take (SLATE_FAKE_VENDORS=1) is never heard, so the gates that judge the
 audio report it as UNCHECKED, however good its stand-in looks. So is a take whose alignment is older than the
@@ -328,9 +334,209 @@ def fit_gate(vf: VoiceFilm) -> GateResult:
                    engine=gates_mod.engine("slate voice fit"), details={"fits": fits})
 
 
+# ---------------------------------------------------------------------------------------------------------------
+# Inflection: emotion through a full voice, by measurement
+
+
+def _approved_by_ear(vf: VoiceFilm, shot: str) -> str | None:
+    """Who approved this shot's take by ear, when the approval still covers its files (None otherwise)."""
+    appr = vf.approved(shot)
+    if not appr:
+        return None
+    for rel, digest in (appr.get("sha256") or {}).items():
+        full = vf.dir / rel
+        if digest and (not full.is_file() or jsonio.sha256(full) != digest):
+            return None
+    final = vf.final_audio(shot)
+    if final is not None and vf.rel(final) not in (appr.get("sha256") or {}):
+        return None  # approved before the polish: the polished take hasn't been heard
+    return str(appr.get("by") or "the owner")
+
+
+def _heard_for(vf: VoiceFilm, shot: str, audio: Path) -> list[dict] | None:
+    """Heard words that time `audio` (the unpolished take): its own alignment, or the polished take's (the polish keeps
+    every sample where it was). None when nothing aligned matches."""
+    from slate.voice import analyze  # noqa: PLC0415
+
+    sel = vf.selected(shot)
+    words, source = analyze._film_words(vf, shot, sel[0], audio) if sel else (None, None)  # noqa: SLF001
+    if source == "replay":
+        return None
+    return words
+
+
+def inflection_gate(vf: VoiceFilm) -> GateResult:
+    from slate.voice import analyze, breath  # noqa: PLC0415
+
+    fails, unchecked, reviews, notes, files = [], [], [], [], []
+    measured: dict[str, dict] = {}
+    tagged: dict[str, bool] = {}
+    for ln in vf.lines:
+        sel = vf.selected(ln.shot)
+        if not sel:
+            unchecked.append(f"{ln.shot}: not voiced yet")
+            continue
+        take = sel[0]
+        tj = vf.take_json(ln.shot, take)
+        if tj.get("replay"):
+            unchecked.append(f"{ln.shot}: a replayed stand-in, not a real read (voice it with --live)")
+            continue
+        audio = vf.unpolished_audio(ln.shot)
+        if audio is None:
+            unchecked.append(f"{ln.shot}: its take's audio is missing")
+            continue
+        sent = tj.get("sent") or ln.text
+        words = _heard_for(vf, ln.shot, audio)
+        m = analyze.measure_take(audio, text=ln.text, words=words, tagged=sent, language=vf.language,
+                                 contour_every=None)
+        m["words_known"] = words is not None
+        measured[ln.shot] = m
+        tagged[ln.shot] = bool(tags_mod.tags_in(sent)) and not all(tags_mod.PAUSE_TAG.match(t)
+                                                                    for t in tags_mod.tags_in(sent))
+        files.append(audio)
+    untagged = [s for s in measured if not tagged[s] and measured[s].get("line")]
+    rises = {s: measured[s].get("statement_rise_max_st") for s in untagged
+             if measured[s].get("statement_rise_max_st") is not None}
+    per_line: dict[str, dict] = {}
+    for shot, m in measured.items():
+        row: dict = {"tagged": tagged[shot]}
+        per_line[shot] = row
+        others = [measured[o]["line"] for o in untagged if o != shot]
+        line = dict(m.get("line") or {})
+        if line:
+            line["effort_level_db"] = line.get("level_db")
+        verdict = None
+        if len(others) >= 2 and line:
+            cal = breath.calibrate({"voice": [dict(o, effort_level_db=o.get("level_db")) for o in others]})
+            verdict = breath.breathiness(line, "voice", cal)
+            row["vs_other_lines"] = verdict
+        take = vf.selected(shot)[0]
+        rnd = ((vf.take_json(shot, take).get("stages") or {}).get("tag_round") or {})
+        same_words = rnd.get("gates") if rnd.get("sha256") and rnd["sha256"] == jsonio.sha256(
+            vf.dir / rnd.get("file", "")) else None
+        if same_words is not None:
+            row["same_words"] = {"round": rnd.get("round"), "key": rnd.get("key"), "gates": same_words}
+            if same_words.get("full_voice") is False:
+                fails.append(f"{shot}: breathier than the voice's own untagged reads of the same words "
+                             f"(tag round {rnd.get('round')}, take {rnd.get('key')})")
+        if verdict and verdict.get("whisper"):
+            fails.append(f"{shot}: whisper-like: the voice drops out (voicing z {verdict['z'].get('voiced_frac')}, "
+                         f"CPPS z {verdict['z'].get('cpps_db')} against the film's other lines)")
+        elif verdict and verdict.get("breathier"):
+            notes.append(f"{shot}: measures breathier than the film's other lines (index {verdict['index']:+.2f}); "
+                         "other words differ, so this is a note, not a verdict")
+        if tagged[shot] and same_words is None:
+            by = _approved_by_ear(vf, shot)
+            if by:
+                notes.append(f"{shot}: tagged, approved by ear ({by})")
+            else:
+                reviews.append(f"{shot}: tagged, and not yet measured against untagged reads of the same words; "
+                               f"measure it (slate voice tags ab) or listen and approve it")
+        tail = (m.get("complete") or {}).get("tail_below_speech_db")
+        row["tail_below_speech_db"] = tail
+        if tail is not None and tail < analyze.COMPLETE_DB:
+            fails.append(f"{shot}: stops mid-word: its last 20 ms sit only {tail:.0f} dB under the speech "
+                         f"(a clean ending is {analyze.COMPLETE_DB:.0f} dB or more)")
+        if not m.get("words_known"):
+            unchecked.append(f"{shot}: not aligned to this audio, so its endings can't be measured "
+                             f"(slate voice align --only {shot})")
+            continue
+        cap_from = [r for o, r in rises.items() if o != shot]
+        cap = (max(max(cap_from), 0.0) if cap_from else 0.0) + 3.0
+        rise = m.get("statement_rise_max_st")
+        row.update({"statement_rise_max_st": rise, "rise_cap_st": round(cap, 2),
+                    "last_word_rise_st": m.get("last_word_rise_st")})
+        if rise is not None and rise > cap:
+            fails.append(f"{shot}: a statement ending rises {rise:+.1f} st, like a question (the voice's own "
+                         f"endings allow up to {cap:+.1f})")
+    kw = {"evidence": (fails + reviews + unchecked + notes)[:60], "inputs": _inputs(vf, files),
+          "engine": gates_mod.engine("slate voice analyze (YIN, CPPS, HNR, H1-H2, tilt)"),
+          "details": {"lines": per_line, "fails": fails, "reviews": reviews, "unchecked": unchecked, "notes": notes,
+                      "checked": len(measured), "untagged_baseline": untagged}}
+    total = len(vf.lines)
+    if fails:
+        return GateResult.fail("voice_inflection", f"{len(fails)} problem(s) across {total} line(s): {fails[0]}", **kw)
+    if unchecked or not measured:
+        why = unchecked[0] if unchecked else "nothing voiced yet"
+        return GateResult.unchecked("voice_inflection", f"{len(unchecked) or total} line(s) unchecked: {why}", **kw)
+    if reviews:
+        return GateResult.review("voice_inflection", f"{len(reviews)} line(s) for a person's ear: {reviews[0]}", **kw)
+    return GateResult.pass_("voice_inflection", f"full voice on {len(measured)} line(s): nothing whisper-like, no "
+                            "question rises, clean endings", **kw)
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# The studio polish, verified by measurement
+
+
+def polish_gate(vf: VoiceFilm) -> GateResult:
+    from slate.voice import polish as polish_mod  # noqa: PLC0415
+    from slate.voice.film import get_pin  # noqa: PLC0415
+
+    pinned = get_pin(vf.dir, polish_mod.PIN_KEY)
+    tuning = polish_mod.tuning_for(vf.profile)
+    any_polished = any((vf.selected(ln.shot) or (None, {}))[1].get("polished") for ln in vf.lines)
+    engine = gates_mod.engine("slate voice polish (BS.1770, band levels at one loudness)")
+    if not pinned and not any_polished and not tuning.get("required"):
+        return GateResult.pass_("voice_polish", "this film doesn't use the studio polish (nothing polished, nothing "
+                                "pinned, and the voice doesn't require it)", engine=engine,
+                                inputs=gates_mod.inputs_for(vf.dir, [f"film:pins.{polish_mod.PIN_KEY}"]))
+    fails, unchecked, files, per_line = [], [], [], {}
+    checked = 0
+    for ln in vf.lines:
+        sel = vf.selected(ln.shot)
+        if not sel:
+            unchecked.append(f"{ln.shot}: not voiced yet")
+            continue
+        take, info = sel
+        tj = vf.take_json(ln.shot, take)
+        pol = (tj.get("stages") or {}).get("polish") or {}
+        out = vf.dir / info["polished"] if info.get("polished") else None
+        if out is None or not out.is_file():
+            fails.append(f"{ln.shot}: {take} isn't polished (slate voice polish --only {ln.shot})")
+            continue
+        src = vf.unpolished_audio(ln.shot)
+        files += [out, src]
+        if pol.get("source_sha256") != (jsonio.sha256(src) if src else None):
+            fails.append(f"{ln.shot}: polished from an earlier version of the take (slate voice polish --only {ln.shot})")
+            continue
+        if pol.get("sha256") != jsonio.sha256(out):
+            fails.append(f"{ln.shot}: the polished take changed on disk after the polish")
+            continue
+        if pinned and pol.get("chain_sha256") != pinned.get("chain_sha256"):
+            fails.append(f"{ln.shot}: polished with other settings than the film's pinned polish (strength "
+                         f"{pinned.get('strength')}); polish it again (slate voice polish --only {ln.shot})")
+            continue
+        report = jsonio.read(vf.dir / pol["report"], default=None) if pol.get("report") else None
+        if not report:
+            fails.append(f"{ln.shot}: the polish report is missing (slate voice polish --only {ln.shot})")
+            continue
+        files.append(vf.dir / pol["report"])
+        if tj.get("replay"):
+            # A stand-in voice has no real sibilance or edge to judge; only what holds for any signal is checked.
+            v = polish_mod.verify(report["stages"], report["effect"], None, tuning.get("verify"))
+            per_line[ln.shot] = {"strength": report.get("strength"), "checks": v["checks"], "problems": v["problems"]}
+            fails += [f"{ln.shot}: {p}" for p in v["problems"]]
+            unchecked.append(f"{ln.shot}: a replayed stand-in: length and loudness hold, but a stand-in voice says "
+                             "nothing about the sibilance or the edge (voice it with --live)")
+            continue
+        v = polish_mod.verify(report["stages"], report["effect"], report.get("chain"), tuning.get("verify"))
+        per_line[ln.shot] = {"strength": report.get("strength"), "checks": v["checks"], "problems": v["problems"]}
+        fails += [f"{ln.shot}: {p}" for p in v["problems"]]
+        checked += 1
+    strength = (pinned or {}).get("strength")
+    return _result("voice_polish", fails=fails, unchecked=unchecked, checked=checked, total=len(vf.lines),
+                   passed=f"{checked} polished take(s) verified by measurement (strength {strength}): same length, "
+                          "loudness held, S and edge down within the chain's reach",
+                   engine=engine, inputs=_inputs(vf, files + [f"film:pins.{polish_mod.PIN_KEY}"]),
+                   details={"shots": per_line, "pinned": pinned and {k: pinned.get(k) for k in ("strength",
+                                                                                              "chain_sha256")}})
+
+
 GATES: dict[str, Callable[[VoiceFilm], GateResult]] = {
     "voice_policy": policy_gate, "voice_direction": direction_gate, "voice_takes": takes_gate,
     "voice_words": words_gate, "voice_tails": tails_gate, "voice_fit": fit_gate,
+    "voice_inflection": inflection_gate, "voice_polish": polish_gate,
 }
 
 

@@ -65,6 +65,8 @@ def _shot_doc(s) -> dict:
         doc["events"] = d["events"]
     if d.get("generate"):
         doc["generate"] = d["generate"]  # the shot's generation request, carried to timing/shots.json for `slate gen`
+    if d.get("reading") is not None:
+        doc["reading"] = d["reading"]  # how its text is read (voice_matched, not_for_reading): `slate qa readtime`
     if s.take:
         doc["take"] = s.take
     return doc

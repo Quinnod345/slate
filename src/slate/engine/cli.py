@@ -1,4 +1,4 @@
-"""Commands for the Node engine: `slate engine install|status|path|skills`, `slate emit-events`, `slate check`."""
+"""Commands for the Node engine: `slate engine install|status|path|skills|scaffold`, `slate emit-events`, `slate check`."""
 
 from __future__ import annotations
 
@@ -109,6 +109,42 @@ def _skills(args: argparse.Namespace) -> int:
     return 0
 
 
+def look_engine(film_dir: Path) -> str | None:
+    """The engine the film's brand builds scenes in (brand.json look.engine: remotion, web or ae), or None."""
+    folder = bridge.brand_path(film_dir)
+    data = jsonio.read(folder / "brand.json", default=None) if folder else None
+    look = data.get("look") if isinstance(data, dict) else None
+    engine = look.get("engine") if isinstance(look, dict) else None
+    return engine if engine in ("remotion", "web", "ae") else None
+
+
+def _scaffold(args: argparse.Namespace) -> int:
+    film_dir = slate_cli.film(args)
+    engine = args.engine or look_engine(film_dir) or "remotion"
+    if engine == "ae":
+        raise UsageError("An After Effects act is a scene written as data (scenes/ae/actN.json), not a template.",
+                         hint="`slate ae acts --help` shows its shape; `slate ae acts export N` writes its trace and "
+                              "events.")
+    if engine != "web":
+        raise UsageError(f"Act {args.act} would be a Remotion act, which starts as the kit's placeholder by itself "
+                         "(it renders its shot ids, on-screen text and VO until scenes/actN/index.tsx exists).",
+                         hint="Write scenes/actN/index.tsx with the kit (engine/remotion/kit/README.md), or pass "
+                              "--engine web for a web scene.")
+    res = bridge.call("web-render", {"film": str(film_dir), "act": args.act, "scaffold": True,
+                                     "force": True if args.force else None}, timeout=120)
+    folder = Path(res.get("dir", film_dir / "scenes" / f"act{args.act}" / "web"))
+    try:
+        where = folder.resolve().relative_to(film_dir.resolve()).as_posix()
+    except ValueError:
+        where = str(folder)
+    log.result({k: v for k, v in res.items() if k not in ("ok", "command")},
+               f"act {res.get('act', args.act)}: a web scene started from the template in {where} "
+               f"({len(res.get('files') or [])} files)\n"
+               f"next: make it this act's picture (scene.ts), then `slate emit-events --act {args.act}` and "
+               f"`slate check {args.act}`")
+    return 0
+
+
 # --- slate emit-events ----------------------------------------------------------------------------------------------
 
 def _record_lock(film_dir: Path, rel: str, sources: list[str]) -> None:
@@ -163,24 +199,47 @@ def _emit(args: argparse.Namespace) -> int:
 
 # --- slate check ----------------------------------------------------------------------------------------------------
 
+_UNREAD = object()
+
+
+def _words_from_pack(name: str) -> object:
+    """slate.brand.pack's answer (a list, or None when the pack states no list), or _UNREAD when it can't be asked."""
+    try:
+        from slate.brand import pack  # noqa: PLC0415 (the brand module is optional here)
+
+        words = pack.banned_words(pack.load(name))
+    except Exception:  # noqa: BLE001 - no brand module, or a pack it can't load: read the file instead
+        return _UNREAD
+    return None if words is None else [str(w) for w in words]
+
+
 def banned_words(film_dir: Path) -> list[str] | None:
-    """The brand pack's banned words, or None when the pack can't be read (the gate is then UNCHECKED)."""
+    """The brand pack's banned words. None means unknown, and the gate reads unknown as UNCHECKED, never as "none":
+    the film names no brand, the pack can't be read, or the pack states no list at all (no truth.banned_words). An
+    empty list is the pack saying there are none, and the gate passes on it."""
     name = (jsonio.read(film_dir / "film.json", default={}) or {}).get("brand")
     if not name:
         return None
-    try:
-        from slate.brand import pack  # noqa: PLC0415
-
-        return [str(w) for w in pack.banned_words(pack.load(name))]
-    except Exception:  # noqa: BLE001 - fall back to reading the pack's documented shape (ARCHITECTURE §7)
-        folder = bridge.brand_path(film_dir)
-        if not folder:
-            return None
-        data = jsonio.read(folder / "brand.json", default=None)
-        if not isinstance(data, dict):
-            return None
-        words = (data.get("truth") or {}).get("banned_words")
-        return [str(w) for w in words] if isinstance(words, list) else []
+    words = _words_from_pack(str(name))
+    if words is not _UNREAD:
+        return words  # type: ignore[return-value]
+    # the pack's documented shape (ARCHITECTURE §7), read directly
+    folder = bridge.brand_path(film_dir)
+    if not folder:
+        return None
+    data = jsonio.read(folder / "brand.json", default=None)
+    if not isinstance(data, dict):
+        return None
+    listed = (data.get("truth") or {}).get("banned_words") if isinstance(data.get("truth"), dict) else None
+    if not isinstance(listed, list):
+        return None
+    out: list[str] = []
+    for w in listed:
+        raw = (w.get("word") or w.get("text")) if isinstance(w, dict) else w
+        text = str(raw or "").strip()
+        if text and text not in out:
+            out.append(text)
+    return out
 
 
 def _built(film_dir: Path, act: int) -> bool:
@@ -194,18 +253,19 @@ def _web(film_dir: Path, act: int) -> bool:
 
 def _check(args: argparse.Namespace) -> int:
     film_dir = slate_cli.film(args)
-    shots = jsonio.read(film_dir / "timing" / "shots.json", default=None)
+    shots = jsonio.read(bridge.film_file(film_dir, "timing/shots.json"), default=None)
     skipped: list[dict] = []
     if args.act == "all":
         if not shots:
             raise UsageError("This film has no timing/shots.json yet.", hint="Run `slate timing` first.")
         every = sorted({int(s["act"]) for s in shots.get("shots", [])})
-        acts = [a for a in every if _built(film_dir, a)]
-        skipped = [{"act": a, "reason": "a web scene: the hand-in check reads Remotion acts only"} for a in every
-                   if _web(film_dir, a)]
+        # Remotion acts and web acts alike (a web act is checked through the open web renderer)
+        acts = [a for a in every if _built(film_dir, a) or _web(film_dir, a)]
+        skipped = [{"act": a, "reason": "not built yet"} for a in every if a not in acts]
         if not acts:
-            raise UsageError("None of this film's Remotion acts is built yet (no scenes/actN/index.tsx): there's "
-                             "nothing to hand in.", hint="Build an act first; `slate status` shows where the film stands.")
+            raise UsageError("None of this film's acts is built yet (no scenes/actN/index.tsx, and no web scene in "
+                             "scenes/actN/web/): there's nothing to hand in.",
+                             hint="Build an act first; `slate status` shows where the film stands.")
     else:
         try:
             acts = [int(args.act)]
@@ -238,6 +298,18 @@ def register(sub) -> None:
     slate_cli.add_command(grp, "path", _path, help="print the engine folder Slate runs")
     slate_cli.add_command(grp, "skills", _skills,
                           help="fetch Remotion's and ElevenLabs' skills (pinned) into the engine, with Slate's overrides")
+    p = slate_cli.add_command(grp, "scaffold", _scaffold,
+                              help="start an act's scene from the engine's template (web acts: scenes/actN/web/)",
+                              description=(
+                                  "Start an act's scene from the template of the engine the brand's look picks "
+                                  "(brand.json look.engine), or the one you name. A web act gets the open web "
+                                  "renderer's neutral template in scenes/actN/web/ (index.html and scene.ts), moved by "
+                                  "the brand's motion law and drawn in its tokens. Nothing in the act is replaced "
+                                  "unless you pass --force."))
+    p.add_argument("--act", type=int, required=True, help="the act to start")
+    p.add_argument("--engine", choices=("web", "remotion", "ae"), default=None,
+                   help="the engine to start it for (default: the brand's look.engine, else remotion)")
+    p.add_argument("--force", action="store_true", help="replace a scene that's already there")
     p = slate_cli.add_command(sub, "emit-events", _emit,
                               help="write each act's visual events (or its silence) and motion trace from its scenes",
                               description=(

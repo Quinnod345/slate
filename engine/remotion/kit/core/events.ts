@@ -4,6 +4,10 @@
 // so a chip's flip, its sound and its word land on one frame. The engine's `slate emit-events` bundles the beats module,
 // collects the registry and writes timing/visual_events/actN.json (docs/ARCHITECTURE.md §5): one command instead of
 // the films' 22 hand-written emitters. validateEvents() holds the rules every act's file must meet.
+//
+// t is always the beat: the film second the motion lands. A sustained motion also gives its span, start (film seconds)
+// and dur: a draw and a count must, and end on t (t = start + dur; give start and dur and defineEvent works t out); a
+// whoosh and a swell peak on t, inside theirs. The rules are slate.timing.beats.problems()'s, word for word.
 import {actShots, actSpan, fps, secOf, shot} from './film';
 
 /** The kinds a sound designer can map (docs/ARCHITECTURE.md §5). */
@@ -24,8 +28,17 @@ export type EventInput = {
   kind: EventKind | string;
   size?: EventSize | string;
   note?: string;
+  /** where a sustained motion begins (film seconds): a draw and a count need it, with dur, and end on t */
+  start?: number;
+  /** how long the sustained motion runs (seconds), from start */
+  dur?: number;
   [extra: string]: unknown;
 };
+
+/** Kinds whose beat is the end of their span: a draw ends on t, a count reaches its `to` at t. */
+export const ENDS_ON_BEAT: readonly string[] = ['draw', 'count'];
+/** Kinds whose beat is their peak, somewhere inside their span. */
+export const PEAKS_ON_BEAT: readonly string[] = ['whoosh', 'swell'];
 
 const registry = new Map<string, VisualEvent>();
 const problems = new Set<string>();
@@ -36,7 +49,8 @@ const problems = new Set<string>();
  */
 export function defineEvent(input: EventInput): number {
   const {shot: shotId, id, t, frame, kind, size = 'm', note = '', ...extra} = input;
-  let time = typeof t === 'number' ? t : typeof frame === 'number' ? secOf(frame) : NaN;
+  const spanEnd = typeof input.start === 'number' && typeof input.dur === 'number' ? input.start + input.dur : NaN;
+  let time = typeof t === 'number' ? t : typeof frame === 'number' ? secOf(frame) : ENDS_ON_BEAT.includes(String(kind)) ? spanEnd : NaN;
   if (!Number.isFinite(time)) {
     problems.add(`event "${id}" in ${shotId} has no time (give t in film seconds or a frame)`);
     time = shot(shotId).start;
@@ -65,9 +79,59 @@ export function eventProblems(): string[] {
   return [...problems];
 }
 
+const isSeconds = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+
+/**
+ * The span rules beyond a schema, exactly as slate.timing.beats.problems() states them (and the engine's events.mjs
+ * spanProblems): a draw and a count need start and dur and end on t; start and dur go together and make a forward
+ * stretch of film time; any other beat with a span sits inside it. Half a frame of tolerance on the film's clock.
+ */
+export function spanProblems(list: readonly Record<string, unknown>[], rate?: number): string[] {
+  const tol = rate ? 0.5 / rate : 0.002;
+  const out: string[] = [];
+  list.forEach((e, i) => {
+    if (!e || typeof e !== 'object') return;
+    const where = e.id ? `beat ${i + 1} (${String(e.id)})` : `beat ${i + 1}`;
+    const kind = String(e.kind);
+    const hasStart = 'start' in e;
+    const hasDur = 'dur' in e;
+    if (ENDS_ON_BEAT.includes(kind) && !(hasStart && hasDur)) {
+      out.push(`${where}: a ${kind} runs over time, so it needs start and dur (it ends on t)`);
+      return;
+    }
+    if (hasStart !== hasDur) {
+      out.push(`${where}: start and dur go together (the span a sustained motion runs over)`);
+      return;
+    }
+    if (!hasStart) return;
+    if (!isSeconds(e.start) || !isSeconds(e.dur)) {
+      out.push(`${where}: start and dur must be numbers of seconds`);
+      return;
+    }
+    const start = e.start;
+    const end = e.start + e.dur;
+    if (start < 0 || end <= start) {
+      out.push(`${where}: the span ${start.toFixed(3)}–${end.toFixed(3)} s isn't a forward stretch of film time`);
+      return;
+    }
+    if (!isSeconds(e.t)) return;
+    const t = e.t;
+    if (ENDS_ON_BEAT.includes(kind)) {
+      if (Math.abs(end - t) > tol) {
+        const ms = Math.round((end - t) * 1000);
+        out.push(`${where}: a ${kind} ends on its beat, but start + dur is ${end.toFixed(3)} s and t is ${t.toFixed(3)} s (${ms >= 0 ? '+' : ''}${ms} ms)`);
+      }
+    } else if (!(start - tol <= t && t <= end + tol)) {
+      out.push(`${where}: a ${kind} ${PEAKS_ON_BEAT.includes(kind) ? 'peaks' : 'lands'} inside its span, but t ${t.toFixed(3)} s is outside ${start.toFixed(3)}–${end.toFixed(3)} s`);
+    }
+  });
+  return out;
+}
+
 /**
  * The rules an act's events file meets: known kinds and sizes, unique ids, every event inside the act's span (to the
- * frame), on a shot of that act, and at most one impact (the act's one signature landing).
+ * frame), on a shot of that act, at most one impact (the act's one signature landing), and every span true to its beat
+ * (spanProblems).
  */
 export function validateEvents(list: readonly VisualEvent[], act: number | string): string[] {
   const out: string[] = [];
@@ -87,6 +151,7 @@ export function validateEvents(list: readonly VisualEvent[], act: number | strin
     if (e.kind === 'impact') impacts++;
   }
   if (impacts > 1) out.push(`act ${act} has ${impacts} impacts; keep one (the act's signature landing)`);
+  out.push(...spanProblems(list, fps()));
   return out;
 }
 

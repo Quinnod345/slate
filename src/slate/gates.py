@@ -12,11 +12,18 @@ Only PASS counts as passed. UNCHECKED is never reported as a pass, and no gate q
 each result names the engine and version it used (OCR engine and level, Whisper model, ffmpeg build).
 
 `qa/gates.json` in the film folder keeps the latest result per gate; `qa/history.jsonl` keeps every result.
+
+A result's `inputs` are what it read, each with its hash then: film-relative or absolute paths, and named inputs that
+aren't whole files (`film:<dotted.key>`, `film:*`, `brand:<name>`, `format:<name>`, hashed through
+slate.state.lock.hash_inputs). Listing `film.json` itself records `film:*`: all of film.json except its bookkeeping
+(pins, the pin log, versions, budgets, model overrides), so a new pin, a version number or a budget raise doesn't
+turn every gate STALE, while a change to the clock, the size, the targets, the captions or the brand still does.
 """
 
 from __future__ import annotations
 
 import datetime as _dt
+import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Iterable
@@ -84,25 +91,77 @@ def engine(name: str, version: str | None = None, **extra) -> dict:
     return out
 
 
+NAMED_INPUT = re.compile(r"^([a-z][a-z0-9_-]*):([^/].*)$")  # the same shape slate.state.lock reads
+FILM_SETTINGS = "film:*"  # film.json without its bookkeeping (slate.state.lock.FILM_BOOKKEEPING)
+
+
+def is_named(key: str | Path, film_dir: Path | None = None) -> bool:
+    """True for a named input (`film:targets.lufs`, `brand:demo`, `format:reel`), not a path."""
+    text = str(key)
+    if not NAMED_INPUT.match(text):
+        return False
+    return film_dir is None or not (Path(film_dir) / text).exists()
+
+
+def _named_hashes(film_dir: Path, keys: list[str]) -> dict[str, str | None]:
+    """Hashes for named inputs, through slate.state.lock (one definition of what each scheme means)."""
+    if not keys:
+        return {}
+    try:
+        from slate.state import lock  # noqa: PLC0415 - state builds on the foundation, not the other way round
+    except ImportError:  # pragma: no cover - the state module is part of every install
+        return {k: None for k in keys}
+    hashed = lock.hash_inputs(Path(film_dir), keys)
+    return {k: hashed.get(k) for k in keys}
+
+
+def expand_film_json(film_dir: Path, paths: Iterable[str | Path]) -> list[str | Path]:
+    """The film's own film.json becomes `film:*` (film.json without its bookkeeping); everything else stays as
+    given."""
+    own = (Path(film_dir) / "film.json").resolve()
+    out: list[str | Path] = []
+    for p in paths:
+        if not is_named(p, film_dir):
+            full = Path(p) if Path(p).is_absolute() else Path(film_dir) / p
+            if full.resolve() == own:
+                out.append(FILM_SETTINGS)
+                continue
+        out.append(p)
+    return out
+
+
 def inputs_for(film_dir: Path, paths: Iterable[str | Path]) -> dict:
-    """{film-relative path: sha256} for the files a gate read, so the result can turn STALE later."""
+    """{film-relative path or named input: sha256} for what a gate read, so the result can turn STALE later."""
     film_dir = Path(film_dir)
     out: dict[str, str | None] = {}
-    for p in paths:
+    named: list[str] = []
+    for p in expand_film_json(film_dir, paths):
+        if is_named(p, film_dir):
+            named.append(str(p))
+            out[str(p)] = None
+            continue
         full = Path(p) if Path(p).is_absolute() else film_dir / p
         try:
             key = str(full.resolve().relative_to(film_dir.resolve()))
         except ValueError:
             key = str(full)
         out[key] = jsonio.sha256(full) if full.is_file() else None
+    out.update(_named_hashes(film_dir, named))
     return out
 
 
 def _is_stale(film_dir: Path, result: GateResult) -> bool:
+    named = {k: v for k, v in (result.inputs or {}).items() if is_named(k, film_dir)}
     for rel, digest in (result.inputs or {}).items():
+        if rel in named:
+            continue
         full = Path(rel) if Path(rel).is_absolute() else Path(film_dir) / rel
         current = jsonio.sha256(full) if full.is_file() else None
         if current != digest:
+            return True
+    if named:
+        current = _named_hashes(Path(film_dir), list(named))
+        if any(current.get(k) != v for k, v in named.items()):
             return True
     return False
 

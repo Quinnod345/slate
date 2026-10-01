@@ -151,11 +151,14 @@ def test_agent_context_override(monkeypatch):
 
 def test_replay_fixture_and_faker(slate_home, monkeypatch, tmp_path):
     monkeypatch.setenv("SLATE_FIXTURES", str(tmp_path / "fx"))
+    # The fakers are process-wide: this test works on a copy, so the vendors' own fakers are exactly as they were
+    # afterwards (a stub left behind here once broke every later replayed voice take in a whole-tree run).
+    monkeypatch.setattr(replay, "_FAKERS", dict(replay._FAKERS))
     assert replay.fake_vendors()
-    replay.record("elevenlabs", "k1", {"ok": 1})
-    assert replay.respond("elevenlabs", "tts", {}, key="k1")["ok"] == 1
-    replay.register_faker("elevenlabs", "tts", lambda key, req: {"audio": "tone"})
-    assert replay.respond("elevenlabs", "tts", {"text": "hi"})["replay"] is True
+    replay.record("slate-test", "k1", {"ok": 1})
+    assert replay.respond("slate-test", "tts", {}, key="k1")["ok"] == 1
+    replay.register_faker("slate-test", "tts", lambda key, req: {"audio": "tone"})
+    assert replay.respond("slate-test", "tts", {"text": "hi"})["replay"] is True
     with pytest.raises(replay.ReplayMissing):
         replay.respond("higgsfield", "nothing", {})
     monkeypatch.setenv("SLATE_LIVE", "1")

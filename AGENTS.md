@@ -82,7 +82,7 @@ cd engine && npx --no-install vitest run
 .venv/bin/python -m slate skills build --check
 .venv/bin/python -m slate mcpb build --check
 
-# every lesson mapped (the knowledge module is still to come; until it lands this command doesn't exist yet)
+# every lesson mapped to where it lives (the knowledge ledger)
 .venv/bin/python -m slate knowledge check
 ```
 

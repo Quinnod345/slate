@@ -27,6 +27,7 @@
 | `slate render list [--verify]` | what's rendered, moved, missing or unfinished |
 | `slate render splice <patch> --act 3 --from F --to T` | splice a patch you rendered yourself, with proof |
 | `slate render stills --frames 120,240 --act 3` | review stills from one bundle |
+| `slate render stills --frames 120,240 --act 3 --engine web` | the same for an act made with the open web renderer |
 | `slate render clean` | leaked bundles, caches, finished chunks, safety copies |
 
 ## Chunks and resuming
@@ -66,3 +67,8 @@ On the first films, splice joins measured 54 to 93 dB, and untouched frames were
 
 Run the gates that read the picture: `slate qa frames glitch boundary motion` (slate-qa). Triage every glitch flag;
 review the contact sheet yourself.
+
+## For whoever changes the renderer
+
+The default test run never renders. The real end-to-end render tests (Remotion and the web renderer, about 25 seconds
+each) run only when asked: `SLATE_TEST_RENDER=1` with the render tests. Run them on a quiet Mac, one at a time.

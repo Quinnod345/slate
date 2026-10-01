@@ -48,16 +48,18 @@ def _gate_text(results) -> str:
 def _queue(args: argparse.Namespace, film: Path, kind: str, tail: list[str], *, what: str, action: str) -> int:
     """--detach: refuse now what the job would refuse later (no go, an autonomous film), then queue this same command
     as a job holding the render slot and After Effects, and hand back its id at once. The job runs the command without
-    --detach, still with the person's --go; slate.ae's lock uses the job's `ae` slot instead of waiting on itself."""
-    import sys  # noqa: PLC0415
+    --detach, still with the person's --go; the queue tells it what it holds (SLATE_JOB_HOLDS=render,ae), so
+    slate.ae's lock uses the job's `ae` slot instead of waiting on itself.
 
+    It goes through the queue's --detach convention (slate.jobs.client.detach_current) with the command spelled out,
+    not this process's argv: the same `slate ae …` from a person's shell, an agent or the MCP server."""
     from slate.ae import guard  # noqa: PLC0415
     from slate.jobs import client  # noqa: PLC0415
 
     guard.person_start(args.go, what, film_dir=film, action=action)
-    argv = [sys.executable, "-m", "slate", "ae", *tail, "--film", str(film), "--json", "--go"]
-    job = client.submit(kind, argv, film=str(film), resources=("render", "ae"), priority="supervised", cwd=str(film))
-    log.result({"ok": True, "ran": "queue", "job_id": job, "command": ["slate", *argv[3:]]},
+    command = ["ae", *tail, "--film", str(film), "--json", "--go"]
+    job = client.detach_current(kind, ("render", "ae"), film=str(film), priority="supervised", argv=command)
+    log.result({"ok": True, "ran": "queue", "job_id": job, "command": ["slate", *command]},
                f"Queued as job {job}. After Effects must be closed when it starts (save your work and quit it); "
                f"follow it with `slate job status {job}`.")
     return 0

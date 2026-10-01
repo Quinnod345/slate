@@ -177,6 +177,64 @@ def test_a_scene_with_no_beats_must_say_why(film):
     assert jsonio.read(film["dir"] / "timing" / "visual_events" / "act2.json")["reason"] == "a held title card"
 
 
+def _scene_with(*anims) -> dict:
+    return dict(SCENE, anims=[*SCENE["anims"], *anims])
+
+
+def test_a_draw_ends_on_its_beat_and_carries_its_span(film):
+    """t is always the beat (slate.timing.beats): a draw gives its span and ends on t, whatever `at` says; a whoosh
+    gives its span with its beat inside; a land keeps its moment and gives none."""
+    from slate.timing import beats
+
+    draw = {"id": "rule-draws", "layer": "card", "prop": "scale", "from": [0, 100], "to": [100, 100], "ease": "move",
+            "dur": "base", "start": {"shot": "S3", "frame": 30},
+            "event": {"kind": "draw", "size": "s", "note": "the rule draws across", "at": "start"}}
+    whoosh = {"id": "card-away", "layer": "card", "prop": "position", "from": [640, 360], "to": [1640, 360],
+              "ease": "move", "dur": "quick", "start": {"shot": "S3", "frame": 50},
+              "event": {"kind": "whoosh", "size": "m", "note": "the card flies off", "at": "end"}}
+    (film["dir"] / "scenes" / "ae" / "act2.json").write_text(json.dumps(_scene_with(draw, whoosh)))
+    acts.export(film["dir"], 2)
+    events = {e["id"]: e for e in jsonio.read(film["dir"] / "timing" / "visual_events" / "act2.json")}
+    fps = FPS_NUM / FPS_DEN
+    d = events["rule-draws"]
+    first, frames = 120 + 30, round(0.5 * fps)
+    assert d["start"] == pytest.approx(first / fps, abs=1e-6) and d["dur"] == pytest.approx(frames / fps, abs=1e-6)
+    assert d["t"] == pytest.approx(d["start"] + d["dur"], abs=1e-6)  # the end, though `at` said start
+    w = events["card-away"]
+    assert w["start"] <= w["t"] <= w["start"] + w["dur"] + 1e-6  # a whoosh peaks inside its span
+    assert "start" not in events["card-in"] and "dur" not in events["card-in"]
+    assert beats.problems(list(events.values()), fps=fps) == []
+
+
+def test_beats_that_break_their_span_are_refused_before_anything_is_written(film, monkeypatch):
+    resolved = {"events": [{"id": "x", "shot": "S3", "t": 6.0, "kind": "draw", "size": "s", "note": "n",
+                            "start": 5.0, "dur": 0.5}]}
+    with pytest.raises(Refused, match="ends on its beat"):
+        acts.events_doc(resolved, {"index": 2}, fps=FPS_NUM / FPS_DEN)
+
+
+def test_moves_say_which_speed_limits_hold_them(film):
+    """`class`, `exempt` and `reason` reach the trace (slate qa motion reads them); a rig part is rig unasked."""
+    carry = {"id": "page-carry", "layer": "card", "prop": "position", "from": [640, 360], "to": [240, 360],
+             "ease": "move", "dur": "base", "start": {"shot": "S3", "frame": 20}, "class": "page"}
+    sweep = {"id": "sweep", "layer": "title", "prop": "position", "from": [0, 200], "to": [1280, 200],
+             "ease": "move", "dur": "base", "start": {"shot": "S3", "frame": 40}, "exempt": "Reading Sweep",
+             "reason": "the line reads its items at a steady speed"}
+    rig = {"id": "mark-sway", "layer": "mark", "prop": "rotation", "from": 0, "to": 8, "ease": "move", "dur": "quick",
+           "start": {"shot": "S3", "frame": 10}, "rig": "mark"}
+    (film["dir"] / "scenes" / "ae" / "act2.json").write_text(json.dumps(_scene_with(carry, sweep, rig)))
+    acts.export(film["dir"], 2)
+    trace = {t["id"]: t for t in jsonio.read(film["dir"] / "timing" / "motion" / "act2.json")}
+    assert trace["page-carry"]["class"] == "carry"
+    assert trace["sweep"]["exempt"] == "reading_sweep" and trace["sweep"]["reason"].startswith("the line")
+    assert trace["mark-sway"]["class"] == "rig"
+    assert "class" not in trace["card-in"]
+    bad = dict(carry, id="bad", **{"class": "fast"})
+    (film["dir"] / "scenes" / "ae" / "act2.json").write_text(json.dumps(_scene_with(bad)))
+    with pytest.raises(UsageError, match="class 'fast'"):
+        acts.export(film["dir"], 2)
+
+
 def test_trace_from_measured_samples():
     act = {"index": 2, "frame_in": 120, "frame_out": 192, "shots": ["S3"]}
     shots = {"S3": {"frame_in": 120, "frame_out": 192}}

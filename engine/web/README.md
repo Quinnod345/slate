@@ -49,10 +49,11 @@ draws the same pictures.
 
 ## Writing a scene
 
-Start from the template (`template/`): `node engine/cli.mjs web-render --json '{"film": "…", "act": N, "scaffold":
-true}'` copies it into `scenes/act<N>/web/` (and refuses to overwrite a scene that's there). `slate new` is meant to do
-the same when a brand's look picks the web engine (`look.engine: "web"` in the brand pack, read by the kit's
-`sceneEngine()`); until the state module calls it, run the scaffold yourself. The template's moves shrink to fit an act
+Start from the template (`template/`): `slate engine scaffold --act N` copies it into `scenes/act<N>/web/` when the
+brand's look picks the web engine (`look.engine: "web"` in the brand pack, read by the kit's `sceneEngine()`), or with
+`--engine web` for any brand; it refuses to overwrite a scene that's there unless you pass `--force`. Underneath it's
+`node engine/cli.mjs web-render --json '{"film": "…", "act": N, "scaffold": true}'`. Creating a film never needs Node,
+so `slate new` leaves this step to you. The template's moves shrink to fit an act
 shorter than the brand's durations, so its beat always lands inside the act. The film's generated tsconfig maps
 `@slate/web` to this runtime, so `tsc` from the film folder type-checks a web scene too. A scene is `index.html` plus a
 script:
@@ -106,31 +107,44 @@ against three generic families and fails on a substitute: a film's render stops 
 film), and a scene rendered on its own, which is only ever a preview, reports the failed gate and carries on
 (`on_fonts: "report"`, the default without a film).
 
-**Beats**: `defineEvent` from the kit, next to the move that makes the sound, in film seconds.
+**Beats**: `defineEvent` from the kit, next to the move that makes the sound, in film seconds. `t` is the beat; a draw
+or a count gives its span (`start`, `dur`) and ends on `t`, a whoosh or a swell peaks on `t` inside its span.
 `web-render {"emit": true}` writes `timing/visual_events/act<N>.json` (or `{"silent": true, "reason": …}` from
-`defineScene({silent: '…'})`) and the motion trace from the page itself, checked with engine-core's own rules.
+`defineScene({silent: '…'})`) and the motion trace from the page itself, checked with engine-core's own rules, and
+refuses while one of the page's word lookups fell back to an estimate (`slateScene.misses()`), as a Remotion act's emit
+does. With `"dry_run": true` it writes nothing and says what it would write and what would stop it, with the page's own
+gates: `slate emit-events --dry-run` and the hand-in check (`slate check N`) read a web act that way.
+
+**What the gate needs to know about a move**: `tween(…, {class: 'carry'})` for a page or card carried across the frame
+(a rig part is rig and the camera a carry without saying so), `exempt: 'reading_sweep' | 'steady'` with a `reason`,
+`exception` for a deliberate break a person signs off. `slate qa motion` holds each class to its own speed limits, and
+a carry may use the kit's `even` curve without the brand naming it.
+
+**A derived film** (`slate variant`) reuses its parent's captures and plates by reference: the page still reads them at
+`/_slate/film/captures/…` and `/_slate/film/plates/…`, served from the parent's folders (`.slate/refs.json`).
 
 ## The call
 
 | arg | |
 |---|---|
 | `film`, `act` | the film folder and act (the act can be left out when the film has one) |
-| `scene` | a scene folder or `.html` (default `<film>/scenes/act<N>/web/`; with no film, the template) |
+| `scene` | a scene folder or `.html` (default `<film>/scenes/act<N>/web/`; with no film, the template); like every path arg, relative to the caller's folder |
 | `from`, `to` | act frames, inclusive (default: the whole act) |
 | `sub` or `samples`, `draft`, `shutter` | motion-blur samples per frame (16; 4 with `draft`; up to 64) over a shutter in degrees (180, centred on the frame, as the films did) |
 | `out`, `codec` | `.mov` (ProRes 422 HQ), `.mkv` (lossless chunk) or `.png` (one averaged frame); default `<film>/renders/act<N>.web.mov` |
 | `gl` | `angle` (the GPU, as the films rendered) or `swangle` (software: bit-exact run to run, for contracts and tests); also `egl`, `swiftshader`, `vulkan`, `angle-egl` |
 | `concurrency` | pages drawing at once (default a quarter of the cores, 1 to 4) |
 | `on_blocked`, `on_fonts` | `fail` or `report` (see above and below) |
-| `trace`, `emit`, `scaffold` (+ `force`), `hashes`, `frames_dir` | the motion trace (on with a film), beats, a new scene from the template, every output frame's md5, every sub-frame's PNG |
+| `trace`, `emit` (+ `dry_run`), `scaffold` (+ `force`), `hashes`, `frames_dir` | the motion trace (on with a film), beats (read and checked without writing), a new scene from the template, every output frame's md5, every sub-frame's PNG |
 | `brand_path` | the brand pack (slate's bridge passes the film's) |
 | `frames`, `fps_num`, `fps_den`, `width`, `height` | a scene rendered without a film gets a scratch film of this shape (default: the engine's neutral film) |
 | `seed`, `epoch`, `browser`, `load_timeout_ms`, `seek_timeout_ms` | the page's random seed and `Date` epoch, another headless shell, patience |
 
 The result carries the file, frame count, sha256, `bundle_hash` (a hash of everything the page loaded), the stream's
-facts, the scene's runtime and problems, the browser (path, version, pid), every network attempt, the page's warnings
-and errors, the trace, and the gates: `web.network` and `fonts`. Refusals exit 1, bad calls 2, a missing scene or
-browser 3, each with a hint.
+facts, the scene's runtime and problems, the browser (path, version, pid, and its profile folder: a fresh one under
+`<SLATE_DATA>/cache/chrome`, never `$TMPDIR`, removed when the browser closes), every network attempt, the page's
+warnings and errors, the trace, and the gates: `web.network` and `fonts`. Refusals exit 1, bad calls 2, a missing scene
+or browser 3, each with a hint.
 
 ## Why it only ever loads our own pages
 

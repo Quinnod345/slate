@@ -7,6 +7,7 @@
 // The same maths lives in Python (src/slate/motion/eases.py) and is checked against one shared vectors file
 // (tests/vectors/eases.json, t90.json) by vitest, pytest and the After Effects ExtendScript runner. Keep the three in
 // step: same solver, same order of operations.
+import {monoSpline, type SKey} from './spline';
 
 export type Bezier = [number, number, number, number];
 
@@ -16,7 +17,9 @@ export type EaseSpec =
   /** (1 − cos πu) ÷ 2: at rest at both ends, top speed π/2 × average, mid-move */
   | {kind: 'sine'}
   /** a critically damped spring's shape, normalised to land exactly on 1: quick stroke, no overshoot */
-  | {kind: 'spring0'; stiffness: number};
+  | {kind: 'spring0'; stiffness: number}
+  /** the even travel profile: rest to rest through a third of the travel at each third of the time (see EVEN_KEYS) */
+  | {kind: 'even'};
 
 export type Ease = ((u: number) => number) & {spec: EaseSpec; name: string};
 
@@ -87,6 +90,25 @@ export function spring0At(u: number, stiffness = SPRING0_STIFFNESS): number {
   return raw(u) / raw(1);
 }
 
+/**
+ * The even travel profile's keys: a monotone spline (spline.ts, at rest at both ends) through a third of the travel at
+ * each third of the time. Its peak speed is 4/3 of its average, where a glide's is nearer 3: the curve for long carries
+ * of type, which strobe at a glide's peak, and for camera drifts. `slate qa motion` knows it as "even" (a carry may use
+ * it without the brand naming it), from the same keys through slate.motion.eases.mono_spline.
+ */
+export const EVEN_KEYS: readonly SKey[] = [
+  [0, 0],
+  [1 / 3, 1 / 3],
+  [2 / 3, 2 / 3],
+  [1, 1],
+];
+
+export function evenAt(u: number): number {
+  if (!(u > 0)) return 0;
+  if (u >= 1) return 1;
+  return monoSpline(u, EVEN_KEYS);
+}
+
 // ------------------------------------------------------------------------------------------------------- the eases
 /** Evaluate an ease spec at progress u, with exact endpoints. */
 export function evalEase(spec: EaseSpec, u: number): number {
@@ -99,6 +121,8 @@ export function evalEase(spec: EaseSpec, u: number): number {
       return sineAt(u);
     case 'spring0':
       return spring0At(u, spec.stiffness);
+    case 'even':
+      return evenAt(u);
     case 'bezier':
       return bezierAt(spec.bezier, u);
   }
@@ -116,11 +140,15 @@ function describe(spec: EaseSpec): string {
   return spec.kind === 'bezier' ? `cubic-bezier(${spec.bezier.join(', ')})` : spec.kind;
 }
 
-/** The curves the kit knows by kind, whatever the brand: straight, sine in-out, and the zero-bounce spring. */
+/**
+ * The curves the kit knows by kind, whatever the brand: straight, sine in-out, the zero-bounce spring and the even
+ * travel profile. A brand ease of the same name always wins (motion.ts easeNamed).
+ */
 export const BUILTIN = {
   linear: makeEase({kind: 'linear'}, 'linear'),
   sine: makeEase({kind: 'sine'}, 'sine'),
   spring0: makeEase({kind: 'spring0', stiffness: SPRING0_STIFFNESS}, 'spring0'),
+  even: makeEase({kind: 'even'}, 'even'),
 } as const;
 
 /**

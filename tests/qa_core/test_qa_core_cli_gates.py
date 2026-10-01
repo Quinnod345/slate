@@ -107,13 +107,36 @@ def test_a_detached_run_carries_the_flags_with_absolute_paths(film_builder, monk
     assert code == 2 and not seen.get("refused")  # refused before anything is queued
 
 
-def test_the_motion_and_access_gates_merge_once_however_often_the_merge_runs():
+def test_the_motion_access_and_stability_gates_merge_once_however_often_the_merge_runs():
     from slate import qa
 
     for _ in range(3):
         status = qa.load_external(refresh=True)
-    assert status == {"slate.qa.motion": "merged: motion", "slate.qa.access": "merged: access"}
+    assert status["slate.qa.motion"] == "merged: motion" and status["slate.qa.access"] == "merged: access"
+    # the stability gates come from their own module once it's installed; until then the guard says so
+    assert status["slate.qa.stability"] in ("merged: stability", "not installed yet"), status
+    assert set(status) == set(qa.EXTERNAL)
     assert [g for g in qa.GATES if g.endswith("motion")] == ["motion"]
     assert [g for g in qa.GATES if g.endswith("access")] == ["access"]
     assert qa.SOURCES["motion"] == "slate.qa.motion" and qa.SOURCES["access"] == "slate.qa.access"
     assert list(qa.GATES)[:len(qa.CORE)] == list(qa.CORE)  # the core gates keep their names and their order
+
+
+def test_a_missing_gate_module_is_named_not_fatal(monkeypatch):
+    """The import guard: a gate module that isn't installed (or fails to import) leaves the core gates running and
+    `slate qa <its name>` saying why."""
+    import sys
+
+    from slate import qa
+    from slate.errors import MissingPrerequisite
+
+    monkeypatch.setitem(sys.modules, "slate.qa.stability", None)  # import raises ModuleNotFoundError
+    try:
+        status = qa.load_external(refresh=True)
+        assert status["slate.qa.stability"] == "not installed yet" and "stability" not in qa.GATES
+        assert list(qa.GATES)[:len(qa.CORE)] == list(qa.CORE)
+        with pytest.raises(MissingPrerequisite):
+            qa.resolve(["stability"])
+    finally:
+        monkeypatch.undo()
+        qa.load_external(refresh=True)

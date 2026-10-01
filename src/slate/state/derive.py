@@ -112,8 +112,12 @@ def _label(kinds: list[str], aspect: str | None, cut: float | None, language: st
 
 def create(parent_dir: Path, child_id: str, *, format: str | None = None, aspect: str | None = None,
            language: str | None = None, cut: float | None = None, title: str | None = None, mode: str | None = None,
-           films_dir: str | Path | None = None, git: bool | None = None) -> Path:
-    """Make a derived film from `parent_dir` and return its folder (under the films folder by default)."""
+           films_dir: str | Path | None = None, git: bool | None = None, channel: str | None = None) -> Path:
+    """Make a derived film from `parent_dir` and return its folder (under the films folder by default).
+
+    `channel` is the channel the variant serves (tiktok, youtube, …): its route from slate.formats.route_for is
+    recorded in `derivation.route` (hero: the full pipeline at master quality; social: draft samples and an ffmpeg
+    master), and render and master follow it."""
     parent_dir = Path(parent_dir).resolve()
     pj = film.load(parent_dir)
     child_id = film.check_id(child_id)
@@ -152,6 +156,12 @@ def create(parent_dir: Path, child_id: str, *, format: str | None = None, aspect
     if not kinds:
         raise UsageError("Say what the derived film changes: --cut SECONDS, --aspect W:H, --language xx, or a "
                          "--format with another aspect.")
+    route = None
+    if channel:
+        r = deps.route_for(channel)
+        route = {"channel": r["channel"], "route": r["route"], "label": r.get("route_label") or r["route"],
+                 "quality": r.get("quality"), "pipeline": r.get("pipeline"), "render_samples": r.get("render_samples"),
+                 "master": r.get("master")}
     mode = mode or pj.get("mode") or "supervised"
     pack = deps.brand_load(pj["brand"])
     modes.check_new(mode, pj["brand"], pack)
@@ -230,6 +240,8 @@ def create(parent_dir: Path, child_id: str, *, format: str | None = None, aspect
         "approval": "this film needs its own final-cut approval",
         "redo": redo,
         "language_supported": lang_ok,
+        "channel": route["channel"] if route else None,
+        "route": route,
     }
     child_fj = {
         **{k: v for k, v in pj.items() if k not in ("pins", "pin_log", "versions", "derivation", "parent")},

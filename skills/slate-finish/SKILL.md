@@ -49,7 +49,7 @@ See [masters](references/masters.md).
 ## 3. Derived films: cut-downs, aspects, languages
 
 ```
-slate new <child-id> --brand <brand> --format <format> --parent <parent-id> --derivation '{"aspect": "9:16"}'
+slate variant <parent-id> <child-id> --aspect 9:16      # or --cut 15, or --language fr
 ```
 
 A derived film reuses its parent's approved takes, timings, beats and assets by reference, keeps its clock, re-stages
@@ -61,6 +61,7 @@ placements are derived at master quality; social cut-downs can take a faster rou
 
 `slate deliver` writes the delivery set, and the manifest last:
 - the masters (and derived films' masters), the mix and its four stems;
+- the format's platform files (`deliver/vN/platform/`);
 - captions as SRT and WebVTT (burned in too, where the format asks);
 - a review cut, a phone cut and 0.5-second contact sheets;
 - thumbnails;
@@ -78,7 +79,9 @@ never overwritten. See [delivery](references/delivery.md).
 contact sheet, what changed since the last version, and the open questions. It goes to the owner's Downloads for their
 own productions, or by iMessage with the phone cut and a push notification for an autonomous agent's films. Notes come
 back verbatim, numbered; fixes are targeted (re-voice only changed lines, re-render and splice only the affected range,
-re-mix, re-run the gates); versions are numbered, and every approval records the SHA-256 of what was approved. See
+re-mix, re-run the gates); versions are numbered, and every approval records the SHA-256 of what was approved.
+`slate notes add|list|plan` logs and plans them; `slate review grade` records a separate reviewer's verdict on an
+autonomous film; `slate approved <file>` says whether a file may be posted. See
 [versions and review](references/versions-and-review.md).
 
 ## Rules that hold everywhere

@@ -1,15 +1,12 @@
-"""`slate analyze <video>`, plus the other commands this module family owns.
+"""`slate analyze <video>`: measure a reference film (cuts, on-screen text, eases, voice, music).
 
-slate.cli loads this module for `analyze`. It also adds `slate formats` (slate.formats) and `slate bench`
-(slate.bench.cli), which have no line of their own in slate.cli.MODULES yet; each registers only if no other module
-has taken the name, and a failure there is recorded in slate.cli.BROKEN (where `slate doctor` looks) rather than
-taking `analyze` down with it.
+slate.cli loads this module for `analyze` only. `slate formats` (slate.formats) and `slate bench` (slate.bench.cli)
+have their own lines in slate.cli.MODULES.
 """
 
 from __future__ import annotations
 
 import argparse
-import importlib
 
 from slate import cli, log, paths
 from slate.analyze import DEFAULT_STEPS, STEPS
@@ -106,35 +103,29 @@ def cmd_analyze(args: argparse.Namespace) -> int:
 
 
 def register(sub) -> None:
-    if "analyze" not in getattr(sub, "choices", {}):
-        p = cli.add_command(
-            sub, "analyze", cmd_analyze, "analyze a reference film: cuts, on-screen text, eases, voice, music",
-            description="Measure what a reference film does, so a brand's look and motion start from evidence.\n\n"
-                        "Without step flags it runs the quick, local steps (--cuts --ocr --eases). --all adds the "
-                        "model-based ones. A step that can't run here is UNCHECKED, with the fix, and the rest still "
-                        "run. Writes analysis.json and analysis.md to the film's analysis/ folder (with --film), or to "
-                        "Slate's data folder; never beside the video.\n\n"
-                        "Exit codes: 0 ok, 2 usage, 3 a step you named couldn't run here (the rest still ran).")
-        p.add_argument("video", nargs="+", help="the reference film (or two or three, for a brand's motion study)")
-        p.add_argument("--cuts", action="store_true", help="scene cuts and changes, frames and contact sheets (ffmpeg)")
-        p.add_argument("--ocr", action="store_true", help="the words on screen in each scene (Apple Vision)")
-        p.add_argument("--eases", nargs="?", const="find", metavar="MOVES.json",
-                       help="measured eases: find the moves, or measure the ones described in MOVES.json")
-        p.add_argument("--transcript", action="store_true", help="the voice-over, by local Whisper with word timings")
-        p.add_argument("--stems", action="store_true", help="split voice and music with Demucs (uvx; analyze extra)")
-        p.add_argument("--beats", action="store_true", help="the music's tempo and beat grid with librosa (uvx)")
-        p.add_argument("--all", action="store_true", help="every step")
-        p.add_argument("--higgsfield", metavar="ANALYSIS.json",
-                       help="join a Higgsfield video analysis (0 credits; made in the chat lane) for scene labels")
-        p.add_argument("--brand", help="compare measured eases with this brand pack's named eases too")
-        p.add_argument("--language", default="en", help="the voice-over's language, for Whisper (default: en)")
-        p.add_argument("--out", help="where to write the analysis (default: see above)")
-        p.add_argument("--max-moves", dest="max_moves", type=int, help="most moves to find and fit (default 12)")
-        p.add_argument("--allow-download", dest="allow_download", action="store_true",
-                       help="let uvx and Demucs fetch what they need (off: Slate stays offline and says what's missing)")
-        p.add_argument("--detach", action="store_true", help="run as a queued job and return its id at once")
-    for module in ("slate.formats", "slate.bench.cli"):
-        try:
-            importlib.import_module(module).register(sub)
-        except Exception as exc:  # noqa: BLE001 - one broken command family must not take `analyze` down
-            cli.BROKEN[module] = f"register failed: {type(exc).__name__}: {exc}"
+    p = cli.add_command(
+        sub, "analyze", cmd_analyze, "analyze a reference film: cuts, on-screen text, eases, voice, music",
+        description="Measure what a reference film does, so a brand's look and motion start from evidence.\n\n"
+                    "Without step flags it runs the quick, local steps (--cuts --ocr --eases). --all adds the "
+                    "model-based ones. A step that can't run here is UNCHECKED, with the fix, and the rest still "
+                    "run. Writes analysis.json and analysis.md to the film's analysis/ folder (with --film), or to "
+                    "Slate's data folder; never beside the video.\n\n"
+                    "Exit codes: 0 ok, 2 usage, 3 a step you named couldn't run here (the rest still ran).")
+    p.add_argument("video", nargs="+", help="the reference film (or two or three, for a brand's motion study)")
+    p.add_argument("--cuts", action="store_true", help="scene cuts and changes, frames and contact sheets (ffmpeg)")
+    p.add_argument("--ocr", action="store_true", help="the words on screen in each scene (Apple Vision)")
+    p.add_argument("--eases", nargs="?", const="find", metavar="MOVES.json",
+                   help="measured eases: find the moves, or measure the ones described in MOVES.json")
+    p.add_argument("--transcript", action="store_true", help="the voice-over, by local Whisper with word timings")
+    p.add_argument("--stems", action="store_true", help="split voice and music with Demucs (uvx; analyze extra)")
+    p.add_argument("--beats", action="store_true", help="the music's tempo and beat grid with librosa (uvx)")
+    p.add_argument("--all", action="store_true", help="every step")
+    p.add_argument("--higgsfield", metavar="ANALYSIS.json",
+                   help="join a Higgsfield video analysis (0 credits; made in the chat lane) for scene labels")
+    p.add_argument("--brand", help="compare measured eases with this brand pack's named eases too")
+    p.add_argument("--language", default="en", help="the voice-over's language, for Whisper (default: en)")
+    p.add_argument("--out", help="where to write the analysis (default: see above)")
+    p.add_argument("--max-moves", dest="max_moves", type=int, help="most moves to find and fit (default 12)")
+    p.add_argument("--allow-download", dest="allow_download", action="store_true",
+                   help="let uvx and Demucs fetch what they need (off: Slate stays offline and says what's missing)")
+    p.add_argument("--detach", action="store_true", help="run as a queued job and return its id at once")

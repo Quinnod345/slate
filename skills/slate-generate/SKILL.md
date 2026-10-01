@@ -85,8 +85,10 @@ the code draws its lines and words on top. `slate plates matte --shot S05 --base
 
 ## 7. Spend
 
-Every call is estimated first, checked against the film's budget and the month's cap, recorded in the ledger with its
-request id before waiting, and never retried blindly. Slate never buys credits. Higgsfield's own skills (the fast lane)
+Every call is estimated first (the estimate's `usd` is the price; `discount.usd` is only the saving), checked against
+the film's budget and the month's cap, recorded in the ledger with its request id before waiting, and sent with an
+Idempotency-Key, so a lost answer is resent with the same key and body and charged once. Video plates are 720p unless
+the owner chooses 1080p (2.46x the price). Slate never buys credits. Higgsfield's own skills (the fast lane)
 bill app credits, a separate pool that isn't funded by default. See [spend](references/spend.md).
 
 ## References

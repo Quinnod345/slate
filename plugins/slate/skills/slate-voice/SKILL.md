@@ -1,6 +1,6 @@
 ---
 name: slate-voice
-description: Cast, design, direct and record the voice of a Slate film, then clean, pace, align and caption it. Covers casting shootouts and Voice Design with measured ranking, directing eleven_v4 with audio tags (never whisper, soft, quiet or gentle tags), voicing every line with its neighbours as context, cleanup, pacing, word timings, captions, the voice checks, and the cloning policy (designed or library voices by default, the owner's own verified professional clone, never anyone else's). Use when a Slate film needs a narrator chosen or designed, lines voiced or re-voiced, a take cleaned or re-timed, captions made, or a question about which voices may be used.
+description: Cast, design, direct and record the voice of a Slate film, then clean, pace, polish, align and caption it. Covers casting shootouts and Voice Design with measured ranking, directing eleven_v4 with audio tags (never whisper, soft, quiet or gentle tags) and the tag-optimization loop, voicing every line with its neighbours as context, cleanup, pacing, the studio polish (de-esser, EQ, compression, a small room, verified by measurement), measured inflection and A/B spectrogram sheets, word timings, captions, the voice checks, and the cloning policy (designed or library voices by default, the owner's own verified professional clone, never anyone else's). Use when a Slate film needs a narrator chosen or designed, lines voiced or re-voiced, tags tested, a take cleaned, polished or re-timed, a read judged by measurement, captions made, or a question about which voices may be used.
 ---
 
 # slate-voice
@@ -59,6 +59,14 @@ The tagged script lives in `voice/direction.json`; `slate voice --help` lists th
 stripping and A/B-testing tags). The full guide: [v4 tags](references/v4-tags.md); settings and context:
 [directing](references/directing.md).
 
+**When a line's direction matters, run the tag loop** (its actions are among the direction tools): write the candidates
+(several tagged versions, several seeds each, plus extra untagged seeds of the same line), check the estimate, then
+voice and measure the round. Every take is a paid call in live mode. Each take is measured against the voice's untagged
+reads of the same words on three spans (the tag's words, the words where the feeling should show, the whole line),
+gated (full voice, words, creak, fits, no question rise, no mid-word stop) and checked for its feeling (a smile,
+reassurance, a calmer read). The best passing takes go to the owner as a level-matched ABC reel, and the pick goes into
+the film as that exact file, never re-voiced. See [the tag loop](references/tag-loop.md).
+
 ## 4. Voice every line
 
 ```
@@ -84,7 +92,35 @@ Re-voicing, leaked tails and reusing approved takes: [takes and re-voicing](refe
 - `slate voice pace` shortens long pauses and quickens the read gently with Rubber Band (formants kept), because
   eleven_v4's own speed setting barely moves it. See [pacing](references/pacing.md).
 
-## 6. Align, caption, time
+## 6. Polish
+
+A generated voice can sound generated: harsh S sounds, a glassy edge, no room around it. The **polish** stage runs a
+studio vocal chain on every take, locally: a high-pass, a low-mid cleanup, moderate compression on the take at a working
+loudness, a dynamic cut on the 2-5 kHz edge and a de-esser (each only while a consonant dominates its band), warmth
+shelves, a small synthetic room, and the take's own loudness back at the end. Every stage keeps the length sample for
+sample, so nothing in the cut moves.
+
+- **Try first.** Its trial mode renders the voice's named strengths (A, the subtler side of a marked change; B, the
+  warmer side; or any number from 0 to 1) for every line, with a level-matched reel and A/B sheets, pinning nothing.
+- **The owner picks by ear**, then the polish runs at that strength and the film pins it, chain and all, so a line
+  re-voiced later gets the same polish. Moving the pin needs the owner's name and a reason.
+- **Perfect, don't replace.** The polished file sits beside the take; the raw, clean and paced files never change, and
+  voice measurements keep reading the unpolished stages.
+- A voice's tuning lives in its profile (`polish`), measured on its own takes; the neutral chain is the default.
+
+`slate voice --help` lists the stage. Align again afterwards, so Whisper hears what the audience hears. See
+[the polish](references/polish.md).
+
+## 7. Measure a read
+
+The **analysis** stage measures any take (a WAV, or a shot) and compares takes against a reference: pitch level, range
+and contour, breath and effort (voiced fraction, CPPS, HNR, H1-H2, tilt), brightness, sibilance and edge, loudness,
+creak, pacing, the last word's movement, a clean ending, and the Whisper checks. With a sheet it draws every take's
+spectrogram, words, pitch and level on one time and colour scale beside its numbers. Use it before the owner hears a
+tagged take, to choose a polish strength, and to check a re-voice against the approved take. Emotion comes through a
+full voice, checked by measurement; the owner still picks by ear. See [measuring a read](references/measuring-reads.md).
+
+## 8. Align, caption, time
 
 ```
 slate voice align                   # word timings (Whisper by default), recorded with the model and version
@@ -98,7 +134,7 @@ proven against Whisper. Captions are at most 2 lines of 42 characters, 17 charac
 never overlapping, and word for word the script. See [alignment](references/alignment.md) and
 [captions](references/captions.md).
 
-## 7. The voice checks
+## 9. The voice checks
 
 Before the owner hears a take, it passes the voice checks (listed in `slate voice --help`, recorded in
 `qa/gates.json`):
@@ -107,11 +143,17 @@ Before the owner hears a take, it passes the voice checks (listed in `slate voic
 - **takes**: every line has a take;
 - **words**: Whisper hears every word, and every brand word in full, with no repeats and no tag read aloud;
 - **tails**: no sound from the next line leaking into the end of a take;
-- **fit**: each read fits its shot, starting a short lead in and ending before the cut.
+- **fit**: each read fits its shot, starting a short lead in and ending before the cut;
+- **inflection**: nothing whisper-like, no tagged read breathier than the voice's untagged reads of the same words, no
+  statement ending that rises like a question, no read that stops mid-word; a tagged line nobody has measured waits for
+  the owner's ear;
+- **polish**: every polished take verified by measurement (same length, loudness back within 0.5 LU, S and edge down
+  within the chain's reach, not over-processed, made with the film's pinned polish); a film that doesn't polish passes
+  and says so.
 
 Replayed takes (in tests) are UNCHECKED, never passed.
 
-## 8. Approval and locks
+## 10. Approval and locks
 
 Takes are approved by ear, each against its exact bytes, and approved takes are locked by hash. The voice shortlist
 belongs to the pre-production sitting; individual takes come in packets. Re-voicing an approved take needs `--force`
@@ -124,8 +166,11 @@ and a recorded spend approval, and re-voices only the lines that changed, with t
 - [voice-design](references/voice-design.md): the voice brief, prompts, previews, the production-model check.
 - [directing](references/directing.md): settings, context, timing from the text, consistency.
 - [v4-tags](references/v4-tags.md): the tag families, the rules, the banned tags, measuring every tagged take.
+- [tag-loop](references/tag-loop.md): candidates and seeds, measuring rounds, the gates and feelings, ABC, adopting.
 - [cleanup](references/cleanup.md): the floor, the chain, Voice Isolator, Voice Remix.
 - [pacing](references/pacing.md): shortening pauses, Rubber Band, what the speed setting doesn't do.
+- [polish](references/polish.md): the studio chain, strengths, trials, pins, the report and its gate, tuning a voice.
+- [measuring-reads](references/measuring-reads.md): every measure, A/B sheets, when to use them, the inflection gate.
 - [alignment](references/alignment.md): Whisper, onset snapping, forced alignment, word misses.
 - [captions](references/captions.md): the caption rules, sidecars and burned-in captions.
 - [takes-and-revoicing](references/takes-and-revoicing.md): pins, locks, leaked tails, re-voicing with neighbours.

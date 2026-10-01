@@ -119,6 +119,27 @@ def test_budget_film_records_a_raise_for_a_supervised_film(live):
         ledger.check_budget(ledger.estimate("elevenlabs", "tts", amount=2300), film=film, rework=True)
 
 
+def test_a_brands_onboarding_budget_can_be_raised_like_a_films(slate_home):
+    """`--film onboarding-<brand>` is the brand's onboarding billing id (slate.brand.onboard.billing), not a folder."""
+    code, out, err = run_cli(["--json", "--film", "onboarding-demo", "budget", "film", "--provider", "elevenlabs",
+                              "--raise", "2000", "--approved-by", "Quinn"])
+    assert code == 0, err
+    data = json.loads(out)
+    assert data["raise"]["film"] == "onboarding-demo" and data["budget"]["raised"] == 2000
+    from slate.brand import onboard
+
+    limits = ledger.film_limits(onboard.billing("demo"))["providers"]["elevenlabs"]
+    assert limits["budget"] == data["budget"]["budget"]  # onboarding spend checks against the raised budget
+    code, _, err = run_cli(["--film", "onboarding-no-such-brand", "budget", "film", "--provider", "elevenlabs",
+                            "--raise", "10", "--approved-by", "Quinn"])
+    assert code == 2
+
+
+def test_an_aliases_budget_names_its_own_format_file():
+    assert ledger.format_budget("reel")["source"] == ledger.format_budget("social-reel")["source"] == \
+        "formats/social-reel.json"
+
+
 def test_budget_film_needs_a_provider_when_the_film_has_two(slate_home):
     film = _film(slate_home["films"], "both", mode="supervised", budget={"elevenlabs": 1000, "higgsfield": 40})
     code, _, err = run_cli(["--film", str(film), "budget", "film", "--raise", "10", "--approved-by", "Quinn"])
@@ -306,7 +327,7 @@ def test_budget_show(slate_home, monkeypatch):
     assert code == 0 and [f["film"] for f in json.loads(out)["films"]] == ["promo"]
 
 
-def test_ledger_snapshot_and_reconcile(slate_home):
+def test_ledger_snapshot_and_reconcile(slate_home, monkeypatch):
     code, out, err = run_cli(["--json", "ledger", "snapshot", "--provider", "higgsfield", "--balance", "120.5",
                               "--session", "s1"])
     assert code == 0, err
@@ -316,12 +337,11 @@ def test_ledger_snapshot_and_reconcile(slate_home):
     assert code == 3 and "--balance" in err
     code, out, _ = run_cli(["--json", "ledger", "reconcile", "--provider", "higgsfield"])
     assert code == 1 and json.loads(out)["results"][0]["status"] == "UNCHECKED"
-    resume.register_balance("higgsfield", lambda: 100.5)
-    try:
+    # setitem, never register + pop: popping would also delete a reader a vendor module registered (it did once)
+    with monkeypatch.context() as m:
+        m.setitem(resume._BALANCES, "higgsfield", lambda: 100.5)
         code, out, _ = run_cli(["--json", "ledger", "snapshot", "--provider", "higgsfield", "--session", "s1"])
         assert code == 0 and json.loads(out)["snapshots"][0]["source"] == "replay"
-    finally:
-        resume._BALANCES.pop("higgsfield", None)
     code, out, _ = run_cli(["--json", "ledger", "reconcile", "--provider", "higgsfield", "--session", "s1"])
     result = json.loads(out)["results"][0]
     assert code == 1 and result["status"] == "REVIEW" and result["unexplained"] == 20
@@ -344,12 +364,10 @@ def test_reconcile_passes_when_the_ledger_explains_the_drop(live, monkeypatch):
     assert rec["status"] == "REVIEW" and "went up" in rec["summary"]
 
 
-def test_snapshot_all_reads_what_it_can(slate_home):
-    resume.register_balance("elevenlabs", lambda: 12345.0)
-    try:
+def test_snapshot_all_reads_what_it_can(slate_home, monkeypatch):
+    with monkeypatch.context() as m:  # restores the reader slate.vendors.elevenlabs registered, if it had
+        m.setitem(resume._BALANCES, "elevenlabs", lambda: 12345.0)
         code, out, _ = run_cli(["--json", "ledger", "snapshot", "--all"])
-    finally:
-        resume._BALANCES.pop("elevenlabs", None)
     data = json.loads(out)
     assert code == 0 and [s["provider"] for s in data["snapshots"]] == ["elevenlabs"]
     assert data["skipped"][0]["provider"] == "higgsfield"

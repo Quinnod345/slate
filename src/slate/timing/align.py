@@ -46,9 +46,31 @@ def whisper_model(film: dict | None = None) -> str:
     return WHISPER_MODELS.get(chosen, chosen)
 
 
+# The voice module's switch, honoured here too, so both Whisper runners use the same CLI: SLATE_WHISPER (or slate.toml's
+# [voice] whisper) names one particular Whisper (a build outside Homebrew, or a test's stand-in). Slate's PATH puts
+# Homebrew first whatever the caller's PATH says, so a PATH entry can't do this job.
+WHISPER_ENV = "SLATE_WHISPER"
+
+
+def whisper_exe(*, required: bool = True) -> str | None:
+    """The Whisper CLI to run: SLATE_WHISPER (or [voice] whisper), else `whisper` on Slate's PATH."""
+    chosen = os.environ.get(WHISPER_ENV) or (config.load().get("voice") or {}).get("whisper")
+    if chosen:
+        path = str(Path(str(chosen)).expanduser())
+        if os.path.isfile(path) and os.access(path, os.X_OK):
+            return path
+        if required:
+            raise MissingPrerequisite(f"{WHISPER_ENV} names {path}, which isn't an executable file.",
+                                      hint="Point it at a Whisper CLI, or unset it to use the one on Slate's PATH.")
+        return None
+    if required:
+        return procs.require("whisper", hint="Install openai-whisper (Homebrew) with `slate doctor --install`.")
+    return procs.which("whisper")
+
+
 def whisper_version() -> str:
     """openai-whisper's version, read from the Homebrew Cellar path of the `whisper` CLI (no Python import needed)."""
-    exe = procs.which("whisper")
+    exe = whisper_exe(required=False)
     if not exe:
         return "not installed"
     real = os.path.realpath(exe)
@@ -92,7 +114,7 @@ def _hold_whisper_lock():
 
 def run_whisper(path: Path, *, model: str, language: str) -> dict:
     """Transcribe one take with the whisper CLI and return its JSON (segments with word timestamps)."""
-    exe = procs.require("whisper", hint="Install openai-whisper (Homebrew) with `slate doctor --install`.")
+    exe = whisper_exe()
     with tempfile.TemporaryDirectory(prefix="slate-whisper-") as tmp:
         procs.run([exe, str(path), "--model", model, "--language", language, "--word_timestamps", "True",
                    "--output_format", "json", "--output_dir", tmp, "--fp16", "False"],

@@ -15,6 +15,9 @@
     slate qa access [--only CHECK] [--captions PATH] [--sheet PATH] [--platform NAME]
                                       the motion and access gates with their own options (a narrowed run reports
                                       what it finds but can't pass the gate)
+    slate qa stability [run|baseline|reference|strip|selftest|controls|conformance] [--act N] …
+                                      the render stability gate and its tools (slate.qa.stability; `slate qa
+                                      stability --help` lists them)
 """
 
 from __future__ import annotations
@@ -26,17 +29,41 @@ from slate import cli, gates, log
 from slate.errors import UsageError
 
 
-def _gate_options():
-    """slate.qa.motion's hook for the motion and access gates' own flags, or None when that module isn't here.
+HOOK_NAMES = ("add_qa_options", "qa_options", "qa_option_argv")
+_HOOKS_ADDED: list = []  # the hook modules whose flags are on the `slate qa` parser built last
 
-    `slate qa` is the one command that runs every gate, the motion and access gates included, so their flags live on
-    it (added once, whichever of the two gates a run names) instead of on commands of their own."""
-    try:
-        from slate.qa import motion  # noqa: PLC0415
-    except Exception:  # noqa: BLE001 - another module's import error mustn't take `slate qa` down
-        return None
-    needed = ("add_qa_options", "qa_options", "qa_option_argv")
-    return motion if all(callable(getattr(motion, n, None)) for n in needed) else None
+
+def _hook_modules() -> list:
+    """The gate modules whose own flags ride on `slate qa`: slate.qa.motion (for the motion and access gates), and any
+    other merged gate module (slate.qa.stability, when it's installed) that offers the same three hooks.
+
+    `slate qa` is the one command that runs every gate, these included, so their flags live on it (added once,
+    whichever of their gates a run names) instead of on commands of their own. A module that isn't installed, or
+    fails to import, simply adds nothing: it must never take `slate qa` down."""
+    import importlib  # noqa: PLC0415
+
+    from slate import qa  # noqa: PLC0415
+
+    out = []
+    for name in ("slate.qa.motion", *[m for m in qa.EXTERNAL if m not in ("slate.qa.motion", "slate.qa.access")]):
+        try:
+            module = importlib.import_module(name)
+        except Exception:  # noqa: BLE001
+            continue
+        if all(callable(getattr(module, n, None)) for n in HOOK_NAMES):
+            out.append(module)
+    return out
+
+
+def _gate_options():
+    """slate.qa.motion's hook for the motion and access gates' own flags, or None when that module isn't here."""
+    hooks = [h for h in _hook_modules() if h.__name__ == "slate.qa.motion"]
+    return hooks[0] if hooks else None
+
+
+def _hooks() -> list:
+    """The hook modules whose flags were added to this `slate qa` parser."""
+    return list(_HOOKS_ADDED)
 
 IMAGE_EXT = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp"}
 SPECIAL = ("triage", "psnr", "unpark")
@@ -62,15 +89,34 @@ def register(sub) -> None:
     p.add_argument("--by", metavar="NAME", help="the person accepting or releasing")
     p.add_argument("--reason", metavar="TEXT", help="why the item is acceptable")
     p.add_argument("--note", metavar="TEXT", help="unpark: a note for the record")
-    hook = _gate_options()
-    if hook is not None:
-        hook.add_qa_options(p)
+    _HOOKS_ADDED.clear()
+    for hook in _hook_modules():
+        try:
+            hook.add_qa_options(p)
+        except Exception as exc:  # noqa: BLE001 - a flag clash or a bug in one gate module mustn't lose `slate qa`
+            from slate import qa  # noqa: PLC0415
+
+            qa.EXTERNAL_STATUS[hook.__name__] = f"its `slate qa` flags couldn't be added: {type(exc).__name__}: {exc}"
+            continue
+        _HOOKS_ADDED.append(hook)
 
 
 def _gate_flags(args: argparse.Namespace) -> list[str]:
-    """The motion and access flags given on this command line, as words (empty when there are none)."""
-    hook = _gate_options()
-    return hook.qa_option_argv(args) if hook is not None else []
+    """The gate modules' own flags given on this command line (motion, access, stability), as words."""
+    words: list[str] = []
+    for hook in _hooks():
+        words += list(hook.qa_option_argv(args) or [])
+    return words
+
+
+def _options(args: argparse.Namespace, targets: list[str]):
+    """Every hook module's qa_options for this run, entered together (each checks and applies its own flags)."""
+    import contextlib  # noqa: PLC0415
+
+    stack = contextlib.ExitStack()
+    for hook in _hooks():
+        stack.enter_context(hook.qa_options(args, targets))
+    return stack
 
 
 PATH_FLAGS = ("--render", "--captions", "--sheet")
@@ -112,15 +158,11 @@ def handle(args: argparse.Namespace) -> int:
             raise UsageError("`slate qa unpark` takes no gate names.", hint="slate qa unpark --by NAME [--note TEXT]")
         return _unpark(args)
     quick = bool(getattr(args, "quick", False))
-    hook = _gate_options()
     if getattr(args, "detach", False):
-        if hook is not None:
-            with hook.qa_options(args, targets):  # refuse flags that don't fit before anything is queued
-                pass
+        with _options(args, targets):  # refuse flags that don't fit before anything is queued
+            pass
         return _detach(targets, quick=quick, extra=_absolute(_gate_flags(args)))
-    if hook is None:
-        return _run(targets, quick=quick)
-    with hook.qa_options(args, targets):
+    with _options(args, targets):
         return _run(targets, quick=quick)
 
 

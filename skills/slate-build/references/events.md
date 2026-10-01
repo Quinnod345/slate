@@ -9,11 +9,21 @@ press, a check, a vertex and a row) made consistent sound impossible on the firs
 `timing/visual_events/act<N>.json`, written by `slate emit-events` from the act's scenes:
 
 ```json
-[{"shot": "S12", "id": "seal_sets", "t": 41.28, "kind": "stamp", "size": "l", "note": "the seal presses into the page"}]
+[{"shot": "S12", "id": "seal_sets", "t": 41.28, "kind": "stamp", "size": "l", "note": "the seal presses into the page"},
+ {"shot": "S13", "id": "trend_draws", "t": 44.10, "start": 43.30, "dur": 0.80, "kind": "draw", "size": "m",
+  "note": "the trend line draws"}]
 ```
 
-- `t` is the film second where the motion **lands** (its contact), taken from the same beat constant the picture uses.
-  For kinds with length: a draw ends on `t`, a whoosh or a swell peaks on it, a count runs `from` → `to` and lands on it.
+- `t` is always **the beat**: the film second where the motion lands (its contact), taken from the same beat constant
+  the picture uses. Never the start.
+- A sustained motion also gives its **span**: `start` (film seconds) and `dur` (seconds), always together.
+  - A `draw` and a `count` need their span, and they **end on their beat**: `t = start + dur` (within half a frame).
+    A count runs `from` → `to` and reaches `to` at `t`.
+  - A `whoosh` and a `swell` **peak on their beat**, somewhere inside their span.
+  - Any other kind may give a span too; its beat sits inside it.
+  The films timed one sustained draw at its start while the sound handover read a draw as ending on `t`; spans make
+  it explicit, and `slate.timing.beats.problems` checks the arithmetic the same way for every engine and reader.
+- A capture's beats carry `"source": "capture:<name>"`; a captured draw or count needs its span like any other.
 - `id` is unique in the act and says what it is.
 - `note` is what the viewer sees, in plain words.
 - An act with no beats says so, `{"silent": true, "reason": "…"}`, because "no file" and "no beats" look the same to a
@@ -54,6 +64,7 @@ press, a check, a vertex and a row) made consistent sound impossible on the firs
 ## Checking
 
 - `slate emit-events --act <N>` writes the file from the act and validates it: kinds, sizes, the act's span, unique
-  ids, at most one impact.
+  ids, at most one impact, and every beat's own span (t at a draw's end, inside a whoosh's span).
 - `slate check <N>` fails the act when its events file is missing or no longer matches what the act says now.
-- `slate qa events_complete` fails the film if any act has neither beats nor an explicit silence.
+- `slate qa events_complete` fails the film if any act has neither beats nor an explicit silence, or if a beat
+  disagrees with its span.

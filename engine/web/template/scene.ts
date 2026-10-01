@@ -1,6 +1,7 @@
 // The template web scene: a three.js object and one line of text, both moved with the brand's motion law, drawn in the
-// brand's tokens. `slate new` copies it into scenes/act<N>/web/ when a brand's look picks the web engine; the tests
-// render it standalone. Replace the object, the copy and the moves; keep the shape:
+// brand's tokens. `slate engine scaffold --act N` copies it into scenes/act<N>/web/ (when a brand's look picks the web
+// engine, or with --engine web); the tests render it standalone. Replace the object, the copy and the moves; keep the
+// shape:
 //
 //   1. build the picture once, at module level (DOM, three.js, R3F);
 //   2. make every move with tween() (it lands on whole film frames and writes the act's motion trace), or on a

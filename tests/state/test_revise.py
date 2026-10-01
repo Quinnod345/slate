@@ -107,6 +107,9 @@ def test_revise_needs_approved_unchanged_work(approved):
 def test_hooks_are_measured_and_broken_hooks_are_unchecked(approved, monkeypatch):
     fd = approved
     monkeypatch.setattr(revise, "HOOKS", {})
+    # only this test's hooks: the modules' own (sound, qa, voice) would register into the patched HOOKS when check()
+    # imports them for the first time, which is what made this test fail when it ran alone
+    monkeypatch.setattr(revise, "HOOK_MODULES", ())
 
     def level_vs_voice(film_dir, approved_path, current_path, rev):
         return gates.GateResult.pass_("level_vs_voice", "effects 11 LU under the voice, as approved")

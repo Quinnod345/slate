@@ -143,7 +143,7 @@ function readBrand(brandPath) {
 /** Every arg web-render reads. Anything else is a typo, refused rather than quietly ignored. */
 export const KNOWN_ARGS = new Set([
   'film', 'act', 'scene', 'from', 'to', 'sub', 'samples', 'draft', 'shutter', 'out', 'codec', 'gl', 'concurrency',
-  'on_blocked', 'on_fonts', 'trace', 'emit', 'scaffold', 'force', 'hashes', 'frames_dir', 'brand_path', 'frames',
+  'on_blocked', 'on_fonts', 'trace', 'emit', 'dry_run', 'scaffold', 'force', 'hashes', 'frames_dir', 'brand_path', 'frames',
   'fps_num', 'fps_den', 'width', 'height', 'seed', 'epoch', 'browser', 'load_timeout_ms', 'seek_timeout_ms',
   // passed by callers that also drive Remotion; the web renderer serves its own scene, so it's ignored
   'serve_url',
@@ -160,12 +160,17 @@ export function checkArgs(args) {
 
 /**
  * Resolve a web-render call into a job. Throws usage errors (exit 2) for bad args and missing-prerequisite errors
- * (exit 3) for a scene that isn't there. `cwd` is where relative paths without a film are resolved from.
+ * (exit 3) for a scene that isn't there. `cwd` is the caller's folder: every relative path in the args (film, scene,
+ * out, frames_dir, brand_path, browser) is resolved from there, as engine/cli.mjs promises for every command. A film's
+ * own scene needs no path at all: it's <film>/scenes/act<N>/web/.
  */
 export async function resolveJob(args = {}, {cwd = process.cwd()} = {}) {
   const standalone = !args.film;
   if (standalone && args.emit) {
     throw usage("Emitting events and the motion trace needs a film (\"film\": its folder): they're written into its timing/.");
+  }
+  if (args.dry_run && !args.emit) {
+    throw usage('"dry_run" goes with "emit": it reads the page\'s beats and checks them without writing anything.');
   }
   const filmDir = standalone ? scratchFilm(args) : resolveFrom(cwd, args.film);
   try {
@@ -179,7 +184,8 @@ export async function resolveJob(args = {}, {cwd = process.cwd()} = {}) {
 function resolveWithFilm(args, filmDir, standalone, cwd) {
   const emit = Boolean(args.emit);
   const ctx = loadFilm(filmDir);
-  const base = standalone ? cwd : ctx.dir;
+  // Relative paths are the caller's, film or no film (engine/cli.mjs resolves them before they get here too).
+  const base = cwd;
 
   let actArg = args.act;
   if (actArg === undefined || actArg === null || actArg === '') {
@@ -239,6 +245,7 @@ function resolveWithFilm(args, filmDir, standalone, cwd) {
 
   return {
     mode: emit ? 'emit' : 'render',
+    dryRun: emit && Boolean(args.dry_run),
     standalone,
     scratchDir: standalone ? ctx.dir : null,
     ctx,

@@ -16,7 +16,7 @@
 //   - ready() waits for the page's fonts and runs the web font gate, so a substituted face fails the render the way it
 //     fails a Remotion render;
 //   - trace() and events() hand the renderer the act's motion trace and visual beats from the same modules the
-//     picture reads.
+//     picture reads, and misses() the word lookups that fell back to an estimate (emit refuses beats on a guess).
 import {gsap} from 'gsap';
 import {actEvents, eventProblems, missLabels, motionProblems, traceMotions} from '../../remotion/kit/core/index';
 import {sceneAct, sceneGlobals} from './env';
@@ -64,6 +64,8 @@ export type SlateScene = {
   trace?(): unknown[];
   /** everything the kit had to assume or refuse (unknown eases, word misses, bad events) */
   problems?(): string[];
+  /** the kit's word lookups that fell back to an estimate (also in problems()): a beat on one would land on a guess */
+  misses?(): string[];
   /** the web font gate's report, once ready() has run */
   fonts?(): WebFontGateReport | null;
 };
@@ -196,6 +198,9 @@ export function defineScene(opts: SceneOptions = {}): SlateScene {
     },
     problems() {
       return [...motionProblems(), ...tweenProblems(), ...eventProblems(), ...missLabels()];
+    },
+    misses() {
+      return missLabels();
     },
     fonts: () => fontReport,
   };

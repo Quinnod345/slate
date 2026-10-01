@@ -5,7 +5,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {afterAll, beforeAll, describe, expect, it} from 'vitest';
 import {cli, decodeFrame, film, kitCore, ok, probe, readJson, scratch, twoActs} from './helpers.mjs';
+import {spawnSync} from 'node:child_process';
 import {ffmpegArgs, filterChain} from '../../remotion/render_mb.mjs';
+import {COMPLETE_FLAGS, COMPLETE_SHELL, browserExecutable, browserStatus} from '../../remotion/browser.mjs';
 
 let root;
 let data;
@@ -35,6 +37,19 @@ function edgePixels(file, n) {
   const hi = Math.max(...row);
   return row.filter((v) => v > lo + 8 && v < hi - 8);
 }
+
+describe("the Chrome every Remotion render launches", () => {
+  it('finishes every tile before it draws a sample, so no sub-frame loses one (a one-frame grey veil)', () => {
+    expect(browserStatus().present).toBe(true);
+    expect(browserExecutable()).toBe(COMPLETE_SHELL);
+    const script = fs.readFileSync(COMPLETE_SHELL, 'utf8');
+    for (const flag of COMPLETE_FLAGS) expect(script).toContain(flag);
+    // it is Remotion's own shell underneath, the version Remotion 4.0.521 was tested with
+    const v = spawnSync(COMPLETE_SHELL, ['--version'], {encoding: 'utf8'});
+    expect(v.status).toBe(0);
+    expect(v.stdout).toMatch(new RegExp(`\\b${browserStatus().version.replace(/\./g, '\\.')}\\b`));
+  });
+});
 
 describe('the filter chain', () => {
   it('averages sub samples in 16-bit, at the film rate, into BT.709 with every tag', () => {

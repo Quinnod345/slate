@@ -110,6 +110,13 @@ describe('components draw, as pure functions of time', () => {
     expect(html).toContain('--slate-color-accent');
   });
 
+  it('sets a count-up\'s box by its final value, unseen, so a face without tabular figures never re-centres it', () => {
+    const html = at(0.3, <CountUp t0={0.1} from={0} to={671} duration={0.8} />);
+    // the box: the final value, hidden; the count drawn over it from the same left edge
+    expect(html).toMatch(/<span style="visibility:hidden">671<\/span><span style="position:absolute;left:0;top:0;white-space:nowrap">\d+<\/span>/);
+    expect(text(at(0.95, <CountUp t0={0.1} from={0} to={671} duration={0.8} />))).toBe('671671');
+  });
+
   it('holds each figure of a count-up for three whole frames', () => {
     const frames = [0, 1, 2, 3, 4, 5].map((f) => at(0.1 + f / 25 + 0.001, <CountUp t0={0.1} from={0} to={100} duration={0.8} />));
     expect(frames[0]).toBe(frames[1]);

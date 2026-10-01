@@ -36,12 +36,17 @@ brand use) is a named person at that company.
 ## The steps
 
 ```
-slate brand init <brand>          # a new pack from the template
-slate brand onboard <brand>       # the onboarding checklist: what exists, what's missing, what's next
+slate brand status <brand>        # onboarded, or "needs onboarding" and the next step (--json for agents)
+slate brand init <brand>          # a new pack from the template (brands/_template/README.md explains every key)
+slate brand onboard <brand>       # the onboarding checklist: what exists, what's missing, what's next, what it's spent
 slate analyze <reference-film>    # transcript, scenes, OCR and measured eases from each reference film
 slate brand validate <brand>      # the pack against its schema, and which references are approved
 slate brand approve --help        # records one reference's approval: who, when, and its SHA-256
 ```
+
+Onboarding spends a little (Voice Design, a look test): it bills against the brand's own onboarding budget (5,000
+ElevenLabs credits and $20 of Higgsfield by default), shown on `slate brand onboard`'s spend line, separate from any
+film's.
 
 1. **Research**: sources, claims and the brand system, every claim cited (see [onboarding](references/onboarding.md)).
 2. **Truth**: the truth reference (see [truth pack](references/truth-pack.md)).

@@ -1,0 +1,1458 @@
+[
+ {
+  "id": "L-voice-S001",
+  "text": "A tagged take passes \"full voice\" only when two tests both hold on every span (the words its tag governs, the line's emotion words and the whole line): the statistical breathiness rule, and no span breathier than the breathiest of the voice's own untagged takes of the same words. Four picks sat inside one SD yet were breathier than every untagged take of their line, which is what the owner heard as whispery.",
+  "source": "FILMROOT/sound/trudy_voice/V4_TAGS.md:250-266; FILMROOT/sound/trudy_voice/tools/tag_pick.py (docstring)",
+  "kind": "rule",
+  "area": "voice",
+  "gate_type": true,
+  "proposed_destination": {
+   "type": "gate",
+   "target": "src/slate/voice/analyze.py (planned this run: voice analysis, P380)",
+   "reason": "The strict test is the owner's rule in measurable form: nothing breathier than the voice's own baseline."
+  }
+ },
+ {
+  "id": "L-voice-S002",
+  "text": "No question rise: a take's last word may rise at most 3 semitones past the voice's untagged endings of that line (a fall never counts as a rise); a one-word declarative that rises 6.6 semitones reads as a question.",
+  "source": "FILMROOT/sound/trudy_voice/V4_TAGS.md:258, 269-271; FILMROOT/sound/trudy_voice/tools/tag_pick.py (docstring)",
+  "kind": "rule",
+  "area": "voice",
+  "gate_type": true,
+  "proposed_destination": {
+   "type": "gate",
+   "target": "src/slate/voice/analyze.py (planned this run: voice analysis, P380)",
+   "reason": "A pitch-contour gate on the last word, measured against the voice's own takes."
+  }
+ },
+ {
+  "id": "L-voice-S003",
+  "text": "Complete: a take must not stop mid-word. Its last 20 ms sit at least 35 dB under its speech level; the clipped takes ended only 10 to 16 dB down, where the voice's untagged takes end 47 dB or more down.",
+  "source": "FILMROOT/sound/trudy_voice/V4_TAGS.md:259, 271-272; FILMROOT/sound/trudy_voice/tools/tag_pick.py (docstring); FILMROOT/sound/trudy_voice/tools/c01_confident.py (tail_drop)",
+  "kind": "rule",
+  "area": "voice",
+  "gate_type": true,
+  "proposed_destination": {
+   "type": "gate",
+   "target": "src/slate/voice/analyze.py (planned this run: voice analysis, P380)",
+   "reason": "A tail-level gate; the round-1 pick itself failed it."
+  }
+ },
+ {
+  "id": "L-voice-S004",
+  "text": "Creak: a take may creak no more than the voice's untagged takes of the line plus one percentage point. Creak is voiced frames under 115 Hz or 0.6 times the take's median pitch, or pitch more than 20% off a 5-frame running median, with the words it falls on.",
+  "source": "FILMROOT/sound/trudy_voice/V4_TAGS.md:256; FILMROOT/sound/trudy_voice/tools/voice_metrics.py (docstring); FILMROOT/sound/trudy_voice/tools/tag_pick.py (docstring)",
+  "kind": "rule",
+  "area": "voice",
+  "gate_type": true,
+  "proposed_destination": {
+   "type": "gate",
+   "target": "src/slate/voice/breath.py",
+   "reason": "The breath module already measures creak; the gate compares it with the untagged takes."
+  }
+ },
+ {
+  "id": "L-voice-S005",
+  "text": "Measure a line's intended emotion on its emotion words against the voice's untagged takes of the same words, with one proxy per intent: a smile is pitch up 0.8 to 3.5 semitones (past that reads theatrical) and brighter (centroid +4% or F2 +2%, F2 only on spans with 80+ voiced frames); reassurance or sincerity is a steadier pitch (F0 SD at least 0.2 semitones lower) or 3% slower at full level; a hopeful last word lifts at least 0.5 semitones more than untagged, fully voiced, level held. Among takes that pass every gate, the pick shows the clearest shift, with fullness of voice in its favour. These are measurements; the owner picks by ear.",
+  "source": "FILMROOT/sound/trudy_voice/V4_TAGS.md:273-280; FILMROOT/sound/trudy_voice/tools/tag_pick.py (docstring)",
+  "kind": "rule",
+  "area": "voice",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "code_default",
+   "target": "src/slate/voice/analyze.py (planned this run: voice analysis, P380)",
+   "reason": "Emotion proxies for ranking tagged takes, never a verdict on their own."
+  }
+ },
+ {
+  "id": "L-voice-S006",
+  "text": "Measure each direction tag on each voice instead of trusting its word: on one designed voice \"with a smile\" reliably added fullness, while \"sincere\", \"kind\", \"warm\" and \"reassuring\" made it measurably breathier (mostly through H1-H2) and plain, steady words (\"candid, steady\", \"matter-of-fact\") kept its own voice.",
+  "source": "FILMROOT/sound/trudy_voice/V4_TAGS.md:295-297; FILMROOT/sound/trudy_voice/tagged_lines.md:21-30",
+  "kind": "lesson",
+  "area": "voice",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "skill_rule",
+   "target": "skills/slate-voice/references/v4-tags.md",
+   "reason": "A directing lesson; the measurement that proves it is the analysis stage."
+  }
+ },
+ {
+  "id": "L-voice-S007",
+  "text": "The seed changes a tagged take's verdict as much as the tag does (one tag passed on one seed of four, and a winning text lost its lift on a new seed): judge exact takes, and use an approved take as that exact file, never regenerated.",
+  "source": "FILMROOT/sound/trudy_voice/V4_TAGS.md:298, 196",
+  "kind": "lesson",
+  "area": "voice",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "skill_rule",
+   "target": "skills/slate-voice/references/takes-and-revoicing.md",
+   "reason": "Approved takes are locked by content hash."
+  }
+ },
+ {
+  "id": "L-voice-S008",
+  "text": "A mid-line smile tag can make the model say the next phrase twice even after a short-pause tag; Whisper catches the repeat, and the clean take is kept rather than regenerated.",
+  "source": "FILMROOT/sound/trudy_voice/V4_TAGS.md:299; FILMROOT/sound/trudy_voice/tagged_lines.md:36-37",
+  "kind": "lesson",
+  "area": "voice",
+  "gate_type": true,
+  "proposed_destination": {
+   "type": "gate",
+   "target": "src/slate/voice/gates.py (words_gate: repeats)",
+   "reason": "The words gate already fails a repeated phrase."
+  }
+ },
+ {
+  "id": "L-voice-S009",
+  "text": "Uncorrected H1-H2 rises as the pitch climbs toward the vowel's first formant, so a lifted word can read breathy on H1-H2 while its voicing, CPPS, HNR and tilt all read fuller: judge a lifted word by the breath index, not by H1-H2 alone.",
+  "source": "FILMROOT/sound/trudy_voice/V4_TAGS.md:301",
+  "kind": "fact",
+  "area": "voice",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "code_default",
+   "target": "src/slate/voice/breath.py",
+   "reason": "The breath index already pools the six measures."
+  }
+ },
+ {
+  "id": "L-voice-S010",
+  "text": "Passing the next line as context makes a short final word read as a continuation (it rises); dropping the next-line context lets it fall, but with no tag the model may run the words together and lose the beat.",
+  "source": "FILMROOT/sound/trudy_voice/V4_TAGS.md:365",
+  "kind": "lesson",
+  "area": "voice",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "skill_rule",
+   "target": "skills/slate-voice/references/v4-tags.md",
+   "reason": "A directing lesson about neighbouring-line context."
+  }
+ },
+ {
+  "id": "L-voice-S011",
+  "text": "Forcing a fall onto a short word cost the voice clarity: every falling take was rougher and breathier on the word. Measure a word's clarity as the median CPPS over its voiced frames (from 20 ms before the word to 250 ms after Whisper's end), not only by the span's breath index, because H1-H2 follows pitch on a lifted word.",
+  "source": "FILMROOT/sound/trudy_voice/V4_TAGS.md:343-351, 366; FILMROOT/sound/trudy_voice/tools/voice_metrics.py (voiced_cpps)",
+  "kind": "lesson",
+  "area": "voice",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "code_default",
+   "target": "src/slate/voice/analyze.py (planned this run: voice analysis, P380)",
+   "reason": "A per-word clarity measure; a falling read must be no less clear than the least clear untagged take."
+  }
+ },
+ {
+  "id": "L-voice-S012",
+  "text": "When a measured target can't be met at full voice, stop generating: give the owner the cleanest alternatives plus the closest rejected take, so they can hear what the target costs. Tagging a line again is a job for the ear, not another generation round.",
+  "source": "FILMROOT/sound/trudy_voice/V4_TAGS.md:305-311, 368",
+  "kind": "rule",
+  "area": "voice",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "skill_rule",
+   "target": "skills/slate-voice/references/v4-tags.md",
+   "reason": "A process rule for tag rounds; it caps spend too."
+  }
+ },
+ {
+  "id": "L-voice-S013",
+  "text": "A one-word pickup (a comp): keep the approved take up to the word, cut inside the silence before it (find the word's audible onset from the audio, since Whisper's word starts run up to 0.3 s early), crossfade 30 ms in the pause, gain the donor so its line's loud part matches, and land the word exactly where the original's did. It costs no credits.",
+  "source": "FILMROOT/sound/trudy_voice/V4_TAGS.md:356-360; FILMROOT/sound/trudy_voice/tools/comp_last_word.py (docstring)",
+  "kind": "rule",
+  "area": "voice",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "code_default",
+   "target": "src/slate/voice/ (a comp step)",
+   "reason": "An edit step for approved takes."
+  }
+ },
+ {
+  "id": "L-voice-S014",
+  "text": "Make prosody rules relative to the voice, never absolute: a voice that always lifts question words can't meet \"no rise\", not even in its approved takes. The rhetorical rule's target is at least 1 semitone less rise than the voice's untagged takes, and its gate no more than 1 semitone past its most-rising untagged take.",
+  "source": "FILMROOT/sound/trudy_voice/V4_TAGS.md:418-421; FILMROOT/sound/trudy_voice/tools/tag_pick.py (docstring: ending)",
+  "kind": "rule",
+  "area": "voice",
+  "gate_type": true,
+  "proposed_destination": {
+   "type": "gate",
+   "target": "src/slate/voice/analyze.py (planned this run: voice analysis, P380)",
+   "reason": "The question-word gate uses the voice's own range."
+  }
+ },
+ {
+  "id": "L-voice-S015",
+  "text": "A tag can keep full voice and still miss its emotion: \"warmly\" made one line 1.7 to 3 semitones lower instead of the measured warmth (a lift or a brighter voice), so the line stayed untagged.",
+  "source": "FILMROOT/sound/trudy_voice/V4_TAGS.md:422-426",
+  "kind": "lesson",
+  "area": "voice",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "skill_rule",
+   "target": "skills/slate-voice/references/v4-tags.md",
+   "reason": "Measure the emotion, not the tag's word."
+  }
+ },
+ {
+  "id": "L-voice-S016",
+  "text": "Pooling more lines' untagged takes changes the pooled calibration a little and can flip a near-edge verdict: re-run every approved and proposed take through the gates after a recalibration.",
+  "source": "FILMROOT/sound/trudy_voice/V4_TAGS.md:427",
+  "kind": "lesson",
+  "area": "voice",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "code_default",
+   "target": "src/slate/voice/breath.py (calibrate)",
+   "reason": "Calibration is recomputed from the takes on every run."
+  }
+ },
+ {
+  "id": "L-voice-S017",
+  "text": "A take that changes length re-times everything after it (shots follow takes: lead, take, tail, hold), so downstream re-timing waits for the owner's approval of the whole track. After it: back up the old takes, swap the approved set in, re-transcribe, rebuild the storyboard, words, shots, timeline, captions and render registry, re-run each act's word and timing checks and event writes and the type check, then the contract stills, the score, the mix and the renders. Check by hand: hand-split number spellings, score landings that drift past the recompose threshold, boundary contracts and frame numbers quoted in docs.",
+  "source": "FILMROOT/sound/trudy_voice/V4_TAGS.md:436-453, 655-680; FILMROOT/sound/trudy_voice/tools/swap_c_vo.py (docstring)",
+  "kind": "rule",
+  "area": "voice",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "code_default",
+   "target": "src/slate/state/make.py (stale-node rebuild after a take changes)",
+   "reason": "slate make rebuilds the stale chain from film.lock.json hashes."
+  }
+ },
+ {
+  "id": "L-voice-S018",
+  "text": "Before re-timing anything, preview a re-voiced narration as one voice-only track on the storyboard's timeline: each line at -20 LUFS with the cue sheet's fades, each shot grown or shrunk by its take's change, next to the current track made the same way.",
+  "source": "FILMROOT/sound/trudy_voice/V4_TAGS.md:429-434; FILMROOT/sound/trudy_voice/tools/preview_c_full.py (docstring)",
+  "kind": "rule",
+  "area": "voice",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "code_default",
+   "target": "src/slate/voice/reel.py",
+   "reason": "A voice-only preview is a reel on the film's clock."
+  }
+ },
+ {
+  "id": "L-voice-S019",
+  "text": "An approval swap is one command: without its go flag it prints the plan; with it, it uses the exact files the owner heard, records the approval, backs up what it replaces and stops at the first failing step, naming the step and keeping a log.",
+  "source": "FILMROOT/sound/trudy_voice/V4_TAGS.md:655-680; FILMROOT/sound/trudy_voice/for_quinn/tags_v4/README.md:96-108; FILMROOT/sound/trudy_voice/tools/swap_c_vo.py (docstring)",
+  "kind": "process",
+  "area": "voice",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "code_default",
+   "target": "src/slate/state/approvals.py",
+   "reason": "Approvals record the exact bytes; slate make carries the rebuild."
+  }
+ },
+ {
+  "id": "L-voice-S020",
+  "text": "A \"less excited\" read is measured against the take the owner called too excited: pitch range (p10-p90, creak removed) at least 1 semitone narrower, peak lift at least 1 semitone lower, less rise on the key word, an energy swing no larger, and not rushed (at most 5% over the fastest untagged rate). A guard keeps it from going flat: range at least 75% of the untagged median, median pitch no more than 1.5 semitones under, no more than 10% slower.",
+  "source": "FILMROOT/sound/trudy_voice/V4_TAGS.md:492-506; FILMROOT/sound/trudy_voice/tools/c01_confident.py (docstring)",
+  "kind": "rule",
+  "area": "voice",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "code_default",
+   "target": "src/slate/voice/analyze.py (planned this run: voice analysis, P380)",
+   "reason": "An inflection target relative to a named reference take."
+  }
+ },
+ {
+  "id": "L-voice-S021",
+  "text": "Many takes drop an octave into creak for the last 20 to 50 ms of a word: measure a final word's rise on its voiced, creak-free frames, or the drop reads as a fall.",
+  "source": "FILMROOT/sound/trudy_voice/V4_TAGS.md:508-511; FILMROOT/sound/trudy_voice/tools/c01_confident.py",
+  "kind": "fact",
+  "area": "voice",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "code_default",
+   "target": "src/slate/voice/analyze.py (planned this run: voice analysis, P380)",
+   "reason": "A detail of the inflection measure."
+  }
+ },
+ {
+  "id": "L-voice-S022",
+  "text": "When a measure's rule has to change during a round, write the change down before the pick, and keep the earlier gates unchanged beside it.",
+  "source": "FILMROOT/sound/trudy_voice/V4_TAGS.md:508-513",
+  "kind": "process",
+  "area": "voice",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "skill_rule",
+   "target": "skills/slate-qa/references/done-means-verified.md",
+   "reason": "Moving a threshold after seeing results is how gates rot."
+  }
+ },
+ {
+  "id": "L-voice-S023",
+  "text": "Every tag round reads its cost from the vendor's per-request character-cost header and the account counter before and after: an exact match proves nothing else ran in the window.",
+  "source": "FILMROOT/sound/trudy_voice/V4_TAGS.md:326-332, 384, 478",
+  "kind": "process",
+  "area": "voice",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "code_default",
+   "target": "src/slate/ledger.py",
+   "reason": "The ledger books the header's cost per call."
+  }
+ },
+ {
+  "id": "L-voice-S024",
+  "text": "Measure where a voice's harshness lives before polishing it: the long-term average spectrum in third-octave bands on speech frames at -20 LUFS, against the ANSI S3.5 standard speech spectrum set equal over 500 Hz-1 kHz; band levels for the lows, the body, the 1-5 kHz clarity band, the 2-5 kHz edge, 5-9 kHz sibilance and the air; and the hottest edge and sibilance moments, word by word.",
+  "source": "FILMROOT/sound/trudy_voice/V4_TAGS.md:553-559; FILMROOT/sound/trudy_voice/tools/polish_report.py (docstring)",
+  "kind": "rule",
+  "area": "voice",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "code_default",
+   "target": "src/slate/voice/polish.py (planned this run: voice polish, P379)",
+   "reason": "The polish report measures before and after."
+  }
+ },
+ {
+  "id": "L-voice-S025",
+  "text": "A generated voice's harshness can sit at the very top, not in 2-5 kHz: one voice climbed 12 dB from 5 to 10 kHz where speech keeps falling, carried a glassy comb of harmonics on its vowels and peaked its sibilance at 10-11 kHz, while its 2-5 kHz sat 3 to 7 dB under natural speech. A static 2-5 kHz cut would only dull it and cost the mix's clarity: measure first.",
+  "source": "FILMROOT/sound/trudy_voice/V4_TAGS.md:553-559; FILMROOT/sound/trudy_voice/for_quinn/tags_v4/README.md:44-52",
+  "kind": "lesson",
+  "area": "voice",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "skill_rule",
+   "target": "skills/slate-voice/references/cleanup.md",
+   "reason": "Why the chain is tuned from measurements."
+  }
+ },
+ {
+  "id": "L-voice-S026",
+  "text": "The studio vocal chain, in order: a 12 dB/octave high-pass (70-80 Hz); a gentle, wide cut where the take measures boxy or honky; moderate compression on the take brought to -20 LUFS (2 to 3:1, a few dB on loud syllables); a dynamic cut on 2-5 kHz only while a consonant dominates that band; a split-band de-esser (a zero-phase band and its exact complement) cutting only while sibilance dominates the whole sound, with a few ms of look-ahead; a touch of presence; a warmth low shelf and a high shelf easing a glassy top; a small, short, band-limited synthetic room 18 to 21 dB under the dry voice; then loudness back to the take's own integrated loudness, true peak at or under -1 dBTP.",
+  "source": "FILMROOT/sound/trudy_voice/V4_TAGS.md:561-581; FILMROOT/sound/trudy_voice/tools/vo_polish.py (docstring)",
+  "kind": "rule",
+  "area": "voice",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "code_default",
+   "target": "src/slate/voice/polish.py (planned this run: voice polish, P379)",
+   "reason": "The chain P379 names."
+  }
+ },
+ {
+  "id": "L-voice-S027",
+  "text": "Every polish stage keeps the take's length sample for sample, so no shot, word or cue moves, and every take is worked at -20 LUFS so each threshold means the same on every line.",
+  "source": "FILMROOT/sound/trudy_voice/V4_TAGS.md:561; FILMROOT/sound/trudy_voice/tools/vo_polish.py (docstring)",
+  "kind": "rule",
+  "area": "voice",
+  "gate_type": true,
+  "proposed_destination": {
+   "type": "gate",
+   "target": "src/slate/voice/polish.py (planned this run: voice polish, P379)",
+   "reason": "A length-and-loudness check on every polished take."
+  }
+ },
+ {
+  "id": "L-voice-S028",
+  "text": "Tune the chain per voice from its own measurements (one voice's harshness was a glassy top and 10-11 kHz sibilance; another's was 5-8 kHz sibilance, a presence bump and boxy low mids, with no glassy top) and offer strengths that bracket the owner's middle, a subtler and a warmer side, rather than one setting.",
+  "source": "FILMROOT/sound/trudy_voice/V4_TAGS.md:563-575, 620-633; FILMROOT/build/B/audio_p3/act6_clip_v3_polished-voice/README.md:19-37; FILMROOT/sound/trudy_voice/tools/vo_polish.py (CHAINS)",
+  "kind": "rule",
+  "area": "voice",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "code_default",
+   "target": "src/slate/voice/polish.py (planned this run: voice polish, P379)",
+   "reason": "Per-voice tuning and strengths are data in the voice profile."
+  }
+ },
+ {
+  "id": "L-voice-S029",
+  "text": "A strength between \"barely noticeable\" and \"clearly warmer\" measured as: sibilance peaks down about 6 and 9 dB, the glassy top 5.5 and 8 dB, only 0.7 and 1.4 dB of 1-5 kHz removed, an overall spectral change of 2.5 to 3.7 dB, and pitch, timing and formants unchanged.",
+  "source": "FILMROOT/sound/trudy_voice/V4_TAGS.md:583-597; FILMROOT/sound/trudy_voice/for_quinn/tags_v4/README.md:56-70",
+  "kind": "fact",
+  "area": "voice",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "skill_rule",
+   "target": "skills/slate-voice/references/cleanup.md",
+   "reason": "Reference numbers for judging a polish strength."
+  }
+ },
+ {
+  "id": "L-voice-S030",
+  "text": "Report what the polish did, per line and pooled, on the delivered files at equal loudness: sibilance peaks (the loudest 5 ms of 5.5-12.5 kHz), the glassy top on voiced frames, 2-5 kHz, the 1-5 kHz energy removed (the band the mix's clarity rule checks), warmth (80-500 Hz against 1-5 kHz), the compressor's gain reduction and the overall spectral change; with an LTAS chart against natural speech, every line's spectrogram with its hottest moments ringed, and a harshest-moments reel (each moment unpolished, then each strength).",
+  "source": "FILMROOT/sound/trudy_voice/V4_TAGS.md:583-614; FILMROOT/sound/trudy_voice/tools/polish_report.py; FILMROOT/sound/trudy_voice/tools/round4_deliver.py (docstrings)",
+  "kind": "rule",
+  "area": "voice",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "code_default",
+   "target": "src/slate/voice/polish.py (planned this run: voice polish, P379)",
+   "reason": "The polish report P379 names."
+  }
+ },
+ {
+  "id": "L-voice-S031",
+  "text": "Keep the unpolished clean takes as the measurement source: the polish is the last step on the film-stage take, a polished baseline would make new takes look harsh against the voice, and re-pacing from the clean take needs the polish again.",
+  "source": "FILMROOT/sound/trudy_voice/V4_TAGS.md:599-604; FILMROOT/sound/trudy_voice/tools/vo_polish.py (polish_set)",
+  "kind": "rule",
+  "area": "voice",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "code_default",
+   "target": "src/slate/voice/polish.py (planned this run: voice polish, P379)",
+   "reason": "The polish writes beside the clean take, never over it."
+  }
+ },
+ {
+  "id": "L-voice-S032",
+  "text": "Listening files compare at equal loudness (each line at -20 LUFS) so nothing wins on level, in a stated order, each with the decision it asks for (\"Tell me A, B or C\").",
+  "source": "FILMROOT/sound/trudy_voice/for_quinn/tags_v4/README.md:7-37; FILMROOT/sound/trudy_voice/tools/tag_ab_v2.py; FILMROOT/sound/trudy_voice/tools/round4_deliver.py (docstrings)",
+  "kind": "rule",
+  "area": "voice",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "code_default",
+   "target": "src/slate/voice/reel.py",
+   "reason": "Reels are level-matched by construction."
+  }
+ },
+ {
+  "id": "L-voice-S033",
+  "text": "Polishing the narration changes the mix: it gave up about 0.8 dB of 1-5 kHz, so the mix's clarity guard had to re-solve its accent rides (with the old rides frozen one word fell to 8.3 dB clear). A polish on approved narration means re-solving the mix's rides; a span pinned to approved rides can't keep them.",
+  "source": "FILMROOT/sound/trudy_voice/V4_TAGS.md:635-645; FILMROOT/build/B/audio_p3/act6_clip_v3_polished-voice/README.md:62-80",
+  "kind": "lesson",
+  "area": "voice",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "skill_rule",
+   "target": "skills/slate-sound/references/mix.md",
+   "reason": "The voice and the mix are measured together."
+  }
+ },
+ {
+  "id": "L-voice-S034",
+  "text": "Test a voice change on the clip the owner knows best, with every mix setting pinned to that clip's approved build, and prove the pin first by rebuilding the approved mix sample for sample before changing only the voice.",
+  "source": "FILMROOT/build/B/audio_p3/act6_clip_v3_polished-voice/README.md:9-15; FILMROOT/sound/p3/tools/clip_b_act6_polished_voice.py (docstring)",
+  "kind": "process",
+  "area": "voice",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "skill_rule",
+   "target": "skills/slate/references/review-and-correct.md",
+   "reason": "Perfect, don't replace, applied to a listening test."
+  }
+ },
+ {
+  "id": "L-voice-S035",
+  "text": "The polish needs nothing paid or downloaded: a local audio-plugin host library gave the EQ and the compressor, and numpy and scipy the dynamic bands and the room.",
+  "source": "FILMROOT/sound/trudy_voice/V4_TAGS.md:581",
+  "kind": "fact",
+  "area": "voice",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "code_default",
+   "target": "src/slate/voice/polish.py (planned this run: voice polish, P379)",
+   "reason": "A dependency decision for the polish stage."
+  }
+ },
+ {
+  "id": "L-voice-S036",
+  "text": "Ask the owner for the target in their own terms before tuning (where the harshness is, the reference sound such as \"a podcast host, a little room, warm and present\", and how strong a change), then bracket their middle with two strengths.",
+  "source": "FILMROOT/sound/trudy_voice/V4_TAGS.md:457-465; FILMROOT/sound/trudy_voice/tools/vo_polish.py (docstring)",
+  "kind": "process",
+  "area": "voice",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "skill_rule",
+   "target": "skills/slate-voice/SKILL.md",
+   "reason": "The intake question for a polish."
+  }
+ },
+ {
+  "id": "L-voice-S037",
+  "text": "Judge a take with one picture per line: the current take above the candidate, as spectrograms (0-8 kHz) with the pitch contour, the level contour, the words and the measurements that decided the pick, on one shared time scale so length differences are real, drawn from the clean takes the metrics measured.",
+  "source": "FILMROOT/sound/trudy_voice/tools/spectro_ab.py (docstring)",
+  "kind": "rule",
+  "area": "voice",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "code_default",
+   "target": "src/slate/voice/analyze.py (planned this run: voice analysis, P380)",
+   "reason": "The spectrogram A/B sheet P380 names."
+  }
+ },
+ {
+  "id": "L-voice-S038",
+  "text": "Draw a key word's pitch for every take on one axis (log Hz), each with its start, peak, end and fall, and the voice's untagged takes in grey.",
+  "source": "FILMROOT/sound/trudy_voice/tools/tag_abc_v3.py (contour_chart); FILMROOT/sound/trudy_voice/V4_TAGS.md:546-547",
+  "kind": "rule",
+  "area": "voice",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "code_default",
+   "target": "src/slate/voice/analyze.py (planned this run: voice analysis, P380)",
+   "reason": "The inflection chart."
+  }
+ },
+ {
+  "id": "L-voice-S039",
+  "text": "Every voice measure is computed over the whole line and over the tag's scope (from the first word an emotion tag governs to the end of the line): a tag on the last word whispered that word while the line average barely moved.",
+  "source": "FILMROOT/sound/trudy_voice/tools/voice_metrics.py (docstring); FILMROOT/sound/trudy_voice/tools/scope_eval.py (docstring)",
+  "kind": "rule",
+  "area": "voice",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "code_default",
+   "target": "src/slate/voice/breath.py (span)",
+   "reason": "The breath module measures spans."
+  }
+ },
+ {
+  "id": "L-voice-S040",
+  "text": "Verify a picture's axes with known signals before trusting it: the spectrogram's row and column mapping was checked with test tones.",
+  "source": "FILMROOT/sound/trudy_voice/tools/spectro_ab.py (docstring)",
+  "kind": "process",
+  "area": "voice",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "code_default",
+   "target": "src/slate/voice/analyze.py (planned this run: voice analysis, P380)",
+   "reason": "A test with synthetic tones proves the sheet's axes."
+  }
+ },
+ {
+  "id": "L-voice-S041",
+  "text": "Track each tagged line's status as approved (the exact take chosen by ear), proposed (a measured pick waiting for the ear) or current (the film take stays), in a machine-readable file beside the readable one; removing the tags gives back the script exactly.",
+  "source": "FILMROOT/sound/trudy_voice/tagged_lines.md:3-7, 63-66; FILMROOT/sound/trudy_voice/tools/assemble_c_vo.py (docstring)",
+  "kind": "rule",
+  "area": "voice",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "code_default",
+   "target": "src/slate/voice/tags.py",
+   "reason": "Tagged lines are data; tags.strip proves the script."
+  }
+ },
+ {
+  "id": "L-sound-S001",
+  "text": "Mix as a level hierarchy against the voice, family by family, every number in LU against the voice: the voice is the reference (levelled by its voiced part, mastered to -14 LUFS, the limiter only on its plosives); accents keep the approved proof's level (median hit -24 to -17, loudest at most -8, at least 3 dB over the score in their own bands); noise textures come down (loudest at most -18, at most -30 inside words); swells and risers come down further (loudest at most -22, at most -28 inside words); impacts keep their weight (loudest at most -2, never louder than the voice); a composed score sits under the voice (integrated -28 to -17, at most -19 inside words, never masking an accent).",
+  "source": "FILMROOT/sound/p3/BALANCE.md:43-84; ~/.claude/projects/-Users-you-Documents-TrueSpace-website-build-2026-09-28/memory/feedback_sound-balance-hierarchy.md",
+  "kind": "rule",
+  "area": "sound",
+  "gate_type": true,
+  "proposed_destination": {
+   "type": "gate",
+   "target": "src/slate/sound/balance.py (planned this run: the p3 balance checks)",
+   "reason": "The family level ranges, checked on every mix."
+  }
+ },
+ {
+  "id": "L-sound-S002",
+  "text": "Clarity on every word: the voice at least 12 dB over everything else (effects and score together) in 1-5 kHz, the consonant band the Speech Intelligibility Index weighs most (12 dB keeps 90% of it), measured only where the voice actually sounds inside Whisper's word span (its 50 ms level within 30 dB of its loud level; a word under 120 ms measured over 120 ms centred). 300 Hz-4 kHz flatters the voice with its vowels.",
+  "source": "FILMROOT/sound/p3/BALANCE.md:135-160",
+  "kind": "rule",
+  "area": "sound",
+  "gate_type": true,
+  "proposed_destination": {
+   "type": "gate",
+   "target": "src/slate/sound/verify.py (gate_clarity)",
+   "reason": "sound.clarity exists; the band, the 12 dB rule and the voiced-span measure are the p3 refinement."
+  }
+ },
+ {
+  "id": "L-sound-S003",
+  "text": "Never over: while the voice speaks, nothing (each family, all the effects together, everything else together) is louder than the voice, as EBU momentary loudness every 10 ms inside every word.",
+  "source": "FILMROOT/sound/p3/BALANCE.md:161-164",
+  "kind": "rule",
+  "area": "sound",
+  "gate_type": true,
+  "proposed_destination": {
+   "type": "gate",
+   "target": "src/slate/sound/checks.py (never_over)",
+   "reason": "The never-over measure exists."
+  }
+ },
+ {
+  "id": "L-sound-S004",
+  "text": "Texture air on every word: the noise textures' 2-6 kHz at least 20 dB under the voice's own 2-6 kHz (1% of the voice's consonant energy, so felt more than heard).",
+  "source": "FILMROOT/sound/p3/BALANCE.md:165-168",
+  "kind": "rule",
+  "area": "sound",
+  "gate_type": true,
+  "proposed_destination": {
+   "type": "gate",
+   "target": "src/slate/sound/balance.py (planned this run: the p3 balance checks)",
+   "reason": "A balance check."
+  }
+ },
+ {
+  "id": "L-sound-S005",
+  "text": "Accents over the score: every accent and impact, as mixed (ridden or not), at least 3 dB over the score in one of its own loudest third-octave bands over its loudest 120 ms.",
+  "source": "FILMROOT/sound/p3/BALANCE.md:169-171",
+  "kind": "rule",
+  "area": "sound",
+  "gate_type": true,
+  "proposed_destination": {
+   "type": "gate",
+   "target": "src/slate/sound/balance.py (planned this run: the p3 balance checks)",
+   "reason": "A balance check."
+  }
+ },
+ {
+  "id": "L-sound-S006",
+  "text": "Sync after the mix: every hit's anchor, measured again on the hit as mixed (ducked, split, ridden, limited), within one frame of its beat. The mix may move an anchor at most 10 ms and never to within 1 ms of its frame's edge; a hit already out of frame on its own is the spotting's fault, listed rather than failed as long as the mix didn't move it.",
+  "source": "FILMROOT/sound/p3/BALANCE.md:173-180, 101-108",
+  "kind": "rule",
+  "area": "sound",
+  "gate_type": true,
+  "proposed_destination": {
+   "type": "gate",
+   "target": "src/slate/sound/balance.py (planned this run: the p3 balance checks)",
+   "reason": "A balance check."
+  }
+ },
+ {
+  "id": "L-sound-S007",
+  "text": "Mix by family, not by stem: render each cue exactly as the engine renders it and send it to its family's bus, with per-hit clip gains (one gain for the whole hit, or one per side of a band split) set by the speech key's maximum over the hit's audible part, so a duck can never reshape a sound and move its sync (an early continuous duck moved one anchor 232 ms). Only reverb returns, long pads and plates duck continuously.",
+  "source": "FILMROOT/sound/p3/BALANCE.md:85-100; FILMROOT/sound/p3/tools/p3balance.py (docstring)",
+  "kind": "rule",
+  "area": "sound",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "code_default",
+   "target": "src/slate/sound/mix.py",
+   "reason": "How the balanced mix is built."
+  }
+ },
+ {
+  "id": "L-sound-S008",
+  "text": "The speech key is the voice itself: a 20 ms RMS follower at a 1 kHz control rate against the voice's loud level (its 99th percentile), 0 at 40 dB under it and 1 at 25 dB under, held 150 ms across syllables, read 40 ms ahead so a duck is down before the first consonant, smoothed with an 8 ms attack and 250 ms release; swells use a slower key (40 ms attack, 600 ms release, 300 ms hold) so they move with phrases.",
+  "source": "FILMROOT/sound/p3/BALANCE.md:92-95; FILMROOT/sound/p3/tools/p3balance.py (speech_key)",
+  "kind": "rule",
+  "area": "sound",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "code_default",
+   "target": "src/slate/sound/mix.py",
+   "reason": "The key behind every duck."
+  }
+ },
+ {
+  "id": "L-sound-S009",
+  "text": "Split bands zero-phase: a 2nd-order Butterworth low-pass run forward and back, the top taken as the signal minus the low part, so the two sum back exactly and nothing moves in time.",
+  "source": "FILMROOT/sound/p3/BALANCE.md:109-110",
+  "kind": "rule",
+  "area": "sound",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "code_default",
+   "target": "src/slate/sound/dsp.py",
+   "reason": "A DSP primitive."
+  }
+ },
+ {
+  "id": "L-sound-S010",
+  "text": "The guards: after a first pass, measure every word; the clarity guard rides only the accents that really cover a word (on their top above 600 Hz, at most 15 dB, the whole hit if that isn't enough) and the air guard rides textures whole (at most 12 dB), solved together as the least total riding that clears every word, counting each hit's own reverb; then a second pass. A click on a word costs that word, and the word wins.",
+  "source": "FILMROOT/sound/p3/BALANCE.md:111-119, 300-307",
+  "kind": "rule",
+  "area": "sound",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "code_default",
+   "target": "src/slate/sound/mix.py (planned: the guards)",
+   "reason": "The mixer, not a check."
+  }
+ },
+ {
+  "id": "L-sound-S011",
+  "text": "Close the loop: after the ridden pass, measure every word against the voice as the master will deliver it (its high-pass and plosive limiter thin word onsets), raise a short word's target by its shortfall and ride whole hits again, at most two more passes; write what the mix did to each hit and the rides it used.",
+  "source": "FILMROOT/sound/p3/BALANCE.md:120-126",
+  "kind": "rule",
+  "area": "sound",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "code_default",
+   "target": "src/slate/sound/mix.py (planned: the closed loop)",
+   "reason": "The mixer, not a check."
+  }
+ },
+ {
+  "id": "L-sound-S012",
+  "text": "A composed score gets its own clarity guard: where the score alone comes within 19 dB of the voice in 1-5 kHz during a word, its top above 600 Hz dips by just enough (at most 20 dB), held 0.15 s either side and ramped over 0.3 s so it moves at a phrase's pace. It keeps a quarter of the clarity budget so the accents keep the rest; a 1 kHz split barely reached the band's bottom octave. It also dips under an accent it would mask (in that hit's own bands for a low thump) and waits for a film's opening silence.",
+  "source": "FILMROOT/sound/p3/BALANCE.md:631-678; FILMROOT/sound/p3/tools/render_v2.py (score_bus, score_accent_dips)",
+  "kind": "rule",
+  "area": "sound",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "code_default",
+   "target": "src/slate/sound/mix.py (planned: the score guard)",
+   "reason": "The score's guard inside the mix."
+  }
+ },
+ {
+  "id": "L-sound-S013",
+  "text": "The never-over guard runs last: where anything is over the voice inside a word (0.5 dB to spare, against the voice as delivered), the hits making it loud are ridden down whole by just enough (at most 12 dB more); an impact keeps its attack and loses only body after its first 80 ms; the score dips under that word; and every family's loudest-hit limit is enforced too.",
+  "source": "FILMROOT/sound/p3/BALANCE.md:679-704; FILMROOT/sound/p3/tools/render_v2.py (never_over_guard)",
+  "kind": "rule",
+  "area": "sound",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "code_default",
+   "target": "src/slate/sound/mix.py (planned: the never-over guard)",
+   "reason": "The mixer, not a check."
+  }
+ },
+ {
+  "id": "L-sound-S014",
+  "text": "An accent landing on a word is ridden at most half the clarity guard's depth in dB (the owner's \"in between\"), top and whole alike. A word under a half-ridden accent may then sit under the 12 dB rule as the owner's trade: the check lists it, flags any word under 8 dB, and the levels stand unless a word drops below 6 dB. The hard rules (never over, the loudest-hit limits) stay hard.",
+  "source": "FILMROOT/sound/p3/BALANCE.md:30-37, 383-414, 473-500; FILMROOT/build/B/audio_p3_score/half_depth_words.md; FILMROOT/sound/p3/tools/half_depth_words.py (docstring); FILMROOT/PRODUCTION.md:72-75",
+  "kind": "rule",
+  "area": "sound",
+  "gate_type": true,
+  "proposed_destination": {
+   "type": "gate",
+   "target": "src/slate/sound/balance.py (planned this run: the p3 balance checks)",
+   "reason": "The clarity check's listed trade and its 8 dB flag."
+  }
+ },
+ {
+  "id": "L-sound-S015",
+  "text": "A span the owner approved in a clip keeps that clip exactly inside the film: its own cues (takes, gains, pitches, seeds), its exact rides frozen (the guards solve around them and never ride them), and its score level against the voice over the span's core, trimmed in with a ramp.",
+  "source": "FILMROOT/sound/p3/BALANCE.md:590-610; FILMROOT/build/B/audio_p3_score/span_vs_act6_clip_v3.md; FILMROOT/sound/p3/tools/spot_v2.py (substitute_approved); FILMROOT/sound/p3/tools/render_v2.py (pinned_rides, score_match)",
+  "kind": "rule",
+  "area": "sound",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "code_default",
+   "target": "src/slate/sound/mix.py (planned: approved spans)",
+   "reason": "Perfect, don't replace, in the mixer."
+  }
+ },
+ {
+  "id": "L-sound-S016",
+  "text": "Every mix rule lives in one data file (families, keys, guards, the score's level, the check limits), and each note from the owner maps to one number there (\"the whooshes are too quiet in the pauses\" is the textures' gain); change a number, rebuild, and the checks say at once whether the voice is still clear.",
+  "source": "FILMROOT/sound/p3/BALANCE.md:717-736",
+  "kind": "rule",
+  "area": "sound",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "skill_rule",
+   "target": "skills/slate-sound/references/mix.md",
+   "reason": "Turning the dials."
+  }
+ },
+ {
+  "id": "L-sound-S017",
+  "text": "Guard the mixer with a tripwire: before every build, its reproduce mode must rebuild the delivered earlier mixes bit for bit, and a mix under today's rules that differs is reported.",
+  "source": "FILMROOT/sound/p3/tools/regress_v2.py (docstring); FILMROOT/sound/p3/BALANCE.md:89-91",
+  "kind": "rule",
+  "area": "sound",
+  "gate_type": true,
+  "proposed_destination": {
+   "type": "gate",
+   "target": "src/slate/sound/balance.py (planned this run: the p3 balance checks)",
+   "reason": "A regression test for the mixer."
+  }
+ },
+ {
+  "id": "L-sound-S018",
+  "text": "Every balance check prints pass or FAIL, ends with one verdict line, exits non-zero on any failure, and offers a before/after comparison per family, which is what the owner's note is about.",
+  "source": "FILMROOT/sound/p3/tools/balance_check.py (docstring); FILMROOT/sound/p3/BALANCE.md:133-136",
+  "kind": "rule",
+  "area": "sound",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "code_default",
+   "target": "src/slate/sound/balance.py (planned this run: the p3 balance checks)",
+   "reason": "In Slate these are GateResults."
+  }
+ },
+ {
+  "id": "L-sound-S019",
+  "text": "Whisper on the mix compares word for word after only the normalization a listener can't hear: spelled numbers as digits, apostrophes dropped, a number with \"percent\" as \"%\", and the brand's known misspellings as its name. An extra heard word counts only where the voice sounds at that time and Whisper is at least 20% sure; otherwise it's reported as heard over the music (Whisper invents words after speech ends).",
+  "source": "FILMROOT/sound/p3/BALANCE.md:205-211; FILMROOT/sound/p3/tools/measure_v2.py (whisper_compare)",
+  "kind": "rule",
+  "area": "sound",
+  "gate_type": true,
+  "proposed_destination": {
+   "type": "gate",
+   "target": "src/slate/voice/gates.py (words_gate)",
+   "reason": "The words gate on the mix."
+  }
+ },
+ {
+  "id": "L-sound-S020",
+  "text": "A script token that isn't spoken (a lone dash) isn't a word to measure; a symbol read aloud (\"%\") is.",
+  "source": "FILMROOT/sound/p3/BALANCE.md:572-575; FILMROOT/sound/p3/tools/p3balance.py (is_spoken)",
+  "kind": "rule",
+  "area": "sound",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "code_default",
+   "target": "src/slate/timing/spoken.py",
+   "reason": "The spoken-forms table decides what is said."
+  }
+ },
+ {
+  "id": "L-sound-S021",
+  "text": "The music-gap check counts a planned stop's fade as part of it (where the music stem sits more than 20 dB under its own median, up to 2 s either side), and a composed score's own rests, measured on the score file before the mix, count as planned stops; a hole the mix makes anywhere else still fails.",
+  "source": "FILMROOT/sound/p3/BALANCE.md:189-199; FILMROOT/sound/p3/tools/measure_v2.py (fade_tails, score_rests)",
+  "kind": "rule",
+  "area": "sound",
+  "gate_type": true,
+  "proposed_destination": {
+   "type": "gate",
+   "target": "src/slate/sound/gap.py",
+   "reason": "The gap check exists."
+  }
+ },
+ {
+  "id": "L-sound-S022",
+  "text": "The silence check asks for a silent last second always, and for nothing before 0.5 s only when the film's plan opens out of silence; a score cut to sound from frame one leaves the opening stop out.",
+  "source": "FILMROOT/sound/p3/BALANCE.md:200-204; FILMROOT/sound/p3/tools/spot_v2.py (score_opens_in_silence)",
+  "kind": "rule",
+  "area": "sound",
+  "gate_type": true,
+  "proposed_destination": {
+   "type": "gate",
+   "target": "src/slate/sound/verify.py",
+   "reason": "A sound gate."
+  }
+ },
+ {
+  "id": "L-sound-S023",
+  "text": "Repeats: the brand's sonic logo replayed as a deliberate bookend is listed as intentional, not failed; every other identical back-to-back hit still fails.",
+  "source": "FILMROOT/sound/p3/BALANCE.md:187-188; FILMROOT/sound/p3/tools/measure_v2.py (repeats_exempt)",
+  "kind": "rule",
+  "area": "sound",
+  "gate_type": true,
+  "proposed_destination": {
+   "type": "gate",
+   "target": "src/slate/sound/verify.py (gate_repeats)",
+   "reason": "The repeats gate exists."
+  }
+ },
+ {
+  "id": "L-sound-S024",
+  "text": "Spotting fixes, approved after the first full build: align each write-on's audible start (its 2 ms envelope within 40 dB of its loudest) onto its beat the way peaks are aligned; give library whooshes up to ±4% of rate so no two consecutive hits of one file share a speed, re-aligning each peak; hand same-chord pads off over 0.3 s, equal-power, instead of a long crossfade (two loops of one chord beat and read as a wandering partial).",
+  "source": "FILMROOT/sound/p3/BALANCE.md:612-630; FILMROOT/sound/p3/tools/spot_v2.py (docstring)",
+  "kind": "rule",
+  "area": "sound",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "code_default",
+   "target": "src/slate/sound/effects/engine.py (spot; gated on proof 3)",
+   "reason": "The effects engine's spotting."
+  }
+ },
+ {
+  "id": "L-sound-S025",
+  "text": "With a composed score there is no continuous pad bed and no pad bloom at the landing (the score blooms there with the impact's sub, knock and low layer); the event-tied tonal accents, swells and builds stay; the score sits 18.5 LU under the voice before a 6 dB duck under speech (about -21 LU), about 1.5 dB lower than the clip the owner found \"a teeny bit loud\"; the planned silences stay.",
+  "source": "FILMROOT/sound/p3/BALANCE.md:22-28; ~/.claude/projects/-Users-you-Documents-TrueSpace-website-build-2026-09-28/memory/feedback_sound-design-taste.md:21; FILMROOT/sound/p3/tools/spot_v2.py (docstring)",
+  "kind": "rule",
+  "area": "sound",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "code_default",
+   "target": "src/slate/sound/effects/palette.py",
+   "reason": "Score-on defaults for the palette and the mix."
+  }
+ },
+ {
+  "id": "L-sound-S026",
+  "text": "Big moments land together: the score holds its breath (fading out over 80 ms into a short silence) and comes back exactly on the hit, about 3 dB over its own level and settling over 2 s, its steepest rise ending 20-30 ms after the hit. Re-cut the existing music to do it; compose nothing new.",
+  "source": "FILMROOT/sound/p3/BALANCE.md:39-41, 501-545; FILMROOT/PRODUCTION.md:76",
+  "kind": "rule",
+  "area": "sound",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "code_default",
+   "target": "src/slate/sound/score/assemble.py",
+   "reason": "The score assembler places breaths and returns."
+  }
+ },
+ {
+  "id": "L-sound-S027",
+  "text": "Carry an approved proof spotted on the storyboard onto the real picture cue by cue: every cue moves to the beat the picture really has; cues for beats the picture doesn't have are removed; tonal roles are re-voiced on sampled instruments; a file that opens on silence is trimmed so its hit lands with the others; and every change is tied to one of the owner's own words.",
+  "source": "FILMROOT/sound/p3/proof3/CHANGES.md:1-77",
+  "kind": "rule",
+  "area": "sound",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "skill_rule",
+   "target": "skills/slate-sound/references/spotting.md",
+   "reason": "The proof-3 method."
+  }
+ },
+ {
+  "id": "L-sound-S028",
+  "text": "Natural variation between repeats: every wood hit gets its own seed, a few cents of detune and ±1.2 dB of velocity, and a sampled instrument rotates through its recorded takes.",
+  "source": "FILMROOT/sound/p3/proof3/CHANGES.md:22-23",
+  "kind": "rule",
+  "area": "sound",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "code_default",
+   "target": "src/slate/sound/effects/palette.py",
+   "reason": "Variation rules are palette data."
+  }
+ },
+ {
+  "id": "L-sound-S029",
+  "text": "The air under a line drawing is shaped on the draw's own ease (loudest where it moves fastest); a constant-speed draw gets a flat air, and a held tone never glides with the line.",
+  "source": "FILMROOT/sound/p3/proof3/CHANGES.md:51-56",
+  "kind": "rule",
+  "area": "sound",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "code_default",
+   "target": "src/slate/sound/effects/palette.py",
+   "reason": "The draw kind's family is air on the draw's ease."
+  }
+ },
+ {
+  "id": "L-sound-S030",
+  "text": "A listening file of the hardest-ridden accents: each in context, as mixed before and now (the mix plus the difference that one hit's ride made), over the film's own picture (black with the same labels where a render isn't on the machine), from 2.5 s before the hit to 3 s after.",
+  "source": "FILMROOT/build/B/audio_p3_score/for_quinn_ridden_accents.md; FILMROOT/sound/p3/tools/for_quinn_rides.py (docstring)",
+  "kind": "process",
+  "area": "sound",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "code_default",
+   "target": "src/slate/finish/review.py",
+   "reason": "A review-packet item."
+  }
+ },
+ {
+  "id": "L-sound-S031",
+  "text": "Prove a film kept what the owner approved in a clip: cut the full mix to the clip's window, run the same checks on both, and compare family by family, ride by ride, with the span's score level.",
+  "source": "FILMROOT/build/B/audio_p3_score/span_vs_act6_clip_v3.md; FILMROOT/sound/p3/tools/compare_span.py (docstring)",
+  "kind": "rule",
+  "area": "sound",
+  "gate_type": true,
+  "proposed_destination": {
+   "type": "gate",
+   "target": "src/slate/sound/balance.py (planned this run: the p3 balance checks)",
+   "reason": "A span comparison check."
+  }
+ },
+ {
+  "id": "L-sound-S032",
+  "text": "Write a delivery's README from its measurements (standing checks, balance, before and after), never by hand.",
+  "source": "FILMROOT/build/B/audio_p3_score/README.md; FILMROOT/sound/p3/tools/delivery_readme.py (docstring)",
+  "kind": "process",
+  "area": "sound",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "code_default",
+   "target": "src/slate/finish/deliver.py",
+   "reason": "The manifest and its README come from measurements."
+  }
+ },
+ {
+  "id": "L-qa-S001",
+  "text": "Every render gets one stability report: the glitch scan (one- and two-frame outliers) with motion triage, a step scan for persistent pops (something appears, vanishes or jumps and then holds: step(n) = d(n-1, n) - max(d(n-2, n-1), d(n, n+1)) per tile, with frames where most tiles step reported as cuts), and the jitter scan; every count is held to a limit that is zero for a final, and a failure is loud.",
+  "source": "FILMROOT/pipeline/tools/stability_report.py; FILMROOT/pipeline/tools/step_scan.py (docstrings); FILMROOT/pipeline/r3f/KIT.md:110-122",
+  "kind": "rule",
+  "area": "qa",
+  "gate_type": true,
+  "proposed_destination": {
+   "type": "gate",
+   "target": "src/slate/qa/stability.py (planned this run: the render stability gates)",
+   "reason": "The stability gate."
+  }
+ },
+ {
+  "id": "L-qa-S002",
+  "text": "The jitter scan measures motion per 30 px tile at full resolution from 10-bit luma, to about 0.02 px, by two passes of Lucas-Kanade; a tile's motion counts only where it has texture, moves under 3 px a frame and the shift explains the change (or the tile barely changes); a straight edge vouches only for motion across itself; frames next to a cut aren't scored.",
+  "source": "FILMROOT/pipeline/tools/jitter_scan.py (docstring)",
+  "kind": "rule",
+  "area": "qa",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "code_default",
+   "target": "src/slate/qa/stability.py (planned this run: the render stability gates)",
+   "reason": "The scanner's method."
+  }
+ },
+ {
+  "id": "L-qa-S003",
+  "text": "Jitter classes: snap (a slow rigid tile's move departs at least 0.45 px from its neighbours' agreeing moves and from a quadratic through n±2 and n±3, so an ease's tail scores 0); relative (two tiles moving as one object disagree by 0.35 px on one frame: text against its card); shake (three reversals in 7 frames, going nowhere); reversal (after steady travel, one whole-pixel step back); wobble (a near-still element steps a pixel and back within 4 frames: a count re-centring); flicker and shimmer at rest; and a veil (a faint one-frame change over many tiles: a band left out of one sub-frame). The floors sit just above the type tilt's quarter-pixel placement.",
+  "source": "FILMROOT/pipeline/tools/jitter_scan.py (docstring)",
+  "kind": "rule",
+  "area": "qa",
+  "gate_type": true,
+  "proposed_destination": {
+   "type": "gate",
+   "target": "src/slate/qa/stability.py (planned this run: the render stability gates)",
+   "reason": "The scanner's classes and floors."
+  }
+ },
+ {
+  "id": "L-qa-S004",
+  "text": "A reversal is a hard fail: no baseline accepts one, because a designed gesture never steps in whole pixels.",
+  "source": "FILMROOT/pipeline/tools/stability_report.py; FILMROOT/pipeline/tools/jitter_scan.py (docstrings)",
+  "kind": "rule",
+  "area": "qa",
+  "gate_type": true,
+  "proposed_destination": {
+   "type": "gate",
+   "target": "src/slate/qa/stability.py (planned this run: the render stability gates)",
+   "reason": "A hard rule."
+  }
+ },
+ {
+  "id": "L-qa-S005",
+  "text": "Baselines: a flag that is right by design (a gesture, a morph, a card swinging in fast) is triaged once by eye and accepted into the render's baseline, with the reason in the act's notes; from then on a flag that matches an accepted one (same class, within one frame and one tile) doesn't count, so the limits catch what is new. A baseline belongs to its act's content and is rewritten only after triage, when the act changes.",
+  "source": "FILMROOT/pipeline/tools/stability_report.py (docstring); FILMROOT/QA_B.md:96-110",
+  "kind": "rule",
+  "area": "qa",
+  "gate_type": true,
+  "proposed_destination": {
+   "type": "gate",
+   "target": "src/slate/qa/stability.py (planned this run: the render stability gates)",
+   "reason": "Accepted flags, with reasons."
+  }
+ },
+ {
+  "id": "L-qa-S006",
+  "text": "Triage against a reference: run the same report on the reference render; flags it shares (same class, within 2 frames and one tile) belong to the design or were there before, and the rest are listed by class and frame for a look by eye. A one-sample reference has no motion blur, so fast moves flag differently there.",
+  "source": "FILMROOT/pipeline/tools/stability_triage.py (docstring)",
+  "kind": "rule",
+  "area": "qa",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "code_default",
+   "target": "src/slate/qa/stability.py (planned this run: the render stability gates)",
+   "reason": "Triage help."
+  }
+ },
+ {
+  "id": "L-qa-S007",
+  "text": "The static-frame regression for a rendering-only change: compare the new render with the approved one every few frames from 10-bit luma; after a 2.5 px blur no frame may differ by more than about 40 levels anywhere (a missing, doubled or wrapped word or a card drawn in another order shows 100 and more); resting tiles with real edges keep at least 95% of their crispness (the mean of their top 0.5% gradients); crispness in motion is reported; lengths must match; a region triaged as placement may be left out on named frames only.",
+  "source": "FILMROOT/pipeline/tools/stability_compare.py (docstring)",
+  "kind": "rule",
+  "area": "qa",
+  "gate_type": true,
+  "proposed_destination": {
+   "type": "gate",
+   "target": "src/slate/qa/stability.py (planned this run: the render stability gates)",
+   "reason": "The render regression gate."
+  }
+ },
+ {
+  "id": "L-qa-S008",
+  "text": "Keep the scanners honest with positive controls: inject known faults into a still of a real render (a flash, a shimmer, a grey face, a 1 px text snap, a veil, a reversal) and require each to be flagged at its frame and nothing else; keep clips cut from real renders before their fixes and require each to be flagged in its class on at least three tiles.",
+  "source": "FILMROOT/pipeline/tools/stability_selftest.py; FILMROOT/pipeline/tools/stability_controls.py (docstrings)",
+  "kind": "rule",
+  "area": "qa",
+  "gate_type": true,
+  "proposed_destination": {
+   "type": "gate",
+   "target": "src/slate/qa/stability.py (planned this run: the render stability gates)",
+   "reason": "Tests that prove the scanner still sees."
+  }
+ },
+ {
+  "id": "L-qa-S009",
+  "text": "A final approved from a half-scale, one-sample preview can still jitter at full samples: the stability checks run on the final render itself, and the owner's \"it's so jittery\" became automated tests.",
+  "source": "FILMROOT/pipeline/r3f/src/b/act6/NOTES.md:408-412; FILMROOT/pipeline/r3f/KIT.md:34-37",
+  "kind": "lesson",
+  "area": "qa",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "skill_rule",
+   "target": "skills/slate-qa/references/triage.md",
+   "reason": "Why the gate exists."
+  }
+ },
+ {
+  "id": "L-qa-S010",
+  "text": "Glitch triage per flag: the odd-one-out ratio d(n-1, n+1) / min(d(n-1, n), d(n, n+1)) under 0.6 means frame n is the odd one out; a block match of the 3 x 3-tile window against n±1 that explains at least 60% of the difference both ways (or equal and opposite shifts) means a feature is travelling. Categories: motion, fade, odd and look; only odd and look need eyes.",
+  "source": "FILMROOT/pipeline/tools/glitch_triage.py (docstring)",
+  "kind": "rule",
+  "area": "qa",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "code_default",
+   "target": "src/slate/qa/glitch.py (triage)",
+   "reason": "Motion-compensated triage beside the beat-window triage."
+  }
+ },
+ {
+  "id": "L-qa-S011",
+  "text": "The glitch scanner flags any crisp edge moving faster than about 4 px a frame and any zoom faster than about 0.5% a frame: on a clean act every flag sits inside a scheduled move.",
+  "source": "FILMROOT/pipeline/r3f/src/c/act3/NOTES.md:167-190; FILMROOT/pipeline/r3f/src/c/act4/NOTES.md:137-161",
+  "kind": "fact",
+  "area": "qa",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "skill_rule",
+   "target": "skills/slate-qa/references/triage.md",
+   "reason": "What a clean scan looks like."
+  }
+ },
+ {
+  "id": "L-qa-S012",
+  "text": "Close-up probes for one moment: a crop's move per frame against a reference crop (text against its card), a crop's track through a move (an ease's tail tapers, a snapped one steps), crispness and PSNR of crops old against new, and whole-frame PSNR after a 2.5 px blur on frames where nothing moves, to show a change is rendering only. Strips enlarge crops with nearest-neighbour pixels and fixed guide lines, so a whole-pixel step shows.",
+  "source": "FILMROOT/pipeline/tools/stability_probe.py; FILMROOT/pipeline/tools/stability_strip.py (docstrings)",
+  "kind": "rule",
+  "area": "qa",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "code_default",
+   "target": "src/slate/qa/stability.py (planned this run: the render stability gates)",
+   "reason": "Tools for the eye after a scan points somewhere."
+  }
+ },
+ {
+  "id": "L-qa-S013",
+  "text": "A morph check: three still cards shrinking slowly on a sub-pixel spot; with the fix no edge jumps half a pixel a frame (nor 60% of the plain card's worst), every edge stays within 0.8 px of a constant offset from its true place and the content within 0.1 px; the plain card must step whole pixels, or the check has gone blind.",
+  "source": "FILMROOT/pipeline/tools/morph_check.py (docstring)",
+  "kind": "rule",
+  "area": "qa",
+  "gate_type": true,
+  "proposed_destination": {
+   "type": "gate",
+   "target": "engine/tests/kit/ (planned: the kit stability bench)",
+   "reason": "A kit conformance test."
+  }
+ },
+ {
+  "id": "L-qa-S014",
+  "text": "A conformance bench tests the kit itself: a dedicated bench scene rendered through the real pipeline at full samples must show that the scanner catches the unfixed kit; slow drifts, pushes and landings have no snap or shaking; push-ins stay at least 99% as crisp as a fresh raster; moving type is at least 99% as crisp on average and never under 96%; rest is untouched; a scene rendered twice is bit-identical; morphing cards stay true. Run it after any change to the kit's paper or type code or to the renderer.",
+  "source": "FILMROOT/pipeline/tools/stability_conformance.sh (header); FILMROOT/pipeline/r3f/KIT.md:115-121",
+  "kind": "rule",
+  "area": "qa",
+  "gate_type": true,
+  "proposed_destination": {
+   "type": "gate",
+   "target": "engine/tests/kit/ (planned: the kit stability bench)",
+   "reason": "A kit conformance test."
+  }
+ },
+ {
+  "id": "L-kit-S001",
+  "text": "Headless Chrome's Skia snaps a line of text to whole pixels only while the text's matrix keeps its x axis exactly horizontal: draw type under a skewY too small to see (about 0.034 degrees at full size, a quarter pixel across a 900 px card) inside the layer that holds it, and draw everything afresh each frame. Type then stays within about 0.13 px of its true path, as crisp as a fresh raster, and two renders are bit-identical.",
+  "source": "FILMROOT/pipeline/r3f/KIT.md:39-46; FILMROOT/pipeline/r3f/src/b/act6/NOTES.md:482-487",
+  "kind": "lesson",
+  "area": "kit",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "code_default",
+   "target": "engine/remotion/kit/paper.tsx",
+   "reason": "The kit's tilt mode."
+  }
+ },
+ {
+  "id": "L-kit-S002",
+  "text": "Tilt type only, never shapes: on anything else a tilt only moves it off whole pixels (0.0006 times its distance from the tilt's centre) and softens its edges. Keep every tilted plane tight around its type, and give a wide card with thin lines or bars far from its centre no face-wide tilt: tilt each text where it sits.",
+  "source": "FILMROOT/pipeline/r3f/KIT.md:47-50; FILMROOT/pipeline/r3f/src/acts/act2/NOTES.md:164-170; FILMROOT/pipeline/r3f/src/b/act1/NOTES.md:115-117",
+  "kind": "rule",
+  "area": "kit",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "code_default",
+   "target": "engine/remotion/kit/paper.tsx",
+   "reason": "Kit rule, with faceTilt as the opt-out."
+  }
+ },
+ {
+  "id": "L-kit-S003",
+  "text": "Where the type tilt goes: inside a blurred box (Chrome may raster a blurred box on its own), directly around text inside anything with an opacity below 1, a filter or a blend mode, and after a text's own transform; never on a composited layer's own transform or above one, where the compositor rotates the raster and softens it.",
+  "source": "FILMROOT/pipeline/r3f/KIT.md:54-70",
+  "kind": "rule",
+  "area": "kit",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "skill_rule",
+   "target": "skills/slate-build/references/remotion-gotchas.md",
+   "reason": "A builder rule for the kit's tilt mode."
+  }
+ },
+ {
+  "id": "L-kit-S004",
+  "text": "No tilted planes in a camera's 3D world, under a scaled parent, around absolutely placed type (it skews about its empty box's origin) or under a clip-path (Chrome then clips in the compositor and draws a sub-pixel edge as a whole row): a tilt span around each text instead.",
+  "source": "FILMROOT/pipeline/r3f/KIT_C.md:265-267; FILMROOT/pipeline/r3f/src/b/act1/NOTES.md:119-123; FILMROOT/pipeline/r3f/src/b/act2/NOTES.md:325-334",
+  "kind": "rule",
+  "area": "kit",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "skill_rule",
+   "target": "skills/slate-build/references/remotion-gotchas.md",
+   "reason": "A builder rule."
+  }
+ },
+ {
+  "id": "L-kit-S005",
+  "text": "Tilt running text as one block, never per character: an inline-block per character loses the kerning (the same text measured 6-10% wider), so fade trailing characters by their colour's alpha rather than an opacity, so none of them is painted apart from the tilted block.",
+  "source": "FILMROOT/pipeline/r3f/src/acts/act5/NOTES.md:493-497",
+  "kind": "rule",
+  "area": "kit",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "skill_rule",
+   "target": "skills/slate-build/references/remotion-gotchas.md",
+   "reason": "A builder rule."
+  }
+ },
+ {
+  "id": "L-kit-S006",
+  "text": "Counting numbers never re-centre: with a font that has no tabular figures (tabular-nums then does nothing), an unseen copy of the final or widest value sets the count's box and the count is drawn over it from the same left edge, so whatever follows on its line holds still and the final value rests where it did. Monospaced figures need nothing.",
+  "source": "FILMROOT/pipeline/r3f/KIT.md:79-84; FILMROOT/pipeline/r3f/src/acts/act4/NOTES.md:282-287; FILMROOT/pipeline/r3f/src/acts/act5/NOTES.md:514-528; FILMROOT/pipeline/r3f/src/b/act2/NOTES.md:364-372",
+  "kind": "rule",
+  "area": "kit",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "code_default",
+   "target": "engine/remotion/kit/type.tsx (CountUp)",
+   "reason": "The kit's counter."
+  }
+ },
+ {
+  "id": "L-kit-S007",
+  "text": "A card whose size morphs is laid out at whole even sizes and scaled to its true size (face, layers and pages), with its content scaled back, so every edge and the content sit on their true places; at even sizes the scale is 1 and nothing changes. A first version that only moved the pose by its offset's rounding left the far edges sawtoothing a pixel.",
+  "source": "FILMROOT/pipeline/r3f/KIT.md:85-97; FILMROOT/pipeline/r3f/src/b/act1/NOTES.md:159-172",
+  "kind": "rule",
+  "area": "kit",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "code_default",
+   "target": "engine/remotion/kit/paper.tsx (Card)",
+   "reason": "The kit's Card."
+  }
+ },
+ {
+  "id": "L-kit-S008",
+  "text": "Render with every tile finished: start Chrome so it rasterises every tile before it draws a frame (about 6% more render time); otherwise a tile that wasn't ready is left out of its sub-frame and shows as a faint grey veil for one frame.",
+  "source": "FILMROOT/pipeline/r3f/KIT.md:105-109; FILMROOT/QA_B.md:111-114",
+  "kind": "rule",
+  "area": "kit",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "code_default",
+   "target": "engine/remotion/render_mb.mjs (Chrome flags)",
+   "reason": "A renderer default."
+  }
+ },
+ {
+  "id": "L-kit-S009",
+  "text": "Hinting moving layers (will-change while they move, rebuilt at rest) glides, but the compositor resamples what it moves: type under a slow push came out about 15% softer. A one-pixel jump reads as a glitch and a few percent of softness doesn't, but crisp and smooth together is the bar, which the type tilt meets.",
+  "source": "FILMROOT/pipeline/r3f/KIT.md:98-104; FILMROOT/pipeline/r3f/src/b/act6/NOTES.md:477-488",
+  "kind": "lesson",
+  "area": "kit",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "skill_rule",
+   "target": "skills/slate-build/references/remotion-gotchas.md",
+   "reason": "Why tilt mode replaced hint mode."
+  }
+ },
+ {
+  "id": "L-kit-S010",
+  "text": "A rendering-only change must be a no-op in the old mode: prove it without rendering by comparing the scene's static markup at every frame and four sub-frame samples against the code before the change, plus a coverage audit (every text tilted, no tilt holding a shape outside a card's face, no planes, no raster hints) and the type check.",
+  "source": "FILMROOT/pipeline/r3f/KIT.md:71-73; FILMROOT/pipeline/r3f/src/acts/act2/NOTES.md:177-179; FILMROOT/pipeline/r3f/src/acts/act4/NOTES.md:301-306; FILMROOT/pipeline/r3f/src/b/act3/NOTES.md:197-203",
+  "kind": "rule",
+  "area": "kit",
+  "gate_type": true,
+  "proposed_destination": {
+   "type": "gate",
+   "target": "engine/tests/kit/ (planned: the kit stability bench)",
+   "reason": "A kit test."
+  }
+ },
+ {
+  "id": "L-kit-S011",
+  "text": "Shared components learn a new rendering mode behind an opt-in scope that only the converting act sets, so every other act that imports them renders exactly as before.",
+  "source": "FILMROOT/pipeline/r3f/src/acts/act5/NOTES.md:468-472",
+  "kind": "rule",
+  "area": "kit",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "skill_rule",
+   "target": "skills/slate-build/references/kit.md",
+   "reason": "Additive, opt-in kit changes."
+  }
+ },
+ {
+  "id": "L-kit-S012",
+  "text": "Both acts on a boundary render in the same raster mode, and a hand-over draws its type with the same tilt on both sides and its shapes untilted on both sides.",
+  "source": "FILMROOT/pipeline/r3f/KIT_C.md:268-269; FILMROOT/pipeline/r3f/src/b/act1/NOTES.md:180-186",
+  "kind": "rule",
+  "area": "kit",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "skill_rule",
+   "target": "skills/slate-build/references/contracts.md",
+   "reason": "A contract rule."
+  }
+ },
+ {
+  "id": "L-kit-S013",
+  "text": "A character's disc, or any box carrying parts drawn in floats, is placed and sized by a transform, so it sits under its moving parts on every frame instead of snapping to whole pixels against them.",
+  "source": "FILMROOT/pipeline/r3f/KIT_C.md:154-157; FILMROOT/pipeline/r3f/src/b/act6/NOTES.md:441",
+  "kind": "rule",
+  "area": "kit",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "code_default",
+   "target": "engine/remotion/kit/character/",
+   "reason": "The character rig's placement."
+  }
+ },
+ {
+  "id": "L-kit-S014",
+  "text": "Chrome rounds away the fractional part of a box's layout offset under any transform that isn't a pure translation (a tilt), so a box centred on a fractional offset steps whole pixels: lay it out at 0 and centre it by transform, and keep a line's top on a whole pixel with the fraction in its transform.",
+  "source": "FILMROOT/pipeline/r3f/src/b/act1/NOTES.md:141-145; FILMROOT/pipeline/r3f/src/b/act2/NOTES.md:335-337",
+  "kind": "lesson",
+  "area": "kit",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "skill_rule",
+   "target": "skills/slate-build/references/remotion-gotchas.md",
+   "reason": "A builder rule."
+  }
+ },
+ {
+  "id": "L-kit-S015",
+  "text": "Two siblings sharing a rebuild key were drawn wrong (one label shown twice): every crossing key is named and unique.",
+  "source": "FILMROOT/pipeline/r3f/src/b/act6/NOTES.md:438-440",
+  "kind": "bug",
+  "area": "kit",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "skill_rule",
+   "target": "skills/slate-build/references/remotion-gotchas.md",
+   "reason": "A React key rule."
+  }
+ },
+ {
+  "id": "L-kit-S016",
+  "text": "What snaps and what doesn't: text and boxes placed by layout snap to whole pixels; boxes and shadows placed by transform rasterise at their exact sub-pixel positions; rotated type isn't snapped; SVG coordinates never snap.",
+  "source": "FILMROOT/pipeline/r3f/src/b/act6/NOTES.md:419-422; FILMROOT/pipeline/r3f/src/acts/act4/NOTES.md:292-293; FILMROOT/pipeline/r3f/src/b/act8/NOTES.md:95",
+  "kind": "fact",
+  "area": "kit",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "skill_rule",
+   "target": "skills/slate-build/references/remotion-gotchas.md",
+   "reason": "Background for the tilt rules."
+  }
+ },
+ {
+  "id": "L-kit-S017",
+  "text": "In tilt mode type rests at its true place to a quarter pixel instead of a whole one (up to half a pixel from older renders), so a regression tile holding only the tops of large glyphs or one stem can read 5-10% less crisp from placement alone: measure the offset on a strip, leave that tile out on those frames only if it's placement, and keep the render; softness from a resampled or skewed raster is fixed at the source.",
+  "source": "FILMROOT/pipeline/r3f/KIT.md:126-133",
+  "kind": "lesson",
+  "area": "kit",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "skill_rule",
+   "target": "skills/slate-qa/references/triage.md",
+   "reason": "Triage of the render regression."
+  }
+ },
+ {
+  "id": "L-render-S001",
+  "text": "Before an act render is installed it passes the stability report against the act's accepted baseline and the static-frame regression against the render it replaces (expecting no change for a rendering-only change). A roll-out checks each render in four steps: a one-sample preview against a reference in the old mode from the same code, the full render's regression, the stability report, and triage of every new flag by eye, after which the baseline is written.",
+  "source": "FILMROOT/pipeline/r3f/KIT.md:110-122; FILMROOT/QA_B.md:96-110",
+  "kind": "rule",
+  "area": "render",
+  "gate_type": true,
+  "proposed_destination": {
+   "type": "gate",
+   "target": "src/slate/render/runner.py (planned: run the stability gates on each act render)",
+   "reason": "slate render calls the stability gates."
+  }
+ },
+ {
+  "id": "L-render-S002",
+  "text": "Keep the replaced render beside the new one until the new one is proven, and record which render every delivered clip was cut from: a queue that re-renders later can otherwise leave a clip whose picture exists nowhere else.",
+  "source": "FILMROOT/build/B/audio_p3/act6_clip_v3_polished-voice/README.md:12-18; FILMROOT/sound/trudy_voice/V4_TAGS.md:646-651",
+  "kind": "process",
+  "area": "render",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "code_default",
+   "target": "src/slate/render/registry.py",
+   "reason": "The renders registry keeps hashes and history."
+  }
+ },
+ {
+  "id": "L-render-S003",
+  "text": "One H.264 group of pictures can hit the encoder's bitrate ceiling and differ by about 50 dB PSNR from another encode of almost the same frames, which nobody can see; x264 itself repeats bit for bit on identical input.",
+  "source": "FILMROOT/build/B/audio_p3/act6_clip_v3_polished-voice/README.md:16-18; FILMROOT/sound/trudy_voice/V4_TAGS.md:649-651",
+  "kind": "fact",
+  "area": "render",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "dropped",
+   "target": "none",
+   "reason": "A fact about one review clip's encode; the master-against-render PSNR gate already holds review encodes."
+  }
+ },
+ {
+  "id": "L-render-S004",
+  "text": "Keep the disk from filling while several agents render: clear renderer caches nobody reads again (bundle caches keyed on random folders) on a timer, and stop loudly when free space drops under 2 GB.",
+  "source": "FILMROOT/pipeline/tools/disk_janitor.sh (header)",
+  "kind": "rule",
+  "area": "render",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "code_default",
+   "target": "src/slate/jobs/disk.py",
+   "reason": "Disk reservations and bundle cleanup."
+  }
+ },
+ {
+  "id": "L-jobs-S001",
+  "text": "Work restarts by itself after usage, session or rate limits: long work runs as detached, resumable jobs; a self-renewing watchdog resumes stopped agents, deletes itself when nothing is in flight and reports only when it restarted something; agents from an earlier session can't be resumed, so they are relaunched with briefs that pick up from their files.",
+  "source": "~/.claude/projects/-Users-you-Documents-TrueSpace-website-build-2026-09-28/memory/feedback_auto-resume-after-limits.md; FILMROOT/pipeline/tools/auto_resume_watchdog.md",
+  "kind": "rule",
+  "area": "jobs",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "skill_rule",
+   "target": "skills/slate/references/resilience.md",
+   "reason": "Slate's queue survives the agent; the watchdog is each agent host's own setting."
+  }
+ },
+ {
+  "id": "L-method-S001",
+  "text": "Check a new scanner against faults the owner actually saw before trusting it: the jitter scan was calibrated on the final the owner called jittery (it fails) and the fixed render (it passes), and clips of those faults became its permanent controls.",
+  "source": "FILMROOT/pipeline/tools/jitter_scan.py (docstring: calibration); FILMROOT/pipeline/tools/stability_controls.py",
+  "kind": "process",
+  "area": "method",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "skill_rule",
+   "target": "skills/slate-qa/references/gates.md",
+   "reason": "The same rule as checking a metric against the requester's ear."
+  }
+ },
+ {
+  "id": "L-method-S002",
+  "text": "Nothing in the film changes until the owner picks: proposals live in folders of their own, approved sets stay exactly as heard, and the listening file says what changes once they choose.",
+  "source": "FILMROOT/sound/trudy_voice/for_quinn/tags_v4/README.md:3-5; FILMROOT/sound/trudy_voice/tools/assemble_c_vo.py (docstring); FILMROOT/sound/trudy_voice/V4_TAGS.md:455-466",
+  "kind": "process",
+  "area": "method",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "skill_rule",
+   "target": "skills/slate/references/approvals.md",
+   "reason": "Perfect, don't replace."
+  }
+ },
+ {
+  "id": "L-packaging-S001",
+  "text": "The website's section-from-layers build tooling (layer templates, placement and variant scripts, style ids, a code push with diff, and preview probes run in the site editor through its own MCP), with the website's handoff and components docs, changed after the first inventory.",
+  "source": "FILMROOT/tools/layers/ (README.md, RUNBOOK.md, *.py, probes/, templates/, configs/, records/); FILMROOT/HANDOFF.md; FILMROOT/COMPONENTS.md",
+  "kind": "fact",
+  "area": "packaging",
+  "gate_type": false,
+  "proposed_destination": {
+   "type": "dropped",
+   "target": "none",
+   "reason": "The plan leaves the website tooling behind (docs/PLAN.md §2, \"Left behind\"); nothing in it is about making films."
+  }
+ }
+]

@@ -68,6 +68,17 @@ export type TraceExtra = {
   exception?: string;
 };
 
+/**
+ * What the element is, for the speed limits `slate qa motion` holds it to (the kit's defineMotion writes these into the
+ * trace): `class` rig, ui, carry or whip (a page or card carried across the frame says carry; a rig part is rig and the
+ * camera a carry without saying so), and a declared exemption (`exempt`: reading_sweep or steady) with its `reason`.
+ */
+export type TraceClass = {
+  class?: string;
+  exempt?: string;
+  reason?: string;
+};
+
 const extras = new Map<string, TraceExtra>();
 const problems = new Set<string>();
 
@@ -80,7 +91,7 @@ export const tweenProblems = (): string[] => [...problems];
 /** A move's value: a number (the end, starting from where the property is now) or [from, to]. */
 export type TweenValue = number | [number, number];
 
-export type TweenOptions = TraceExtra & {
+export type TweenOptions = TraceExtra & TraceClass & {
   /** the move's id in the trace (one property) or its prefix (several: "<id>.<prop>") */
   id: string;
   /** the shot it belongs to (default: the shot its first frame falls in) */
@@ -166,6 +177,9 @@ export function tween(target: gsap.TweenTarget, props: Record<string, TweenValue
       to,
       entrance: Boolean(opts.entrance),
       rig: opts.rig ?? null,
+      ...(opts.class !== undefined ? {class: opts.class} : {}),
+      ...(opts.exempt !== undefined ? {exempt: opts.exempt} : {}),
+      ...(opts.reason !== undefined ? {reason: opts.reason} : {}),
     });
     const extra: TraceExtra = {};
     if (opts.unit) extra.unit = opts.unit;

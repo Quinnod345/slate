@@ -6,6 +6,8 @@ Everything the voice stages know lives in the film folder:
     voice/direction.json          the tagged script: {"lines": {shot: "[tag] words"}} (`slate voice tags set`)
     voice/takes/<shot>/<take>.wav the raw read, with <take>.json (model, voice, settings, seed, request id)
     voice/takes/<shot>/<take>.clean.wav, <take>.paced.wav   the clean-up and pacing stages
+    voice/takes/<shot>/<take>.polished.wav, <take>.polish.json   the studio polish and its report (the raw, clean and
+                                  paced files stay as they are; voice measurements keep reading those)
     voice/takes.json              which take each shot uses, its stage files and its approval
     voice/align/<shot>.json       word timings of the shot's final take (Whisper-shaped JSON, engine recorded)
     timing/shots.json, timing/vo_cues.json   read for fit (from `slate timing`), when they exist
@@ -31,6 +33,8 @@ from slate.voice import profile as profile_mod
 from slate.voice import tags as tags_mod
 
 GENERATED = "do not edit by hand: slate voice"
+# A take's stage files, in the order they're made (approval locks every one that exists).
+TAKE_STAGES = ("raw", "clean", "paced", "polished")
 _warned: set[str] = set()
 
 
@@ -107,11 +111,19 @@ def source(film_dir: Path, rel_path: str) -> Path:
         return own
 
 
-def record(film_dir: Path, rel_path: str, *, producer: str, inputs: Any, tool_version: str | None = None) -> dict:
+def record(film_dir: Path, rel_path: str, *, producer: str, inputs: Any, tool_version: str | None = None,
+           note: str | None = None) -> dict:
     mod = _state("lock")
     if mod is not None:
+        if note is not None:
+            try:
+                return mod.record(film_dir, rel_path, producer=producer, inputs=inputs, tool_version=tool_version,
+                                  note=note)
+            except TypeError:  # a state module without notes: the record still counts, without the note
+                pass
         return mod.record(film_dir, rel_path, producer=producer, inputs=inputs, tool_version=tool_version)
-    return {"producer": producer, "inputs": inputs, "tool_version": tool_version, "made_at": now(), "locked": False}
+    return {"producer": producer, "inputs": inputs, "tool_version": tool_version, "made_at": now(), "locked": False,
+            "note": note}
 
 
 def _locks_path(film_dir: Path) -> Path:
@@ -340,7 +352,7 @@ class VoiceFilm:
         shots = dict(sorted(data.get("shots", {}).items(), key=lambda kv: (order.get(kv[0], 1 << 30), kv[0])))
         return jsonio.write_atomic(self.manifest_path, {
             "generated": GENERATED,
-            "note": "Which take each shot uses, its stage files (raw, clean, paced), alignment and approval.",
+            "note": "Which take each shot uses, its stage files (raw, clean, paced, polished), alignment and approval.",
             "shots": shots})
 
     def take_dir(self, shot: str) -> Path:
@@ -371,24 +383,37 @@ class VoiceFilm:
             return None
         return e["selected"], e["takes"][e["selected"]]
 
-    def final_audio(self, shot: str) -> Path | None:
-        sel = self.selected(shot)
-        if not sel:
-            return None
-        info = sel[1]
-        for stage in ("paced", "clean", "raw"):
-            if info.get(stage) and (self.dir / info[stage]).is_file():
-                return self.dir / info[stage]
-        return None
+    STAGES = ("polished", "paced", "clean", "raw")  # the last stage a take reached comes first
 
-    def final_stage(self, shot: str) -> str | None:
+    def final_audio(self, shot: str, *, polished: bool = True) -> Path | None:
+        """The take's audio as the film uses it: its last stage (polished, paced, clean, then raw). With
+        polished=False, the last stage before the polish: what voice measurements read."""
+        stage = self.final_stage(shot, polished=polished)
+        return self.dir / self.selected(shot)[1][stage] if stage else None
+
+    def final_stage(self, shot: str, *, polished: bool = True) -> str | None:
         sel = self.selected(shot)
         if not sel:
             return None
-        for stage in ("paced", "clean", "raw"):
+        for stage in self.STAGES if polished else self.STAGES[1:]:
             if sel[1].get(stage) and (self.dir / sel[1][stage]).is_file():
                 return stage
         return None
+
+    def unpolished_audio(self, shot: str) -> Path | None:
+        """The take before the studio polish (paced, clean or raw): what the polish reads, and what breath, pitch and
+        tag measurements read, so a polished take is never its own baseline."""
+        return self.final_audio(shot, polished=False)
+
+    def timing_stage(self, shot: str) -> str | None:
+        """The stage whose timing the final audio has. The polish keeps every sample where it was, so a polished take
+        times like the stage it was polished from."""
+        stage = self.final_stage(shot)
+        if stage != "polished":
+            return stage
+        take = self.selected(shot)[0]
+        source = ((self.take_json(shot, take).get("stages") or {}).get("polish") or {}).get("source_stage")
+        return source or self.final_stage(shot, polished=False)
 
     def update_take(self, shot: str, take: str, **fields: Any) -> dict:
         data = self.manifest()
@@ -416,8 +441,7 @@ class VoiceFilm:
         if not sel:
             return False
         take, info = sel
-        return bool(self.approved(shot)) or any(is_locked(self.dir, info[s]) for s in ("raw", "clean", "paced")
-                                                  if info.get(s))
+        return bool(self.approved(shot)) or any(is_locked(self.dir, info[s]) for s in TAKE_STAGES if info.get(s))
 
     # -- seeds --------------------------------------------------------------------------------------------------
 

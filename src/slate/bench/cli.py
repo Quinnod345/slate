@@ -69,9 +69,7 @@ def cmd_higgsedit(args: argparse.Namespace) -> int:
 
 
 def register(sub) -> None:
-    """Add `slate bench higgsedit` (skipped when another module already added `bench`)."""
-    if "bench" in getattr(sub, "choices", {}):
-        return
+    """Add `slate bench higgsedit` (slate.cli.MODULES lists this module for `bench`)."""
     group = cli.add_group(sub, "bench", "benchmarks that decide whether a second engine earns its place",
                           description="Benchmarks. `slate bench higgsedit` is phase 8: Higgsedit against a Remotion "
                                       "cut-down for a social channel, kept only if it's genuinely faster at acceptable "

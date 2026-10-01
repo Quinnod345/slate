@@ -1,59 +1,1476 @@
 {
  "schema": 1,
- "note": "The best current model for each role, with the date each fact was verified and where it came from. Films pin what they use (film.json pins); refreshing this file never changes a pinned film. Refresh before production: knowledge cutoffs predate these models.",
+ "note": "The best current model for each role, with the date each fact was verified and where it came from. Films pin what they use (film.json pins); refreshing this file never changes a pinned film. Refresh before production: knowledge cutoffs predate these models. Each model's `price` holds exactly one of per_char, per_second, per_minute or per_generation (what slate.ledger sums); everything else about price sits beside it. Credit prices are upper bounds: the ledger records what each call really cost.",
+ "status_legend": {
+  "verified": "matches the vendor's page today",
+  "changed": "a value differs from registry.json; 'was' holds the old one",
+  "added": "missing from registry.json and needed by Slate",
+  "partly-verified": "some fields verified today; see 'unverified'"
+ },
  "roles": {
-  "tts": {"default": "eleven_v4", "provider": "elevenlabs", "verified_on": "2026-09-30", "source": "ElevenLabs models page via the 2026-09-30 inventory (media-research.md §2)"},
-  "voice_design": {"default": "eleven_ttv_v3", "provider": "elevenlabs", "verified_on": "2026-09-30", "source": "API default is eleven_multilingual_ttv_v2, so always pass model_id (media-research.md §2.3)"},
-  "voice_remix": {"default": "eleven_ttv_v3", "provider": "elevenlabs", "verified_on": "2026-09-30", "source": "media-research.md §2.3"},
-  "voice_isolator": {"default": "elevenlabs_voice_isolator", "provider": "elevenlabs", "verified_on": "2026-09-30", "source": "media-research.md §2.8"},
-  "alignment": {"default": "whisper_turbo", "provider": "local", "verified_on": "2026-09-30", "source": "Plan Appendix A: openai-whisper turbo is the default aligner; ElevenLabs Forced Alignment is evaluated against it"},
-  "alignment_eval": {"default": "elevenlabs_forced_alignment", "provider": "elevenlabs", "verified_on": "2026-09-30", "source": "media-research.md §2.5"},
-  "music": {"default": "music_v2_5", "provider": "elevenlabs", "verified_on": "2026-09-30", "source": "API default is music_v1, so always pass model_id (media-research.md §2.6)"},
-  "sfx": {"default": "eleven_text_to_sound_v2", "provider": "elevenlabs", "verified_on": "2026-09-30", "source": "Learn from only: fills a gap, never the designed sound (media-research.md §2.7)"},
-  "plate_video": {"default": "bytedance/seedance-2.5/image-to-video", "provider": "higgsfield", "verified_on": "2026-09-30", "source": "FILMROOT pipeline/tools/hf_plates.py; best quality wins (decision 6)"},
-  "plate_video_reference": {"default": "bytedance/seedance-2.5/reference-to-video", "provider": "higgsfield", "verified_on": "2026-09-30", "source": "hf_plates.py"},
-  "plate_video_extend": {"default": "bytedance/seedance-2.5/video-extend", "provider": "higgsfield", "verified_on": "2026-09-30", "source": "hf_plates.py"},
-  "plate_still": {"default": "higgsfield-ai/soul/cinema", "provider": "higgsfield", "verified_on": "2026-09-30", "source": "hf_plates.py; HIGGSFIELD.md price table"}
+  "tts": {
+   "verified_on": "2026-09-30",
+   "default": "eleven_v4",
+   "provider": "elevenlabs",
+   "status": "verified",
+   "source": "https://elevenlabs.io/docs/overview/models",
+   "also": [
+    "https://elevenlabs.io/blog/eleven-v4",
+    "https://elevenlabs.io/docs/overview/capabilities/text-to-speech"
+   ],
+   "note": "Still the best: the models page calls it the most emotionally rich, expressive model (released 2026-09-28, no alpha or beta label). The TTS capability page still calls Multilingual v2 the most stable on long-form, so long reads get an A/B against eleven_multilingual_v2."
+  },
+  "voice_design": {
+   "verified_on": "2026-09-30",
+   "default": "eleven_ttv_v3",
+   "provider": "elevenlabs",
+   "status": "verified",
+   "source": "https://elevenlabs.io/docs/api-reference/text-to-voice/design",
+   "note": "The API default is still eleven_multilingual_ttv_v2, so always pass model_id. reference_audio_base64 and prompt_strength work only on eleven_ttv_v3."
+  },
+  "voice_remix": {
+   "verified_on": "2026-09-30",
+   "default": "eleven_ttv_v3",
+   "provider": "elevenlabs",
+   "status": "verified",
+   "source": "https://elevenlabs.io/docs/overview/capabilities/voice-remixing",
+   "also": [
+    "https://elevenlabs.io/docs/api-reference/text-to-voice/remix"
+   ],
+   "note": "POST /v1/text-to-voice/{voice_id}/remix. Output is a v3 voice; prompt_strength works only on eleven_ttv_v3. Remixable: voices you own, voices you have explicit permission for, and voices with an infinite notice period."
+  },
+  "voice_isolator": {
+   "verified_on": "2026-09-30",
+   "default": "elevenlabs_voice_isolator",
+   "provider": "elevenlabs",
+   "status": "verified",
+   "source": "https://elevenlabs.io/docs/overview/capabilities/voice-isolator"
+  },
+  "alignment": {
+   "verified_on": "2026-09-30",
+   "default": "whisper_turbo",
+   "provider": "local",
+   "status": "verified",
+   "source": "https://github.com/openai/whisper",
+   "note": "Plan Appendix A: openai-whisper turbo is the default aligner; ElevenLabs Forced Alignment is evaluated against it."
+  },
+  "alignment_eval": {
+   "verified_on": "2026-09-30",
+   "default": "elevenlabs_forced_alignment",
+   "provider": "elevenlabs",
+   "status": "verified",
+   "source": "https://elevenlabs.io/docs/overview/capabilities/forced-alignment"
+  },
+  "music": {
+   "verified_on": "2026-09-30",
+   "default": "music_v2_5",
+   "provider": "elevenlabs",
+   "status": "verified",
+   "source": "https://elevenlabs.io/docs/overview/models",
+   "also": [
+    "https://elevenlabs.io/docs/api-reference/music/compose",
+    "https://elevenlabs.io/docs/changelog/2026/9/14"
+   ],
+   "note": "music_v2_5 is 'our most advanced music model'. The API default is still music_v1, so always pass model_id. v2 and v2_5 take composition plans made of chunks, not v1 sections: a v1 section plan sent to music_v2_5 is rejected (the source films hit this), so the sound module builds chunk plans for it."
+  },
+  "sfx": {
+   "verified_on": "2026-09-30",
+   "default": "eleven_text_to_sound_v2",
+   "provider": "elevenlabs",
+   "status": "verified",
+   "source": "https://elevenlabs.io/docs/api-reference/text-to-sound-effects/convert",
+   "note": "The only model the endpoint accepts. Learn from only: it fills a gap, never the designed sound."
+  },
+  "plate_video": {
+   "verified_on": "2026-09-30",
+   "default": "bytedance/seedance-2.5/image-to-video",
+   "provider": "higgsfield",
+   "status": "verified",
+   "source": "https://docs.higgsfield.ai/docs/models/seedance-2-5/image-to-video.md",
+   "also": [
+    "https://docs.higgsfield.ai/docs/models/seedance-2-5.md",
+    "https://docs.higgsfield.ai/docs/models/video-generation.md",
+    "https://artificialanalysis.ai/video/leaderboard/image-to-video"
+   ],
+   "options": {
+    "resolution": [
+     "480p",
+     "720p",
+     "1080p"
+    ],
+    "resolution_default": "720p",
+    "duration_s": [
+     4,
+     30
+    ],
+    "generate_audio_default": true
+   },
+   "note": "Kept: the source films' look test picked it over Kling (painterly, off-palette) and Gemini Omni (broke the brief) because it matched the keyframes, and it covers every plate workflow Slate uses (end frame, up to 50 references, extend, 4-30 s). Plates render at 720p by default (resolution_default): 1080p is available on all three plate workflows since 2026-09-29 at 2.46x the 720p price, and that switch waits for Quinn's yes (questions: plate_video_resolution). Seedance 2.5 isn't in Artificial Analysis' image-to-video top 12 (August data); MiniMax H3 is #2 there and sits in this catalog, so it is the challenger for the next look test (models: minimax/h3/image-to-video).",
+   "question": "plate_video_resolution"
+  },
+  "plate_video_reference": {
+   "verified_on": "2026-09-30",
+   "default": "bytedance/seedance-2.5/reference-to-video",
+   "provider": "higgsfield",
+   "status": "verified",
+   "source": "https://docs.higgsfield.ai/docs/models/seedance-2-5/reference-to-video.md",
+   "options": {
+    "resolution": [
+     "480p",
+     "720p",
+     "1080p"
+    ],
+    "resolution_default": "720p",
+    "duration_s": [
+     4,
+     30
+    ],
+    "references_max": {
+     "images": 30,
+     "videos": 10,
+     "audio": 10,
+     "total": 50
+    }
+   },
+   "question": "plate_video_resolution"
+  },
+  "plate_video_extend": {
+   "verified_on": "2026-09-30",
+   "default": "bytedance/seedance-2.5/video-extend",
+   "provider": "higgsfield",
+   "status": "verified",
+   "source": "https://docs.higgsfield.ai/docs/models/seedance-2-5/video-extend.md",
+   "options": {
+    "resolution": [
+     "480p",
+     "720p",
+     "1080p"
+    ],
+    "resolution_default": "720p",
+    "duration_s": [
+     4,
+     30
+    ]
+   },
+   "note": "Billed on input plus generated seconds (see its model entry).",
+   "question": "plate_video_resolution"
+  },
+  "plate_still": {
+   "verified_on": "2026-09-30",
+   "default": "higgsfield-ai/soul/cinema",
+   "provider": "higgsfield",
+   "status": "verified",
+   "source": "https://docs.higgsfield.ai/docs/models/soul-cinema/generate.md",
+   "also": [
+    "https://docs.higgsfield.ai/docs/models/image-generation.md",
+    "https://artificialanalysis.ai/image/leaderboard/text-to-image"
+   ],
+   "options": {
+    "resolution": [
+     "720p",
+     "1080p"
+    ],
+    "resolution_default": "720p",
+    "batch_size": [
+     1,
+     4
+    ],
+    "aspect_ratio": [
+     "9:16",
+     "16:9",
+     "4:3",
+     "3:4",
+     "1:1",
+     "2:3",
+     "3:2"
+    ]
+   },
+   "note": "Kept: purpose-built cinematic stills, approved in the source films. The API's image catalog has no GPT Image or Nano Banana (those are app-side). Grok Imagine Image 2.0 is the highest-ranked image model in this catalog on Artificial Analysis (#4 text-to-image) and edits with up to 10 references, so it is the still challenger for the next look test (models: xai/grok-imagine-image-2.0)."
+  }
  },
  "models": {
-  "eleven_v4": {"provider": "elevenlabs", "kind": "tts", "price": {"unit": "credits", "per_char": 1.0}, "limits": {"chars_per_request": 10000}, "verified_on": "2026-09-30", "source": "media-research.md §2.2; price per character to confirm against the subscription endpoint before production"},
-  "eleven_ttv_v3": {"provider": "elevenlabs", "kind": "voice_design", "price": {"unit": "credits", "per_char": 1.0}, "limits": {"text_chars": [100, 1000]}, "verified_on": "2026-09-30", "source": "media-research.md §2.3"},
-  "elevenlabs_voice_isolator": {"provider": "elevenlabs", "kind": "isolator", "price": {"unit": "credits", "per_minute": 1000}, "verified_on": "2026-09-30", "source": "media-research.md §2.8"},
-  "elevenlabs_forced_alignment": {"provider": "elevenlabs", "kind": "alignment", "price": {"unit": "credits", "per_minute": 1000}, "verified_on": "2026-09-30", "source": "priced like speech-to-text (media-research.md §2.5); confirm before use"},
-  "music_v2_5": {"provider": "elevenlabs", "kind": "music", "price": {"unit": "credits", "per_minute": 2000}, "limits": {"length_ms": [3000, 600000], "part_seconds_max": 90}, "verified_on": "2026-09-30", "source": "media-research.md §2.6; per-minute credits to confirm from FILMROOT sound/music spend logs"},
-  "eleven_text_to_sound_v2": {"provider": "elevenlabs", "kind": "sfx", "price": {"unit": "credits", "per_second": 40}, "limits": {"seconds": [0.5, 30]}, "verified_on": "2026-09-30", "source": "media-research.md §2.7"},
-  "whisper_turbo": {"provider": "local", "kind": "alignment", "price": {"unit": "credits", "per_second": 0}, "verified_on": "2026-09-30", "source": "openai-whisper large-v3-turbo via Homebrew"},
-  "bytedance/seedance-2.5/image-to-video": {"provider": "higgsfield", "kind": "video", "price": {"unit": "usd", "per_second": 0.462}, "verified_on": "2026-09-29", "source": "HIGGSFIELD.md: about $2.31 for 5 s at 720p from /estimate; live estimates come from /estimate (free)"},
-  "bytedance/seedance-2.5/reference-to-video": {"provider": "higgsfield", "kind": "video", "price": {"unit": "usd", "per_second": 0.462}, "verified_on": "2026-09-29", "source": "as image-to-video; confirm with /estimate"},
-  "bytedance/seedance-2.5/video-extend": {"provider": "higgsfield", "kind": "video", "price": {"unit": "usd", "per_second": 0.462}, "verified_on": "2026-09-29", "source": "as image-to-video; confirm with /estimate"},
-  "kling-video/v3.0/pro/image-to-video": {"provider": "higgsfield", "kind": "video", "price": {"unit": "usd", "per_second": 0.062}, "verified_on": "2026-09-29", "source": "HIGGSFIELD.md: $0.31 list for 5 s"},
-  "higgsfield-ai/soul/cinema": {"provider": "higgsfield", "kind": "image", "price": {"unit": "usd", "per_generation": 0.006}, "verified_on": "2026-09-29", "source": "HIGGSFIELD.md: $0.006 at 1080p"}
+  "eleven_v4": {
+   "verified_on": "2026-09-30",
+   "provider": "elevenlabs",
+   "kind": "tts",
+   "status": "verified",
+   "source": "https://elevenlabs.io/pricing",
+   "also": [
+    "https://elevenlabs.io/docs/overview/models",
+    "https://elevenlabs.io/pricing/api",
+    "https://elevenlabs.io/blog/eleven-v4"
+   ],
+   "price": {
+    "unit": "credits",
+    "per_char": 1.0
+   },
+   "limits": {
+    "chars_per_request": 10000,
+    "languages": "90+"
+   },
+   "api_usd": {
+    "per_1k_chars": 0.08,
+    "promo_per_1k_chars": 0.022,
+    "promo": "72% off until 2026-10-12"
+   },
+   "measured": {
+    "credits_per_char_api": 0.133,
+    "takes": 43,
+    "when": "2026-09-30, during the API promo",
+    "account_tier": "pro",
+    "how": "character-cost response header / characters sent",
+    "evidence": [
+     "FILMROOT/sound/<the films' voice folder>/tags_v2/takes.json",
+     "FILMROOT/sound/<the films' voice folder>/tts_check/tts_check.json"
+    ],
+    "reading": "Matches $0.022 per 1K characters converted at the Pro plan's $99 per 600,000 credits (0.1333). Same check for eleven_v3: 68 credits for 141 characters = $0.08 per 1K at Pro's credit price (0.485)."
+   },
+   "credits_per_char_by_plan_derived": {
+    "how": "ElevenAPI dollar rate / the plan's dollars per credit; measured on Pro only",
+    "list": {
+     "starter": 0.4,
+     "creator": 0.44,
+     "pro": 0.485,
+     "scale": 0.482,
+     "business": 0.485
+    },
+    "promo_until_2026_10_12": {
+     "starter": 0.11,
+     "creator": 0.121,
+     "pro": 0.133,
+     "scale": 0.132,
+     "business": 0.133
+    },
+    "in_the_apps": 1.0
+   },
+   "note": "per_char 1.0 is the documented rate ('Text to Speech 1 credit per character') and stays as the budget upper bound. API calls measure far lower (about 0.49 a character at list, 0.13 during the promo on a Pro-tier account), so the ledger records the real cost from the character-cost header. Whether v4 supports the with-timestamps endpoint is still undocumented."
+  },
+  "eleven_multilingual_v2": {
+   "verified_on": "2026-09-30",
+   "provider": "elevenlabs",
+   "kind": "tts",
+   "status": "added",
+   "source": "https://elevenlabs.io/docs/overview/capabilities/text-to-speech",
+   "also": [
+    "https://elevenlabs.io/docs/overview/models",
+    "https://elevenlabs.io/docs/api-reference/text-to-speech/convert"
+   ],
+   "price": {
+    "unit": "credits",
+    "per_char": 1.0
+   },
+   "limits": {
+    "chars_per_request": 10000,
+    "languages": 29
+   },
+   "api_usd": {
+    "per_1k_chars": 0.08
+   },
+   "note": "Previous generation, but the docs still call it the most stable on long-form, so long narrations A/B it against eleven_v4. It is also the TTS endpoint's default model_id: always pass model_id."
+  },
+  "eleven_ttv_v3": {
+   "verified_on": "2026-09-30",
+   "provider": "elevenlabs",
+   "kind": "voice_design",
+   "status": "verified",
+   "source": "https://elevenlabs.io/docs/help-center/product/voices/voice-design/how-much-does-voice-design-cost",
+   "also": [
+    "https://elevenlabs.io/docs/api-reference/text-to-voice/design",
+    "https://elevenlabs.io/docs/overview/capabilities/voice-remixing"
+   ],
+   "price": {
+    "unit": "credits",
+    "per_char": 1.0
+   },
+   "limits": {
+    "text_chars": [
+     100,
+     1000
+    ],
+    "previews_per_call": 3
+   },
+   "measured": {
+    "credits_per_char": 1.0,
+    "account_tier": "pro",
+    "how": "subscription counter before and after: 9 design calls x 546 preview characters = 4,914, plus 261 for six TTS checks in the same window = 5,175 used, exactly",
+    "evidence": [
+     "FILMROOT/sound/<the films' voice folder>/credits_before.json + credits_after.json",
+     "FILMROOT/sound/<the films' voice folder>/tts_check/tts_check.json"
+    ]
+   },
+   "note": "Charged per character of preview text, once per call of three previews. Remix is priced the same way, by the length of its test script. Both endpoints return 409 while a generation is in progress: retry."
+  },
+  "elevenlabs_voice_isolator": {
+   "verified_on": "2026-09-30",
+   "provider": "elevenlabs",
+   "kind": "isolator",
+   "status": "verified",
+   "source": "https://elevenlabs.io/docs/overview/capabilities/voice-isolator",
+   "also": [
+    "https://elevenlabs.io/pricing",
+    "https://elevenlabs.io/pricing/api"
+   ],
+   "price": {
+    "unit": "credits",
+    "per_minute": 1000
+   },
+   "limits": {
+    "file_mb": 500,
+    "minutes": 60
+   },
+   "api_usd": {
+    "per_minute": 0.12
+   },
+   "note": "1,000 credits a minute on the capability page and the pricing FAQ. The API's $0.12 a minute would come to fewer credits if it bills like TTS does; unmeasured, so 1,000 stays the upper bound."
+  },
+  "elevenlabs_forced_alignment": {
+   "verified_on": "2026-09-30",
+   "provider": "elevenlabs",
+   "kind": "alignment",
+   "status": "changed",
+   "source": "https://elevenlabs.io/docs/overview/capabilities/forced-alignment",
+   "also": [
+    "https://elevenlabs.io/pricing",
+    "https://elevenlabs.io/pricing/api"
+   ],
+   "price": {
+    "unit": "credits",
+    "per_minute": 330
+   },
+   "was": {
+    "price": {
+     "unit": "credits",
+     "per_minute": 1000
+    }
+   },
+   "limits": {
+    "file_gb": 3,
+    "hours": 10,
+    "chars": 675000,
+    "languages": 29,
+    "diarized_text": false
+   },
+   "api_usd": {
+    "per_hour": 0.22,
+    "basis": "Scribe v2 rate"
+   },
+   "note": "The docs price it at 'the same rate as the Speech to Text API', and the pricing FAQ puts speech to text at 330 credits a minute. The API page lists Scribe v2 at $0.22 an hour, which would be far fewer credits if alignment bills like TTS does; unmeasured, so 330 stays the upper bound."
+  },
+  "music_v2_5": {
+   "verified_on": "2026-09-30",
+   "provider": "elevenlabs",
+   "kind": "music",
+   "status": "changed",
+   "source": "https://elevenlabs.io/pricing",
+   "also": [
+    "https://elevenlabs.io/docs/overview/models",
+    "https://elevenlabs.io/docs/api-reference/music/compose",
+    "https://elevenlabs.io/docs/overview/capabilities/music",
+    "https://elevenlabs.io/pricing/api",
+    "https://elevenlabs.io/docs/changelog/2026/9/14"
+   ],
+   "price": {
+    "unit": "credits",
+    "per_minute": 900
+   },
+   "was": {
+    "price": {
+     "unit": "credits",
+     "per_minute": 2000
+    }
+   },
+   "limits": {
+    "length_ms": [
+     3000,
+     600000
+    ],
+    "documented_max_ms": 300000,
+    "chunk_ms": [
+     3000,
+     120000
+    ],
+    "part_seconds_max": 90,
+    "plan_schema": "chunks",
+    "chunk_text_chars_max": 6132
+   },
+   "api_usd": {
+    "per_minute": 0.15
+   },
+   "measured": {
+    "credits_per_minute": {
+     "creator": 825,
+     "pro": [
+      857,
+      908
+     ]
+    },
+    "model": "music_v1",
+    "evidence": [
+     "FILMROOT/research/video-package-inventory-2026-09-30/sound-voice.md section 3 (B: about 825 a minute)",
+     "FILMROOT/sound/music/B/compose.log (subscription tier 'creator')",
+     "FILMROOT/sound/music/C/credits.json + FILMROOT/sound/music/C/plans/*.json"
+    ],
+    "reading": "825 is $0.15 a minute at Creator's credit price and 909 at Pro's, so music bills like TTS: the API's dollar rate converted at the plan's price per credit."
+   },
+   "credits_per_minute_by_plan_derived": {
+    "how": "$0.15 a minute / the plan's dollars per credit; matches Creator and Pro measurements",
+    "starter": 750,
+    "creator": 825,
+    "pro": 909,
+    "scale": 903,
+    "business": 909
+   },
+   "note": "900 credits a minute is the pricing FAQ's figure and isn't model-specific; no music_v2_5 spend has been measured yet. length_ms is the API's range for prompt mode; the capability page says 5 minutes for every model, so plan for 5. chunk_ms is the API's per-chunk range; part_seconds_max 90 is the films' playbook margin (parts under 90 s), not a vendor limit. Output 'auto' gives mp3_48000_192 on v2 models; pcm_48000 is listed. Seeds help but 'exact reproducibility is not guaranteed'."
+  },
+  "music_v1": {
+   "verified_on": "2026-09-30",
+   "provider": "elevenlabs",
+   "kind": "music",
+   "status": "added",
+   "source": "https://elevenlabs.io/docs/api-reference/music/compose",
+   "also": [
+    "https://elevenlabs.io/docs/overview/models"
+   ],
+   "price": {
+    "unit": "credits",
+    "per_minute": 900
+   },
+   "limits": {
+    "length_ms": [
+     3000,
+     600000
+    ],
+    "documented_max_ms": 300000,
+    "section_ms": [
+     3000,
+     120000
+    ],
+    "plan_schema": "sections"
+   },
+   "note": "The API's default model, which the docs call 'outclassed by music_v2 and music_v2_5'. Listed so a v1 section plan (and respect_sections_durations, which only v1 honours) has a home; never the default."
+  },
+  "eleven_text_to_sound_v2": {
+   "verified_on": "2026-09-30",
+   "provider": "elevenlabs",
+   "kind": "sfx",
+   "status": "verified",
+   "source": "https://elevenlabs.io/docs/overview/capabilities/sound-effects",
+   "also": [
+    "https://elevenlabs.io/docs/api-reference/text-to-sound-effects/convert",
+    "https://elevenlabs.io/pricing"
+   ],
+   "price": {
+    "unit": "credits",
+    "per_second": 40
+   },
+   "limits": {
+    "seconds": [
+     0.5,
+     30
+    ],
+    "prompt_influence_default": 0.3,
+    "wav_container": false
+   },
+   "api_usd": {
+    "per_minute": 0.12
+   },
+   "note": "40 credits a second when duration_seconds is set; 200 credits a generation when it isn't, so always set it. No WAV in the API's formats: take pcm_48000 and wrap it locally (44.1 kHz PCM needs Pro)."
+  },
+  "whisper_turbo": {
+   "verified_on": "2026-09-30",
+   "provider": "local",
+   "kind": "alignment",
+   "status": "verified",
+   "source": "https://github.com/openai/whisper",
+   "also": [
+    "https://pypi.org/pypi/openai-whisper/json"
+   ],
+   "price": {
+    "unit": "credits",
+    "per_second": 0
+   },
+   "limits": {
+    "params": "809M",
+    "vram_gb": 6,
+    "relative_speed": "about 8x large"
+   },
+   "note": "openai-whisper turbo, an optimised large-v3 (large-v3-turbo.pt, about 1.6 GB)."
+  },
+  "bytedance/seedance-2.5/image-to-video": {
+   "verified_on": "2026-09-30",
+   "provider": "higgsfield",
+   "kind": "video",
+   "status": "changed",
+   "source": "https://open.higgsfield.ai/models/bytedance/seedance-2.5/image-to-video/playground",
+   "also": [
+    "https://docs.higgsfield.ai/docs/models/seedance-2-5/image-to-video.md",
+    "https://open.higgsfield.ai/explore"
+   ],
+   "price": {
+    "unit": "usd",
+    "per_second": 0.4622
+   },
+   "was": {
+    "price": {
+     "unit": "usd",
+     "per_second": 0.462
+    },
+    "verified_on": "2026-09-29"
+   },
+   "price_by_resolution": {
+    "480p": 0.2056,
+    "720p": 0.4622,
+    "1080p": 1.1372
+   },
+   "billing": "List price for 16:9 with no video input. Tokens = ceil(h x w x (input video s + generated s) x 24 / 1024); $0.0214 per 1,000 at 480p/720p, $0.0234 at 1080p. Image and audio references don't count as video input.",
+   "limits": {
+    "duration_s": [
+     4,
+     30
+    ],
+    "resolutions": [
+     "480p",
+     "720p",
+     "1080p"
+    ]
+   },
+   "discount_seen": {
+    "percent": 30,
+    "where": "https://open.higgsfield.ai/explore",
+    "ends": null,
+    "note": "No end date published; budget at list."
+   },
+   "note": "per_second is the 720p list price (the API default). 1080p is new since 2026-09-29."
+  },
+  "bytedance/seedance-2.5/reference-to-video": {
+   "verified_on": "2026-09-30",
+   "provider": "higgsfield",
+   "kind": "video",
+   "status": "changed",
+   "source": "https://open.higgsfield.ai/models/bytedance/seedance-2.5/reference-to-video/playground",
+   "also": [
+    "https://docs.higgsfield.ai/docs/models/seedance-2-5/reference-to-video.md"
+   ],
+   "price": {
+    "unit": "usd",
+    "per_second": 0.4622
+   },
+   "was": {
+    "price": {
+     "unit": "usd",
+     "per_second": 0.462
+    },
+    "verified_on": "2026-09-29"
+   },
+   "price_by_resolution": {
+    "480p": 0.2056,
+    "720p": 0.4622,
+    "1080p": 1.1372
+   },
+   "billing": "With video references, both the reference and generated seconds are billed, at 0.6x per token ($0.01284 per 1,000 at 480p/720p, $0.01404 at 1080p). Image and audio references are free.",
+   "limits": {
+    "duration_s": [
+     4,
+     30
+    ],
+    "resolutions": [
+     "480p",
+     "720p",
+     "1080p"
+    ],
+    "references_max": {
+     "images": 30,
+     "videos": 10,
+     "audio": 10,
+     "total": 50
+    }
+   }
+  },
+  "bytedance/seedance-2.5/video-extend": {
+   "verified_on": "2026-09-30",
+   "provider": "higgsfield",
+   "kind": "video",
+   "status": "changed",
+   "source": "https://open.higgsfield.ai/models/bytedance/seedance-2.5/video-extend/playground",
+   "also": [
+    "https://docs.higgsfield.ai/docs/models/seedance-2-5/video-extend.md"
+   ],
+   "price": {
+    "unit": "usd",
+    "per_second": 0.2773
+   },
+   "was": {
+    "price": {
+     "unit": "usd",
+     "per_second": 0.462
+    },
+    "verified_on": "2026-09-29"
+   },
+   "price_by_resolution": {
+    "480p": 0.1234,
+    "720p": 0.2773,
+    "1080p": 0.6823
+   },
+   "billing": "Both input and generated seconds are billable, so pass seconds = input clip + extension. Extending a 5 s clip by 5 s at 720p costs 10 x 0.2773 = $2.77.",
+   "limits": {
+    "duration_s": [
+     4,
+     30
+    ],
+    "resolutions": [
+     "480p",
+     "720p",
+     "1080p"
+    ]
+   }
+  },
+  "bytedance/seedance-2.5/text-to-video": {
+   "verified_on": "2026-09-30",
+   "provider": "higgsfield",
+   "kind": "video",
+   "status": "added",
+   "source": "https://open.higgsfield.ai/models/bytedance/seedance-2.5/text-to-video/playground",
+   "also": [
+    "https://docs.higgsfield.ai/docs/models/seedance-2-5.md"
+   ],
+   "price": {
+    "unit": "usd",
+    "per_second": 0.4622
+   },
+   "price_by_resolution": {
+    "480p": 0.2056,
+    "720p": 0.4622,
+    "1080p": 1.1372
+   },
+   "limits": {
+    "duration_s": [
+     4,
+     30
+    ],
+    "resolutions": [
+     "480p",
+     "720p",
+     "1080p"
+    ]
+   },
+   "note": "For stock-style shots with no keyframe. The family also has video-edit."
+  },
+  "kling-video/v3.0/pro/image-to-video": {
+   "verified_on": "2026-09-30",
+   "provider": "higgsfield",
+   "kind": "video",
+   "status": "changed",
+   "source": "https://open.higgsfield.ai/models/kling-video/v3.0/pro/image-to-video/playground",
+   "also": [
+    "https://docs.higgsfield.ai/docs/models/kling-3/pro-image-to-video.md",
+    "https://docs.higgsfield.ai/docs/models/kling-3.md",
+    "FILMROOT/research/higgsfield/estimates_2026-09-29.txt"
+   ],
+   "price": {
+    "unit": "usd",
+    "per_second": 0.112
+   },
+   "was": {
+    "price": {
+     "unit": "usd",
+     "per_second": 0.062
+    },
+    "verified_on": "2026-09-29"
+   },
+   "price_by_sound": {
+    "off": 0.112,
+    "on": 0.168
+   },
+   "discount_seen": {
+    "percent": 45,
+    "ends": "2026-10-01",
+    "until_then": {
+     "off": 0.0616,
+     "on": 0.0924
+    }
+   },
+   "limits": {
+    "duration_s": [
+     3,
+     15
+    ],
+    "multi_shots": [
+     1,
+     6
+    ],
+    "output": "1920x1080 at 24 fps (measured)"
+   },
+   "note": "The old 0.062 was the discounted price (a 45% discount ending 2026-10-01), not list: the film's estimate returned usd 0.308 plus a 0.252 saving for 5 s, i.e. $0.56 list. The page's two rates match the films' sound-off and sound-on estimates. sound defaults to 'on', so send 'off' unless the plate's audio is wanted."
+  },
+  "kling-video/v3.0/4k/image-to-video": {
+   "verified_on": "2026-09-30",
+   "provider": "higgsfield",
+   "kind": "video",
+   "status": "added",
+   "source": "https://open.higgsfield.ai/models/kling-video/v3.0/4k/image-to-video/playground",
+   "also": [
+    "https://docs.higgsfield.ai/docs/models/kling-3.md",
+    "FILMROOT/research/higgsfield/estimates_2026-09-29.txt"
+   ],
+   "price": {
+    "unit": "usd",
+    "per_second": 0.42
+   },
+   "discount_seen": {
+    "percent": 45,
+    "ends": "2026-10-01",
+    "until_then": 0.231
+   },
+   "limits": {
+    "duration_s": [
+     3,
+     15
+    ]
+   },
+   "note": "The catalog's only native 4K plate. The films rated Kling's look below Seedance's, so this is for a 4K hero plate only after a look test."
+  },
+  "minimax/h3/image-to-video": {
+   "verified_on": "2026-09-30",
+   "provider": "higgsfield",
+   "kind": "video",
+   "status": "added",
+   "source": "https://open.higgsfield.ai/models/minimax/h3/image-to-video/playground",
+   "also": [
+    "https://docs.higgsfield.ai/docs/models/minimax-h3.md",
+    "https://artificialanalysis.ai/video/leaderboard/image-to-video"
+   ],
+   "price": {
+    "unit": "usd",
+    "per_second": 0.13
+   },
+   "discount_seen": {
+    "percent": 30,
+    "ends": "2026-10-01",
+    "until_then": 0.091
+   },
+   "limits": {
+    "duration_s": [
+     5,
+     15
+    ],
+    "resolution": "2K"
+   },
+   "note": "Challenger, not a default: #2 on Artificial Analysis' image-to-video arena (Elo 1181, August data; #1 is H3 Max, which isn't in this catalog). 2K at about a ninth of Seedance 2.5's 1080p price. Also text-to-video and reference-to-video."
+  },
+  "higgsfield-ai/soul/cinema": {
+   "verified_on": "2026-09-30",
+   "provider": "higgsfield",
+   "kind": "image",
+   "status": "partly-verified",
+   "source": "https://docs.higgsfield.ai/docs/models/soul-cinema/generate.md",
+   "also": [
+    "FILMROOT/research/higgsfield/estimates_2026-09-29.txt",
+    "https://open.higgsfield.ai/explore"
+   ],
+   "price": {
+    "unit": "usd",
+    "per_generation": 0.006
+   },
+   "price_verified_on": "2026-09-29",
+   "limits": {
+    "resolution": [
+     "720p",
+     "1080p"
+    ],
+    "batch_size": [
+     1,
+     4
+    ]
+   },
+   "unverified": {
+    "what": "the $0.006 price today",
+    "tried": [
+     "open.higgsfield.ai/explore (Soul Cinema isn't listed)",
+     "https://open.higgsfield.ai/models/higgsfield-ai/soul/cinema/playground (fetch returned no content)",
+     "https://docs.higgsfield.ai/docs/models/soul-cinema/generate.md (no price on the page)"
+    ],
+    "last_verified": "2026-09-29, /estimate at 1080p, batch 1, no discount"
+   },
+   "note": "Path and parameters verified today. Price per generation at batch 1; batch 4 isn't priced here."
+  },
+  "xai/grok-imagine-image-2.0": {
+   "verified_on": "2026-09-30",
+   "provider": "higgsfield",
+   "kind": "image",
+   "status": "added",
+   "source": "https://docs.higgsfield.ai/docs/models/grok-image-2.md",
+   "also": [
+    "https://open.higgsfield.ai/explore",
+    "https://artificialanalysis.ai/image/leaderboard/text-to-image"
+   ],
+   "price": {
+    "unit": "usd",
+    "per_generation": 0.04
+   },
+   "limits": {
+    "references_max": 10
+   },
+   "note": "Challenger for stills, not a default. 'From $0.04/img' on the explore page, so the real price can be higher by resolution: take /estimate's figure. #4 on Artificial Analysis' text-to-image arena, the highest of any model in this API's catalog."
+  }
  },
  "tools": {
-  "remotion": {"version": "4.0.521", "pinned": "exact", "verified_on": "2026-09-30", "note": "Upgrade within 4.0.x only after the render-parity check; never 5.0 unplanned (licence and colour changes)"},
-  "react": {"version": "19.2.8", "verified_on": "2026-09-30"},
-  "typescript": {"version": "5.9.3", "verified_on": "2026-09-30"},
-  "three": {"version": "0.180.0", "verified_on": "2026-09-29", "source": "Quinn's library list"},
-  "@react-three/fiber": {"version": "9.7.0", "verified_on": "2026-09-29", "source": "Quinn's library list"},
-  "@react-three/drei": {"version": "10.7.8", "verified_on": "2026-09-29", "source": "Quinn's library list"},
-  "gsap": {"version": "3.15.0", "verified_on": "2026-09-29", "source": "Quinn's library list; check its licence before a public release"},
-  "puppeteer": {"version": "25.10.0", "verified_on": "2026-09-29", "source": "Quinn's library list; local pages only"},
-  "chrome-headless-shell": {"version": "149", "verified_on": "2026-09-30", "note": "Remotion-managed; doctor runs `remotion browser ensure`"},
-  "fnf-after-effects-mcp": {"version": "0.1.3", "pinned": "exact", "verified_on": "2026-09-30", "note": "Pre-1.0; acceptance tests on every version bump"},
-  "higgsfield-cli": {"version": "1.1.26", "verified_on": "2026-09-30"},
-  "after-effects": {"version": "26.5", "verified_on": "2026-09-30"},
-  "ffmpeg": {"version": ">=9", "verified_on": "2026-09-30"},
-  "node": {"version": ">=24", "verified_on": "2026-09-30"},
-  "whisper-model": {"version": "turbo", "size_gb": 1.6, "verified_on": "2026-09-30"}
+  "remotion": {
+   "verified_on": "2026-09-30",
+   "version": "4.0.521",
+   "pinned": "exact",
+   "status": "verified",
+   "source": "https://registry.npmjs.org/-/package/remotion/dist-tags",
+   "also": [
+    "https://github.com/remotion-dev/remotion/tags",
+    "https://github.com/remotion-dev/remotion/releases/tag/v4.0.529",
+    "https://github.com/remotion-dev/remotion/releases/tag/v4.0.530",
+    "https://www.remotion.dev/docs/5-0-migration"
+   ],
+   "latest": "4.0.531",
+   "latest_published": "2026-09-30",
+   "changes_since_pin": [
+    "4.0.529 (2026-09-25): @remotion/motion-blur adds HtmlInCanvasMotionBlur.",
+    "4.0.530 (2026-09-29): 'small breaking change': durationInFrames now applies before playbackRate. Also stops range-expanding full-range 10/12-bit video twice, which changes pixels for such inputs.",
+    "npm has no 5.x; there is an alpha dist-tag 4.1.0-alpha12. Remotion 5.0 is 'not yet released'."
+   ],
+   "licence": {
+    "today": {
+     "source": "https://github.com/remotion-dev/remotion/blob/main/LICENSE.md",
+     "also": [
+      "https://www.remotion.dev/docs/license/faq",
+      "https://www.remotion.pro/license"
+     ],
+     "free_for": [
+      "individuals",
+      "for-profit organisations with up to 3 employees",
+      "non-profits",
+      "evaluation"
+     ],
+     "company_licence": "Creators $25 a seat a month (people writing Remotion code, including through agents); Automators $0.01 a render, $100 a month minimum (pipelines, prompt-to-video tools); Enterprise from $500 a month",
+     "faq_already_says": "Contractors helping operate Remotion on the same project count toward the 4-person threshold, and a client who only receives finished videos isn't a user.",
+     "grey_area": "LICENSE.md still sets eligibility by organisation size ('a for-profit organization with up to 3 employees'), so company work at a company of 4 or more reads as needing a licence even with one operator, while the FAQ's operator headcount points the other way. Check before a company film is published."
+    },
+    "v5": {
+     "source": "https://www.remotion.dev/docs/license/terms",
+     "also": [
+      "https://www.remotion.dev/docs/5-0-migration"
+     ],
+     "effective": "when Remotion 5.0 is released",
+     "who_counts": "Personnel across all involved parties that operate Remotion, part-time staff and independent contractors included; a licence is needed at four or more.",
+     "not_use": "A party that only receives generated media isn't an involved party.",
+     "keys": "Company licence holders pass a licence key and enable telemetry; free users pass 'free-license'."
+    }
+   },
+   "note": "Pinned at exactly 4.0.521; 4.0.531 is the latest 4.0.x (noted, not adopted). Upgrade within 4.0.x only after the render-parity check, which must cover 4.0.530's small breaking change (durationInFrames applies before playbackRate) and its full-range 10/12-bit pixel fix; never 5.0 unplanned (licence key, bt709 default colour space, WebGL on by default, auto-premount, removed packages)."
+  },
+  "@remotion/motion-blur": {
+   "verified_on": "2026-09-30",
+   "version": ">=4.0.529",
+   "installed": false,
+   "status": "added",
+   "source": "https://www.remotion.dev/docs/motion-blur/html-in-canvas-motion-blur",
+   "also": [
+    "https://github.com/remotion-dev/remotion/releases/tag/v4.0.529",
+    "https://registry.npmjs.org/@remotion/motion-blur"
+   ],
+   "latest": "4.0.531",
+   "note": "Not installed. HtmlInCanvasMotionBlur (added 4.0.529) renders the DOM into a canvas through the experimental HTML-in-canvas API and averages snapshots: samples 8 by default (1-64), shutterAngle 180 (0-360), disabled (4.0.530). Chrome only; preview needs HTML-in-canvas enabled, rendering needs no setup; nested HtmlInCanvas is unsupported. It needs Remotion 4.0.529 or later, so the A/B against render_mb runs in a side engine install, never in the pinned 4.0.521 engine. render_mb stays the default."
+  },
+  "react": {
+   "verified_on": "2026-09-30",
+   "version": "19.2.8",
+   "status": "verified",
+   "source": "https://registry.npmjs.org/react/latest",
+   "latest": "19.3.0",
+   "note": "Pinned in engine/package.json with react-dom. @react-three/fiber 9.8.1 accepts react >=19 <19.4."
+  },
+  "typescript": {
+   "verified_on": "2026-09-30",
+   "version": "5.9.3",
+   "status": "verified",
+   "source": "https://registry.npmjs.org/typescript/latest",
+   "latest": "7.0.2",
+   "note": "7.x is the native rewrite; stay on 5.9 until the type-check gate is proven on it."
+  },
+  "three": {
+   "verified_on": "2026-09-30",
+   "version": "0.180.0",
+   "status": "verified",
+   "source": "https://registry.npmjs.org/three/latest",
+   "latest": "0.186.1"
+  },
+  "@react-three/fiber": {
+   "verified_on": "2026-09-30",
+   "version": "9.7.0",
+   "status": "verified",
+   "source": "https://registry.npmjs.org/@react-three/fiber/latest",
+   "latest": "9.8.1"
+  },
+  "@react-three/drei": {
+   "verified_on": "2026-09-30",
+   "version": "10.7.8",
+   "status": "verified",
+   "source": "https://registry.npmjs.org/@react-three/drei/latest",
+   "latest": "10.7.9"
+  },
+  "gsap": {
+   "verified_on": "2026-09-30",
+   "version": "3.15.0",
+   "status": "verified",
+   "source": "https://gsap.com/standard-license",
+   "also": [
+    "https://registry.npmjs.org/gsap/latest",
+    "https://gsap.com/licensing/"
+   ],
+   "latest": "3.15.0",
+   "licence": {
+    "name": "Standard 'No Charge' GSAP License (Webflow)",
+    "effective": "2025-04-30",
+    "modified": "2025-05-30",
+    "commercial_use": true,
+    "bonus_plugins_included": true,
+    "prohibited": "Tools that let users build visual animations without code that compete with Webflow, and reverse engineering GSAP to build them. Don't remove its notices.",
+    "allowed": "AI-generated code is not a Prohibited Use."
+   },
+   "note": "Private use is fine. Before a public Slate release, check whether a talk-to-make-a-video tool counts as a no-code visual animation builder under that clause; ask GSAP if unsure."
+  },
+  "puppeteer": {
+   "verified_on": "2026-09-30",
+   "version": "25.10.0",
+   "status": "verified",
+   "source": "https://registry.npmjs.org/puppeteer/latest",
+   "latest": "25.12.0",
+   "note": "Needs Node 22.12 or later. Local pages only."
+  },
+  "esbuild": {
+   "verified_on": "2026-09-30",
+   "version": "0.28.1",
+   "status": "added",
+   "source": "https://registry.npmjs.org/esbuild/latest",
+   "latest": "0.28.2",
+   "note": "Pinned in engine/package.json; every event emitter uses it (Appendix A: keep, declared)."
+  },
+  "chrome-headless-shell": {
+   "verified_on": "2026-09-30",
+   "version": "149.0.7790.0",
+   "status": "changed",
+   "source": "https://www.remotion.dev/docs/miscellaneous/chrome-headless-shell",
+   "was": {
+    "version": "149"
+   },
+   "note": "Remotion 4.0.452 and later use Chrome 149.0.7790.0. Remotion-managed; doctor runs `remotion browser ensure`."
+  },
+  "fnf-after-effects-mcp": {
+   "verified_on": "2026-09-30",
+   "version": "0.1.3",
+   "pinned": "exact",
+   "status": "verified",
+   "source": "https://registry.npmjs.org/fnf-after-effects-mcp",
+   "also": [
+    "https://unpkg.com/fnf-after-effects-mcp@0.1.3/UPSTREAM.md",
+    "https://unpkg.com/fnf-after-effects-mcp@0.1.3/LICENSE",
+    "https://github.com/kumoproductions/mcp-aftereffects",
+    "https://github.com/higgsfield-ai/fnf-local-pluging-bridge-mcp"
+   ],
+   "latest": "0.1.3",
+   "latest_published": "2026-09-23",
+   "releases": [
+    "0.1.0 2026-09-10",
+    "0.1.1 2026-09-14",
+    "0.1.2 2026-09-23",
+    "0.1.3 2026-09-23"
+   ],
+   "licence": {
+    "package_field": "SEE LICENSE IN UPSTREAM.md",
+    "runtime": "MIT: based on kumo.productions/mcp-aftereffects 0.2.0 at commit 11f6ca4; LICENSE reads 'Copyright (c) 2026 kumo.productions, Inc.'",
+    "bundled_skills": "Not covered by the MIT grant; 'no additional redistribution license is granted', so reference them, never copy them.",
+    "source_repo": "higgsfield-ai/fnf-local-pluging-bridge-mcp still returns 404."
+   },
+   "note": "Pre-1.0; acceptance tests on every version bump. Node 24 or later."
+  },
+  "higgsfield-cli": {
+   "verified_on": "2026-09-30",
+   "version": "1.1.26",
+   "status": "verified",
+   "source": "https://registry.npmjs.org/@higgsfield/cli",
+   "also": [
+    "https://github.com/higgsfield-ai/cli/releases"
+   ],
+   "latest": "1.1.26",
+   "latest_published": "2026-09-18",
+   "licence": "MIT",
+   "note": "Sign-in is run by a person, never an agent. It spends app credits, which Slate doesn't fund."
+  },
+  "after-effects": {
+   "verified_on": "2026-09-30",
+   "version": "26.5",
+   "status": "verified",
+   "source": "https://community.adobe.com/announcements-527/after-effects-26-5-is-here-1641108",
+   "latest_published": "2026-09-09"
+  },
+  "ffmpeg": {
+   "verified_on": "2026-09-30",
+   "version": ">=9",
+   "status": "verified",
+   "source": "https://ffmpeg.org/download.html",
+   "latest": "9.0.2",
+   "latest_published": "2026-09-18",
+   "note": "Needs a full build for ebur128, loudnorm and psnr."
+  },
+  "node": {
+   "verified_on": "2026-09-30",
+   "version": ">=24",
+   "status": "verified",
+   "source": "https://nodejs.org/en/about/previous-releases",
+   "latest": {
+    "lts": "24.21.0 (Krypton)",
+    "current": "26.10.0"
+   },
+   "note": "fnf-after-effects-mcp needs 24 or later."
+  },
+  "whisper-model": {
+   "verified_on": "2026-09-30",
+   "version": "turbo",
+   "size_gb": 1.6,
+   "status": "verified",
+   "source": "https://github.com/openai/whisper",
+   "note": "809M parameters (large-v3-turbo), about 6 GB of VRAM."
+  },
+  "openai-whisper": {
+   "verified_on": "2026-09-30",
+   "version": "20250625",
+   "status": "added",
+   "source": "https://pypi.org/pypi/openai-whisper/json",
+   "licence": "MIT",
+   "note": "The package behind the default aligner (Homebrew build 20250625_6); gate evidence names it with the model."
+  }
  },
  "agents": {
-  "recommended": {"agent": "claude-code", "model": "claude-opus-5-5", "effort": "max", "verified_on": "2026-09-30", "note": "Configurable in slate.toml [agent]"},
-  "codex_default": {"model": "gpt-6-astra", "verified_on": "2026-09-30"},
-  "oneiro_research_slice": {"model": "gpt-6-sol", "invocation": "codex exec --ignore-user-config", "verified_on": "2026-09-30"},
-  "openclaw_deployed": {"model": "gpt-5.6-sol", "verified_on": "2026-09-30"}
+  "recommended": {
+   "verified_on": "2026-09-30",
+   "agent": "claude-code",
+   "model": "claude-opus-5-5",
+   "effort": "max",
+   "status": "verified",
+   "source": "https://platform.claude.com/docs/en/about-claude/models/overview",
+   "also": [
+    "https://platform.claude.com/docs/en/build-with-claude/effort"
+   ],
+   "knowledge_cutoff": "2026-06",
+   "note": "Configurable in slate.toml [agent]. Opus 5.5 defaults to medium effort, so max has to be set explicitly. Anthropic names Claude Fable 5.1 (claude-fable-5-1) as the step up when Opus 5.5 at higher effort falls short; it isn't an eval target unless Quinn adds it."
+  },
+  "codex_default": {
+   "verified_on": "2026-09-30",
+   "model": "gpt-6-astra",
+   "status": "verified",
+   "source": "https://developers.openai.com/api/docs/models/gpt-6-astra",
+   "also": [
+    "https://learn.chatgpt.com/docs/models",
+    "https://developers.openai.com/api/docs/models/gpt-6.1-sol"
+   ],
+   "knowledge_cutoff": "2026-04-30",
+   "note": "The model this Mac's Codex config sets (with xhigh effort; inventory agents-wiring.md). OpenAI's Codex docs now recommend GPT-6.1 Sol (gpt-6.1-sol) first for ChatGPT sign-in and Astra for the most demanding work; evals follow what the config actually runs."
+  },
+  "oneiro_research_slice": {
+   "verified_on": "2026-09-30",
+   "model": "gpt-6-sol",
+   "invocation": "codex exec --ignore-user-config",
+   "status": "verified",
+   "source": "https://developers.openai.com/api/docs/models/gpt-6-sol",
+   "also": [
+    "https://developers.openai.com/api/docs/deprecations"
+   ],
+   "knowledge_cutoff": "2026-04-20",
+   "note": "No deprecation announced. Its successor-style sibling gpt-6.1-sol exists; if the pursuit's config moves to it, the eval matrix follows."
+  },
+  "openclaw_deployed": {
+   "verified_on": "2026-09-30",
+   "model": "gpt-5.6-sol",
+   "status": "verified",
+   "source": "https://developers.openai.com/api/docs/models/gpt-5.6-sol",
+   "also": [
+    "https://developers.openai.com/api/docs/deprecations"
+   ],
+   "knowledge_cutoff": "2026-02-16",
+   "note": "Not deprecated: OpenAI lists it as the replacement for several models retiring 2026-12-11."
+  }
  },
  "price_notes": [
-  {"note": "Higgsfield API cash-back ends 2026-09-30 23:59 UTC", "expires": "2026-09-30T23:59:00Z"},
-  {"note": "ElevenLabs v4 3x credit promotion ends 2026-10-12", "expires": "2026-10-12"}
+  {
+   "verified_on": "2026-09-30",
+   "note": "Higgsfield API cash-back ends 2026-09-30 23:59 UTC: $1 back per $1 of API spend, capped at $1,000 an account ($200,000 with a verified business email and card), ending early if the $20M pool runs out. Unused cash-back expires at the deadline; it pays first when it covers a generation's whole cost. No extension found at 15:15 UTC.",
+   "expires": "2026-09-30T23:59:00Z",
+   "status": "verified",
+   "source": "https://higgsfield.ai/creator-hub/changelog"
+  },
+  {
+   "verified_on": "2026-09-30",
+   "note": "Higgsfield's 45% Kling 3.0 discount ends: Pro image-to-video goes from $0.0616 to $0.112 a second (sound off) and 4K from $0.231 to $0.42. MiniMax H3's 30% discount ends the same day ($0.091 to $0.13 at 2K).",
+   "expires": "2026-10-01",
+   "status": "added",
+   "source": "https://open.higgsfield.ai/models/kling-video/v3.0/pro/image-to-video/playground",
+   "also": [
+    "https://open.higgsfield.ai/models/kling-video/v3.0/4k/image-to-video/playground",
+    "https://open.higgsfield.ai/models/minimax/h3/image-to-video/playground"
+   ]
+  },
+  {
+   "verified_on": "2026-09-30",
+   "note": "Higgsfield shows 30% off Seedance 2.5 with no end date. Budget at list.",
+   "expires": null,
+   "status": "added",
+   "source": "https://open.higgsfield.ai/explore"
+  },
+  {
+   "verified_on": "2026-09-30",
+   "note": "ElevenLabs v4 promotions end 2026-10-12 (time of day not stated). On the API: 72% off eleven_v4 and eleven_v4_turbo ($0.022 and $0.011 per 1K characters instead of $0.08 and $0.04), which is what Slate's calls get. In the apps only: '3x credits' on Creator and up, meaning up to 2x the monthly TTS credits used on v4 don't count against the balance.",
+   "expires": "2026-10-12",
+   "status": "changed",
+   "source": "https://elevenlabs.io/pricing/api",
+   "also": [
+    "https://elevenlabs.io/pricing",
+    "https://elevenlabs.io/blog/eleven-v4",
+    "https://elevenlabs.io/mcp"
+   ],
+   "was": {
+    "note": "ElevenLabs v4 3x credit promotion ends 2026-10-12"
+   }
+  }
+ ],
+ "providers": {
+  "elevenlabs": {
+   "verified_on": "2026-09-30",
+   "status": "added",
+   "source": "https://elevenlabs.io/pricing",
+   "also": [
+    "https://elevenlabs.io/pricing/api",
+    "https://elevenlabs.io/docs/overview/models",
+    "https://elevenlabs.io/docs/api-reference/text-to-speech/convert",
+    "https://elevenlabs.io/docs/help-center/legal/can-i-publish-the-content-i-generate-on-the-platform",
+    "https://elevenlabs.io/eleven-music-model-specific-terms"
+   ],
+   "plans": {
+    "free": {
+     "usd_month": 0,
+     "credits": 10000
+    },
+    "starter": {
+     "usd_month": 6,
+     "credits": 30000
+    },
+    "creator": {
+     "usd_month": 22,
+     "credits": 121000
+    },
+    "pro": {
+     "usd_month": 99,
+     "credits": 600000
+    },
+    "scale": {
+     "usd_month": 299,
+     "credits": 1800000
+    },
+    "business": {
+     "usd_month": 990,
+     "credits": 6000000
+    }
+   },
+   "credit_rates_documented": {
+    "quote": "Approximate credit costs are: Text to Speech 1 credit per character; Speech to Text 330 credits per minute; Eleven Music 900 credits per minute; Sound Effects 200 credits per generation; Voice Changer and Voice Isolator 1,000 credits per minute",
+    "sfx_when_duration_set": "40 credits per second"
+   },
+   "api_usd": {
+    "eleven_v4_per_1k_chars": 0.08,
+    "eleven_v4_turbo_per_1k_chars": 0.04,
+    "eleven_v3_per_1k_chars": 0.08,
+    "multilingual_v2_per_1k_chars": 0.08,
+    "flash_turbo_per_1k_chars": 0.04,
+    "scribe_v2_per_hour": 0.22,
+    "music_per_minute": 0.15,
+    "sfx_per_minute": 0.12,
+    "voice_isolator_per_minute": 0.12,
+    "voice_changer_per_minute": 0.12
+   },
+   "api_billing_measured": "On the API, TTS and music cost the ElevenAPI dollar rate converted at the plan's price per credit: v4 0.133 credits a character during the promo and v3 0.482 on Pro, music 825 a minute on Creator and 857-908 on Pro. Voice Design bills a flat 1 credit a character. Isolator, SFX and alignment are unmeasured. So the registry's credit prices are upper bounds, and the ledger records actuals: the TTS character-cost header per call, and the free GET /v1/user/subscription counter before and after everything else.",
+   "concurrency": {
+    "source": "https://elevenlabs.io/docs/overview/models",
+    "tts_multilingual_v2_column": {
+     "free": 2,
+     "starter": 3,
+     "creator": 5,
+     "pro": 10,
+     "scale": 15,
+     "business": 15,
+     "enterprise": "elevated"
+    },
+    "flash": {
+     "free": 4,
+     "starter": 6,
+     "creator": 10,
+     "pro": 20,
+     "scale": 30,
+     "business": 30
+    },
+    "music": {
+     "free": 0,
+     "starter": 2,
+     "creator": 2,
+     "pro": 2,
+     "scale": 5,
+     "business": 5,
+     "enterprise": "highest"
+    },
+    "stt": {
+     "free": 8,
+     "starter": 12,
+     "creator": 20,
+     "pro": 40,
+     "scale": 60,
+     "business": 60
+    },
+    "over_limit": "The docs say requests over the limit are 'processed in a queue alongside lower-priority requests'; the films saw a third music request wait or need a retry, so the lock holds at the limit.",
+    "unstated": "Which column eleven_v4 and eleven_v3 fall under; assume the Multilingual v2 one."
+   },
+   "output_tiers": {
+    "mp3_44100_192": "Creator and up",
+    "pcm_44100 and wav_44100": "Pro and up ('44.1kHz PCM audio output via API')",
+    "pcm_48000 and wav_48000": "Tier not named in the docs; the source films used pcm_48000 on Pro. Treat all lossless output as Pro and up.",
+    "sfx": "No WAV container; PCM up to 48 kHz.",
+    "music_auto": "mp3_44100_128 for music_v1, mp3_48000_192 for v2 models"
+   },
+   "commercial": {
+    "paid_plans": "Commercial licence included, unless the output comes from Beta Services.",
+    "free_plan": "No commercial use; attribute to elevenlabs.io.",
+    "beta": "Beta Services output can't be used commercially or in production. None of eleven_v4, eleven_ttv_v3, music_v2_5 or eleven_text_to_sound_v2 carries an alpha or beta label."
+   },
+   "music_terms": {
+    "source": "https://elevenlabs.io/eleven-music-model-specific-terms",
+    "last_updated": "2026-05-26",
+    "self_serve": "Paid self-serve plans: all online and offline commercial use, except film, TV, radio and Studio Games.",
+    "streaming": "Creator and up.",
+    "enterprise_music": "Adds film, TV, radio and Studio Games.",
+    "never": "Reseller use and music libraries; no artist names or lyrics as input.",
+    "slate_rule": "Broadcast formats flag the score for an Enterprise check."
+   }
+  },
+  "higgsfield": {
+   "verified_on": "2026-09-30",
+   "status": "added",
+   "source": "https://docs.higgsfield.ai/docs/llms.txt",
+   "also": [
+    "https://docs.higgsfield.ai/docs/concepts/billing-and-retention.md",
+    "https://docs.higgsfield.ai/docs/concepts/rate-limits.md",
+    "https://docs.higgsfield.ai/docs/concepts/errors.md",
+    "https://docs.higgsfield.ai/docs/concepts/idempotency.md",
+    "https://docs.higgsfield.ai/docs/api-reference/requests/get-request-status.md",
+    "https://docs.higgsfield.ai/docs/api-reference/overview.md",
+    "https://docs.higgsfield.ai/docs/models.md",
+    "https://higgsfield.ai/higgsfield-api",
+    "https://higgsfield.ai/creator-hub/changelog"
+   ],
+   "base_url": "https://api.higgsfield.ai",
+   "auth": "Authorization: Key <key_id>:<key_secret>, server-side only",
+   "estimate": {
+    "call": "POST /estimate/<model path> with the generation's own body",
+    "returns": [
+     "credits",
+     "usd",
+     "discount"
+    ],
+    "reading": "usd is what the job costs after any discount; discount.usd is the saving, not the price. Proof: Kling Pro 5 s returned 0.308 + 0.252 = $0.56 list; MiniMax H3 6 s 0.546 + 0.234 = $0.78 list; Kling 4K 5 s 1.155 + 0.945 = $2.10 list.",
+    "cost": "Billing charges successful generations only and an estimate isn't one; the docs don't say 'free' in words.",
+    "evidence": "FILMROOT/research/higgsfield/estimates_2026-09-29.txt",
+    "some_models": "Seedance 2.5 and Cinema Studio return a pricing description instead of a number."
+   },
+   "credits_per_usd": 16,
+   "probe": {
+    "call": "GET /requests/<random uuid>/status",
+    "expect": {
+     "valid_key": 404,
+     "missing_or_invalid_key": 401
+    },
+    "cost": "Free: a status read isn't a generation."
+   },
+   "idempotency": {
+    "header": "Idempotency-Key",
+    "value": "1-255 visible ASCII characters, no whitespace; UUIDs recommended",
+    "same_key_same_body": "Returns the original request_id without creating or charging another generation.",
+    "same_key_other_body": "422",
+    "applies_to": "Generation submissions only (not status, cancel, uploads, estimates or webhooks).",
+    "use": "After a timeout, network failure or 5xx, resend the same body with the same key. This replaces the films' never-retry-a-POST rule."
+   },
+   "concurrency": {
+    "docs": "Per account and model, shown in the console; over the limit the API returns 400 'Maximum number of concurrent requests (N) has been reached'.",
+    "marketing": "'20 concurrent requests per key' to start, raised in settings.",
+    "slate": "Read the console's figure into the higgsfield lock; don't assume 20."
+   },
+   "errors": {
+    "400": "bad parameters or concurrency reached",
+    "401": "bad credentials",
+    "403": "insufficient credits",
+    "404": "request or model not found for this account",
+    "422": "validation failed or idempotency key reused with another body",
+    "500": "retry with backoff",
+    "503": "model disabled or not ready",
+    "seen_in_the_films": "409 'temporarily unavailable' for Kling O3 4K"
+   },
+   "billing": {
+    "charged": "Successful generations only; failed and nsfw requests are refunded.",
+    "cancel": "Only while queued; refunded.",
+    "credits_expire": "One year after they are added to the balance.",
+    "output_retention": "At least 7 days, then may be removed: download at once.",
+    "model": "Pay per generation, no subscription or seats."
+   },
+   "catalog": {
+    "as_of": "2026-09-22",
+    "entries": 82,
+    "image": 16,
+    "video": 66,
+    "video_families": [
+     "Genjutsu",
+     "Seedance 2.0",
+     "Seedance 2.5",
+     "Kling 2.5 Turbo",
+     "Kling 2.6",
+     "Kling 2.6 Motion Control",
+     "Kling 3.0",
+     "Kling 3.0 Motion Control",
+     "Kling O3",
+     "Kling Omni",
+     "Happy Horse 1.0",
+     "HappyHorse 1.1",
+     "Wan 3.0",
+     "Wan 3.0 Prime",
+     "Cinema Studio 4.0",
+     "LTX-2.5",
+     "MiniMax H3",
+     "Hailuo 2.3",
+     "PixVerse V6",
+     "Wan 2.6",
+     "Wan 2.7",
+     "Grok Imagine Video 1.5"
+    ],
+    "image_families": [
+     "SOUL",
+     "SOUL V2",
+     "SOUL Cinema",
+     "Soul ID (training)",
+     "Marketing Studio Image",
+     "Grok Image 2.0",
+     "Recraft V4.1",
+     "Recraft V4.1 Pro",
+     "Recraft V4.1 Utility",
+     "Recraft V4.1 Utility Pro",
+     "Qwen Image 3",
+     "Ideogram 4.0",
+     "Z-Image Turbo"
+    ],
+    "not_in_api": "No voice, music, GPT Image, Nano Banana or Veo: those are app-side."
+   }
+  }
+ },
+ "questions": [
+  {
+   "id": "plate_video_resolution",
+   "for": "Quinn",
+   "asked_on": "2026-10-01",
+   "question": "Generate video plates at 1080p instead of 720p? Seedance 2.5 offers 1080p on image-to-video, reference-to-video and extend since 2026-09-29. Best quality wins argues for it, at 2.46x the 720p price: $1.1372 a second against $0.4622 (list, 16:9), so a 5-second plate goes from about $2.31 to about $5.69.",
+   "default_until_answered": "720p",
+   "how_to_switch": "Set [gen] video_resolution = \"1080p\" in Slate's slate.toml (or `resolution` on one shot's generate block). A film pins the model it used; the resolution travels in each take's body.",
+   "evidence": [
+    "models: bytedance/seedance-2.5/image-to-video price_by_resolution",
+    "https://open.higgsfield.ai/models/bytedance/seedance-2.5/image-to-video/playground"
+   ]
+  }
+ ],
+ "history": [
+  {
+   "on": "2026-10-01",
+   "what": "Merged the knowledge owner's re-check of 2026-09-30 (knowledge/registry_proposal.json): every entry re-read from the vendor's public page, measurements beside the documented prices.",
+   "changes": [
+    "elevenlabs_forced_alignment: 1,000 to 330 credits a minute ('same rate as Speech to Text', which is 330).",
+    "music_v2_5: 2,000 to 900 credits a minute (pricing FAQ; the films measured 825-908 on music_v1). Plans for v2_5 use chunks; v1 section plans are rejected.",
+    "kling-video/v3.0/pro/image-to-video: $0.062 to $0.112 a second. 0.062 was a 45% discount that ends 2026-10-01. Its sound defaults to on ($0.168), so send off.",
+    "bytedance/seedance-2.5/video-extend: $0.462 to $0.2773 a second at 720p, billed on input plus generated seconds.",
+    "Seedance 2.5: 1080p is now available on image-to-video, reference-to-video and extend, at $1.1372 a second (2.46x 720p). Best quality wins says 1080p plates; the cost needs Quinn's yes.",
+    "ElevenLabs v4 promo: the '3x credits' is apps-only; the API gets 72% off v4 until 2026-10-12. Measured API cost is 0.133 credits a character on Pro, against 1.0 in the registry. 1.0 stays as the upper bound; the ledger should record the character-cost header.",
+    "Higgsfield /estimate: usd is the price, discount.usd is the saving. HIGGSFIELD.md read it the other way: its 'list' figures were the discounted prices and its 'discounted' figures were the savings.",
+    "Higgsfield now takes an Idempotency-Key on generation submits (same key and body: original request, charged once), so Slate can retry safely after a timeout.",
+    "fnf-after-effects-mcp licence resolved: runtime MIT (upstream kumo.productions/mcp-aftereffects 0.2.0); bundled skills carry no redistribution grant. 0.1.3 is still the latest.",
+    "Remotion: latest 4.0.531. 4.0.530 has a small breaking change and a 10/12-bit full-range pixel fix, both for the parity check. HtmlInCanvasMotionBlur is experimental and needs 4.0.529 or later, so its A/B runs in a side install.",
+    "Remotion licence: today's FAQ already counts contractors toward the 4-person threshold and excludes clients who only receive videos; LICENSE.md still sets eligibility by company size.",
+    "GSAP: before a public release, check the clause barring no-code animation builders that compete with Webflow; AI-generated code is allowed.",
+    "Agents: all four ids exist. Opus 5.5 defaults to medium effort, so max must be explicit. OpenAI now recommends gpt-6.1-sol for Codex; Anthropic names Claude Fable 5.1 as the step up from Opus 5.5.",
+    "Challengers for the next look test: minimax/h3/image-to-video (#2 on Artificial Analysis image-to-video; $0.13 a second at 2K) and xai/grok-imagine-image-2.0 (#4 text-to-image, top of this catalog).",
+    "ElevenLabs music has its own concurrency: 2 on Creator and Pro, 5 on Scale and Business. That is the elevenlabs_music lock's limit.",
+    "chrome-headless-shell: '149' to the exact '149.0.7790.0'.",
+    "Added: eleven_multilingual_v2, music_v1, seedance-2.5 text-to-video, kling 3.0 4K, minimax h3, grok image 2.0, esbuild, @remotion/motion-blur, openai-whisper, and a providers block (ElevenLabs plans, concurrency, output tiers and terms; Higgsfield estimate, probe, idempotency, errors, billing and catalog)."
+   ],
+   "unverified": [
+    {
+     "what": "Soul Cinema's $0.006 today",
+     "tried": "explore page (not listed), its playground (fetch returned nothing), its docs page (no price)",
+     "last_verified": "2026-09-29 via /estimate"
+    },
+    {
+     "what": "music_v2_5's own price",
+     "tried": "pricing FAQ and ElevenAPI page (neither splits music by model); no v2_5 spend in the films' logs"
+    },
+    {
+     "what": "eleven_v4 support for the with-timestamps endpoint",
+     "tried": "TTS API reference, TTS capability page, models page, v4 blog, 2026-09-28 changelog"
+    },
+    {
+     "what": "Which subscription tier unlocks pcm_48000 and wav_48000",
+     "tried": "TTS, SFX and music API references (they name 44.1 kHz only) and the pricing page"
+    },
+    {
+     "what": "Whether API usage converts dollars to credits at the plan's credit price on every tier",
+     "tried": "measured on a Pro-tier account (TTS and music) and inferred for Creator from the films' music rate; not in the docs"
+    },
+    {
+     "what": "API credits for Voice Isolator, SFX and Forced Alignment",
+     "tried": "ElevenAPI page lists dollars ($0.12, $0.12 a minute; $0.22 an hour), which would be far below the documented credits; no spend measured"
+    },
+    {
+     "what": "The end date of Seedance 2.5's 30% discount",
+     "tried": "explore page and the three Seedance playgrounds (none gives a date)"
+    },
+    {
+     "what": "That /estimate is free",
+     "tried": "billing, API reference and FAQ pages: charges apply to successful generations only, but no page says 'free'. HIGGSFIELD.md calls it free, citing the billing page, which doesn't use the word; no balance check around an estimate is on record"
+    },
+    {
+     "what": "Higgsfield's concurrency for this account",
+     "tried": "docs (per account and model, see the console) and the API page ('20 per key'); the console needs a sign-in"
+    },
+    {
+     "what": "What the Kling Pro page's two rates are tied to",
+     "tried": "the page text reads '1 second clips' and '3 or 15 second clips'; the films' sound-off and sound-on estimates match the two rates exactly, so they are read as sound off and on"
+    },
+    {
+     "what": "Seedance 2.5's rank against other models",
+     "tried": "Artificial Analysis image-to-video board (August data): not in the top 12; Seedance 2.0 is #4"
+    }
+   ],
+   "lessons": [
+    {
+     "lesson": "A vendor's estimate can report a discount as the amount saved rather than the discounted price: read which field is the payable total before budgeting.",
+     "source": "FILMROOT/HIGGSFIELD.md section 2 against FILMROOT/research/higgsfield/estimates_2026-09-29.txt and https://open.higgsfield.ai/models/kling-video/v3.0/pro/image-to-video/playground"
+    },
+    {
+     "lesson": "A promotional price in the registry must carry its end date, or budgets silently jump the day it ends.",
+     "source": "registry.json kling-video/v3.0/pro/image-to-video (0.062 was a 45% discount ending 2026-10-01)"
+    },
+    {
+     "lesson": "On ElevenLabs the API bills in dollars converted to the plan's credits, so a credit price in the registry is an upper bound; record the real cost per call.",
+     "source": "FILMROOT/sound/<the films' voice folder>/tags_v2/takes.json, FILMROOT/sound/music/B/compose.log (subscription tier 'creator'), FILMROOT/sound/music/C/credits.json + FILMROOT/sound/music/C/plans/*.json"
+    },
+    {
+     "lesson": "A music model upgrade can change the plan schema (sections to chunks); pin the model and the schema together.",
+     "source": "FILMROOT/research/video-package-inventory-2026-09-30/process-lessons.md lesson 57, and https://elevenlabs.io/docs/api-reference/music/compose"
+    }
+   ]
+  }
  ]
 }

@@ -187,8 +187,11 @@ def test_dry_run_spends_nothing_and_writes_nothing(film):
 def test_estimate_is_free_and_shaped(film):
     code, out, _ = run_json(["gen", "estimate", "--film", str(film), "--shot", "S02"])
     assert code == 0
-    assert out["takes"] == 2 and out["estimate_usd_per_take"] == pytest.approx(0.924)
-    assert out["estimate_usd_total"] == pytest.approx(1.848) and out["replay"] is True
+    from slate import config
+
+    per_second = config.model_info("bytedance/seedance-2.5/image-to-video")["price"]["per_second"]  # 720p list
+    assert out["takes"] == 2 and out["estimate_usd_per_take"] == pytest.approx(per_second * 2)
+    assert out["estimate_usd_total"] == pytest.approx(2 * round(per_second * 2, 4)) and out["replay"] is True
     assert ledger.rows() == []
 
 

@@ -59,7 +59,40 @@ are data packs, and the tests use a neutral demo brand.
   Claude chats, with `--check` for CI; `slate guide`; the README, AGENTS.md, this changelog, the licence, the decision
   records and CI.
 
+### Integrated (2026-10-01)
+
+- **Exit 75, try later.** A vendor's rate limit (429) or an unavailable service (503) is `TryLater`, exit 75: a queued
+  job goes back in the queue after a backoff that's never shorter than the vendor's own Retry-After, instead of
+  failing. A Higgsfield submit whose answer was lost after its keyed resends is a try-later too (the same
+  Idempotency-Key makes it safe).
+- **Stopping cleanly.** `slate` turns SIGTERM and SIGHUP into an orderly exit (143, 129), so a command killed directly
+  stops every process it started, as the queue's own cancel already did.
+- **JSON all the way.** With `--json`, a usage error is a JSON object on stdout too, and once a command's object is out,
+  nothing native code prints can follow it there (Apple Vision's diagnostics go to stderr, buffered lines included).
+- **Gates that don't go stale for nothing.** Gate inputs can be named (`film:<key>`, `film:*`, `brand:<name>`,
+  `format:<name>`); a gate that reads film.json records it without its bookkeeping, so a pin, a version or a budget
+  raise no longer turns every gate STALE.
+- **The command list, exactly.** Each command is registered once, by its own module, and the tests hold `slate --help`
+  and ARCHITECTURE §4 to the CLI both ways. `slate qa stability <action>` reaches the stability gate's own tools, and
+  `slate sound balance` the balance; their gates join `slate qa` and `slate verify`.
+- **Deliveries need their sound gates.** A master with sound delivers only when `slate verify`'s gates pass (the
+  balance gates among them), and a draft delivery can't be approved as the final cut.
+- **Variants know their channel.** `slate variant … --channel tiktok` records the channel's route; a social cut-down
+  masters with ffmpeg.
+- **The registry, re-checked.** The knowledge owner's 2026-09-30 re-check merged into registry.json: Forced Alignment
+  at 330 credits a minute, music_v2_5's chunk plans and limits beside music_v1's sections, corrected Seedance and Kling
+  prices with their discounts' end dates, a providers block (ElevenLabs plans and terms; Higgsfield's estimate reading,
+  idempotency, errors and billing), Remotion 4.0.531 noted while Slate stays on 4.0.521, and the GSAP and
+  fnf-after-effects-mcp licence facts. Video plates stay at 720p by default; 1080p (2.46x the price) is the owner's
+  call.
+- **OCR on.** The `ocr` extra (ocrmac, Apple Vision) is installed in Slate's environment; the default test run still
+  never loads Vision (`SLATE_TEST_VISION=1` opts in). pyproject pins the MCP SDK to 2.x and records the `analyze` extra.
+- **A quicker MCP start.** `slate mcp` answers a client's initialize without importing every module first (about
+  0.5 s instead of 2 or more on a busy Mac); the whole CLI loads on its first tool call.
+- **Story honours declared reading.** A shot's `reading` (voice-matched, or not for reading, with its reason) passes
+  the word budget and read-time gates the way `slate qa readtime` does, and travels into the storyboard.
+
 ### Still to come in 0.1.0
 
 Being finished: brand packs and onboarding, formats, and the finish stages (`slate master`, `deliver`, `review`).
-Not built yet: the knowledge ledger (`slate knowledge check`) and the demo film (`slate demo`).
+Not built yet: the demo film (`slate demo`), which needs a quiet Mac to prove its render end to end.

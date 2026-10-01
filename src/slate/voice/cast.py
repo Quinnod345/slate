@@ -27,6 +27,21 @@ def slug(text: str) -> str:
     return re.sub(r"[^A-Za-z0-9]+", "-", str(text)).strip("-").lower()[:48] or "voice"
 
 
+def onboarding_billing(brand_name: str | None) -> dict | None:
+    """What a brand's voice work outside any film bills against: the brand's one-time onboarding budget
+    (`slate.brand.onboard.billing`), so casting and Voice Design count per brand, once, not only against the monthly
+    caps. None when there's no brand to bill (or the brand module isn't installed)."""
+    if not brand_name:
+        return None
+    try:
+        from slate.brand import onboard  # noqa: PLC0415
+    except ModuleNotFoundError as exc:
+        if not str(exc.name or "").startswith("slate.brand"):
+            raise
+        return None
+    return onboard.billing({"name": str(brand_name)})
+
+
 def candidates_for(profile: dict, voices: list[str] | None) -> list[dict]:
     """Voices on the command line (library by default), else the profile's candidates plus its current voice."""
     if voices:
@@ -81,7 +96,7 @@ def run(film_dir: str | Path | None = None, *, brand: str | None = None, voices:
     name = slug(name or f"shootout-{time.strftime('%Y%m%d-%H%M%S')}")
     folder = Path(out) if out else ((vf.dir / "voice" / "cast" / name) if vf
                                     else paths.data() / "voice" / "cast" / slug(prof.get("brand") or "brand") / name)
-    client = elevenlabs.Client(mode=mode, film=vf.dir if vf else None)
+    client = elevenlabs.Client(mode=mode, film=vf.dir if vf else onboarding_billing(prof.get("brand") or brand))
     check_candidates(cands, mode, client)
     model = model or config.model("tts")
     fmt = client.choose_format(prof.get("output_format") or "pcm_48000")

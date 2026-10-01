@@ -50,7 +50,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from slate import config, jsonio, ledger, log, replay, secrets
-from slate.errors import Busy, MissingPrerequisite, SlateError, UsageError
+from slate.errors import Busy, MissingPrerequisite, SlateError, TryLater, UsageError
 
 PROVIDER = "higgsfield"
 LANE = "cloud-api"
@@ -95,6 +95,15 @@ class HiggsfieldBusy(HiggsfieldError, Busy):
     Exit 5 (busy), which the job queue retries later instead of failing."""
 
     kind = "busy"
+
+
+class HiggsfieldTryLater(HiggsfieldError, TryLater):
+    """A submit that never got a clear answer, sent with an Idempotency-Key. Sending it again later with the same key
+    and body is safe (Higgsfield answers with the original request, charged once), so this is exit 75: a queued job
+    goes back in the queue and resends it after a backoff instead of failing."""
+
+    kind = "try_later"
+    exit_code = 75
 
 
 def _busy(op: str, status: int, detail: str) -> HiggsfieldBusy:
@@ -381,15 +390,19 @@ class Client:
             ledger.finish(row, status="failed", actual=est.amount,
                           result={"error": why, "ambiguous": True, "lane": LANE, "idempotency_key": idem,
                                   "tries": tries, "counted": "the quoted price, in case the job was created"})
+            message = (f"The submit to {path} didn't get an answer after {tries} tr{'y' if tries == 1 else 'ies'} "
+                       f"({why}). It may or may not have created a job.")
             if idem:
-                hint = ("It's safe to run it again: the retry sends the same Idempotency-Key, and Higgsfield answers "
-                        "with the original request instead of billing a second one.")
-            else:
-                hint = ("This submit had no Idempotency-Key, so Slate never retries it. Check the Higgsfield console "
-                        "for a new request before trying again, so it isn't paid for twice.")
-            raise HiggsfieldError(f"The submit to {path} didn't get an answer after {tries} tr"
-                                  f"{'y' if tries == 1 else 'ies'} ({why}). It may or may not have created a job.",
-                                  status=status or None, hint=hint)
+                # Safe to send again with the same key, so it's a try-later (exit 75): the queue resends it after a
+                # backoff, and Higgsfield answers with the original request if one was made.
+                raise HiggsfieldTryLater(message, status=status or None,
+                                         hint="It's safe to run it again: the retry sends the same Idempotency-Key, "
+                                              "and Higgsfield answers with the original request instead of billing a "
+                                              "second one (a queued job does this by itself).")
+            raise HiggsfieldError(message, status=status or None,
+                                  hint="This submit had no Idempotency-Key, so Slate never retries it. Check the "
+                                       "Higgsfield console for a new request before trying again, so it isn't paid "
+                                       "for twice.")
         ledger.finish(row, status="failed", actual=0.0, result={"http": status, "lane": LANE,
                                                                 "idempotency_key": idem})
         detail = secrets.redact(json.dumps(answer, ensure_ascii=False)[:600])
@@ -548,8 +561,16 @@ def ledger_estimate(path: str, body: dict, quote: dict, *, idempotency_key: str 
                                   hint="Nothing was submitted. Check the model path, or add its price to "
                                        "registry.json.")
         seconds = body.get("duration")
-        return ledger.estimate(PROVIDER, "generate", model=path,
-                               seconds=float(seconds) if isinstance(seconds, (int, float)) else None)
+        seconds = float(seconds) if isinstance(seconds, (int, float)) else None
+        per_second = registry_rate(info, body)
+        if per_second is not None and seconds is not None and per_second != info["price"].get("per_second"):
+            # Seedance answers /estimate with a description, not a number: price the resolution actually asked for
+            # (the registry's per_second is the 720p list price; full HD costs 2.46x as much).
+            return ledger.estimate(PROVIDER, "generate", amount=round(per_second * seconds, 4), model=path,
+                                   basis=f"registry price at {body.get('resolution')} "
+                                         f"(verified {info.get('verified_on')}): {seconds:g} s x {per_second}",
+                                   lane=LANE, idempotency_key=idempotency_key)
+        return ledger.estimate(PROVIDER, "generate", model=path, seconds=seconds)
     return ledger.estimate(PROVIDER, "generate", amount=usd, basis="Higgsfield /estimate (free)", model=path,
                            saving_usd=quote_saving_usd(quote), list_usd=quote_list_usd(quote), lane=LANE,
                            pricing=quote.get("pricing_description"), replay=bool(quote.get("replay")),
@@ -580,6 +601,17 @@ def _check_request_id(request_id: str) -> None:
 # Replay: deterministic stand-ins, so tests, evals and `slate demo` run the whole generation path for free.
 
 
+def registry_rate(info: dict, body: dict) -> float | None:
+    """The registry's per-second list price for this body: by its resolution when the model lists prices by
+    resolution (price_by_resolution), else the model's per_second, else None."""
+    by_res = info.get("price_by_resolution") or {}
+    res = str(body.get("resolution") or "")
+    if res in by_res and isinstance(by_res[res], (int, float)):
+        return float(by_res[res])
+    per = (info.get("price") or {}).get("per_second")
+    return float(per) if isinstance(per, (int, float)) else None
+
+
 def _fake_estimate(key: str, request: dict) -> dict:
     path, body = request.get("path", ""), request.get("body") or {}
     info = config.model_info(path)
@@ -587,7 +619,7 @@ def _fake_estimate(key: str, request: dict) -> dict:
     seconds = body.get("duration") if isinstance(body.get("duration"), (int, float)) else 5
     usd = 0.0
     if "per_second" in price:
-        usd = price["per_second"] * float(seconds)
+        usd = (registry_rate(info, body) or 0.0) * float(seconds)
     elif "per_generation" in price:
         usd = price["per_generation"] * int(body.get("batch_size") or 1)
     return {"usd": round(usd, 4), "pricing_description": "replay: registry.json price, nothing quoted or spent"}

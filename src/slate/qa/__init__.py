@@ -11,9 +11,10 @@ Only PASS counts as passed. A gate that can't run is UNCHECKED and says what to 
 reported as passed, and every result names the engine and version that measured it. On autonomous films, a REVIEW
 verdict parks the film with its evidence for a person (see slate.qa.park); it never counts as a pass.
 
-The motion and accessibility gates live in slate.qa.motion and slate.qa.access (another module). Their GATES are
-merged in here when they're installed; if a name collides with a core gate, the core gate keeps the name and the
-other is filed as "<module>.<name>", so nothing is silently replaced.
+The motion and accessibility gates live in slate.qa.motion and slate.qa.access, and the visual stability gates in
+slate.qa.stability (other modules). Their GATES are merged in here when they're installed (`slate qa stability` runs a
+module's gates by its name); if a name collides with a core gate, the core gate keeps the name and the other is filed
+as "<module>.<name>", so nothing is silently replaced.
 """
 
 from __future__ import annotations
@@ -56,7 +57,9 @@ CORE: dict[str, GateFn] = {
     "psnr": _picture.psnr,
 }
 SLOW = ("ocr", "readtime", "glitch", "psnr")  # skipped by --quick (they decode or read the whole picture)
-EXTERNAL = ("slate.qa.motion", "slate.qa.access")
+# Gate modules merged in when they're installed (import-guarded: a missing one is "not installed yet", a broken one is
+# reported in EXTERNAL_STATUS and the core gates still run). slate.qa.stability brings the visual stability triage.
+EXTERNAL = ("slate.qa.motion", "slate.qa.access", "slate.qa.stability")
 # The production stage a gate checks, for `slate status`, where its name doesn't say (details.stage): the others are
 # placed by their names (loudness and stems under sound, glitch and frames under render, psnr under master, …).
 STAGES = {"bit_depth": "sound", "captions": "voice"}

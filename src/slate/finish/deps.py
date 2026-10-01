@@ -294,6 +294,21 @@ def format_platforms(film_dir: Path, fmt_name: str | None) -> list[str]:
 # qa
 
 
+def sound_gate_names() -> list[str]:
+    """The sound gates `slate verify` records (slate.sound.verify, with any merged in from slate.sound.balance), or
+    none when sound isn't installed. `slate qa` doesn't re-run them, so deliver requires them by name."""
+    verify = module("slate.sound.verify")
+    if verify is None:
+        return []
+    names = getattr(verify, "gate_names", None)
+    if callable(names):
+        try:
+            return list(names())
+        except Exception as exc:  # noqa: BLE001
+            _warn_once("sound_gates", f"slate.sound.verify couldn't list its gates ({exc})")
+    return list(getattr(verify, "GATE_NAMES", ()) or ())
+
+
 def qa_gate_names() -> list[str] | None:
     """Every gate slate.qa knows (core, motion and access), or None when qa isn't installed."""
     qa = module("slate.qa")

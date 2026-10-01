@@ -240,17 +240,24 @@ describe('check: what can reach the screen', () => {
     expect(byGate(r).typecheck.status).toBe('PASS');
   });
 
-  it('refuses to hand in a web scene, and says what gates it instead', () => {
+  it('hands in a web scene through the open web renderer: a page that never registers fails, nothing is written', () => {
     const dir = film(root, 'web', (d) => {
       twoActs(d);
       fs.mkdirSync(path.join(d, 'scenes/act2/web'), {recursive: true});
-      fs.writeFileSync(path.join(d, 'scenes/act2/web/index.html'), '<!doctype html>\n');
+      fs.writeFileSync(path.join(d, 'scenes/act2/web/index.html'), '<!doctype html>\n<title>act 2</title>\n<p>A gratis page</p>\n');
     });
-    const r = cli('check', {film: dir, act: 2, banned_words: []}, {data});
-    expect(r.code).toBe(1);
-    expect(r.json).toMatchObject({ok: false, kind: 'refused'});
-    expect(r.json.error).toMatch(/^Act 2 is a web scene \(scenes\/act2\/web\/index\.html\)/);
-    expect(r.json.hint).toMatch(/slate render --act 2 --engine web/);
+    const r = cli('check', {film: dir, act: 2, banned_words: ['gratis'], load_timeout_ms: 1500, gl: 'swangle'}, {data});
+    expect(r.code).toBe(0);
+    const g = Object.fromEntries(r.json.gates.map((x) => [x.gate.replace('handin.act2.', ''), x]));
+    expect(g.page.status).toBe('FAIL');
+    expect(g.page.summary).toMatch(/never registered window\.slateScene/);
+    expect(g.word_misses.status).toBe('UNCHECKED');
+    expect(g.banned_words.status).toBe('FAIL');
+    expect(g.banned_words.evidence).toEqual(['scenes/act2/web/index.html:3: "A gratis page" (gratis)']);
+    expect(g.events.status).toBe('FAIL');
+    expect(g.events.summary).toMatch(/no timing\/visual_events\/act2\.json/);
+    expect(r.json.passed).toBe(false);
+    expect(fs.existsSync(path.join(dir, 'timing/visual_events/act2.json'))).toBe(false);
   });
 
   it('turns a syntax error into failed gates with the file and line, never a crash', () => {

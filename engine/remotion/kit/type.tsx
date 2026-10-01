@@ -138,6 +138,11 @@ export function Arrive({t0, out, t: tOverride, duration, rise = 0.0185, ease, ch
  * A number counting to its value on the entrance ease, tabular figures. Each shown figure holds for `hold` whole
  * frames so digits tick rather than flicker; count once (a second count of a number already on screen reads as a
  * glitch).
+ *
+ * The final value, unseen, sets the number's box, and the count is drawn over it from the box's left edge. With a face
+ * that has no tabular figures (`tabular-nums` then changes nothing) a centred count re-centred a pixel at a time as its
+ * digits changed width: +1 px, then -1 px a frame later (the films' lesson L-kit-S006). Now the leading digits hold
+ * still, only the changing ones change, and the final value sits exactly where it would on its own.
  */
 export function CountUp({t0, from, to, duration, hold = 3, format = (v: number) => Math.round(v).toString(), t: tOverride, role = 'numeral', color, style}: {t0: number; from: number; to: number; duration?: number; hold?: number; format?: (v: number) => string; t?: number; role?: string; color?: string; style?: React.CSSProperties}) {
   const clock = useFilmTime();
@@ -149,7 +154,14 @@ export function CountUp({t0, from, to, duration, hold = 3, format = (v: number) 
   // hold each figure for `hold` frames: sample the ease at the start of each hold
   const heldT = t0 + Math.floor(((t - t0) * rate) / Math.max(1, hold)) * (Math.max(1, hold) / rate);
   const u = t >= t0 + d ? 1 : easeNamed(roleEase('entrance'))((heldT - t0) / d);
-  return <span style={{...s, fontVariantNumeric: 'tabular-nums', ...style}}>{format(from + (to - from) * u)}</span>;
+  return (
+    <span style={{...s, fontVariantNumeric: 'tabular-nums', ...style}}>
+      <span style={{position: 'relative', display: 'inline-block'}}>
+        <span style={{visibility: 'hidden'}}>{format(to)}</span>
+        <span style={{position: 'absolute', left: 0, top: 0, whiteSpace: 'nowrap'}}>{format(from + (to - from) * u)}</span>
+      </span>
+    </span>
+  );
 }
 
 let measureCtx: CanvasRenderingContext2D | null = null;

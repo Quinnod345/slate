@@ -42,7 +42,10 @@ from typing import Any, Callable
 import numpy as np
 
 from slate import config, http, jsonio, ledger, log, paths, procs, replay, secrets
+from slate import errors as _errors
 from slate.errors import Busy, MissingPrerequisite, UsageError
+
+TryLater = getattr(_errors, "TryLater", Busy)  # exit 75 on a vendor's "not now" (the job queue retries it)
 from slate.voice import audio as audio_mod
 
 PROVIDER = "elevenlabs"
@@ -68,6 +71,31 @@ MUSIC_MAX_NAME = 100
 MUSIC_MAX_LINES, MUSIC_MAX_LINE_CHARS = 30, 200
 DEFAULT_MUSIC_SECONDS = 30.0  # what a prompt without a length is estimated at
 PLAN_SCHEMAS = ("sections", "chunks")
+
+# Prices checked against ElevenLabs after registry.json was written (the registry check in
+# knowledge/registry_proposal.json). The client uses a check while the registry still carries an older figure for the
+# same model and isn't newer than the check; once registry.json adopts the price (or is re-verified later), the
+# registry is used again, so there is only ever one source of a price at a time.
+PRICE_CHECKS: dict[str, dict] = {
+    "elevenlabs_forced_alignment": {
+        "unit": "credits", "per_minute": 330, "verified_on": "2026-09-30",
+        "source": "ElevenLabs docs: Forced Alignment bills at the Speech to Text rate, and the pricing FAQ puts Speech "
+                  "to Text at 330 credits a minute (registry check, knowledge/registry_proposal.json)"},
+}
+
+
+def checked_price(model: str) -> dict | None:
+    """The price check for a model when it should be used instead of registry.json's figure (else None)."""
+    check = PRICE_CHECKS.get(model)
+    if not check:
+        return None
+    info = config.model_info(model) or {}
+    price = info.get("price") or {}
+    if price.get("per_minute") == check["per_minute"] and price.get("unit", check["unit"]) == check["unit"]:
+        return None  # the registry already agrees
+    if str(info.get("verified_on") or "") > check["verified_on"]:
+        return None  # the registry was re-verified after the check
+    return {**check, "registry_per_minute": price.get("per_minute")}
 
 
 def music_plan_schema(model_id: str) -> str:
@@ -388,15 +416,19 @@ def _vendor_refusal(exc: http.HttpError, provider: str) -> Exception | None:
 
     - quota_exceeded (401) or 402: the balance has run out. Slate never buys credits, so the work stops and asks
       (exit 4).
-    - 429 (too many requests at once, or the system is busy): nothing was billed; exit 5, which the job queue retries
-      later instead of failing."""
+    - 429 (too many requests at once, or the system is busy) or 503 (briefly unavailable): nothing was billed;
+      TryLater, exit 75, which the job queue puts back in line and retries after a backoff instead of failing."""
     body = (exc.body or "").lower()
     if exc.status == 402 or (exc.status == 401 and "quota" in body):
         return ledger.out_of_balance(provider, f"HTTP {exc.status}: {exc.body[:200]}")
-    if exc.status == 429:
-        return Busy("ElevenLabs is turning requests away right now (HTTP 429: too many at once, or the service is "
-                    "busy). Nothing was billed.", hint="Run it again in a minute; a queued job retries by itself.",
-                    details={"status": 429, "detail": exc.body[:300]})
+    if exc.status in (429, 503):
+        what = "too many at once, or the service is busy" if exc.status == 429 else "the service is briefly unavailable"
+        message = (f"ElevenLabs is turning requests away right now (HTTP {exc.status}: {what}). Nothing was billed.")
+        details = {"status": exc.status, "detail": (exc.body or "")[:300]}
+        if TryLater is Busy:  # a foundation without TryLater: the queue's older retry code
+            return Busy(message, hint="Run it again in a minute; a queued job retries by itself.", details=details)
+        return TryLater(message, hint="Run it again in a minute; a queued job goes back in the queue and retries by "
+                                      "itself.", details=details, retry_after_s=getattr(exc, "retry_after_s", None))
     return None
 
 
@@ -889,7 +921,15 @@ class Client:
             raise UsageError("Forced alignment needs the transcript.")
         seconds = audio_mod.duration(audio)
         model = config.model("alignment_eval")
-        est = self._estimate("align", model, seconds=seconds)
+        check = checked_price(model)
+        if check:
+            est = ledger.estimate(self.provider, "align", model=model,
+                                  amount=math.ceil(check["per_minute"] * seconds / 60.0),
+                                  basis=f"price check {check['verified_on']}: {seconds / 60:.2f} min × "
+                                        f"{check['per_minute']} credits a minute (registry.json still says "
+                                        f"{check['registry_per_minute']})")
+        else:
+            est = self._estimate("align", model, seconds=seconds)
         request = {"audio_sha256": jsonio.sha256(audio), "audio_path": str(audio), "seconds": round(seconds, 3),
                    "text": text}
 

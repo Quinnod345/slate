@@ -12,8 +12,7 @@
 Every agent reaches Slate through symlinks into this checkout and one CLI shim, so there's nothing to copy and
 nothing to register again: one pull updates Claude Code, Codex and OpenClaw together.
 
-This module also brings in `slate install` and `slate uninstall` (slate.install.cli), since the CLI's module list
-names `slate.update` for this part of the surface.
+`slate install` and `slate uninstall` live in slate.install.cli, which slate.cli.MODULES lists on its own line.
 """
 
 from __future__ import annotations
@@ -265,13 +264,6 @@ def cmd_update(args: argparse.Namespace) -> int:
 
 
 def register(sub) -> None:
-    choices = getattr(sub, "choices", {}) or {}
-    if "update" not in choices:
-        p = add_command(sub, "update", cmd_update, "pull the latest Slate and re-link it for every agent",
-                        description=UPDATE_DESCRIPTION, epilog=EPILOG)
-        p.add_argument("--no-doctor", action="store_true", help="skip the doctor run at the end")
-    # `slate install` and `slate uninstall` live in slate.install.cli; register them here too, since the CLI's module
-    # list names this module for that part of the surface. Its register() skips names that are already taken.
-    from slate.install import cli as install_cli  # noqa: PLC0415
-
-    install_cli.register(sub)
+    p = add_command(sub, "update", cmd_update, "pull the latest Slate and re-link it for every agent",
+                    description=UPDATE_DESCRIPTION, epilog=EPILOG)
+    p.add_argument("--no-doctor", action="store_true", help="skip the doctor run at the end")

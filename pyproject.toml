@@ -10,11 +10,16 @@ dependencies = [
   "scipy>=1.13",
   "Pillow>=10.0",
   "jsonschema>=4.21",
-  "mcp>=1.2",
+  # The MCP server is written against mcp 2.x (MCPServer and the low-level server's draining stdio relay).
+  "mcp>=2.2,<3",
 ]
 
 [project.optional-dependencies]
+# Apple Vision OCR for the on-screen text gates and `slate analyze --ocr`. Part of a normal install.
 ocr = ["ocrmac>=1.0"]
+# Recorded for `slate analyze --stems --beats`. Slate never imports these: it runs them through uvx, pinned and offline
+# (uvx --from demucs==4.1.0 ..., uvx --from librosa==0.11.0 ...), so they never enter Slate's own environment.
+analyze = ["demucs==4.1.0", "librosa==0.11.0"]
 dev = ["pytest>=8.0"]
 
 [project.scripts]
@@ -24,9 +29,20 @@ slate = "slate.cli:main"
 requires = ["hatchling>=1.24"]
 build-backend = "hatchling.build"
 
+[tool.uv]
+# Slate runs on Apple-silicon Macs (Apple Vision, After Effects, arm64 Homebrew), so uv.lock is resolved for them only.
+# That also lets the `analyze` extra be recorded at all: demucs 4.1.0 needs numpy < 2 on Intel Macs, which Slate's own
+# numpy >= 2 rules out there.
+environments = ["sys_platform == 'darwin' and platform_machine == 'arm64'"]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/slate"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q -p no:cacheprovider"
+markers = [
+  "slow: builds a real environment or runs a whole install (a minute or more); opt in with SLATE_TEST_SLOW=1",
+  "render: a real render with headless Chrome and ffmpeg (opt in: SLATE_TEST_RENDER=1)",
+  "live: spends on a vendor or runs a real model; never part of the default run",
+]

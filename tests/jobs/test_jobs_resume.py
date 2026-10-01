@@ -205,10 +205,13 @@ def test_default_higgsfield_hook_books_the_quoted_price(slate_home, monkeypatch)
     import slate.vendors
 
     monkeypatch.setattr(slate.vendors, "higgsfield", fake, raising=False)
-    resume._POLLERS.pop("higgsfield", None)
-    row = {"estimate": {"amount": 2.31, "details": {"discounted_usd": 1.85}}}
+    monkeypatch.delitem(resume._POLLERS, "higgsfield", raising=False)  # restored after: the real module's own hook
+    monkeypatch.setattr(resume, "_tried", set(resume._tried) | {"slate.vendors.higgsfield"})
+    # The estimate's amount is /estimate's usd: the price after any discount. discount.usd is the saving, and a
+    # saving that rides along in the details is never booked as the price.
+    row = {"estimate": {"amount": 2.31, "details": {"saving_usd": 0.46, "list_usd": 2.77}}}
     assert resume.poller("higgsfield") is resume._higgsfield_poll  # nothing registered: Slate's default hook
-    assert resume._higgsfield_poll("r-ok", row) == {"status": "done", "actual": 1.85,
+    assert resume._higgsfield_poll("r-ok", row) == {"status": "done", "actual": 2.31,
                                                    "result": {"status": "completed", "recovered": True}}
     assert resume._higgsfield_poll("r-mod", row)["status"] == "failed"
     assert resume._higgsfield_poll("r-wait", row) == {"status": "running"}

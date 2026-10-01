@@ -190,7 +190,10 @@ def install_plan() -> dict:
             "claude-code": ["claude", "mcp", "add", "--scope", "user", SERVER_NAME, "--", node,
                             str(root / "dist" / "index.js")],
             "codex": ["fnf-after-effects", "install-codex"],
-            "openclaw": "`fnf-after-effects config` prints the server entry; add it with `openclaw mcp set`",
+            # OpenClaw 2026.9.4 registers a server with `mcp add`, probes it before saving (5 s by default, so 30 here)
+            # and refuses a name it already has; `fnf-after-effects config` prints the same entry for a look.
+            "openclaw": ["openclaw", "mcp", "add", SERVER_NAME, "--command", node, "--arg",
+                         str(root / "dist" / "index.js"), "--connect-timeout", "30"],
         },
         "notes": ["Exact version only: a new version is used for scenes after `slate ae bridge acceptance --go` "
                   "passes on it.",

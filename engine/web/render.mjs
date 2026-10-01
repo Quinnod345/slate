@@ -27,12 +27,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {EXIT, EngineError, KIT_DIR, NODE_MODULES, log, missing, refused, relTo, requireTool, sha256Buffer, sha256File, slateData, usage, writeJsonAtomic} from '../remotion/lib/common.mjs';
-import {actOf, loadFilm} from '../remotion/lib/film.mjs';
+import {EXIT, EngineError, KIT_DIR, NODE_MODULES, log, missing, refused, relTo, requireTool, sha256Buffer, sha256File, slateData, usage, useEngineTmp, writeJsonAtomic} from '../remotion/lib/common.mjs';
+import {actOf, loadFilm, realFile} from '../remotion/lib/film.mjs';
 import {filmDataSource, inlineBrand} from '../remotion/entry.mjs';
 import {GENERATED, eventsFile, motionFile, validateEvents} from '../remotion/events.mjs';
 import {fontGate, kitCore} from '../remotion/kit_bridge.mjs';
-import {findBrowser, guardTargets, launchBrowser, preparePage, startWall} from './lib/browser.mjs';
+import {findBrowser, guardTargets, launchBrowser, preparePage, removeProfile, startWall} from './lib/browser.mjs';
 import {createBundler} from './lib/bundle.mjs';
 import {countFrames, ffmpegArgs, frameHashes, probe, startEncoder, stillArgs} from './lib/encode.mjs';
 import {RUNTIME_DIR, TEMPLATE_DIR, WEB_ENGINE_VERSION, checkArgs, cleanupJob, resolveJob, sampleTimes} from './lib/job.mjs';
@@ -161,9 +161,27 @@ export function filmDataFor(ctx, brandJson = null, brandDir = null) {
   return {contents, resolveDir: ctx.dir};
 }
 
+/** The film's media folders a scene reads as image sequences (engine-core's MEDIA_DIRS: captures and plates). */
+const MEDIA_DIRS = ['captures', 'plates'];
+
+/**
+ * Extra mounts for a derived film: its reused captures and plates live in its parent (.slate/refs.json, written by
+ * slate's bridge from slate.state.lock.resolve), so /_slate/film/captures/… serves the parent's folder, exactly as the
+ * Remotion bundle links it. A film with its own copies gets none.
+ */
+export function mediaMounts(ctx) {
+  const out = {};
+  for (const name of MEDIA_DIRS) {
+    const own = path.join(ctx.dir, name);
+    const real = realFile(ctx.dir, name);
+    if (real !== own && fs.existsSync(real)) out[`/_slate/film/${name}/`] = real;
+  }
+  return out;
+}
+
 /**
  * Everything a render needs running: the server, the wall, the browser and its pages. close() stops all of it (and
- * runs on process exit too, so a stopped render never leaves a browser behind).
+ * runs on process exit too, so a stopped render never leaves a browser behind, or its profile folder).
  */
 async function openSession(job) {
   const browserInfo = await findBrowser(job.browser);
@@ -183,6 +201,7 @@ async function openSession(job) {
     } catch {
       // already gone
     }
+    removeProfile(session.browser?.slateProfileDir);
   };
   process.once('exit', kill);
   session.close = async () => {
@@ -191,12 +210,13 @@ async function openSession(job) {
     process.removeListener('exit', kill);
     if (session.browser) {
       await withTimeout(session.browser.close(), 15000, 'closing the browser').catch(() => kill());
+      removeProfile(session.browser.slateProfileDir);
     }
     await session.server?.close();
     await session.wall?.close();
   };
   try {
-    server = await startServer({mounts: {'/': job.scene.dir, '/_slate/film/': job.ctx.dir, '/_slate/brand/': job.brandDir}, bundler});
+    server = await startServer({mounts: {'/': job.scene.dir, '/_slate/film/': job.ctx.dir, ...mediaMounts(job.ctx), '/_slate/brand/': job.brandDir}, bundler});
     session.server = server;
     session.wall = await startWall();
     try {
@@ -596,7 +616,7 @@ async function renderJob(job) {
         duration: first.info.duration,
         problems: first.info.problems,
       },
-      browser: {path: session.browserInfo.path, version: session.browserInfo.version, source: session.browserInfo.source, pid: session.pid},
+      browser: {path: session.browserInfo.path, version: session.browserInfo.version, source: session.browserInfo.source, pid: session.pid, profile: session.browser?.slateProfileDir ?? null},
       network: attempts,
       console: session.pages.flatMap((pg) => pg.consoleLines).slice(0, 50),
       warnings: [
@@ -621,54 +641,103 @@ async function renderJob(job) {
 
 // ------------------------------------------------------------------------------------------------------- emit
 /**
+ * What the page declares about its act, once it has drawn its first frame: its beats (film seconds), its silence, what
+ * the kit and tween() had to assume or refuse, and its word lookups that fell back to an estimate (null when the scene
+ * doesn't report them: only defineScene() scenes do).
+ */
+async function readDeclarations(p) {
+  return p.page.evaluate(async () => {
+    const s = window.slateScene;
+    const events = typeof s.events === 'function' ? await s.events() : (s.events ?? null);
+    return {
+      events,
+      silent: s.silent ?? null,
+      problems: typeof s.problems === 'function' ? s.problems() : [],
+      misses: typeof s.misses === 'function' ? s.misses() : null,
+    };
+  });
+}
+
+/**
+ * The act's beats from the page, checked with engine-core's own rules, and everything that stops them being written:
+ * {silent, reason} or {events}, plus {problems}. The same rules as a Remotion act's (events.mjs computeEvents): a
+ * silent act gives its reason and no beats, an act with beats passes validateEvents, and no beat is written while a
+ * word lookup fell back to an estimate (its sound would land on a guessed time).
+ */
+function judgeDeclarations(job, decl) {
+  const {act} = job;
+  const problems = [];
+  const list = Array.isArray(decl.events) ? decl.events : [];
+  const misses = Array.isArray(decl.misses) ? decl.misses.map((m) => (typeof m === 'string' ? m : JSON.stringify(m))) : [];
+  if (misses.length) {
+    problems.push(`${misses.length} word lookup${misses.length > 1 ? 's' : ''} fell back to an estimate (${misses.slice(0, 5).join(', ')}${misses.length > 5 ? '…' : ''}): the beats would land on guessed times`);
+  }
+  const silentReason = typeof decl.silent === 'string' ? decl.silent : decl.silent?.reason;
+  if (decl.silent !== null && decl.silent !== undefined && decl.silent !== false) {
+    if (typeof silentReason !== 'string' || !silentReason.trim()) problems.push(`act ${act.act} says it's silent but gives no reason: defineScene({silent: 'why this act has no beats'})`);
+    if (list.length) problems.push(`act ${act.act} says it's silent but also has ${list.length} beat${list.length > 1 ? 's' : ''}: keep one, its beats or its silence`);
+    return {silent: true, reason: typeof silentReason === 'string' ? silentReason.trim() : '', problems, misses};
+  }
+  if (!list.length) {
+    problems.push(`act ${act.act} has no beats and doesn't say it's silent: define its beats next to the moves that make them (defineEvent from '@slate/kit/core'), or say why it has none (defineScene({silent: '…'}))`);
+    return {events: [], problems, misses};
+  }
+  const sorted = list.map((e) => ({...e})).sort((a, b) => a.t - b.t || String(a.id).localeCompare(String(b.id)));
+  problems.push(...validateEvents(job.ctx, act.act, sorted));
+  return {events: sorted, problems, misses};
+}
+
+/**
  * The act's visual beats and motion trace, written from the page itself: the same modules the picture reads, so a
  * beat, its sound and its frame agree (one emitter, as for Remotion acts). Checked with engine-core's own rules.
+ * With {dry_run: true} nothing is written: the result says what would be, and what stops it (the hand-in check and
+ * `slate emit-events --dry-run` read it), and the page's own gates (its network wall, its fonts) come back too.
  */
 async function emitJob(job) {
   const {ctx, act} = job;
   const session = await openSession(job);
   try {
     const p = await loadScene(job, session, 0);
-    await checkScene(job, session, p);
+    const {gates} = await checkScene(job, session, p);
     await drawSample(job, p, 0, {t: 0, local: 0, sample: 0});
     failIfPageErrors(session, 'at its first frame');
-    const decl = await p.page.evaluate(async () => {
-      const s = window.slateScene;
-      const events = typeof s.events === 'function' ? await s.events() : (s.events ?? null);
-      const silent = s.silent ?? null;
-      return {events, silent, problems: typeof s.problems === 'function' ? s.problems() : []};
-    });
+    const decl = await readDeclarations(p);
+    const judged = judgeDeclarations(job, decl);
     const file = eventsFile(ctx, act.act);
-    const list = Array.isArray(decl.events) ? decl.events : [];
-    let summary;
-    const silentReason = typeof decl.silent === 'string' ? decl.silent : decl.silent?.reason;
-    if (decl.silent !== null && decl.silent !== undefined && decl.silent !== false) {
-      if (typeof silentReason !== 'string' || !silentReason.trim()) throw refused(`Act ${act.act} says it's silent but gives no reason.`, "defineScene({silent: 'why this act has no beats'})");
-      if (list.length) throw refused(`Act ${act.act} says it's silent but also has ${list.length} beats.`, 'Keep one: its beats, or its silence.');
-      writeJsonAtomic(file, {silent: true, reason: silentReason.trim(), generated: GENERATED});
-      summary = {act: act.act, file: relTo(ctx.dir, file), silent: true, reason: silentReason.trim(), events: 0};
-    } else {
-      if (!list.length) {
-        throw refused(
-          `Act ${act.act} has no beats and doesn't say it's silent.`,
-          "Define its beats next to the moves that make them (defineEvent from '@slate/kit/core'), or say why it has none: defineScene({silent: '…'}).",
-        );
-      }
-      const sorted = list.map((e) => ({...e})).sort((a, b) => a.t - b.t);
-      const problems = validateEvents(ctx, act.act, sorted);
-      if (problems.length) {
-        throw refused(`Act ${act.act}'s beats don't pass (${problems.length} problem${problems.length > 1 ? 's' : ''}):\n  ${problems.slice(0, 20).join('\n  ')}`, 'Fix them in the scene, then emit again.', {problems});
-      }
-      writeJsonAtomic(file, sorted);
-      const kinds = {};
-      for (const e of sorted) kinds[e.kind] = (kinds[e.kind] ?? 0) + 1;
-      summary = {act: act.act, file: relTo(ctx.dir, file), silent: false, events: sorted.length, kinds, span_s: [sorted[0].t, sorted.at(-1).t]};
+    const rel = relTo(ctx.dir, file);
+    if (!job.dryRun && judged.problems.length) {
+      const n = judged.problems.length;
+      throw refused(`Act ${act.act}'s beats don't pass (${n} problem${n > 1 ? 's' : ''}); nothing was written:\n  ${judged.problems.slice(0, 20).join('\n  ')}`, 'Fix them in the scene, then emit again.', {problems: judged.problems, misses: judged.misses});
     }
-    summary.motion = writeTrace(job, await collectTrace(job, p));
-    summary.problems = decl.problems;
+    let summary;
+    if (judged.silent) {
+      if (!job.dryRun) writeJsonAtomic(file, {silent: true, reason: judged.reason, generated: GENERATED});
+      summary = {act: act.act, file: rel, silent: true, reason: judged.reason, events: 0};
+    } else {
+      const kinds = {};
+      for (const e of judged.events) kinds[e.kind] = (kinds[e.kind] ?? 0) + 1;
+      if (!job.dryRun) writeJsonAtomic(file, judged.events);
+      summary = {act: act.act, file: rel, silent: false, events: judged.events.length, kinds, span_s: judged.events.length ? [judged.events[0].t, judged.events.at(-1).t] : null};
+    }
+    const trace = await collectTrace(job, p);
+    if (job.dryRun) {
+      summary.motion = trace.rows ? {written: false, would_write: relTo(ctx.dir, motionFile(ctx, act.act)), entries: trace.rows.length, reason: 'dry run'} : {written: false, reason: trace.reason};
+      summary.dry_run = true;
+      summary.written = false;
+      summary.problems = judged.problems;
+      summary.misses = judged.misses;
+      summary.declared_misses = Array.isArray(decl.misses);
+      summary.beats = judged.silent ? {silent: true, reason: judged.reason} : judged.events;
+      gates.unshift(networkGate(session, networkAttempts(session)));
+      summary.gates = gates;
+      log(`act ${act.act}: ${judged.problems.length ? `${judged.problems.length} problem(s)` : 'would pass'}; nothing written (dry run)`);
+    } else {
+      summary.motion = writeTrace(job, trace);
+      log(`act ${act.act}: ${summary.silent ? `silent (${summary.reason})` : `${summary.events} beats`} → ${summary.file}`);
+    }
+    summary.scene_problems = decl.problems;
     summary.engine = 'web';
-    log(`act ${act.act}: ${summary.silent ? `silent (${summary.reason})` : `${summary.events} beats`} → ${summary.file}`);
-    return {acts: [summary], skipped: [], browser: {pid: session.pid}};
+    return {acts: [summary], skipped: [], browser: {pid: session.pid, profile: session.browser?.slateProfileDir ?? null}, ...(job.dryRun ? {dry_run: true} : {})};
   } catch (err) {
     throw withBrowserPid(err, session);
   } finally {
@@ -678,8 +747,9 @@ async function emitJob(job) {
 
 // --------------------------------------------------------------------------------------------------- scaffold
 /**
- * Copy the template into <film>/scenes/act<N>/web/, the start of every web act (`slate new` is meant to call this when
- * a brand's look picks the web engine). Refuses to overwrite a scene that's already there unless forced.
+ * Copy the template into <film>/scenes/act<N>/web/, the start of every web act (`slate engine scaffold --act N` calls
+ * this; a brand's look.engine "web" picks it by default). Refuses to overwrite a scene that's already there unless
+ * forced.
  */
 function scaffold(args, {cwd}) {
   if (!args.film) throw usage('Say which film to add a web scene to ("film": its folder).');
@@ -743,6 +813,7 @@ function parseArgv(argv) {
 
 async function main() {
   process.env.BROWSER = 'none';
+  useEngineTmp();
   const write = process.stdout.write.bind(process.stdout);
   // stdout carries one JSON object; anything a library prints goes to stderr
   process.stdout.write = (chunk, encoding, cb) => process.stderr.write(chunk, encoding, cb);

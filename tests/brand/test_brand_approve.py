@@ -214,10 +214,10 @@ def test_the_repo_packs_and_bad_input_are_refused(studio, tmp_path):
 
 # -------------------------------------------------------------------------------------- what depends on approval
 def _format(tmp: Path) -> Path:
-    fmt = tmp / "fmt-reel.json"
-    fmt.write_text(json.dumps({"name": "reel-test", "width": 360, "height": 640, "fps_num": 25, "fps_den": 1,
-                               "runtime_s": 15, "aspect": "9:16", "budget": {"elevenlabs": 1000, "higgsfield": 0}}))
-    return fmt
+    from format_fixtures import write_format  # a real, valid format: slate new validates format files
+
+    return write_format(tmp / "fmt-reel.json", name="reel-test", width=360, height=640, fps=(25, 1), runtime_s=15,
+                        elevenlabs=1000, higgsfield=0)
 
 
 def test_autonomous_films_refuse_a_brand_until_all_four_are_approved(ready):

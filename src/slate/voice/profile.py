@@ -2,7 +2,7 @@
 
 A profile lives in the brand pack (`brand.json` "voice") and can be overridden per film (`film.json` "voice"):
 provider, voice id, model, settings, seed, lexicon (brand words Whisper must hear in full), tag policy, pacing,
-clean-up, fit and the measured targets casting ranks against.
+clean-up, the studio polish tuned for the voice (`polish`), fit and the measured targets casting ranks against.
 
 **Voices** (docs/PLAN.md, Protections):
 - Designed or library voices by default.
@@ -58,6 +58,8 @@ DEFAULTS: dict[str, Any] = {
                 "f0_range_st": [9.5, 13.0], "f0_hz": None, "gap_floor_dbfs": -75.0},
     "candidates": [],
     "cast_text": None,
+    # The studio polish tuned for this voice (slate.voice.polish): {} uses Slate's neutral chain at strengths A and B.
+    "polish": {},
     "brand": None,
 }
 
@@ -132,7 +134,7 @@ def load(brand_pack: dict | str | Path | None, *, film: dict | None = None) -> d
 
 
 FILM_FIELDS = ("voice_id", "voice_name", "model", "settings", "seed", "output_format", "lexicon", "tag_policy",
-               "pace", "clean", "fit", "targets")
+               "pace", "clean", "fit", "targets", "polish")
 CLAIMS = ("source", "provider", "clone_of", "clone_kind", "verified_by_owner", "public_figure", "speaker")
 
 

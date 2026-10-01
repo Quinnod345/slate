@@ -21,19 +21,24 @@ from __future__ import annotations
 import contextlib
 import os
 import shutil
-import sys
 from pathlib import Path
 
-from slate import gates, jsonio, log
+from slate import errors, gates, jsonio, log
 from slate.errors import Busy, MissingPrerequisite, Refused, SlateError, SpendRefused, UsageError
 from slate.render import chunks as chunks_mod
 from slate.render import clean, deps, engines, joins, media, registry, splice
 from slate.render.plan import CHUNK_EXT, Plan, Target, acts_from_shots, build, ceil_gb, render_settings, segments
 
 
+# slate.errors.TryLater (exit 75: a rate limit, a service briefly away). Read defensively, so a checkout whose foundation
+# predates it still imports.
+_TRY_LATER = tuple(c for c in (getattr(errors, "TryLater", None),) if c is not None)
+
+
 def _retryable(exc: SlateError) -> bool:
-    """An engine that fell over is worth one more try; a missing tool, a bad argument or a busy Mac isn't."""
-    return not isinstance(exc, (MissingPrerequisite, UsageError, Busy, SpendRefused))
+    """An engine that fell over is worth one more try; a missing tool, a bad argument, a busy Mac or a "try later"
+    isn't (that one goes back to the queue whole, exit 75, and resumes from its kept chunks)."""
+    return not isinstance(exc, (MissingPrerequisite, UsageError, Busy, SpendRefused, *_TRY_LATER))
 
 
 def _resolve(film_dir: Path, p: str) -> Path:
@@ -231,6 +236,29 @@ def _frames_gate(t: Target, proof: dict, m: media.Media) -> gates.GateResult:
                                      "joins": len(proof["joins"])})
 
 
+def _persist_gates(film_dir: Path, t: Target, result: dict) -> None:
+    """Keep a film render's gates in qa/gates.json (slate.gates.write_report), so `slate qa`, `slate status` and
+    deliver see them: the frame count, a splice's proof, and the engine's own (the kit's font gate, the web renderer's
+    network wall), which were only in this command's output before. Each names the render file as its input, so it
+    turns STALE when the render changes. A range written to a file of your choosing isn't the film's and stays out; a
+    report that can't be written is a warning, never a reason to undo a proven render."""
+    if t.kind not in ("act", "patch") or not result.get("gates"):
+        return
+    try:
+        rendered = _resolve(film_dir, result.get("file") or t.out)
+        inputs = gates.inputs_for(film_dir, [rendered]) if rendered.is_file() else {}
+        keep = []
+        for raw in result["gates"]:
+            g = gates.GateResult.from_dict(raw) if isinstance(raw, dict) else raw
+            g.inputs = {**(g.inputs or {}), **inputs}
+            g.details = {**(g.details or {}), "stage": (g.details or {}).get("stage", "render")}
+            keep.append(g)
+        gates.write_report(film_dir, keep)
+    except (OSError, ValueError, TypeError, SlateError) as exc:
+        log.warn(f"act {t.act.index} is rendered, but its gates couldn't be written to qa/gates.json: "
+                 f"{getattr(exc, 'message', exc)}")
+
+
 def _put_in_place_and_register(film_dir: Path, joined: Path, final: Path, entry: dict,
                                ws: chunks_mod.Workspace) -> dict:
     """Move the proven render into place and register it; the previous render goes back if registering fails.
@@ -329,6 +357,7 @@ def _render_target(film_dir: Path, p: Plan, t: Target, eng: engines.Engine, ws: 
         trace = _refresh_trace(film_dir, t, eng, ws)
         if trace is not None:
             result["trace"] = trace
+    _persist_gates(film_dir, t, result)
     ws.write_plan("done")
     ws.remove()
     _prune_empty(film_dir / chunks_mod.CHUNKS, film_dir / "renders" / "patches")
@@ -395,6 +424,8 @@ def _execute_whole_acts(film_dir: Path, p: Plan, eng: engines.Engine, *, in_queu
                                     engine=gates.engine("aerender" if p.engine == "ae" else p.engine),
                                     details={"expected": t.frames, "counted": counted})
             result["gates"] = [gate.to_dict()]
+            if register:
+                _persist_gates(film_dir, t, result)
             results.append(result)
     all_gates = [g for r in results for g in r.pop("gates", [])]
     return {"ok": True, "ran": "queue" if in_queue else "here", "film": str(film_dir), "engine": p.engine,
@@ -491,9 +522,9 @@ def resume_run(film_dir: Path, *, act: int | None = None, go: bool = False, in_q
 
 def job_argv(film_dir: Path, p: Plan, *, act: int | None, frames, out, go: bool, fresh: bool,
              resume: bool) -> list[str]:
-    """The command the queue runs: exactly this plan, rendered in the job's own process."""
-    argv = [sys.executable, "-m", "slate", "render", "--film", str(film_dir), "--json", "--in-queue",
-            "--engine", p.engine]
+    """The `slate` command the queue runs (its words after `slate`): exactly this plan, rendered in the job's own
+    process. Spelled out from the plan, never this process's argv, which is wrong under the MCP server."""
+    argv = ["render", "--film", str(film_dir), "--json", "--in-queue", "--engine", p.engine]
     if resume:
         argv.append("--resume")
     if act is not None:
@@ -514,8 +545,9 @@ def job_argv(film_dir: Path, p: Plan, *, act: int | None, frames, out, go: bool,
 
 
 def resume_argv(film_dir: Path, *, act: int | None, go: bool) -> list[str]:
-    """The queue's command for `--resume`: each unfinished render keeps the options it was started with."""
-    argv = [sys.executable, "-m", "slate", "render", "--film", str(film_dir), "--json", "--in-queue", "--resume"]
+    """The queue's command for `--resume` (its words after `slate`): each unfinished render keeps the options it was
+    started with."""
+    argv = ["render", "--film", str(film_dir), "--json", "--in-queue", "--resume"]
     if act is not None:
         argv += ["--act", str(act)]
     if go:
@@ -524,13 +556,14 @@ def resume_argv(film_dir: Path, *, act: int | None, go: bool) -> list[str]:
 
 
 def submit(film_dir: Path, film: dict, p: Plan, argv: list[str]) -> str:
-    """Queue the render and return the job id at once.
+    """Queue the render and return the job id at once, through the queue's --detach convention
+    (slate.jobs.client.detach_current) with `argv` (job_argv or resume_argv) as the command.
 
     The queue holds the render slot (and After Effects, for an AE render) and the disk reservation for the job; inside
     the job, slate.ae's lock uses the job's own `ae` slot instead of waiting on itself.
     """
     priority = "autonomous" if film.get("mode") == "autonomous" else "supervised"
     resources = ("render", "ae") if p.engine == "ae" else ("render",)
-    return deps.submit("render", argv, film=str(film_dir), resources=resources, priority=priority,
-                       disk_gb=ceil_gb(p.disk_gb), cwd=str(film_dir))
+    return deps.detach("render", argv, film=str(film_dir), resources=resources, priority=priority,
+                       disk_gb=ceil_gb(p.disk_gb))
 

@@ -225,6 +225,7 @@ def pass_gates(film_dir: Path, names: list[str] | None = None, *, extra: dict | 
         from slate.finish import deps
 
         names = [n for n in (deps.qa_gate_names() or []) if n != "psnr"]  # psnr is the master's own, measured
+        names += deps.sound_gate_names()  # `slate verify`'s, required when the master carries the mix
     results = [gates.GateResult.pass_(n, "fixture: passed", engine=gates.engine("fixture", "1")) for n in names]
     for n, status in (extra or {}).items():
         results.append(gates.GateResult(n, status, f"fixture: {status}", engine=gates.engine("fixture", "1")))

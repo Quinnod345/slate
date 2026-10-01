@@ -203,9 +203,11 @@ def estimate(provider: str, op: str, *, model: str | None = None, chars: int | N
     if count > 1:
         parts.append(f"× {count}")
     total = math.ceil(total) if unit == "credits" else round(total, 4)
-    verified = info.get("verified_on", "unknown date")
-    extra: dict[str, Any] = {"model": model, "count": count, "price_verified_on": info.get("verified_on"), **details}
-    age = _price_age_days(info.get("verified_on"))
+    # An entry re-checked today can carry a price last verified earlier (registry.json price_verified_on): quote that.
+    priced_on = info.get("price_verified_on") or info.get("verified_on")
+    verified = priced_on or "unknown date"
+    extra: dict[str, Any] = {"model": model, "count": count, "price_verified_on": priced_on, **details}
+    age = _price_age_days(priced_on)
     if age is not None and age > PRICE_STALE_DAYS:
         extra["price_stale"] = True
         log.warn(f"the registry price for {model} was verified {age} days ago; refresh registry.json before "
@@ -438,6 +440,16 @@ def _plan_family(fmt: str) -> str | None:
     return None
 
 
+def _canonical_format(fmt: str, template: dict) -> str:
+    """The format's own file name, not the alias it was asked by ("reel" is formats/social-reel.json)."""
+    try:
+        from slate import formats  # noqa: PLC0415
+
+        return formats.canonical(fmt)
+    except Exception:  # noqa: BLE001 - a path, or no formats module: the template's own name
+        return str(template.get("name") or fmt)
+
+
 def format_budget(fmt: str | None) -> dict:
     """A format's default film budget: {"elevenlabs": credits, "higgsfield": usd, "source": ...}.
 
@@ -465,7 +477,7 @@ def format_budget(fmt: str | None) -> dict:
         raw = template.get("budget") or template.get("budgets") or template.get("default_budget")
         amounts = _normalize_budget(raw)
         if amounts:
-            return {**amounts, "source": f"formats/{fmt}.json"}
+            return {**amounts, "source": f"formats/{_canonical_format(fmt, template)}.json"}
     plan = _plan_family(fmt)
     if plan:
         amounts = _normalize_budget({k: v for k, v in PLAN_FORMAT_BUDGETS[plan].items() if k in PROVIDERS})

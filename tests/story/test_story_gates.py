@@ -105,6 +105,45 @@ def test_on_screen_density_caps_at_twelve_words():
     assert "13 on-screen words" in got["script.on_screen"].evidence[0]
 
 
+def test_a_voice_matched_definition_may_pass_the_word_budget_and_needs_only_the_floor():
+    """L-qa-D053: a definition the voice reads along as it lands, declared with its reason."""
+    s = copy.deepcopy(SCRIPT)
+    long = "one two three four five six seven eight nine ten eleven twelve thirteen"
+    shot(s, "S01").update(on_screen=long, dur=3.5, enter_token="base")  # settled 3.5 − 0.875 = 2.625 < 0.4 + 3.9
+    got = gates(s)
+    assert got["script.on_screen"].status == "FAIL" and got["script.read_time"].status == "FAIL"
+    shot(s, "S01")["reading"] = {"voice_matched": True}  # no reason: counts for nothing, and says so
+    got = gates(s)
+    assert got["script.on_screen"].status == "FAIL"
+    assert any("without a reason" in e for e in got["script.on_screen"].evidence)
+    shot(s, "S01")["reading"] = {"voice_matched": True, "reason": "the voice reads the definition as it lands"}
+    got = gates(s)
+    assert got["script.on_screen"].status == "PASS" and "voice-matched" in got["script.on_screen"].summary
+    assert got["script.read_time"].status == "PASS"  # held to the 1.5 s floor
+    assert any("voice-matched" in e for e in got["script.read_time"].evidence)
+
+
+def test_a_surface_not_for_reading_isnt_timed():
+    s = copy.deepcopy(SCRIPT)
+    shot(s, "S01").update(on_screen="Every loaf is shaped by hand before dawn", dur=2.0, enter_token="broad")
+    shot(s, "S01")["reading"] = {"not_for_reading": True, "reason": "the report sits small as a closing object"}
+    got = gates(s)["script.read_time"]
+    assert got.status == "PASS" and any("not for reading" in e for e in got.evidence)
+    shot(s, "S01")["reading"] = {"not_for_reading": ["Every loaf"], "reason": "its small print"}
+    assert gates(s)["script.read_time"].status == "FAIL"  # a list is for the picture's QA, statement by statement
+
+
+def test_the_reading_declaration_reaches_the_storyboard():
+    from slate.story import builder
+
+    class Shot:  # the planned shot's shape, as builder._shot_doc reads it
+        id, dur, dur_source, vo, source_id, lead, hold, act_end, words, take = (
+            "S01", 2.0, "script", "", "S01", 0.0, 0.0, False, 0, None)
+        data = {"on_screen": "a definition", "reading": {"voice_matched": True, "reason": "read along"}}
+
+    assert builder._shot_doc(Shot())["reading"] == {"voice_matched": True, "reason": "read along"}
+
+
 def test_a_format_whose_picture_carries_no_words_fails_any_on_screen_word():
     """formats/website-hero-loop.json says on_screen_max_words 0 ("the picture carries no words"): 0 is a real limit,
     not a missing one (it used to fall back to twelve)."""

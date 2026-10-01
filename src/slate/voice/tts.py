@@ -21,7 +21,7 @@ from slate.errors import Refused, SpendRefused, UsageError
 from slate.vendors import elevenlabs
 from slate.voice import profile as profile_mod
 from slate.voice import tags as tags_mod
-from slate.voice.film import VoiceFilm, get_pin, guard_regenerate, is_locked, now, pin, record
+from slate.voice.film import TAKE_STAGES, VoiceFilm, get_pin, guard_regenerate, is_locked, now, pin, record
 
 # The film's pins, in slate.state's keys: the TTS model (registry role "tts"), the voice id, the voice settings, and
 # per line the first seed and the first request id.
@@ -167,7 +167,7 @@ def voice(film_dir: str | Path, *, only: str | list[str] | None = None, force: b
 
     for shot in unlock:  # the person's spend approval must cover the approved take before anything is spent
         info = vf.selected(shot)[1]
-        for stage in ("raw", "clean", "paced"):
+        for stage in TAKE_STAGES:
             if info.get(stage) and is_locked(vf.dir, info[stage]):
                 guard_regenerate(vf.dir, info[stage], force=True, approval_id=approval_id)
     use, pin_note = resolve_pin(vf, requested, repin=repin, approved_by=approved_by, reason=reason)

@@ -192,12 +192,28 @@ def test_masters_and_act_renders_detach_into_the_queue_with_the_persons_go(film,
     code, out, _ = run_cli(["ae", "masters", "--go", "--detach", "--keep-chunks", "--film", str(film), "--json"])
     assert code == 0 and _json(out)["job_id"] == "job-1" and _json(out)["ran"] == "queue"
     kind, argv, kw = submitted[0]
-    assert kind == "ae_masters" and kw["resources"] == ("render", "ae") and kw["priority"] == "supervised"
-    assert argv[3:] == ["ae", "masters", "--keep-chunks", "--film", str(film), "--json", "--go"]
-    assert "--detach" not in argv
+    assert kind == "ae_masters" and tuple(kw["resources"]) == ("render", "ae") and kw["priority"] == "supervised"
+    # through the queue's --detach convention (detach_current): `slate` and the command, spelled out
+    assert argv == ["slate", "ae", "masters", "--keep-chunks", "--film", str(film), "--json", "--go"]
+    assert "--detach" not in argv and kw["resumable"] is True
     code, out, _ = run_cli(["ae", "acts", "render", "2", "--go", "--detach", "--film", str(film), "--json"])
     assert code == 0 and submitted[1][0] == "ae_render"
-    assert submitted[1][1][3:] == ["ae", "acts", "render", "2", "--film", str(film), "--json", "--go"]
+    assert submitted[1][1] == ["slate", "ae", "acts", "render", "2", "--film", str(film), "--json", "--go"]
+
+
+def test_detach_goes_through_the_queues_detach_convention(film, monkeypatch):
+    """jobs' --detach convention is slate.jobs.client.detach_current; AE masters use it with the command spelled out
+    (never this process's argv, which is wrong under the MCP server)."""
+    from slate.jobs import client
+
+    calls = []
+    monkeypatch.setattr(client, "detach_current", lambda kind, resources=(), **kw: calls.append((kind, resources, kw))
+                        or "job-x")
+    code, out, _ = run_cli(["ae", "masters", "--go", "--detach", "--film", str(film), "--json"])
+    assert code == 0 and _json(out)["job_id"] == "job-x"
+    kind, resources, kw = calls[0]
+    assert kind == "ae_masters" and tuple(resources) == ("render", "ae")
+    assert kw["argv"] == ["ae", "masters", "--film", str(film), "--json", "--go"] and kw["film"] == str(film)
 
 
 def test_detach_refuses_now_what_the_job_would_refuse(film, slate_home, monkeypatch):

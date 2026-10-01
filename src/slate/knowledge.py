@@ -1,17 +1,23 @@
 """The knowledge ledger: every lesson the films taught, and where Slate keeps it now.
 
-`knowledge/lessons.json` gives every item of the harvest (the film inventory's lessons, and every rule in the films'
-motion law, character-motion spec, sound notes, voice-tag notes and act NOTES.md files) an id and one destination:
+`knowledge/lessons.json` gives every item of the harvest (the film inventory's lessons; every rule in the films' motion
+law, character-motion spec, sound notes, voice-tag notes and act NOTES.md files; and the second harvest of what the film
+session added after the first inventory) an id and one destination:
 
 - `code_default`  a real file and symbol that implements it (`file`, `symbol`, `line`), with `terms` that must appear
                   inside that symbol when the lesson names a value;
 - `gate`          a real gate (a name in `slate.qa.GATES`, or a module's gate function: `file`, `symbol`) and the
-                  pytest node ids that exercise it (`tests`);
+                  pytest node ids that exercise it (`tests`). `enforced: "construction"` marks a rule the code makes
+                  impossible to break (the gate is the code path itself, and its tests prove it), so no gate name is
+                  looked for in the file;
 - `skill_rule`    the skill file that states it (`target`, a path under skills/) and the key `terms` a reader finds
                   there;
 - `dropped`       the `reason`: the plan overrides it, it's one film's content, or it's a fact with nothing to carry;
 - `gap`           not reflected anywhere yet: the `module` and the exact `change` that would close it (listed in
-                  knowledge/GAPS.md for the integrator).
+                  knowledge/GAPS.md for the integrator);
+- `pending`       being built in this run: the planned `file` (and `symbol`), the `module` building it and `what`. It
+                  counts against the check like a gap until it's re-mapped; the check says when the planned file has
+                  landed.
 
 A lesson may also carry `also`: more destinations of the same shapes, checked the same way. Near-duplicates are merged:
 the surviving lesson keeps every source and lists the ids it `absorbed`, and `slate knowledge show` finds it by any of
@@ -21,7 +27,7 @@ them.
 
 - knowledge.mapped        every harvested item is in the ledger exactly once (as a lesson or an absorbed id), with a
                           destination of a known type;
-- knowledge.gaps          no lesson is a gap (each one names its module and the change that closes it);
+- knowledge.gaps          no lesson is a gap or pending (each gap names its module and the change that closes it);
 - knowledge.destinations  every destination resolves: files and symbols exist, a symbol holds its terms, a skill file
                           holds the rule's key terms, gates exist and their tests exist;
 - knowledge.tests         with --run-tests: every gate-type lesson's tests pass, run in one pytest batch;
@@ -30,6 +36,8 @@ them.
 - knowledge.left_behind   nothing the plan left behind is in the repo: no company, product or character names (held here
                           only as hashes, so this file can't carry them either), none of the films' scene files, the
                           render-farm script, the retired v2 sound design, the rejected 3D pass or the website tooling.
+                          The ledger may cite source paths in the film project, but its own words (lesson texts, notes,
+                          reasons, changes) are held to the same rule.
 
 Only PASS counts. The harvest runs twice (docs/PLAN.md, "Knowledge ledger"): the ledger's `meta.harvests` records each
 run, and `meta.next_harvest` says when the next one is due.
@@ -58,8 +66,11 @@ from slate.gates import GateResult
 LEDGER = "knowledge/lessons.json"
 GAPS = "knowledge/GAPS.md"
 COMPONENTS = "knowledge/components.json"
-HARVEST = ("knowledge/harvest/inventory_lessons.json", "knowledge/harvest/doc_rules.json")
-TYPES = ("code_default", "gate", "skill_rule", "dropped", "gap")
+HARVEST = ("knowledge/harvest/inventory_lessons.json", "knowledge/harvest/doc_rules.json",
+           "knowledge/harvest/second_harvest.json")
+TYPES = ("code_default", "gate", "skill_rule", "dropped", "gap", "pending")
+#: The destination types a lesson can land on and still count as unfinished: the check fails while any lesson has one.
+OPEN_TYPES = ("gap", "pending")
 ENGINE = {"name": "slate knowledge", "version": __version__}
 
 # ------------------------------------------------------------------------------------------ what the plan left behind
@@ -115,7 +126,11 @@ PROVENANCE = {
     "knowledge/harvest/": "the harvest, verbatim, with its source paths in the film project",
     "knowledge/components.json": "every inventoried component, with its source path in the film project",
     "knowledge/registry_proposal.json": "measurement evidence, cited by its path in the film project",
+    "knowledge/lessons.json": "the ledger: every lesson with its source paths in the film project (its own words are "
+                              "scanned field by field)",
 }
+#: The ledger's own words, scanned for guarded names even though the file cites source paths.
+LEDGER_TEXT_FIELDS = ("text", "note", "reason", "change", "what")
 SKIP_DIRS = frozenset({".git", ".venv", "node_modules", "__pycache__", ".pytest_cache", ".remotion"})
 TEXT_EXT = frozenset({".py", ".md", ".json", ".ts", ".tsx", ".mjs", ".js", ".jsx", ".jsxinc", ".sh", ".toml",
                       ".yaml", ".yml", ".txt", ".html", ".css", ".svg", ".cfg", ".ini", ".plist", ".xml"})
@@ -341,6 +356,11 @@ def resolve(dest: dict, repo: Repo, *, qa_names: set[str] | None = None, qa_erro
         if not str(dest.get("module") or "").strip() or not str(dest.get("change") or "").strip():
             r.problems.append("a gap has to name its module and the change that would close it")
         return r
+    if kind == "pending":
+        rel = str(dest.get("file") or "")
+        if not rel or not str(dest.get("module") or "").strip() or not str(dest.get("what") or "").strip():
+            r.problems.append("a pending destination has to name its planned file, its module and what's being built")
+        return r
     if kind == "skill_rule":
         target = str(dest.get("target") or dest.get("file") or "").split("#")[0].strip()
         terms = [t for t in dest.get("terms") or [] if str(t).strip()]
@@ -387,9 +407,13 @@ def resolve(dest: dict, repo: Repo, *, qa_names: set[str] | None = None, qa_erro
     if kind == "gate":
         name = str(dest.get("gate") or "")
         probe = str(dest.get("check") or name)
+        construction = dest.get("enforced") == "construction"
+        if dest.get("enforced") not in (None, "construction"):
+            r.problems.append(f"unknown enforcement {dest.get('enforced')!r} (only 'construction')")
         if not name:
             r.problems.append("a gate destination needs the gate's name")
-        elif probe not in (repo.text(rel) or "") and probe.rsplit(".", 1)[-1] not in (repo.text(rel) or ""):
+        elif not construction and probe not in (repo.text(rel) or "") \
+                and probe.rsplit(".", 1)[-1] not in (repo.text(rel) or ""):
             r.problems.append(f"{rel} never names the {probe} gate")
         if dest.get("registry") == "slate.qa.GATES":
             if qa_names is None:
@@ -447,20 +471,39 @@ def gate_mapped(data: dict, repo: Repo) -> GateResult:
                             engine=gates.engine(**ENGINE), details=details)
 
 
+def landed(dest: dict, repo: Repo) -> bool:
+    """Whether a pending destination's planned file (and symbol, when it names one) is in the checkout now."""
+    rel = str(dest.get("file") or "")
+    if not rel or not repo.exists(rel):
+        return False
+    symbol = str(dest.get("symbol") or "")
+    return not symbol or repo.symbol(rel, symbol) is not None
+
+
 def gate_gaps(data: dict, repo: Repo) -> GateResult:
-    """No lesson is a gap."""
+    """No lesson is a gap, and none is still pending."""
     name = "knowledge.gaps"
-    gaps = [x for x in lessons(data) if (x.get("destination") or {}).get("type") == "gap"]
-    by_module = Counter(str((x["destination"]).get("module") or "?").split(" ")[0] for x in gaps)
-    details = {"gaps": len(gaps), "by_module": dict(by_module.most_common()),
-               "ids": [x.get("id") for x in gaps]}
+    items = lessons(data)
+    gaps = [x for x in items if (x.get("destination") or {}).get("type") == "gap"]
+    pending = [x for x in items if (x.get("destination") or {}).get("type") == "pending"]
+    by_module = Counter(str((x["destination"]).get("module") or "?").split(" ")[0] for x in gaps + pending)
+    ready = [str(x.get("id")) for x in pending if landed(x["destination"], repo)]
+    details = {"gaps": len(gaps), "pending": len(pending), "by_module": dict(by_module.most_common()),
+               "ids": [x.get("id") for x in gaps], "pending_ids": [x.get("id") for x in pending],
+               "pending_landed": ready}
     evidence = [LEDGER] + ([GAPS] if repo.exists(GAPS) else [])
-    if gaps:
+    if gaps or pending:
         top = ", ".join(f"{m} {n}" for m, n in by_module.most_common(6))
-        return GateResult.fail(name, f"{len(gaps)} lesson(s) aren't reflected anywhere yet ({top}); {GAPS} has the "
-                                     "change that closes each", evidence=evidence, engine=gates.engine(**ENGINE),
-                               details=details)
-    return GateResult.pass_(name, "no gaps: every lesson lands somewhere real", evidence=evidence,
+        parts = []
+        if gaps:
+            parts.append(f"{len(gaps)} lesson(s) aren't reflected anywhere yet")
+        if pending:
+            parts.append(f"{len(pending)} still pending" + (f" ({len(ready)} of whose planned files have landed: "
+                                                             "re-map them)" if ready else ""))
+        return GateResult.fail(name, f"{'; '.join(parts)} ({top}); {GAPS} has the change that closes each",
+                               evidence=evidence + [f"landed, re-map: {i}" for i in ready][:20],
+                               engine=gates.engine(**ENGINE), details=details)
+    return GateResult.pass_(name, "no gaps and nothing pending: every lesson lands somewhere real", evidence=evidence,
                             engine=gates.engine(**ENGINE), details=details)
 
 
@@ -478,7 +521,7 @@ def gate_destinations(data: dict, repo: Repo) -> GateResult:
         lid = str(x.get("id"))
         dests = destinations(x)
         main = (x.get("destination") or {}).get("type")
-        if x.get("gate_type") and main not in ("gate", "gap", "dropped"):
+        if x.get("gate_type") and main not in ("gate", "gap", "pending", "dropped"):
             problems.append(f"{lid}: a gate-type lesson whose destination is a {main}, not a gate")
         for i, d in enumerate(dests):
             res = resolve(d, repo, qa_names=qa_names, qa_error=qa_error)
@@ -496,6 +539,8 @@ def gate_destinations(data: dict, repo: Repo) -> GateResult:
     note = f"; {len(moved)} symbol(s) moved since they were recorded (details.moved)" if moved else ""
     summary = (f"every destination resolves: {counts['code_default']} code defaults, {counts['gate']} gates "
                f"({len(tests)} tests named), {counts['skill_rule']} skill rules, {counts['dropped']} drops{note}")
+    if counts["gap"] or counts["pending"]:
+        summary += f" (and {counts['gap']} gaps, {counts['pending']} pending: see knowledge.gaps)"
     return GateResult.pass_(name, summary, evidence=[LEDGER], engine=gates.engine(**ENGINE), details=details)
 
 
@@ -677,6 +722,26 @@ def _walk(root: Path) -> Iterable[Path]:
             yield Path(dirpath) / fn
 
 
+def ledger_text_hits(repo: Repo) -> list[str]:
+    """Guarded names in the ledger's own words (texts, notes, reasons, changes), which its provenance doesn't excuse."""
+    text = repo.text(LEDGER)
+    if not text or not _any_guarded(_WORD.findall(text.lower())):
+        return []
+    try:
+        data = json.loads(text)
+    except ValueError:
+        return []
+    out = []
+    for x in lessons(data if isinstance(data, dict) else {}):
+        fields = [("text", x.get("text"))]
+        fields += [(k, d.get(k)) for d in destinations(x) for k in LEDGER_TEXT_FIELDS if k != "text"]
+        for key, value in fields:
+            if value and _guarded(_WORD.findall(str(value).lower())):
+                out.append(f"{LEDGER}: {x.get('id')}'s {key}: a guarded name")
+                break
+    return out
+
+
 def film_project(repo: Repo) -> Path | None:
     """The film project Slate was harvested from, as knowledge/components.json records it, when it's on this Mac."""
     doc = jsonio.read(repo.path(COMPONENTS), default=None) if repo.exists(COMPONENTS) else None
@@ -726,6 +791,7 @@ def gate_left_behind(repo: Repo, *, film_root: Path | None | bool = True) -> Gat
                     allowed["a test's guard pattern"] += 1
                     continue
                 hits.append(f"{rel}:{n}: a guarded name")
+    hits += ledger_text_hits(repo)
     copies: list[str] = []
     fr = film_project(repo) if film_root is True else (film_root or None)
     compared = 0
@@ -782,7 +848,7 @@ def stats(data: dict) -> dict:
     items = lessons(data)
     by_type = Counter(str((x.get("destination") or {}).get("type")) for x in items)
     gaps = Counter(str((x.get("destination") or {}).get("module") or "?").split(" ")[0] for x in items
-                   if (x.get("destination") or {}).get("type") == "gap")
+                   if (x.get("destination") or {}).get("type") in OPEN_TYPES)
     return {
         "lessons": len(items),
         "harvested": len(items) + sum(len(x.get("absorbed") or []) for x in items),
@@ -808,7 +874,8 @@ def _dest_line(d: dict) -> str:
         return f"code default: {d.get('file')}:{d.get('line')} {d.get('symbol')}{extra}"
     if kind == "gate":
         check_name = f":{d['check']}" if d.get("check") else ""
-        return (f"gate {d.get('gate')}{check_name}: {d.get('file')}:{d.get('line')} {d.get('symbol')}; tests: "
+        how = " (by construction)" if d.get("enforced") == "construction" else ""
+        return (f"gate {d.get('gate')}{check_name}{how}: {d.get('file')}:{d.get('line')} {d.get('symbol')}; tests: "
                 + ", ".join(d.get("tests") or []))
     if kind == "skill_rule":
         return f"skill rule: {d.get('target')}" + (f":{d['line']}" if d.get("line") else "") + \
@@ -817,6 +884,9 @@ def _dest_line(d: dict) -> str:
         return f"dropped: {d.get('reason')}"
     if kind == "gap":
         return f"gap in {d.get('module')}: {d.get('change')}"
+    if kind == "pending":
+        where = f"{d.get('file')}" + (f"::{d['symbol']}" if d.get("symbol") else "")
+        return f"pending in {d.get('module')} ({where}): {d.get('what')}"
     return f"{kind}: {d}"
 
 
@@ -832,7 +902,7 @@ def _cmd_check(args: argparse.Namespace) -> int:
     counts = st["by_type"]
     head = (f"knowledge ledger: {st['lessons']} lessons ({st['harvested']} harvested, {st['merged']} merged) · "
             f"{counts['code_default']} code defaults, {counts['gate']} gates, {counts['skill_rule']} skill rules, "
-            f"{counts['dropped']} dropped, {counts['gap']} gaps")
+            f"{counts['dropped']} dropped, {counts['gap']} gaps, {counts['pending']} pending")
     human = head + "\n" + gates.format_table(results)
     if not cli.flag(args, "run_tests", False):
         human += "\n(the gate-type lessons' tests weren't run: add --run-tests to run them in one pytest batch)"
@@ -895,11 +965,11 @@ def register(sub) -> None:
     group = cli.add_group(sub, "knowledge", help="the knowledge ledger: every lesson from the films, mapped and checked",
                           description="The knowledge ledger (knowledge/lessons.json): every lesson and rule harvested "
                                       "from the films, each with one destination (a code default, a gate with its "
-                                      "tests, a skill rule, dropped with a reason, or a gap with the change that "
-                                      "closes it).")
+                                      "tests, a skill rule, dropped with a reason, a gap with the change that "
+                                      "closes it, or pending while it's being built).")
     p = cli.add_command(group, "check", _cmd_check,
                         help="prove every lesson's destination against this checkout; PASS only when nothing is "
-                             "unmapped or a gap",
+                             "unmapped, a gap or pending",
                         epilog="Exit 0 when every part passes, 1 otherwise, 3 when there's no ledger. Parts: "
                                "knowledge.mapped, .gaps, .destinations, .tests (--run-tests), .components, "
                                ".left_behind.")

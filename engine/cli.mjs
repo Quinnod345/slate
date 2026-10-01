@@ -5,11 +5,13 @@
 //
 // It prints exactly one JSON object on stdout: {ok: true, engine_version, protocol, command, …} on success, or
 // {ok: false, error, hint, kind, …} with a non-zero exit (1 refused, 2 usage, 3 missing prerequisite, 5 busy,
-// 130 stopped by a signal or by SLATE_ENGINE_DEADLINE_S). Progress goes to stderr. Paths in args may be absolute or
+// 75 try later, 130 stopped by a signal or by SLATE_ENGINE_DEADLINE_S). Progress goes to stderr. Paths in args
+// (film, out, out_dir, entry, serve_url, brand_path, bundle_root, browser, scene, frames_dir) may be absolute or
 // relative to the caller's folder.
 //
 // Every child process runs with BROWSER=none, and nothing here starts Remotion Studio; if you ever start it by hand,
-// pass --no-open (engine/remotion/remotion.config.ts turns the browser off too).
+// pass --no-open (engine/remotion/remotion.config.ts turns the browser off too). Temp folders, headless Chrome's
+// profiles among them, live under Slate's data folder (cache/tmp, cache/chrome), never in $TMPDIR.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -26,9 +28,12 @@ for (const method of ['log', 'info', 'debug']) {
 }
 
 const CALLER_CWD = process.cwd();
-const {ENGINE_DIR, EXIT, EngineError, PROTOCOL, engineInfo, missing, setQuiet, slateData, usage} = await import('./remotion/lib/common.mjs');
+const {ENGINE_DIR, EXIT, EngineError, PROTOCOL, engineInfo, missing, setQuiet, slateData, usage, useEngineTmp} = await import('./remotion/lib/common.mjs');
 // Remotion keeps its headless browser under the nearest package.json's node_modules: this engine's.
 process.chdir(ENGINE_DIR);
+// Every temp folder this process makes (Remotion's Chrome profiles above all) goes under Slate's data folder, where no
+// other tool's temp cleanup can delete it mid-render. Set before any Remotion module loads.
+useEngineTmp();
 
 const COMMANDS = {
   version: 'engine and package versions, the browser, the kit and the web renderer',
@@ -39,8 +44,8 @@ const COMMANDS = {
   stills: 'review stills, labelled contact sheets and review sheets from one bundle',
   'emit-events': "write each act's visual events (or its silence) and the kit's motion trace",
   trace: "write one act's motion trace (timing/motion/actN.json) from the kit's motion registry, as the act is now",
-  check: "an act's hand-in check, as gate results ({acts: [N, …]} checks several with one bundle)",
-  'web-render': 'render with the open web renderer (engine/web/render.mjs)',
+  check: "an act's hand-in check, as gate results ({acts: [N, …]} checks several with one bundle; a web act's page through the web renderer)",
+  'web-render': 'the open web renderer (engine/web/render.mjs): render, emit ({emit: true}, with dry_run to read without writing) or start a scene ({scaffold: true})',
 };
 
 let command = null;
@@ -131,12 +136,13 @@ function parseArgv(argv) {
   return {cmd, args, quiet};
 }
 
+/** Args that name a file or folder. Every one of them is relative to the caller's folder, as the header says. */
+const PATH_ARGS = ['film', 'out', 'out_dir', 'entry', 'serve_url', 'brand_path', 'bundle_root', 'browser', 'scene', 'frames_dir'];
+
 /** Make relative paths in args relative to the caller, not to the engine folder we moved into. */
 function resolvePaths(args) {
   const out = {...args};
-  // A web scene's `scene` and `frames_dir` are the film's own paths: the web renderer resolves them against the film
-  // folder (or, for a scene rendered on its own, against the caller's folder, which it's handed as `cwd`).
-  for (const key of ['film', 'out', 'out_dir', 'entry', 'serve_url', 'brand_path', 'bundle_root', 'browser']) {
+  for (const key of PATH_ARGS) {
     if (typeof out[key] === 'string' && out[key]) out[key] = path.resolve(CALLER_CWD, out[key].replace(/^~(?=$|\/)/, os.homedir()));
   }
   return out;
@@ -168,7 +174,7 @@ async function film(args, {optional = false} = {}) {
 
 const handlers = {
   async version() {
-    const {browserStatus} = await import('./remotion/browser.mjs');
+    const {browserExecutable, browserStatus} = await import('./remotion/browser.mjs');
     const {kitEntry, kitHooksModule, kitPresent} = await import('./remotion/entry.mjs');
     const info = engineInfo();
     const web = webModulePath();
@@ -176,7 +182,8 @@ const handlers = {
       ...info,
       engine_dir: ENGINE_DIR,
       commands: COMMANDS,
-      browser: browserStatus(),
+      // `complete`: renders launch it through chrome-complete.sh (every tile finished before a sample is drawn)
+      browser: {...browserStatus(), complete: Boolean(browserExecutable())},
       kit: {present: kitPresent(), entry: kitEntry(), hooks_from: kitHooksModule()},
       web: {present: fs.existsSync(web), module: web},
       pins_ok: Object.entries(info.pins).every(([name, pin]) => !pin || info.installed[name] === pin),
