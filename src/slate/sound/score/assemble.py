@@ -18,8 +18,8 @@
      the final frame, not before it.
 5. Level each part on its own body (-16 LUFS, plus any shape in directions.json), keep the peak under 0.95.
 6. Check: take QA on the whole score, the landings measured (every bloom, lift and arrival within a frame of its beat),
-   and the gap check on the music as the mix will set it (15 LU under the voice, ducked 4 dB under words, times the
-   mix's loudness gain): no window under -60 dBFS outside the planned stops.
+   and the gap check on the music as the mix will set it (the palette's level under the voice, 18.5 LU to start,
+   ducked 6 dB under words, times the mix's loudness gain): no window under -60 dBFS outside the planned stops.
 
 Writes sound/score/score.wav (48 kHz / 24-bit, exactly the film's length) and sound/score/score.json.
 """
@@ -337,8 +337,8 @@ def _record(film: Film, plan: dict, chosen: list[Choice], mix: np.ndarray, out_p
     voice = vo.render_stem(film)[0] if cues else None
     gain_db, gain_why = _predicted_gain_db(film, voice, mix)
     music_cfg = film.palette["levels"].get("music") or {}
-    predicted = gap.predict_music_stem(mix, voice, sr, under_lu=float(music_cfg.get("under_voice_lu", 15.0)),
-                                       duck_db=float(music_cfg.get("duck_db", 4.0)), gain_db=gain_db,
+    predicted = gap.predict_music_stem(mix, voice, sr, under_lu=float(music_cfg.get("under_voice_lu", 18.5)),
+                                       duck_db=float(music_cfg.get("duck_db", 6.0)), gain_db=gain_db,
                                        attack_s=float(music_cfg.get("attack_s", 0.08)),
                                        release_s=float(music_cfg.get("release_s", 0.65)))
     stops = list(plan.get("planned_stops") or [])

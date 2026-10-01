@@ -59,13 +59,23 @@ The tagged script lives in `voice/direction.json`; `slate voice --help` lists th
 stripping and A/B-testing tags). The full guide: [v4 tags](references/v4-tags.md); settings and context:
 [directing](references/directing.md).
 
-**When a line's direction matters, run the tag loop** (its actions are among the direction tools): write the candidates
-(several tagged versions, several seeds each, plus extra untagged seeds of the same line), check the estimate, then
-voice and measure the round. Every take is a paid call in live mode. Each take is measured against the voice's untagged
-reads of the same words on three spans (the tag's words, the words where the feeling should show, the whole line),
-gated (full voice, words, creak, fits, no question rise, no mid-word stop) and checked for its feeling (a smile,
-reassurance, a calmer read). The best passing takes go to the owner as a level-matched ABC reel, and the pick goes into
-the film as that exact file, never re-voiced. See [the tag loop](references/tag-loop.md).
+**When a line's direction matters, run the tag loop**: write the candidates (several tagged versions, several seeds
+each, plus extra untagged seeds of the same line), check the estimate, then voice and measure the round. Every take is
+a paid call in live mode.
+
+```
+slate voice tags optimize --estimate   # the round's cost; nothing voiced
+slate voice tags optimize              # voice and measure the round
+slate voice tags pick                  # gate and rank each line's takes
+slate voice tags abc S01               # hear the best passing takes, level-matched
+slate voice tags adopt S01 N1s101      # the owner's pick goes in as that exact file
+```
+
+Each take is measured against the voice's untagged reads of the same words on three spans (the tag's words, the words
+where the feeling should show, the whole line), gated (full voice, words, creak, fits, no question rise, no mid-word
+stop) and checked for its feeling (a smile, reassurance, a calmer read). The best passing takes go to the owner as a
+level-matched ABC reel, and the pick goes into the film as that exact file, never re-voiced. See
+[the tag loop](references/tag-loop.md).
 
 ## 4. Voice every line
 
@@ -108,8 +118,12 @@ sample, so nothing in the cut moves.
   voice measurements keep reading the unpolished stages.
 - A voice's tuning lives in its profile (`polish`), measured on its own takes; the neutral chain is the default.
 
-`slate voice --help` lists the stage. Align again afterwards, so Whisper hears what the audience hears. See
-[the polish](references/polish.md).
+```
+slate voice polish --try A,B --sheet   # every line at each strength, a level-matched reel, sheets; pins nothing
+slate voice polish --strength B        # the owner's pick, pinned for the film; the cue sheets and the mix play it
+```
+
+Align again afterwards, so Whisper hears what the audience hears. See [the polish](references/polish.md).
 
 ## 7. Measure a read
 
@@ -119,6 +133,11 @@ creak, pacing, the last word's movement, a clean ending, and the Whisper checks.
 spectrogram, words, pitch and level on one time and colour scale beside its numbers. Use it before the owner hears a
 tagged take, to choose a polish strength, and to check a re-voice against the approved take. Emotion comes through a
 full voice, checked by measurement; the owner still picks by ear. See [measuring a read](references/measuring-reads.md).
+
+```
+slate voice analyze S03 --stage polished --ab S03 --sheet   # one take's polish, raw against polished
+slate voice analyze S01 S02 S03 --sheet --spectrum          # every take, plus the long-term spectrum against speech
+```
 
 ## 8. Align, caption, time
 

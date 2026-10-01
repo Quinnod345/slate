@@ -124,10 +124,11 @@ class EngineStems:
 
 
 def mix_arrays(vo_stem: np.ndarray, stems: dict[str, np.ndarray], score: np.ndarray | None, sr: int, *,
-               targets: dict, under_lu: float = 15.0, duck_db: float = 4.0, music_attack_s: float = 0.08,
+               targets: dict, under_lu: float = 18.5, duck_db: float = 6.0, music_attack_s: float = 0.08,
                music_release_s: float = 0.65, stem_trim_db: dict | None = None,
                effects_ceiling_dbtp: float | None = None, linked_limit: bool = True, limiter: str = "slate",
-               duck_depths: dict | None = None, ducked_roles: tuple = ()) -> dict:
+               duck_depths: dict | None = None, ducked_roles: tuple = (), words: list | None = None,
+               score_guard: dict | None = None) -> dict:
     """Mix arrays of equal length. Returns {"final": {delivery stems}, "mix": the mix, "engine": EngineStems,
     "report": {...}}. Raises Refused when the targets can't be met with a gain and the limiters.
 
@@ -179,6 +180,11 @@ def mix_arrays(vo_stem: np.ndarray, stems: dict[str, np.ndarray], score: np.ndar
             del env
             report["music_vs_voice_lu"] = -under_lu
             report["duck_db"] = duck_db
+            if score_guard is not None and words:
+                # the score's own clarity guard: its top dips under any word it would crowd (slate.sound.guard)
+                from slate.sound import guard  # noqa: PLC0415
+
+                music, report["score_guard"] = guard.apply(music, dialogue, words, sr, score_guard)
         else:
             music = score.copy()  # no voice: the score is the programme, and the final gain sets its level
             report["music_vs_voice_lu"] = None
@@ -328,8 +334,8 @@ def run(film_dir: Path, *, score: str | Path | None = None, no_score: bool = Fal
     film = load(film_dir)
     levels = film.palette["levels"]
     music_cfg = levels.get("music") or {}
-    under_lu = float(under if under is not None else music_cfg.get("under_voice_lu", 15.0))
-    duck_db = float(duck if duck is not None else music_cfg.get("duck_db", 4.0))
+    under_lu = float(under if under is not None else music_cfg.get("under_voice_lu", 18.5))
+    duck_db = float(duck if duck is not None else music_cfg.get("duck_db", 6.0))
     out_dir = film.path(MIX_DIR)
     with _mix_lock(film):
         log.info(f"mixing {film.id}: {film.duration_s:.3f} s at {film.sr} Hz")
@@ -348,12 +354,17 @@ def run(film_dir: Path, *, score: str | Path | None = None, no_score: bool = Fal
         if calibrate:
             calibration = _calibrate(film, vo_stem, stems)
             trims.update(calibration["stem_trim_db"])
+        from slate.sound import balance, guard  # noqa: PLC0415
+        from slate.sound.film import words_for  # noqa: PLC0415
+
         result = mix_arrays(
             vo_stem, stems, score_arr, film.sr, targets=film.targets, under_lu=under_lu, duck_db=duck_db,
             music_attack_s=float(music_cfg.get("attack_s", 0.08)), music_release_s=float(music_cfg.get("release_s", 0.65)),
             stem_trim_db=trims, effects_ceiling_dbtp=levels.get("effects_ceiling_dbtp"),
             linked_limit=bool(levels.get("linked_limit", True)), limiter=str(levels.get("limiter", "slate")),
-            duck_depths=levels.get("duck_db") or {}, ducked_roles=ducked)
+            duck_depths=levels.get("duck_db") or {}, ducked_roles=ducked,
+            words=words_for(film) if score_arr is not None else None,
+            score_guard=guard.settings_of(balance.palette_balance(film.palette)))
         report = result["report"]
         final, mix_arr, eng = result["final"], result["mix"], result["engine"]
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -387,6 +398,7 @@ def run(film_dir: Path, *, score: str | Path | None = None, no_score: bool = Fal
             (out_dir / "music_check.json").unlink(missing_ok=True)  # an earlier mix's check doesn't describe this one
         report.update({
             "kind": "mix", "film": film.id, "made_at": gates.now_iso(),
+            "empty_stems": empty_by_design(placed, sp, stems),
             "inputs": {"voice": {"cues": len(placed), "placed": placed}, "score": film.rel(sp) if sp else None,
                        "stems": stem_files, "stems_manifest": {r: dict(e) for r, e in manifest.items()}},
             "levels_vs_voice_lu": levels_vs, "palette": {"brand": film.palette.get("brand"),
@@ -402,6 +414,17 @@ def run(film_dir: Path, *, score: str | Path | None = None, no_score: bool = Fal
         inputs = ["timing/shots.json", "timing/vo_cues.json"] + ([film.rel(sp)] if sp else []) + list(stem_files.values())
         record_lock(film, outputs["mix"], producer="slate mix", inputs=[i for i in inputs if film.path(i).exists()])
     return mix_path
+
+
+def empty_by_design(placed: list, score: Path | None, stems: dict) -> dict[str, str]:
+    """The delivery stems this film has nothing for, and why. A score-and-voice film has no effects or ambience: those
+    stems are still written (silent), so every delivery keeps its four stems, and this record is how a check tells a
+    stem that's empty on purpose from one that came out silent by mistake."""
+    fed = {"dialogue": (bool(placed), "no voice cues in this film"),
+           "effects": (any(r in stems for r in EFFECTS_ROLES), "no effect stems in this film"),
+           "ambience": (any(r in stems for r in AMBIENCE_ROLES), "no ambience stems in this film"),
+           "music": (score is not None or any(r in stems for r in MUSIC_ROLES), "no score and no tonal stems in this film")}
+    return {k: why for k, (has, why) in fed.items() if not has}
 
 
 def _calibrate(film: Film, vo_stem: np.ndarray, stems: dict[str, np.ndarray]) -> dict:

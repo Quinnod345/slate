@@ -30,6 +30,9 @@ GATE = r"[a-z][a-z0-9_.:-]{0,63}"
 PART = r"[A-Za-z0-9][A-Za-z0-9_.-]{0,39}"
 APPROVAL = r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}"
 MODEL = r"[A-Za-z0-9][A-Za-z0-9_.-]{0,39}"
+TAKE = SHOT + r"(?:/[A-Za-z0-9][A-Za-z0-9_.-]{0,15})?"  # a shot, or a shot's take: S01, S01/t02
+STRENGTH = r"(?:A|B|0(?:\.[0-9]{1,3})?|1(?:\.0{1,3})?)"  # a voice's named polish strength, or 0 to 1
+STRENGTHS = STRENGTH + r"(?:," + STRENGTH + r"){0,5}"
 JOB_ID = re.compile(r"^j-[0-9]{8}-[0-9]{6}-[0-9a-f]{4}$")
 MONTH = re.compile(r"^[0-9]{4}-(?:0[1-9]|1[0-2])$")
 MAX_ARGS = 64
@@ -131,6 +134,16 @@ JOBS: dict[str, Stage] = {s.name: s for s in (
           kind="mix"),
     Stage("verify", ("verify",), "queue", "the sound gates on the mix", "slate.sound.cli", positional=GATE,
           max_positional=40, kind="verify"),
+    Stage("voice polish", ("voice", "polish"), "queue",
+          "the studio polish on every take (de-esser, edge cut, EQ, compressor, room): length and loudness kept, "
+          "verified by measurement, pinned per film; --try renders strengths for listening and pins nothing",
+          "slate.voice.cli", flags=("--report", "--sheet"),
+          options=(("--strength", STRENGTH), ("--only", IDS), ("--try", STRENGTHS)), kind="voice"),
+    Stage("voice analyze", ("voice", "analyze"), "queue",
+          "measured inflection and A/B spectrogram sheets for takes; --spectrum adds the long-term spectrum against "
+          "natural speech", "slate.voice.cli", flags=("--sheet", "--spectrum"),
+          options=(("--ab", TAKE), ("--stage", "raw|clean|paced|polished"), ("--name", ID)), positional=TAKE,
+          min_positional=1, max_positional=20, kind="voice"),
     _QA,
     _REVIEW,
     _DELIVER,

@@ -92,7 +92,49 @@ are data packs, and the tests use a neutral demo brand.
 - **Story honours declared reading.** A shot's `reading` (voice-matched, or not for reading, with its reason) passes
   the word budget and read-time gates the way `slate qa readtime` does, and travels into the storyboard.
 
+### Proven end to end (2026-10-01)
+
+- **`slate demo`.** A neutral 15-second 9:16 reel for the demo brand, made through every stage, each the real command
+  in its own process with one line saying what it did and how long it took: the script, the voice with its studio
+  polish, alignment and an A/B spectrogram sheet, the film clock, captions, a placeholder act and a kit-built act
+  rendered at 4 samples, the score and the mix, the sound, voice and film gates (OCR on Apple Vision), an ffmpeg
+  master, the review packet (copied to a scratch folder, nothing sent) and a draft delivery whose manifest says why it
+  isn't final. The vendors are replayed, so nothing is spent; it exits non-zero when a stage fails, and every gate
+  that isn't PASS has to be one it expects, with its reason. `--keep` keeps the film; `--live` spends after a person's
+  yes (asked in a Terminal, refused under an agent unless the person set `SLATE_LIVE=1`). The whole run is an opt-in
+  test (`SLATE_TEST_INTEGRATION=1`, three to four minutes).
+- **The studio polish reaches the mix.** Timing now takes a shot's polished take ahead of the paced one it was made
+  from (the polish keeps every sample where it was), so the cue sheet and the mix play the de-essed, EQ'd take. The
+  demo fails if they don't.
+- **Where the harshness lives.** `slate voice analyze --spectrum` measures each take's long-term spectrum in third
+  octaves against natural speech (ANSI S3.5), so a glassy 2-5 kHz edge or hot 5-9 kHz sibilance shows as a shape, not
+  a hunch; the sheet rings each take's hottest edge and sibilance moments, and `slate voice polish --try` adds the
+  spectrum per strength and a reel of the harshest moments to its trial.
+- **The score sits where the owner approved it.** The starting palette puts the score 18.5 LU under the voice with a
+  6 dB duck (proof 2's 15 and 4 before), the p3 balance that `sound.balance.levels` holds every mix to: a default mix
+  used to fail the gate that delivery requires.
+- **The score's own clarity guard.** `slate mix` rides the score's top (above 600 Hz) under any word it would crowd,
+  by just enough to keep 19 dB of clear voice in 1-5 kHz (at most 20 dB, held 0.15 s, ramped over 0.3 s), and records
+  every dip in `final_mix.json`. A brand turns it off with `score_guard: false` in its palette's balance.
+- **A fade into a planned silence is part of the silence.** `sound.gap` widens each planned stop by the music's own
+  fade, the rule approved on 2026-09-30, as `sound.planned_stops` does; a hole anywhere else still fails.
+- **Silent on purpose.** A score-and-voice film's effects and ambience stems are still written (every delivery has
+  four), and the mix record names them in `empty_stems`, so `silent_stems` passes them and still fails a stem that came
+  out silent by mistake.
+- **Schemas for every film file.** The motion trace has its schema; the polish report, the voice analysis and the tag
+  candidates claim their own files; a composition plan validates as one; the shot-id freeze gate names its engine. The
+  schema gate no longer goes stale the moment a later command writes `qa/gates.json` or `film.lock.json`.
+- **Steady placeholders, planned captions.** The kit's placeholder picks out the word being said by colour alone (a
+  bold word reflowed its line, which the stability gate caught), and a burned-in caption coming or going is a planned
+  change on the clock, like a beat.
+- **Smaller fixes on the way.** `slate qa --quick` skips the stability scan with the other slow gates, and `slate qa
+  triage` shows each act's stability scan the way it shows the glitch scan. `slate analyze` and the doctor honour
+  `SLATE_WHISPER`, like timing and voice. The brand's kit review sheet is stilled at frame 45, so the logo build and
+  type in motion show, and it's proven to render. The MCP server can queue `voice polish` and `voice analyze`.
+
 ### Still to come in 0.1.0
 
-Being finished: brand packs and onboarding, formats, and the finish stages (`slate master`, `deliver`, `review`).
-Not built yet: the demo film (`slate demo`), which needs a quiet Mac to prove its render end to end.
+Waiting for a person: the first live After Effects finish (`slate ae smoke --go` and the rest, on Quinn's go), the
+effects engine (after proof 3 is approved) and the agents' live eval runs. Being built: the changes the knowledge
+ledger lists as gaps (`slate knowledge check` names each; `knowledge/GAPS.md` groups them by module), the accent and
+air guards (with the effects engine) and the kit's stability bench.

@@ -31,7 +31,9 @@ EVENT_KINDS = ("tap", "type", "land", "snap", "count", "draw", "data", "page", "
 # The sound module writes the mix to sound/mix/final_mix.wav with its four delivery stems beside it in
 # sound/mix/stems/. (sound/stems/ holds the effects engine's own role stems, which are not delivery stems.)
 MIX_CANDIDATES = ("sound/mix/final_mix.wav", "sound/final_mix.wav", "sound/mix.wav", "sound/mix/mix.wav")
-MIX_RECORDS = ("sound/mix.json", "sound/mix/mix.json")
+# `slate mix` records the mix in sound/mix/final_mix.json (its stems under outputs, and `empty_stems`: the delivery stems
+# a film has nothing for, which are written silent on purpose).
+MIX_RECORDS = ("sound/mix.json", "sound/mix/mix.json", "sound/mix/final_mix.json")
 VERIFY_RECORDS = ("sound/verify.json", "sound/mix/verify.json")
 CAPTION_CANDIDATES = ("timing/captions.json", "voice/captions/captions.json", "voice/captions.json",
                       "captions/captions.json", "deliver/captions/captions.json")
@@ -480,6 +482,12 @@ class FilmContext:
         if folder is None or not folder.is_dir():
             return {}
         return {p.stem: p for p in sorted(folder.glob("*.wav")) if not p.name.startswith(".")}
+
+    def empty_stems(self) -> dict[str, str]:
+        """{stem: why} for the delivery stems the mix record says this film has nothing for (silent on purpose)."""
+        _rec, doc = self.mix_record()
+        empty = (doc or {}).get("empty_stems")
+        return {str(k): str(v) for k, v in empty.items()} if isinstance(empty, dict) else {}
 
     def dialogue_stem(self) -> Path | None:
         stems = self.stem_paths()

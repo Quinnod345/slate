@@ -232,6 +232,18 @@ def test_whisper_missing_is_red(denv):
     assert rows_for(denv, tools.check_whisper)["tool.whisper"]["status"] == "red"
 
 
+def test_a_whisper_named_by_slate_whisper_is_the_one_reported(denv):
+    """SLATE_WHISPER names one Whisper for every stage (voice, timing, analyze); doctor reports that one, and a name
+    that isn't an executable file is red."""
+    exe = "/opt/whisper-build/bin/whisper"
+    denv.envvars["SLATE_WHISPER"] = exe
+    row = rows_for(denv, tools.check_whisper)["tool.whisper"]
+    assert row["status"] == "red" and "isn't an executable file" in row["summary"]
+    denv.present.add(exe)
+    row = rows_for(denv, tools.check_whisper)["tool.whisper"]
+    assert row["status"] == "green" and exe in row["summary"] and row["details"]["override"] == exe
+
+
 def test_whisper_model_follows_xdg_cache_home(denv, tmp_path):
     denv.envvars["XDG_CACHE_HOME"] = str(tmp_path / "cache")
     assert tools.whisper_model_path(denv) == tmp_path / "cache" / "whisper" / "large-v3-turbo.pt"

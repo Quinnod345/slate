@@ -17,8 +17,8 @@ from slate import cli
 REPO = Path(__file__).resolve().parents[2]
 DOCS = ["README.md", "AGENTS.md", "CHANGELOG.md", "plugins/slate/README.md", "mcpb/README.md", "docs/DECISIONS.md"]
 # Commands a document may name before their module lands, because it says they're still to come. Each must really be
-# missing: once it's built, the exemption goes (the test below says so).
-NOT_YET = {"demo"}
+# missing: once it's built, the exemption goes (the test below says so). `slate demo` landed on 2026-10-01.
+NOT_YET: set[str] = set()
 GLOBAL_VALUE_FLAGS = {"--film"}
 BARE = re.compile(r"^[a-z][a-z0-9-]*$")
 
@@ -79,12 +79,15 @@ def test_every_command_a_front_door_cites_exists(doc):
 
 
 def test_the_not_yet_list_is_honest():
-    """When `slate demo` lands, drop it from NOT_YET and from the 'still to come' wording."""
+    """When a command lands, drop it from NOT_YET and from the 'still to come' wording."""
     built = sorted(NOT_YET & REGISTERED)
     assert not built, f"now built: {built}; remove them from NOT_YET and update README's status and CHANGELOG"
     readme = (REPO / "README.md").read_text()
     for cmd in NOT_YET:
         assert f"slate {cmd}" in readme and "still to come" in readme.lower()
+    if not NOT_YET:  # nothing a front door names is still to come
+        assert "still to come" not in readme.lower()
+        assert "demo" in REGISTERED and "`slate demo`" in readme
 
 
 def test_the_readme_cites_many_commands_and_the_parser_sees_them():

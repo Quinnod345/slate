@@ -14,8 +14,8 @@
   "id": "P002",
   "owner": "ae",
   "status": "needs-quinn",
-  "evidence": "Built and tested offline (project.build, masters.render, acts.py with SL.buildScene, bridge looks by name; tests/ae). A full creative engine in fact needs one live run: `slate ae smoke --go`, `slate ae build --go`, `slate ae audit --go`, `slate ae masters --go`, `slate ae bridge acceptance --go` on Quinn's go.",
-  "source": "ae.review.json"
+  "evidence": "Built and tested offline; a full creative engine in fact needs the live AE runs on Quinn's go. This pass: AE beats carry spans and AE traces carry class/exempt/reason.",
+  "source": "integration-engine.json"
  },
  {
   "section": "Slate — Plan",
@@ -202,8 +202,8 @@
   "id": "P023",
   "owner": "engine-kit",
   "status": "done",
-  "evidence": "The kit (clock, motion law, paper cards, type, UI, logo build, charts, motif rig) is tested in engine/tests/kit (158 tests, golden stills); render_mb's 16-bit sub-frame average into ProRes 422 HQ is engine-core's and was verified with a kit-built act: kit_e2e.test.mjs renders 10 frames at 4 samples to ProRes 422 HQ 10-bit BT.709, exactly 10 frames, fonts gate PASS.",
-  "source": "engine-kit.review.json"
+  "evidence": "The kit, render_mb and the clock proven again end to end through `slate` this pass: a 10-frame act at 4 samples into ProRes 422 HQ 10-bit BT.709 (10 packets), stills, events, trace, check PASS; Remotion's Chrome now finishes every tile before a sample (chrome-complete.sh).",
+  "source": "integration-engine.json"
  },
  {
   "section": "What we're packaging",
@@ -229,8 +229,8 @@
   "id": "P026",
   "owner": "sound",
   "status": "needs-quinn",
-  "evidence": "Proof 2's design is the starting palette as data (effects/palette.py STARTING_KINDS, STARTING_PALETTE), measured against proof 2's own stems in test_sound_golden.py. The effects engine that renders it is gated on proof 3 (effects.require_proof3; `slate sfx` refuses, exit 1). Waits for Quinn's approval.",
-  "source": "sound.review.json"
+  "evidence": "The p3 checks are ported and reproduce film B's delivered mix; the p3 engine itself (spot v2, render v2, the guards) waits for proof 3 and is recorded as lessons.",
+  "source": "stability-balance.json"
  },
  {
   "section": "What we're packaging",
@@ -274,8 +274,8 @@
   "id": "P031",
   "owner": "ae",
   "status": "needs-quinn",
-  "evidence": "AEP from data (spec.py + build_film.jsx), chunked dual-output aerender masters (masters.py), Rec.709 Gamma 2.4 audited (validate.jsx): test_build_end_to_end, test_masters_render_every_chunk_and_join_exactly, test_audit_end_to_end against the AE mock. Never run in After Effects itself yet.",
-  "source": "ae.review.json"
+  "evidence": "AEP from data and chunked aerender masters tested against the mock; masters can be queued with --detach through detach_current; the first real build and masters wait for Quinn's go.",
+  "source": "integration-engine.json"
  },
  {
   "section": "What we're packaging",
@@ -300,8 +300,9 @@
   "text": "- **Knowledge.** `MOTION.md`, `TRUDY_MOTION.md`, `SOUND.md`, `V4_TAGS.md`, 20 act `NOTES.md` files (3,565 lines) and the memory notes, most of it hard-won. `SOUND_V2.md` is kept as a record only.",
   "id": "P034",
   "owner": "knowledge",
-  "status": "open",
-  "evidence": ""
+  "status": "done",
+  "evidence": "Every rule in MOTION.md, the character motion spec, SOUND.md, V4_TAGS.md, the 20 act NOTES.md files and the memory notes is harvested (knowledge/harvest/doc_rules.json, 902 rules; second_harvest.json for what changed since) and mapped in knowledge/lessons.json; knowledge.mapped PASS on all 1,808 items. SOUND_V2.md stays a record only (a left-behind name in slate.knowledge).",
+  "source": "knowledge.build.json"
  },
  {
   "section": "How it fits together",
@@ -318,7 +319,7 @@
   "id": "P036",
   "owner": "foundation",
   "status": "done",
-  "evidence": "src/slate/cli.py: every stage is a subcommand registered by exactly one module; MODULES names each module's commands exactly (REGISTERED records who added what, BROKEN is empty), `slate --help` lists every command, and ARCHITECTURE §4 matches the CLI both ways (tests/test_cli_surface.py, tests/skills/test_skills_commands.py::test_section_4_names_every_stage_the_cli_has). MCP is a thin wrapper (packaging). Exit codes shared via src/slate/errors.py, now with 75 (TryLater). Integration, 2026-10-01.",
+  "evidence": "CLI-first contract exact: MODULES = what each module registers (REGISTERED), BROKEN empty, --help and ARCHITECTURE §4 held to the live CLI (tests/test_cli_surface.py, tests/skills/test_skills_commands.py).",
   "source": "integration-python.json"
  },
  {
@@ -363,8 +364,8 @@
   "id": "P041",
   "owner": "ae",
   "status": "done",
-  "evidence": "guard.person_start on every AE step (now also before anything is queued with --detach); autonomous films refused even with --go; Slate never quits AE (test_every_ae_command_needs_go, test_autonomous_films_are_refused_even_with_go, test_detach_refuses_now_what_the_job_would_refuse, test_masters_is_busy_while_ae_runs).",
-  "source": "ae.review.json"
+  "evidence": "person_start on every AE entry, including --detach through detach_current before anything is queued (test_detach_refuses_now_what_the_job_would_refuse).",
+  "source": "integration-engine.json"
  },
  {
   "section": "How it fits together",
@@ -533,8 +534,9 @@
   "text": "4. Routing evals check that open requests get the question, scoped briefs load `slate` in every agent, and UI screen-recording requests still go to video-verifier. If a vendor skill keeps winning, Slate adjusts how it triggers, under your one-time permission. It never deletes a vendor skill.",
   "id": "P060",
   "owner": "knowledge",
-  "status": "open",
-  "evidence": ""
+  "status": "later-wave",
+  "evidence": "The routing cases exist and dry-run: evals/cases/routing-open-request.json, routing-ui-recording.json, routing-fast-lane-*.json, with the suite in src/slate/evals and tests/evals. Live runs in every configuration are the later wave.",
+  "source": "knowledge.build.json"
  },
  {
   "section": "2. Engine: what does the work",
@@ -560,8 +562,8 @@
   "id": "P063",
   "owner": "engine-kit",
   "status": "done",
-  "evidence": "Brand tokens, font plan and gate, logo build, motif rig, eases and splines, camera/world/fade card, placeholders, review sheets (kit tests); one `slate emit-events` now writes both files from the kit's registries for a real kit act (kit_e2e.test.mjs 'emits the visual events and the motion trace from the kit'; tests/render/test_render_e2e.py through slate). engine-core makes the same kit calls collectAct() makes on the act's own module instances instead of calling collectAct (it also loads the picture and acts without the kit): recorded in the engine README.",
-  "source": "engine-kit.review.json"
+  "evidence": "Plus this pass: class/exempt/reason in traces, the 'even' carry curve, logo draws with spans, the count box that never re-centres.",
+  "source": "integration-engine.json"
  },
  {
   "section": "2. Engine: what does the work",
@@ -569,8 +571,8 @@
   "id": "P064",
   "owner": "engine-core",
   "status": "done",
-  "evidence": "One versioned engine under DATA/engine/<pin> (install.ensure, test_install.py); generated entry aliasing @slate/kit and @film/data with a film-folder tsconfig (entry.mjs; entry.test 'lets anyone run the engine's own tsc from inside the film folder'); one bundle per film per source hash, reused for render and stills, released (bundle.test; kit_e2e.test.mjs shares one bundle between the render and the stills and releases it); Python calls Node only through bridge.call's JSON protocol (test_bridge.py). Verified end to end on a kit-built act (kit_e2e.test.mjs) and through slate (tests/render/test_",
-  "source": "engine-core.review.json"
+  "evidence": "One versioned engine; the generated entry and film tsconfig (with @slate/web) type-check web scenes too; all path args are the caller's; temp folders under Slate's data folder.",
+  "source": "integration-engine.json"
  },
  {
   "section": "2. Engine: what does the work",
@@ -578,8 +580,8 @@
   "id": "P065",
   "owner": "engine-kit",
   "status": "done",
-  "evidence": "core/looks.ts LOOKS, AE_LOOKS by name, lookOf(); now also look.engine / sceneEngine() (looks-captions.test.ts).",
-  "source": "engine-kit.review.json"
+  "evidence": "Looks library with look.engine; `slate engine scaffold` reads it to start a web act.",
+  "source": "integration-engine.json"
  },
  {
   "section": "2. Engine: what does the work",
@@ -596,8 +598,8 @@
   "id": "P067",
   "owner": "render",
   "status": "done",
-  "evidence": "Chunked, resumable, proven joins and splices, registry, bundle cleanup (runner.py, chunks.py, joins.py, splice.py, registry.py, clean.py; 150 tests). Verified for real in the scratch session (a real render, a real patch spliced with proof, the registry, no bundle left) and through slate on a kit act in test_render_e2e.py.",
-  "source": "render.review.json"
+  "evidence": "Chunked, resumable, proven; this pass: queueing through detach_current, gates kept in qa/gates.json, try-later never retried in place, social route at draft samples, engine temp sweep; live renders of both engines registered.",
+  "source": "integration-engine.json"
  },
  {
   "section": "2. Engine: what does the work",
@@ -650,8 +652,8 @@
   "id": "P073",
   "owner": "ae",
   "status": "done",
-  "evidence": "driver.py (osascript DoScriptFile, prefs report channel, ae_lock shared with the bridge's lock), purge, software GPU, disk cache off and restored, byte-safe prefs (tests/ae/test_ae_driver.py, test_ae_prefs.py). The live smoke render is part of Quinn's go sequence.",
-  "source": "ae.review.json"
+  "evidence": "Driver and prefs unchanged; AE CLI --detach through detach_current.",
+  "source": "integration-engine.json"
  },
  {
   "section": "2. Engine: what does the work",
@@ -659,8 +661,8 @@
   "id": "P074",
   "owner": "ae",
   "status": "partial",
-  "evidence": "AE-built acts on the film clock with ES3 eases at parity (run_vectors PASS on the shared vectors), measured traces now with key frames, aerender renders registered as engine 'ae'. Per-shot engine choice and reading a brand's look.engine are later wave.",
-  "source": "ae.review.json"
+  "evidence": "AE-built acts on the film clock with spans and trace classes; per-shot engine choice isn't built and the AE lane doesn't read look.engine yet.",
+  "source": "integration-engine.json"
  },
  {
   "section": "2. Engine: what does the work",
@@ -668,8 +670,8 @@
   "id": "P075",
   "owner": "web",
   "status": "done",
-  "evidence": "engine/web/render.mjs webRender; verified through slate: `slate render --act 2 --engine web --samples 4` renders the template for exactly 10 frames, joins with proof, registers it, writes and records the act's motion trace, and `slate emit-events` takes its beat (tests/render/test_render_e2e.py); network isolation, determinism and timing in engine/tests/web/render.test.mjs.",
-  "source": "web.review.json"
+  "evidence": "This pass: the web act's hand-in check, emit dry runs, Chrome profiles under Slate's data folder, derived films' media mounted from the parent; live: `slate render --engine web` 10 frames, `slate check 2` 9 PASS.",
+  "source": "integration-engine.json"
  },
  {
   "section": "2. Engine: what does the work",
@@ -784,9 +786,9 @@
   "text": "- Outputs: kit components rebuilt from the brand's design language; a brand `MOTION.md` and `motion.json` (named eases and where they come from, duration scale, staggers, overshoot policy, the brand motif's signature motion); a kit review sheet.",
   "id": "P088",
   "owner": "brand",
-  "status": "partial",
-  "evidence": "Done: the motion law proposed from the product (lineage on every ease) and adopted into brand.json; motion.json and MOTION.md written from it and checked for drift by validate; palette, roles, type (PostScript names folded in) and contrast pairs filled from the brand's own code. Not run live: the kit review sheet render (--sheet); its clean refusal without an engine is tested (test_review_sheet_refuses_cleanly_without_an_engine).",
-  "source": "brand.review.json"
+  "status": "done",
+  "evidence": "Every output exists: the motion law with lineage on every ease, motion.json and MOTION.md checked for drift, palette, roles, type and contrast pairs from the brand's own code (brand.review.json), and now the kit review sheet: in a sandbox, `slate brand onboard <copy of demo> --step look --sheet` rendered onboarding/look/review_sheet.png (1600x900 at frame 45, every panel drawn, the font gate passing), and the checklist ticks 'the kit rebuilt in the brand's design language'.",
+  "source": "demo.json"
  },
  {
   "section": "4. Brands: onboarding once, then a pack",
@@ -839,8 +841,8 @@
   "id": "P094",
   "owner": "ae",
   "status": "needs-quinn",
-  "evidence": "Finishing through aerender + ExtendScript, Automation denial mapped to exit 3, 1-second smoke as a GateResult (smoke.py; test_ae_audit_smoke.py). `slate connect aftereffects` (the live smoke) and the bridge's ae_project_info acceptance need Quinn.",
-  "source": "ae.review.json"
+  "evidence": "Unchanged: the live smoke and bridge acceptance wait for Quinn.",
+  "source": "integration-engine.json"
  },
  {
   "section": "5. Connectors, credentials and the browser guardrail",
@@ -892,8 +894,9 @@
   "text": "5. An eval checks that no browser other than Aside is ever launched.",
   "id": "P100",
   "owner": "knowledge",
-  "status": "open",
-  "evidence": ""
+  "status": "later-wave",
+  "evidence": "evals/configs.json global_checks [no_browser, slate_children_browser_none] with a BROWSER tripwire on every run; L-agents-026 maps onto src/slate/evals/checks.py with its tests. It proves itself on live runs, the later wave.",
+  "source": "knowledge.build.json"
  },
  {
   "section": "6. Every agent: Claude Code, Codex, OpenClaw, Oneiro",
@@ -1049,8 +1052,8 @@
   "id": "P118",
   "owner": "engine-core",
   "status": "done",
-  "evidence": "The stage-7 machine gate is `slate check <act>` for Remotion acts: typecheck, module, word_misses (empty list required), kit_problems, banned_words, events (exported and current), contracts (bit-identical rest states), now filed under the scenes stage (check.mjs; check.test.mjs; kit_e2e.test.mjs passes every gate on a kit act and fails word_misses when a looked-up word leaves the read; `slate check 1` exit 0 in test_render_e2e.py). AE-built acts export their events through `slate ae acts export`. Web acts' own hand-in check is a later-wave item (still_open).",
-  "source": "engine-core.review.json"
+  "evidence": "`slate check` now hands in web acts too (typecheck, page, word_misses, kit_problems, network, fonts, banned_words, events, contracts); live: check all 16 PASS.",
+  "source": "integration-engine.json"
  },
  {
   "section": "7. The production method",
@@ -1067,8 +1070,8 @@
   "id": "P120",
   "owner": "sound",
   "status": "done",
-  "evidence": "Stage 9 gates in verify.py (loudness ±0.5 / ≤ -1 dBTP, stems sum, cue and voice sync, repeats, gap, levels against the reference); every gate now declares its stage. test_sound_verify.py passes; `slate verify` ran in the scratch home.",
-  "source": "sound.review.json"
+  "evidence": "Adds the approved level hierarchy to stage 9: every family's level against the voice from the brand's sound palette (sound.balance.levels), per-word clarity, never over, texture air, accents over the score, and planned stops that follow the plan.",
+  "source": "stability-balance.json"
  },
  {
   "section": "7. The production method",
@@ -1076,8 +1079,8 @@
   "id": "P121",
   "owner": "qa-core",
   "status": "done",
-  "evidence": "frames (checks/structure.py), glitch triaged (checks/picture.py + glitch.py), act joins (boundary) and the merged motion gate, all run by `slate qa`; tests in test_qa_core_structure.py, test_qa_core_picture.py, test_qa_core_regressions.py pass.",
-  "source": "qa-core.review.json"
+  "evidence": "The glitch scan triaged, extended: the stability gate adds pops and unstable motion with reference and baseline triage, and categorizes the glitch gate's flags (explain_glitches) so the glitch gate can drop explained motion (request above).",
+  "source": "stability-balance.json"
  },
  {
   "section": "7. The production method",
@@ -1220,8 +1223,8 @@
   "id": "P137",
   "owner": "ae",
   "status": "done",
-  "evidence": "Autonomous films never use AE (guard.refuse_autonomous; test_autonomous_films_never_touch_ae_even_with_go).",
-  "source": "ae.review.json"
+  "evidence": "Autonomous films never touch AE, including through --detach.",
+  "source": "integration-engine.json"
  },
  {
   "section": "7. The production method",
@@ -1436,8 +1439,8 @@
   "id": "P161",
   "owner": "engine-kit",
   "status": "done",
-  "evidence": "KineticWords/KineticStack, LogoSting (components.test.tsx 'lands each word on its VO word…', 'stacks lines…', 'builds a sting…'; golden Kit-Kinetic@40, Kit-Sting@75).",
-  "source": "engine-kit.review.json"
+  "evidence": "KineticWords, KineticStack, LogoSting (goldens pass).",
+  "source": "integration-engine.json"
  },
  {
   "section": "8. Formats and costs",
@@ -1445,8 +1448,8 @@
   "id": "P162",
   "owner": "engine-kit",
   "status": "done",
-  "evidence": "MarkCharacter and the motif rig (motif.test.ts, components.test.tsx 'draws the character', golden Kit-Section-motif@14).",
-  "source": "engine-kit.review.json"
+  "evidence": "MarkCharacter and the motif rig; rig channels now traced as class rig.",
+  "source": "integration-engine.json"
  },
  {
   "section": "8. Formats and costs",
@@ -1553,8 +1556,8 @@
   "id": "P174",
   "owner": "qa-core",
   "status": "done",
-  "evidence": "glitch.py triage skips flags within ±3 frames of a planned beat and lists them; test_qa_core_picture.py::test_triage_window_is_plus_minus_three_frames and ::test_glitch_gate_review_then_skipped_near_a_beat_then_accepted pass.",
-  "source": "qa-core.review.json"
+  "evidence": "Respected as it is: the stability gate skips pops within ±3 frames of a planned beat through slate.qa.glitch.triage and lists them; the motion classes are never skipped near a beat (the films' worst snap sat on its own landing beat), and a planned beat never excuses a reversal (tests: test_a_pop_on_a_planned_beat_is_the_films_own, test_a_planned_beat_never_excuses_a_reversal).",
+  "source": "stability-balance.json"
  },
  {
   "section": "Quality: gates, tests and evals",
@@ -1598,8 +1601,8 @@
   "id": "P179",
   "owner": "qa-motion",
   "status": "partial",
-  "evidence": "check_safe_zones on 9:16 films from the formats library's zones (or the format's own, or built-in ones equal to the library), text boxes from Vision OCR on the picture or the film's contact sheet; tested with scripted OCR (test_qa_access_sheets.py, 15 tests). Live Vision needs ocrmac, which isn't installed: UNCHECKED here, never passed.",
-  "source": "qa-motion.review.json"
+  "evidence": "Vision now runs on this Mac; a live 9:16 safe-zone run waits for a real 9:16 film.",
+  "source": "integration-python.json"
  },
  {
   "section": "Quality: gates, tests and evals",
@@ -1607,7 +1610,7 @@
   "id": "P180",
   "owner": "qa-core",
   "status": "done",
-  "evidence": "One engine in code (ocr.py VisionBackend through ocrmac; UNCHECKED, never another engine, when unavailable). The ocr extra is installed in .venv (ocrmac 1.0.1, pyobjc 12.2.2) and proven end to end on 2026-10-01: `slate --json qa ocr` on a scratch film's rendered act read the picture with Apple Vision at the accurate level (PASS), stdout one JSON object, Vision's E5 lines on stderr (ocr.stdout_to_stderr now flushes C stdio inside the redirect; tests/qa_core/test_qa_core_ocr_stdout.py). The default test run keeps Vision off (SLATE_TEST_VISION=1 opts in).",
+  "evidence": "ocrmac installed; `slate --json qa ocr` PASS on Apple Vision (accurate) on a scratch rendered film, stdout one JSON object, Vision's E5 lines on stderr; default tests keep Vision off.",
   "source": "integration-python.json"
  },
  {
@@ -1634,8 +1637,8 @@
   "id": "P183",
   "owner": "engine-kit",
   "status": "done",
-  "evidence": "Eases and T90: tests/vectors/eases.json and t90.json checked by pytest (tests/engine_kit/test_eases.py incl. test_vectors_are_fresh), vitest (engine/tests/kit/eases.test.ts) and the ExtendScript runner (node engine/ae/tests/run_vectors.mjs PASS; the ae vitest now asserts it read the shared files). Spoken numbers: tests/vectors/spoken.json checked by pytest (story's) and vitest, now including the kit's own clock (engine/tests/kit/spoken.test.ts) with a Python parity fixture. AE-built acts resolve words in Python, so no ES3 word matcher exists to check.",
-  "source": "engine-kit.review.json"
+  "evidence": "Eases/T90 vectors checked by pytest, vitest and the ES3 runner (PASS today); the engine's span rules checked against Python by test_beats_parity.py.",
+  "source": "integration-engine.json"
  },
  {
   "section": "Quality: gates, tests and evals",
@@ -1643,8 +1646,8 @@
   "id": "P184",
   "owner": "engine-kit",
   "status": "done",
-  "evidence": "node/golden.mjs renders 9 stills on swangle and compares at >= 45 dB with the two-baseline rule (golden.test.ts, node.test.ts); passed in the full run.",
-  "source": "engine-kit.review.json"
+  "evidence": "Golden stills pass after the count-box and logo-constant changes (kit project 165 tests).",
+  "source": "integration-engine.json"
  },
  {
   "section": "Quality: gates, tests and evals",
@@ -1661,40 +1664,44 @@
   "id": "P186",
   "owner": "foundation",
   "status": "done",
-  "evidence": "src/slate/replay.py (SLATE_FAKE_VENDORS=1, --live sets SLATE_LIVE=1, fixtures + fakers, ReplayMissing); tests/conftest.py forces replay; ledger rows marked replay never count (test_ledger_spend_context_marks_failures).",
-  "source": "foundation.build.json"
+  "evidence": "src/slate/replay.py; tests force replay; `slate demo` replays every vendor unless --live, and --live spends only after a person's yes (asked in a Terminal; under an agent only with the person's own SLATE_LIVE=1, read through cli.caller_env so the flag's own never counts). tests/demo/test_demo_cli.py proves each path, including no spend when a caller exported SLATE_LIVE.",
+  "source": "demo.json"
  },
  {
   "section": "Quality: gates, tests and evals",
   "text": "- Claude Code (Opus 5.5);",
   "id": "P187",
   "owner": "knowledge",
-  "status": "open",
-  "evidence": ""
+  "status": "later-wave",
+  "evidence": "The Claude Code configuration is in evals/configs.json, held to the plan by tests/evals/test_evals_suite_files.py::test_models_and_setups_match_the_plan (L-agents-019, a construction gate). Live run: later wave.",
+  "source": "knowledge.build.json"
  },
  {
   "section": "Quality: gates, tests and evals",
   "text": "- Codex CLI on gpt-6-astra;",
   "id": "P188",
   "owner": "knowledge",
-  "status": "open",
-  "evidence": ""
+  "status": "later-wave",
+  "evidence": "The Codex CLI configuration is in evals/configs.json, held by the same test. Live run: later wave.",
+  "source": "knowledge.build.json"
  },
  {
   "section": "Quality: gates, tests and evals",
   "text": "- the pursuit-slice setup: `codex exec --ignore-user-config` on gpt-6-sol, with only the aside and apple MCPs;",
   "id": "P189",
   "owner": "knowledge",
-  "status": "open",
-  "evidence": ""
+  "status": "later-wave",
+  "evidence": "The pursuit-slice setup (codex exec --ignore-user-config, only the aside and apple MCPs) is in evals/configs.json, held by the same test. Live run: later wave.",
+  "source": "knowledge.build.json"
  },
  {
   "section": "Quality: gates, tests and evals",
   "text": "- OpenClaw main on gpt-5.6-sol.",
   "id": "P190",
   "owner": "knowledge",
-  "status": "open",
-  "evidence": ""
+  "status": "later-wave",
+  "evidence": "The OpenClaw main configuration is in evals/configs.json, held by the same test. Live run: later wave.",
+  "source": "knowledge.build.json"
  },
  {
   "section": "Quality: gates, tests and evals",
@@ -1757,8 +1764,9 @@
   "text": "| 2. Tracer bullet: the Inner Echo reel, by Oct 8 | 2–4 days | A light Inner Echo onboarding (truth, look and motion, voice and sound references; your approvals needed by about Oct 4). Then a 15-second 9:16 reel, supervised first, with one Simulator capture. Only the token, font and clock adapters; vendor calls replay from fixtures unless `--live`; render at 4 samples. The supervised run gets its AE finish through the osascript route, which works without the file-write pref. Sound is the score, the voice and the onboarding sound reference, through the existing mix plumbing. Gates cover schema, frame counts, loudness, sync, captions and master PSNR. Then Oneiro's pursuit makes the real reel in autonomous mode, on its own topic, mastered with ffmpeg and held for you. Schema v1 freezes at the end | You approve the reel, and Oneiro posts that exact file |",
   "id": "P198",
   "owner": "orchestrator",
-  "status": "open",
-  "evidence": ""
+  "status": "needs-quinn",
+  "evidence": "The mechanics are proven offline by `slate demo`: a 15-second 9:16 reel at 4 samples, voice, score and mix, every gate (schema, frames, loudness, sync, captions, master PSNR), an ffmpeg master and a review packet held, not sent. What's left is Quinn's: the onboarding approvals (truth, look and motion, voice and sound references), the live voice and score, the Simulator capture, the AE finish's go, and approving the reel.",
+  "source": "demo.json"
  },
  {
   "section": "Build phases",
@@ -1773,8 +1781,9 @@
   "text": "| 4. Knowledge and evals | 3–5 days, overlapping phase 3 | The ten skills and their references, the knowledge ledger, `registry.json`, the eval matrix | Nothing unmapped; evals pass in all four configurations |",
   "id": "P200",
   "owner": "knowledge",
-  "status": "open",
-  "evidence": ""
+  "status": "partial",
+  "evidence": "The ledger's half is in: nothing unmapped (knowledge.mapped PASS), every destination resolves (knowledge.destinations PASS); 170 lessons are still gaps (knowledge/GAPS.md), and the evals' live runs in four configurations are the later wave.",
+  "source": "knowledge.build.json"
  },
  {
   "section": "Build phases",
@@ -1782,8 +1791,8 @@
   "id": "P201",
   "owner": "install",
   "status": "partial",
-  "evidence": "Installs for Claude Code, Codex and OpenClaw (with Higgsfield's skills), MCP registration, the desktop extension and the claude.ai knowledge zips (now generated) exist. Left: `slate demo` from each agent (demo not built), the real install, the VM and AE checklist.",
-  "source": "install.review.json"
+  "evidence": "`slate demo` is built and passes end to end: 23 of 23 stages in 3 min 18 s, run by an agent on this Mac, and tests/integration/test_demo.py passes (189 s, opt in). Left: running it from each agent Slate installs into (Codex and OpenClaw too), the clean-machine install test and the AE checklist.",
+  "source": "demo.json"
  },
  {
   "section": "Build phases",
@@ -1825,8 +1834,8 @@
   "id": "P206",
   "owner": "ae",
   "status": "done",
-  "evidence": "person_start on every AE/aerender entry point, including the new --detach path (tests above).",
-  "source": "ae.review.json"
+  "evidence": "person_start everywhere, the detach path included.",
+  "source": "integration-engine.json"
  },
  {
   "section": "Risks and licences",
@@ -1861,8 +1870,8 @@
   "id": "P210",
   "owner": "engine-kit",
   "status": "done",
-  "evidence": "Fonts by reference with the substitution gate (fonts.test.ts; golden Kit-FontMissing); the gate ran and passed inside the kit_e2e render and stills (fonts gate PASS).",
-  "source": "engine-kit.review.json"
+  "evidence": "Font gate PASS inside the live renders, stills, the web hand-in and the onboarding sheet.",
+  "source": "integration-engine.json"
  },
  {
   "section": "Risks and licences",
@@ -1870,24 +1879,26 @@
   "id": "P211",
   "owner": "ae",
   "status": "done",
-  "evidence": "Pinned bridge, never vendored, wrapped behind Slate's AE lock, acceptance on every version bump (bridge.py; test_ae_bridge.py 21 tests). The first live acceptance run is in Quinn's go sequence.",
-  "source": "ae.review.json"
+  "evidence": "Bridge pinned and wrapped; OpenClaw registration fixed to `openclaw mcp add`.",
+  "source": "integration-engine.json"
  },
  {
   "section": "Risks and licences",
   "text": "| A moving source | B, C and the p3 sound are still changing; `render_local.sh` changed this morning | Harvest twice; sound waits for proof 3 |",
   "id": "P212",
   "owner": "knowledge",
-  "status": "open",
-  "evidence": ""
+  "status": "partial",
+  "evidence": "This is part of the second harvest: the stability tools (last changed Sep 30 23:48) and the p3 balance tools (last changed Oct 1 00:58) were read after their last change. The film session changed sound/p3/tools/regress_v2.py at 01:33 (the effects engine's tripwire), noted for the re-inventory.",
+  "source": "stability-balance.json"
  },
  {
   "section": "Risks and licences",
   "text": "| Knowledge cutoffs | GPT-6 Astra (April 2026) and Opus 5.5 (June 2026) predate Eleven v4, Remotion 4.0.529 and the Higgsfield API | `registry.json` with verified-on dates, refreshed before production; films are pinned |",
   "id": "P213",
   "owner": "knowledge",
-  "status": "open",
-  "evidence": ""
+  "status": "done",
+  "evidence": "registry.json carries 63 verified_on dates (adopted from knowledge/registry_proposal.json by the integrator); films pin their models at first use.",
+  "source": "knowledge.build.json"
  },
  {
   "section": "Risks and licences",
@@ -1957,8 +1968,8 @@
   "id": "P221",
   "owner": "ae",
   "status": "needs-quinn",
-  "evidence": "Decision 2 as a whole rests on P002 and P222, which need the live run.",
-  "source": "ae.review.json"
+  "evidence": "Rests on the live AE runs (P002, P222).",
+  "source": "integration-engine.json"
  },
  {
   "section": "Decisions for you",
@@ -1966,8 +1977,8 @@
   "id": "P222",
   "owner": "ae",
   "status": "needs-quinn",
-  "evidence": "`slate ae build --go` then `slate ae masters --go` (now also queueable with --detach), tested against the mock; the first real build and masters wait for Quinn's go.",
-  "source": "ae.review.json"
+  "evidence": "build then masters (queueable with --detach) wait for Quinn's go.",
+  "source": "integration-engine.json"
  },
  {
   "section": "Decisions for you",
@@ -1975,8 +1986,8 @@
   "id": "P223",
   "owner": "ae",
   "status": "needs-quinn",
-  "evidence": "Scenes built in AE through Slate's ES3 library (tested) and through the bridge's looks (names fetched at use time, tested); bridge-built scenes need the live acceptance on Quinn's go.",
-  "source": "ae.review.json"
+  "evidence": "Bridge-built scenes need the live acceptance on Quinn's go.",
+  "source": "integration-engine.json"
  },
  {
   "section": "Decisions for you",
@@ -1984,8 +1995,8 @@
   "id": "P224",
   "owner": "ae",
   "status": "done",
-  "evidence": "The AE side: autonomous films refused with the hint that a person can start the AE finish of an approved film (guard.py).",
-  "source": "ae.review.json"
+  "evidence": "Unchanged.",
+  "source": "integration-engine.json"
  },
  {
   "section": "Decisions for you",
@@ -1993,8 +2004,8 @@
   "id": "P225",
   "owner": "ae",
   "status": "done",
-  "evidence": "prefs.py refuses Pref_SCRIPTING_FILE_NETWORK_SECURITY and proves it unchanged after every edit (test_set_refuses_the_scripting_security_setting, test_the_scripting_value_survives_every_edit).",
-  "source": "ae.review.json"
+  "evidence": "Unchanged: the scripting pref is never touched.",
+  "source": "integration-engine.json"
  },
  {
   "section": "Decisions for you",
@@ -2082,8 +2093,8 @@
   "id": "P235",
   "owner": "web",
   "status": "done",
-  "evidence": "three.js, R3F, drei, GSAP, puppeteer and FFmpeg make the third engine; render.test.mjs proves no Remotion package loads in the web renderer's process.",
-  "source": "web.review.json"
+  "evidence": "Three engines; the web engine now also hands in.",
+  "source": "integration-engine.json"
  },
  {
   "section": "Decisions for you",
@@ -2117,8 +2128,9 @@
   "text": "- Best quality wins, with the best models by default and overridable per film. The recommended agent is Opus 5.5 at max, also configurable.",
   "id": "P239",
   "owner": "knowledge",
-  "status": "open",
-  "evidence": ""
+  "status": "done",
+  "evidence": "L-packaging-D006 (the best model is the default for every role, overridable per film or user) maps onto registry.json; the films' generation-policy lessons map onto the generate module's defaults.",
+  "source": "knowledge.build.json"
  },
  {
   "section": "Decisions for you",
@@ -2234,7 +2246,7 @@
   "id": "P252",
   "owner": "formats",
   "status": "partial",
-  "evidence": "The per-channel split is data (formats route_for). `slate variant … --channel <channel>` records the channel's route in derivation.route, and `slate master` follows it (a social cut-down masters with ffmpeg: tests/state/test_state_integration_requests.py). Left: render using render.draft_samples for a social route (render, engine integrator).",
+  "evidence": "`slate variant --channel` records the route; master follows a social route with ffmpeg. Left: render's draft samples for it (engine integrator).",
   "source": "integration-python.json"
  },
  {
@@ -2470,8 +2482,8 @@
   "id": "P280",
   "owner": "engine-core",
   "status": "done",
-  "evidence": "remotion, @remotion/bundler, renderer, cli pinned exactly 4.0.521 (cli.test 'pins Remotion…'; engine status matches_pin true in the scratch session). README records upstream 4.0.531 and 4.0.530's pixel change for full-range 10/12-bit video next to the pin and the parity rule.",
-  "source": "engine-core.review.json"
+  "evidence": "Pins unchanged (4.0.521).",
+  "source": "integration-engine.json"
  },
  {
   "section": "Appendix A: dependency ledger",
@@ -2479,8 +2491,8 @@
   "id": "P281",
   "owner": "engine-core",
   "status": "done",
-  "evidence": "@remotion/google-fonts 4.0.521 pinned; the entry registers a loader per brand Google family by the kit's font plan (entry.test 'registers a loader for each of the brand's Google Fonts families').",
-  "source": "engine-core.review.json"
+  "evidence": "Google families registered; live: Public Sans in the onboarding sheet.",
+  "source": "integration-engine.json"
  },
  {
   "section": "Appendix A: dependency ledger",
@@ -2488,8 +2500,8 @@
   "id": "P282",
   "owner": "engine-core",
   "status": "partial",
-  "evidence": "@remotion/motion-blur stays out of package.json (cli.test) and render_mb stays the default (render.test, kit_e2e.test.mjs). The HtmlInCanvasMotionBlur comparison needs a >= 4.0.529 engine in a scratch folder (README lists the four steps, now alongside the 4.0.530 pixel change): later wave.",
-  "source": "engine-core.review.json"
+  "evidence": "render_mb stays the default; the HtmlInCanvasMotionBlur comparison needs a >= 4.0.529 engine in a scratch folder (later wave).",
+  "source": "integration-engine.json"
  },
  {
   "section": "Appendix A: dependency ledger",
@@ -2497,8 +2509,8 @@
   "id": "P283",
   "owner": "engine-core",
   "status": "done",
-  "evidence": "react, react-dom 19.2.8 pinned exactly (cli.test).",
-  "source": "engine-core.review.json"
+  "evidence": "Unchanged.",
+  "source": "integration-engine.json"
  },
  {
   "section": "Appendix A: dependency ledger",
@@ -2506,8 +2518,8 @@
   "id": "P284",
   "owner": "engine-core",
   "status": "done",
-  "evidence": "typescript 5.9.3 is the type-check gate (check.mjs typecheck; engine {typescript, 5.9.3} asserted in check.test).",
-  "source": "engine-core.review.json"
+  "evidence": "TypeScript 5.9.3 gates web scenes too.",
+  "source": "integration-engine.json"
  },
  {
   "section": "Appendix A: dependency ledger",
@@ -2515,8 +2527,8 @@
   "id": "P285",
   "owner": "engine-core",
   "status": "done",
-  "evidence": "esbuild 0.28.1 declared and pinned (cli.test); used by load_act, entry and the bundle hash.",
-  "source": "engine-core.review.json"
+  "evidence": "Unchanged.",
+  "source": "integration-engine.json"
  },
  {
   "section": "Appendix A: dependency ledger",
@@ -2524,8 +2536,8 @@
   "id": "P286",
   "owner": "engine-core",
   "status": "done",
-  "evidence": "chrome-headless-shell 149 through Remotion (browser.mjs; `node cli.mjs browser-ensure` runs in every render suite's setup; `slate engine status` reported no problems in the scratch session). Doctor calling it is doctor's part.",
-  "source": "engine-core.review.json"
+  "evidence": "Headless shell 149 through Remotion, now launched as chrome-complete.sh; `version` reports browser.complete.",
+  "source": "integration-engine.json"
  },
  {
   "section": "Appendix A: dependency ledger",
@@ -2533,8 +2545,8 @@
   "id": "P287",
   "owner": "web",
   "status": "done",
-  "evidence": "three 0.180, R3F 9.7, drei 10.7 and @remotion/three rendered in render.test.mjs (R3F fixture, ThreeCanvas act through engine-core's stills).",
-  "source": "web.review.json"
+  "evidence": "Unchanged.",
+  "source": "integration-engine.json"
  },
  {
   "section": "Appendix A: dependency ledger",
@@ -2542,8 +2554,8 @@
   "id": "P288",
   "owner": "web",
   "status": "done",
-  "evidence": "GSAP timelines seeked per frame (runtime/timeline.ts, scene.ts), brand eases as GSAP eases (runtime.test.ts). The licence re-check before a public release stays with Quinn (still_open).",
-  "source": "web.review.json"
+  "evidence": "Unchanged; GSAP licence re-check stays with Quinn before a public release.",
+  "source": "integration-engine.json"
  },
  {
   "section": "Appendix A: dependency ledger",
@@ -2551,8 +2563,8 @@
   "id": "P289",
   "owner": "web",
   "status": "done",
-  "evidence": "puppeteer loads only the local page, every other request refused and reported (render.test.mjs 'isolation from the network'); npm ci no longer downloads puppeteer's own Chrome (engine-core's install fix).",
-  "source": "web.review.json"
+  "evidence": "puppeteer still loads only local pages; its Chrome profile now lives under Slate's data folder.",
+  "source": "integration-engine.json"
  },
  {
   "section": "Appendix A: dependency ledger",
@@ -2560,8 +2572,8 @@
   "id": "P290",
   "owner": "engine-core",
   "status": "done",
-  "evidence": "postprocessing, @react-three/postprocessing, framer-motion absent (cli.test asserts each).",
-  "source": "engine-core.review.json"
+  "evidence": "Unchanged.",
+  "source": "integration-engine.json"
  },
  {
   "section": "Appendix A: dependency ledger",
@@ -2587,8 +2599,8 @@
   "id": "P293",
   "owner": "voice",
   "status": "needs-quinn",
-  "evidence": "Built and tested (`slate voice align --engine elevenlabs`, `--compare`; test_forced_alignment_is_evaluation_only; ran in the scratch home in replay). The evaluation on A, B and C's 104 takes is a live spend: about 4,640 credits at the proposal's 330 a minute (14,060 at the registry's current 1,000). Waits for Quinn's go.",
-  "source": "voice.review.json"
+  "evidence": "The Forced Alignment evaluation is now about 4,640 credits (330 a minute in registry.json), Quinn's go.",
+  "source": "integration-python.json"
  },
  {
   "section": "Appendix A: dependency ledger",
@@ -2605,7 +2617,7 @@
   "id": "P295",
   "owner": "formats",
   "status": "needs-quinn",
-  "evidence": "demucs==4.1.0 and librosa==0.11.0 run through uvx, pinned and offline by default, never installed into Slate's environment (src/slate/analyze/stems.py, beats.py); pyproject declares the `analyze` extra and uv.lock records it (resolved for Apple-silicon Macs: demucs needs numpy < 2 on Intel). Left: Quinn runs `slate analyze <clip> --stems --allow-download` once to cache htdemucs's weights (about 80 MB).",
+  "evidence": "analyze extra declared and locked (uvx only); htdemucs weights need Quinn's `slate analyze <clip> --stems --allow-download` once.",
   "source": "integration-python.json"
  },
  {
@@ -2614,7 +2626,7 @@
   "id": "P296",
   "owner": "qa-core",
   "status": "done",
-  "evidence": "The pyproject `ocr` extra (ocrmac) is installed in ~/code/slate/.venv (uv pip install -e .[ocr], 2026-10-01), and install.sh installs it on every install; `slate qa ocr` ran live on Apple Vision (see P180).",
+  "evidence": "The ocr extra is installed in .venv (uv pip install -e '.[ocr]'); install.sh installs it on every install.",
   "source": "integration-python.json"
  },
  {
@@ -2776,8 +2788,8 @@
   "id": "P314",
   "owner": "ae",
   "status": "done",
-  "evidence": "fnf-after-effects-mcp pinned from registry.json, the bridge's busy-lock protocol followed (test_bridge_lock_* in test_ae_driver.py); its `doctor` is offline (read in the installed package: it never contacts AE).",
-  "source": "ae.review.json"
+  "evidence": "fnf-after-effects-mcp pinned; OpenClaw registration fixed.",
+  "source": "integration-engine.json"
  },
  {
   "section": "Appendix A: dependency ledger",
@@ -2794,48 +2806,53 @@
   "id": "P316",
   "owner": "ae",
   "status": "done",
-  "evidence": "engine/ae/README.md 'Dialogs' and bridge status's `dialogs` field (mac-cua app-control only, never its browser tools).",
-  "source": "ae.review.json"
+  "evidence": "Unchanged.",
+  "source": "integration-engine.json"
  },
  {
   "section": "Appendix A: dependency ledger",
   "text": "| 21st.dev MCP | Optional, project-level | Design inspiration, paid |",
   "id": "P317",
   "owner": "knowledge",
-  "status": "open",
-  "evidence": ""
+  "status": "done",
+  "evidence": "docs/DEPENDENCIES.md: 21st.dev MCP optional and project-level; install.sh never registers it.",
+  "source": "knowledge.build.json"
  },
  {
   "section": "Appendix A: dependency ledger",
   "text": "| ElevenLabs local MCP | Drop | Archived, and it includes an outbound-call tool |",
   "id": "P318",
   "owner": "knowledge",
-  "status": "open",
-  "evidence": ""
+  "status": "done",
+  "evidence": "docs/DEPENDENCIES.md: ElevenLabs local MCP dropped; src/slate/doctor/agents.py flags it wherever an agent has it registered.",
+  "source": "knowledge.build.json"
  },
  {
   "section": "Appendix A: dependency ledger",
   "text": "| Remotion docs MCP | Drop | Deprecated |",
   "id": "P319",
   "owner": "knowledge",
-  "status": "open",
-  "evidence": ""
+  "status": "done",
+  "evidence": "docs/DEPENDENCIES.md: the Remotion docs MCP dropped; install.sh never registers it.",
+  "source": "knowledge.build.json"
  },
  {
   "section": "Appendix A: dependency ledger",
   "text": "| logic-pro-mcp | Drop | Evaluated, not used |",
   "id": "P320",
   "owner": "knowledge",
-  "status": "open",
-  "evidence": ""
+  "status": "done",
+  "evidence": "docs/DEPENDENCIES.md: logic-pro-mcp evaluated, not used, with the reasons.",
+  "source": "knowledge.build.json"
  },
  {
   "section": "Appendix A: dependency ledger",
   "text": "| Framer, Linear, truespace-sidecar, oneiro-memory, apple | Not part of Slate | |",
   "id": "P321",
   "owner": "knowledge",
-  "status": "open",
-  "evidence": ""
+  "status": "done",
+  "evidence": "docs/DEPENDENCIES.md: Framer, Linear, the company sidecar, oneiro-memory and apple are not part of Slate; the pursuit-slice eval runs with only aside and apple.",
+  "source": "knowledge.build.json"
  },
  {
   "section": "Appendix A: dependency ledger",
@@ -2879,8 +2896,8 @@
   "id": "P326",
   "owner": "engine-core",
   "status": "done",
-  "evidence": "remotion-dev/skills pinned, fetched only into the installed engine, overrides for voice model, stock sounds, Studio (--no-open) and keys (src/slate/engine/skills.py; tests/engine_core/test_skills.py 5 tests, the real-text test opt-in with SLATE_TEST_SKILLS_MIRROR). `slate engine skills --dry-run` exit 0 in the scratch session.",
-  "source": "engine-core.review.json"
+  "evidence": "Unchanged.",
+  "source": "integration-engine.json"
  },
  {
   "section": "Appendix A: dependency ledger",
@@ -2888,8 +2905,8 @@
   "id": "P327",
   "owner": "engine-core",
   "status": "done",
-  "evidence": "elevenlabs/skills pinned (MIT, optional), take list and overrides tested (test_skills.py).",
-  "source": "engine-core.review.json"
+  "evidence": "Unchanged.",
+  "source": "integration-engine.json"
  },
  {
   "section": "Appendix A: dependency ledger",
@@ -2897,8 +2914,8 @@
   "id": "P328",
   "owner": "ae",
   "status": "done",
-  "evidence": "The bridge's 13 looks are names only, fetched at use time (test_no_look_text_lives_in_slate, test_looks_are_names_fetched_at_use_time).",
-  "source": "ae.review.json"
+  "evidence": "Unchanged.",
+  "source": "integration-engine.json"
  },
  {
   "section": "Appendix A: dependency ledger",
@@ -2924,16 +2941,17 @@
   "id": "P331",
   "owner": "web",
   "status": "partial",
-  "evidence": "Learned from HyperFrames (README 'Licences'); its skill-level patterns belong to the skills and sound modules.",
-  "source": "web.review.json"
+  "evidence": "HyperFrames' patterns for skills and sound remain theirs.",
+  "source": "integration-engine.json"
  },
  {
   "section": "Appendix A: dependency ledger",
   "text": "| OpenMontage | AGPL | Never copied | Its licence would force AGPL on Slate |",
   "id": "P332",
   "owner": "knowledge",
-  "status": "open",
-  "evidence": ""
+  "status": "done",
+  "evidence": "docs/DEPENDENCIES.md: OpenMontage is AGPL and never copied; L-packaging-057 maps onto skills/slate/references/licences.md.",
+  "source": "knowledge.build.json"
  },
  {
   "section": "Appendix A: dependency ledger",
@@ -3013,32 +3031,35 @@
   "id": "P341",
   "owner": "render",
   "status": "done",
-  "evidence": "No remote render code (tests/render/test_render_no_work.py scans the module and the registry schema).",
-  "source": "render.review.json"
+  "evidence": "Unchanged: no remote render code.",
+  "source": "integration-engine.json"
  },
  {
   "section": "Appendix C: sources",
   "text": "- The inventory: `research/video-package-inventory-2026-09-30/` in the film project (`visual-engine.md`, `sound-voice.md`, `ae-qa-delivery.md`, `process-lessons.md`, `agents-wiring.md`, `packaging-research.md`, `media-research.md`, `coverage.md`, `inventory_result.json`).",
   "id": "P342",
   "owner": "knowledge",
-  "status": "open",
-  "evidence": ""
+  "status": "done",
+  "evidence": "The inventory folder's files are the first harvest's sources (meta.harvests[0].sources) and every inventory lesson cites its file and lines.",
+  "source": "knowledge.build.json"
  },
  {
   "section": "Appendix C: sources",
   "text": "- The three reviews of the first draft, merged into this version: fidelity (14 findings), engineering (15) and craft and operations (15).",
   "id": "P343",
   "owner": "knowledge",
-  "status": "open",
-  "evidence": ""
+  "status": "done",
+  "evidence": "The three reviews were merged into docs/PLAN.md, which the ledger's destinations follow; nothing further to build.",
+  "source": "knowledge.build.json"
  },
  {
   "section": "Appendix C: sources",
   "text": "- The film project's own records: `SOUND.md` (the return to proof 2), `sound/v2/HANDOVER.md`, `TRUDY_MOTION.md`, `V4_TAGS.md`, `PRODUCTION*.md`, and the memory notes, including \"perfect, don't replace\".",
   "id": "P344",
   "owner": "knowledge",
-  "status": "open",
-  "evidence": ""
+  "status": "done",
+  "evidence": "SOUND.md, sound/v2/HANDOVER.md, the character motion spec, V4_TAGS.md, the PRODUCTION notes and the memory notes (perfect, don't replace among them) are harvest sources; their lessons are mapped.",
+  "source": "knowledge.build.json"
  },
  {
   "section": "The promise",
@@ -3066,8 +3087,9 @@
   "origin": "paragraph",
   "id": "P347",
   "owner": "knowledge",
-  "status": "open",
-  "evidence": ""
+  "status": "done",
+  "evidence": "knowledge/components.json: 306 components, 81 reusable as is, 127 once generalized, 54 film-only, 28 company content, 16 obsolete; knowledge.components PASS (every one lands on a real module path).",
+  "source": "knowledge.build.json"
  },
  {
   "section": "What we're packaging",
@@ -3085,8 +3107,9 @@
   "origin": "paragraph",
   "id": "P349",
   "owner": "knowledge",
-  "status": "open",
-  "evidence": ""
+  "status": "done",
+  "evidence": "docs/DEPENDENCIES.md is Appendix A's ledger (keep, depend, replace or drop for each); knowledge/components.json gives every inventoried component its destination.",
+  "source": "knowledge.build.json"
  },
  {
   "section": "1. Skills: what the agent knows",
@@ -3115,8 +3138,8 @@
   "id": "P352",
   "owner": "foundation",
   "status": "done",
-  "evidence": "registry.json roles with verified_on and sources; src/slate/config.py model(role, film): pin > film override > SLATE_MODEL_* env > slate.toml [models] > registry default; agents.recommended = claude-opus-5-5 at max, configurable in slate.toml [agent].",
-  "source": "foundation.build.json"
+  "evidence": "registry.json merged with the knowledge owner's 2026-09-30 re-check, roles unchanged; the plate resolution is a question for Quinn.",
+  "source": "integration-python.json"
  },
  {
   "section": "2. Engine: what does the work",
@@ -3124,8 +3147,9 @@
   "origin": "paragraph",
   "id": "P353",
   "owner": "knowledge",
-  "status": "open",
-  "evidence": ""
+  "status": "partial",
+  "evidence": "knowledge.left_behind scans the repo for the guarded names (held as hashes), the films' scene files, work.sh, the retired v2 sound design, the rejected 3D pass and the website tooling, and now the ledger's own words; it fails today only on registry.json lines 223-224, 297-298 and 1467 (film paths with a guarded name), requested of the registry's owner.",
+  "source": "knowledge.build.json"
  },
  {
   "section": "3. The film folder, its state and its pins",
@@ -3213,8 +3237,9 @@
   "origin": "paragraph",
   "id": "P362",
   "owner": "knowledge",
-  "status": "open",
-  "evidence": ""
+  "status": "later-wave",
+  "evidence": "evals/configs.json covers GPT-6 Astra (Codex and OpenClaw), gpt-6-sol pursuit slices and gpt-5.6-sol deployed agents, held by tests/evals/test_evals_suite_files.py; live runs are the later wave.",
+  "source": "knowledge.build.json"
  },
  {
   "section": "6. Every agent: Claude Code, Codex, OpenClaw, Oneiro",
@@ -3262,7 +3287,7 @@
   "id": "P367",
   "owner": "state",
   "status": "done",
-  "evidence": "Film state's part is done (revise start, check, done). The measures are registered: slate.sound.revise_hooks registers level_vs_voice and slate.qa.revise_hooks registers palette and sync through revise.register_hook (tests/sound/test_sound_revise_hooks.py, tests/qa_core/test_qa_core_revise_hooks.py, tests/state/test_revise.py, which now isolates its hook modules).",
+  "evidence": "sound registers level_vs_voice, qa palette and sync through revise.register_hook; tests in sound, qa_core and state.",
   "source": "integration-python.json"
  },
  {
@@ -3282,7 +3307,7 @@
   "id": "P369",
   "owner": "formats",
   "status": "partial",
-  "evidence": "Routes are data (formats/_shared.json); variants record theirs (`slate variant --channel`) and master honours it. Left: render's samples for the social route (engine integrator) and the Higgsedit decision (phase 8, Quinn).",
+  "evidence": "Routes recorded and honoured by master; render's samples and the Higgsedit decision remain.",
   "source": "integration-python.json"
  },
  {
@@ -3311,8 +3336,9 @@
   "origin": "paragraph",
   "id": "P372",
   "owner": "knowledge",
-  "status": "open",
-  "evidence": ""
+  "status": "partial",
+  "evidence": "registry.json records the Higgsfield API cash-back's end (2026-09-30 23:59 UTC) and the ElevenLabs v4 promotion's (2026-10-12), with the rule that a promotional price carries its end date. The cash-back has now ended and the note still reads as upcoming: requested of the registry's owner.",
+  "source": "knowledge.build.json"
  },
  {
   "section": "Quality: gates, tests and evals",
@@ -3330,8 +3356,9 @@
   "origin": "paragraph",
   "id": "P374",
   "owner": "knowledge",
-  "status": "open",
-  "evidence": ""
+  "status": "later-wave",
+  "evidence": "evals/cases covers triggering (launch video, social reel), routing (open request, UI recording, fast lane), negative cases (CSS bug, video element, email, publish without approval), a dry run to the script stage, the no-browser check on every case, and oneiro-strategist-slate-move; tests/evals runs them against a fake agent. Live runs: later wave.",
+  "source": "knowledge.build.json"
  },
  {
   "section": "Quality: gates, tests and evals",
@@ -3339,8 +3366,9 @@
   "origin": "paragraph",
   "id": "P375",
   "owner": "knowledge",
-  "status": "open",
-  "evidence": ""
+  "status": "later-wave",
+  "evidence": "Lessons for the ledger are listed in this report; mapping them is the knowledge owner's.",
+  "source": "stability-balance.json"
  },
  {
   "section": "Quality: gates, tests and evals",
@@ -3367,9 +3395,9 @@
   "origin": "paragraph",
   "id": "P378",
   "owner": "foundation",
-  "status": "partial",
-  "evidence": "The layout is as drawn (docs/ARCHITECTURE.md §2, updated 2026-10-01: install/, formats.py, bench/, knowledge.py, qa stability, sound balance), with pyproject.toml and uv.lock (resolved for Apple-silicon Macs). Left: src/slate/demo.py (`slate demo`), not built yet.",
-  "source": "integration-python.json"
+  "status": "done",
+  "evidence": "The layout is as drawn in docs/ARCHITECTURE.md §2 (evals/ and fixtures/ at the root, where §2 puts them), and its last missing piece is built: src/slate/demo.py with src/slate/demo_film/ (`slate demo`), registered in slate.cli.MODULES and listed in §2 and §4.",
+  "source": "demo.json"
  },
  {
   "section": "Quinn's additions (2026-10-01)",
@@ -3377,8 +3405,9 @@
   "origin": "quinn-2026-10-01",
   "owner": "voice",
   "id": "P379",
-  "status": "open",
-  "evidence": ""
+  "status": "done",
+  "evidence": "`slate voice polish` (voice-polish.json): the studio chain (high-pass, low-mid cleanup, compressor, dynamic 2-5 kHz edge cut, 5-9 kHz de-esser, warmth shelves, small room, loudness back to the take's own; every stage length-preserving), per-voice tuning and strengths, a report per take, pinned per film, parity with the film's own polished takes. Now it reaches the picture: timing plays polished takes, so the cue sheets and the mix carry it, and `slate demo` fails if not.",
+  "source": "demo.json"
  },
  {
   "section": "Quinn's additions (2026-10-01)",
@@ -3386,8 +3415,9 @@
   "origin": "quinn-2026-10-01",
   "owner": "voice",
   "id": "P380",
-  "status": "open",
-  "evidence": ""
+  "status": "done",
+  "evidence": "`slate voice analyze` (voice-polish.json): pitch contour and range, breathiness, tilt, sibilance, endings, the Whisper checks, A/B spectrogram sheets. Added here: --spectrum, the long-term spectrum against ANSI speech in third octaves (where the harshness lives), rings at each take's hottest edge and sibilance, a harshest-moments reel in the polish trial (src/slate/voice/spectrum.py); the spectrogram's axes proved with tones. The demo runs it every time.",
+  "source": "demo.json"
  },
  {
   "section": "Quinn's additions (2026-10-01)",
@@ -3395,7 +3425,8 @@
   "origin": "quinn-2026-10-01",
   "owner": "knowledge",
   "id": "P381",
-  "status": "open",
-  "evidence": ""
+  "status": "partial",
+  "evidence": "Harvested: voice polish and the tag loop (voice-polish.json), stability triage and the p3 balance (stability-balance.json), and here the score's own clarity guard in slate mix, the 18.5 LU score level, the polish reaching the mix, the voice spectrum and the fade rule in sound.gap; the ledger re-mapped (gaps 170 to 166). Left: spotting v2 and the accent and air guards (effects engine, after proof 3), the kit stability bench, the 166 gaps in knowledge/GAPS.md, and the next harvest.",
+  "source": "demo.json"
  }
 ]

@@ -7,7 +7,10 @@
                 unused), so a 16-bit mix passed. Here the header is read directly and the verdict gates;
 - silent_stems  no stem is silent. The films' test was "integrated < −70 LUFS", which can't fire: ebur128 reads
                 digital silence as exactly −70.0, its floor, so B's silent ambience stem passed. Here a stem is
-                silent when its samples peak under −90 dBFS or its loudness sits at the floor (≤ −70.0);
+                silent when its samples peak under −90 dBFS or its loudness sits at the floor (≤ −70.0). A stem the
+                mix record lists in `empty_stems` (a score-and-voice film has no effects or ambience) is silent on
+                purpose and is reported, not failed; the same stem with sound in it would fail, because the record
+                says nothing should be there;
 - stems_sum     the stems add up to the mix, sample for sample, to within 1e-6.
 """
 
@@ -23,7 +26,7 @@ from slate.errors import SlateError
 from slate.gates import GateResult
 from slate.qa import audio, media, wav
 from slate.qa.checks import Sub, combine, plural
-from slate.qa.film import FilmContext, context
+from slate.qa.film import MIX_RECORDS, FilmContext, context
 
 DEFAULTS = {"lufs": -14.0, "lufs_tolerance": 0.5, "true_peak": -1.0, "bit_depth": 24, "sample_rate": 48000,
             "stems_sum_tolerance": 1e-6}
@@ -163,6 +166,7 @@ def silent_stems(film_dir: Path) -> GateResult:
                                     evidence=["the mix record (sound/mix.json \"stems\") or a stems/ folder names them"],
                                     engine=engine, inputs=ctx.inputs([mix, "sound/mix.json"]))
     silent, rows, problems = [], [], []
+    by_design, on_purpose = ctx.empty_stems(), {}
     for name, path in sorted(stems.items()):
         try:
             lv = audio.levels(path)
@@ -177,20 +181,33 @@ def silent_stems(film_dir: Path) -> GateResult:
                 problems.append(f"{name}: ffmpeg couldn't meter it ({exc})")
         row = (f"{name} {ctx.rel(path)}: peak {audio.rounded(lv['peak_dbfs'])} dBFS, "
                f"{audio.rounded(integrated)} LUFS" + (" (digital silence)" if lv["digital_silence"] else ""))
-        rows.append(row)
-        if is_silent(lv["peak_dbfs"], integrated):
+        quiet = is_silent(lv["peak_dbfs"], integrated)
+        if quiet and name in by_design:
+            row += f" (empty on purpose: {by_design[name]})"
+            on_purpose[name] = by_design[name]
+        elif quiet:
             silent.append(name)
-    inputs = ctx.inputs(list(stems.values()))
+        rows.append(row)
+    inputs = ctx.inputs(list(stems.values()) + [r for r in MIX_RECORDS if ctx.exists(r)])
     subs = []
     if silent:
         subs.append(Sub("silent", "FAIL", f"silent stem{'s' if len(silent) > 1 else ''}: {', '.join(silent)}",
-                        rows + ["a stem that should be empty isn't a stem: leave it out of the mix record"]))
+                        rows + ["a stem with nothing in it on purpose is listed in the mix record's empty_stems "
+                                "(slate mix does it when the film has no source for the stem)"]))
     if problems:
         subs.append(Sub("unreadable", "UNCHECKED", problems[0], problems))
     if not subs:
-        subs.append(Sub("stems", "PASS", "the one stem carries sound" if len(rows) == 1 else
-                        f"all {len(rows)} stems carry sound", rows))
-    return combine("silent_stems", subs, engine=engine, inputs=inputs, details={"silent": silent})
+        empty = sorted(on_purpose)
+        carrying = len(rows) - len(empty)
+        summary = ("the one stem carries sound" if len(rows) == 1 else f"all {len(rows)} stems carry sound")
+        if empty:
+            names = " and ".join(empty) if len(empty) <= 2 else ", ".join(empty[:-1]) + f" and {empty[-1]}"
+            summary = (f"{carrying} stem{'s' if carrying != 1 else ''} carr{'y' if carrying != 1 else 'ies'} sound; "
+                       f"{names} {'is' if len(empty) == 1 else 'are'} empty on purpose (the mix had nothing for "
+                       f"{'it' if len(empty) == 1 else 'them'})")
+        subs.append(Sub("stems", "PASS", summary, rows))
+    return combine("silent_stems", subs, engine=engine, inputs=inputs,
+                   details={"silent": silent, "empty_on_purpose": on_purpose})
 
 
 # ---------------------------------------------------------------------------------------------- stems sum

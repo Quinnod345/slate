@@ -260,8 +260,8 @@ def register(sub) -> None:
     p.add_argument("--no-score", dest="no_score", action="store_true", help="mix without a score")
     p.add_argument("--calibrate", action="store_true",
                    help="trim each effect stem to its palette level against the voice, and report the trims")
-    p.add_argument("--under", type=float, default=None, help="music LU under the voice (default: the palette's, 15)")
-    p.add_argument("--duck", type=float, default=None, help="music ducking under speech, dB (default: the palette's, 4)")
+    p.add_argument("--under", type=float, default=None, help="music LU under the voice (default: the palette's, 18.5)")
+    p.add_argument("--duck", type=float, default=None, help="music ducking under speech, dB (default: the palette's, 6)")
 
     p = add_command(sub, "verify", _verify, help="the sound gates on the mix (recorded in qa/gates.json)",
                     description="loudness, stems sum, gap, voice sync, cue sync, repeats, glides, drone, levels, "

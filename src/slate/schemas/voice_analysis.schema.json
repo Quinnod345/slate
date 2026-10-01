@@ -3,6 +3,7 @@
  "$id": "slate/voice_analysis",
  "title": "Voice analysis",
  "description": "What `slate voice analyze` measured: per take, pitch (F0 median, range, movement, contour), breath and effort (voiced fraction, CPPS, HNR, H1-H2, spectral tilt, level), brightness and formants, sibilance and edge, loudness and true peak, pacing, creak, the last word's movement and contour, question rises, a clean ending, and the Whisper checks when the take's words are known. With a reference (--ab), each take's change against it and its breath verdict.",
+ "x-slate-files": ["voice/analysis/*/analysis.json"],
  "type": "object",
  "required": ["takes", "at"],
  "properties": {
@@ -10,6 +11,11 @@
   "film": {"type": ["string", "null"]},
   "reference": {"type": ["string", "null"]},
   "sheet": {"type": ["string", "null"]},
+  "spectrum": {"type": "object", "required": ["chart", "takes"],
+               "description": "with --spectrum: each take's third-octave long-term spectrum over speech at -20 LUFS, its band levels, its shape against natural speech (ANSI S3.5, set equal over 500 Hz-1 kHz), the edge and sibilance over time and the hottest words; chart is the PNG",
+               "properties": {"chart": {"type": "string"},
+                              "takes": {"type": "array", "items": {"type": "object", "required": ["label", "thirds_db", "bands_db", "vs_ansi_db"]}},
+                              "note": {"type": "string"}}},
   "note": {"type": "string"},
   "at": {"type": "string"},
   "takes": {

@@ -50,8 +50,11 @@ STARTING_PALETTE: dict[str, Any] = {
         "stem_trim_db": {},
         # How far a stem ducks under the voice when the mix is asked to duck it (the UI stays crisp).
         "duck_db": {"tonal": -6.0, "amb": -6.0, "fx": -3.0, "verb": -4.0, "tverb": -4.0},
-        # The composed score: this many LU under the voice, ducked a few dB under every word.
-        "music": {"under_voice_lu": 15.0, "duck_db": 4.0, "attack_s": 0.08, "release_s": 0.65},
+        # The composed score: this many LU under the voice, ducked a few dB under every word. The owner's approved p3
+        # balance (2026-09-30): 18.5 LU under before a 6 dB duck, about -21 LU against the voice, 1.5 dB under the
+        # clip he found "a teeny bit loud" at 17. It's also what sound.balance.levels holds a score to (at most -19 LU
+        # inside words), so a default mix passes the gate that delivery requires. Proof 2 used 15 and 4.
+        "music": {"under_voice_lu": 18.5, "duck_db": 6.0, "attack_s": 0.08, "release_s": 0.65},
         # Optional: the effects stem never goes over this true peak in the final mix (the films used -7 dBTP).
         "effects_ceiling_dbtp": None,
         "linked_limit": True,

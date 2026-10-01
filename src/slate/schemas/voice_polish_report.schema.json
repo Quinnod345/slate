@@ -3,6 +3,7 @@
  "$id": "slate/voice_polish_report",
  "title": "Voice polish report (one take)",
  "description": "What `slate voice polish` did to one take: the chain it ran (the film's pinned polish), what each stage did, the take measured before and after at one loudness (sibilance and edge energy and peaks, spectral tilt, warmth, low-mid, 1-5 kHz clarity, third-octave change), loudness and true peak, and the verification against the polish gate's rules. The polished file sits beside the take; the raw, clean and paced files are never changed.",
+ "x-slate-files": ["voice/takes/*/*.polish.json"],
  "type": "object",
  "required": ["film", "shot", "take", "source", "source_stage", "source_sha256", "file", "sha256", "strength", "chain",
               "chain_sha256", "replay", "stages", "effect", "verified", "at"],

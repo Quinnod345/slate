@@ -27,8 +27,8 @@ gate. See [done means verified](references/done-means-verified.md).
 
 ```
 slate qa                      # every film gate, in film order (writes qa/gates.json)
-slate qa --quick              # skip the gates that read the whole picture (ocr, readtime, glitch, psnr); it says
-                              # which it skipped, and motion, access and stability reuse what a full run read
+slate qa --quick              # skip the gates that read the whole picture (ocr, readtime, glitch, psnr, stability); it says
+                              # which it skipped, and motion and access reuse what a full run read
 slate qa loudness sync        # just these gates; a module's name (motion) selects all of its gates
 slate qa motion --act 2       # the motion and access gates take their own flags (--act, --render, --only, ...)
 slate qa stability baseline --act 3 --by <name> --reason "<why>"   # accept an act's open stability flags
@@ -57,6 +57,10 @@ slate qa triage --accept glitch:frame:1166 --by <their name> --reason "<why it's
 
 The acceptance is bound to the hashes of the files it was judged on: re-render, and it no longer applies. An agent can't
 accept a REVIEW item on an autonomous film. See [triage](references/triage.md).
+
+The stability gate triages its own flags first (planned beats, the act's reference render, the baseline a person
+accepted), and an act's accepted flags go into its baseline, which survives re-renders. Its order and tools (references,
+strips, render-only compares, the scan's controls): [render stability](references/stability.md).
 
 ## 4. People review what machines can't
 
@@ -97,6 +101,7 @@ replaces the gates.
 
 - [gates](references/gates.md): every gate by stage, what it reads, how to fix it, trusting a metric.
 - [triage](references/triage.md): ordering, glitch flags and their false positives, accepting REVIEW items.
+- [stability](references/stability.md): render stability's triage order, baselines, references, strips and controls.
 - [done-means-verified](references/done-means-verified.md): what counts as done, and what never does.
 - [human-review](references/human-review.md): shot statuses, the defect log, contact sheets.
 - [review-checklist](references/review-checklist.md): what to look for, shot by shot and film-wide.

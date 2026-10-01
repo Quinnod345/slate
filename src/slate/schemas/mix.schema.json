@@ -53,6 +53,10 @@
     "engine_stems": {"type": "object"}
    }
   },
+  "score_guard": {"type": "object", "description": "the score's own clarity guard (slate.sound.guard): its top dipped under the words it would crowd, by just enough; each dip with the word, the score alone before and after, and the cap",
+                  "properties": {"words": {"type": "integer"}, "words_dipped": {"type": "integer"}, "deepest_db": {"type": "number"}, "dips": {"type": "array"}}},
+  "empty_stems": {"type": "object", "description": "the delivery stems this film has nothing for (a score-and-voice film has no effects or ambience), each with why: still written, silent, so every delivery keeps its four stems",
+                  "propertyNames": {"enum": ["dialogue", "effects", "ambience", "music"]}, "additionalProperties": {"type": "string"}},
   "notes": {"type": "array", "items": {"type": "string"}}
  },
  "patternProperties": {"^stem_[a-z]+_peak_dbfs$": {"type": "number"}}

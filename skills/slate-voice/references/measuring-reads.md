@@ -47,6 +47,16 @@ Look for: voicing that thins out on a tagged phrase (a whisper), harmonics fadin
 that hooks up at the end of a statement (a question rise), S bursts that stand out of the 5-9 kHz band (harshness),
 a level line that collapses before the last word (fading).
 
+## The long-term spectrum
+
+Ask for the spectrum too (the analyze stage's spectrum option) and every take gets its third-octave long-term
+spectrum over speech at -20 LUFS, set against natural speech's shape (ANSI S3.5's standard speech spectrum) over
+500 Hz-1 kHz, in a chart beside the sheet (`spectrum.png`): the films' "where the harshness lives" picture. A curve
+well over the grey line at 2-5 kHz is edge (a glassy, pushed sound); at 5-9 kHz it's sibilance. It also lists the
+band levels (lows, body, the 1-5 kHz clarity band, edge, sibilance, air), the edge and sibilance bands' median and
+loudest 5 ms moments, and the words those loudest moments fall in, which tell you exactly where to listen. The
+polish's trial mode draws the same chart for the unpolished lines against each strength, pooled over every line.
+
 ## When to use it
 
 - **Before the owner hears a tagged take**: against the voice's untagged reads of the same words. A tagged read that

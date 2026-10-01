@@ -60,3 +60,20 @@ contaminated measure (blur, clipping at the frame edge) is read qualitatively, n
 | `landOn`, `startFor`, `t90Of` | landing moves on words |
 | `defineMotion({...})` | registers a move for the act's motion trace (what `slate qa motion` checks) |
 | `monoSpline`, `chain` | monotone paths and chained moves |
+
+## Telling the motion gate what moves
+
+`slate qa motion` holds each traced move to the speed limits of what it is, so say so when the name doesn't:
+
+- `class`: `rig` (a mark's or character's part: 30 px a frame at 1080p), `ui` (an element: 60), `carry` (a page, card
+  or camera carried across the frame: 170) or `whip` (a deliberate whip past the carry limits, which a person signs
+  off). A rig part is a rig without saying so, and a move whose id or property starts with the camera's name is a
+  carry.
+- `exempt`: `reading_sweep` (a highlight that moves at reading pace) or `steady` (a line whose steadiness is the
+  meaning), always with its `reason`.
+- `exception`: a reason for a deliberate break; its findings become review items a person accepts, never a pass.
+- `size` (and `unit`): the element's size in pixels, so a scale or a rotation is speed-checked at its edges.
+
+Besides the brand's named eases, the kit knows `even`: rest to rest through a third of the travel at each third of the
+time, its peak speed 4/3 of the average. Use it for long carries and camera drifts; a carry may use it without the
+brand naming it, and the motion gate knows it by the same name.

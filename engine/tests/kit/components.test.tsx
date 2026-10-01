@@ -247,6 +247,13 @@ describe('kinetic type, captions and the placeholder', () => {
     expect(html).toContain('placeholder');
     expect(html).toContain('frames 100–224');
   });
+  it('picks out the word being said by colour alone, so its line never reflows', () => {
+    // K01's read starts 0.4 s in and "move" is said 0.32–0.6 s into it: at 0.8 s it's the word on screen
+    const span = at(0.8, <PlaceholderAct act={1} />).match(/<span style="([^"]*)">move ?<\/span>/);
+    expect(span).not.toBeNull();
+    expect(span![1]).toContain('color');
+    expect(span![1]).not.toContain('font-weight'); // a bold word widens and pushes every word after it sideways
+  });
   it('puts every component on one review sheet', () => {
     const html = at(1.5, <KitReviewSheet />);
     for (const label of ['Palette', 'Type', 'Motion', 'Cards and app UI', 'Charts', 'Logo build', 'Motif', 'Type in motion', 'Captions']) expect(html).toContain(label);

@@ -3,6 +3,7 @@
  "$id": "slate/voice_tag_candidates",
  "title": "Tag candidates (voice/tags/candidates.json)",
  "description": "The hand-written plan for a tag-optimization round (`slate voice tags optimize`): per line, the feeling to measure (intent), where it should show (emotion_from_word), the tagged candidates and their seeds, and extra untagged seeds so the voice's own baseline is several reads of the same words. Every candidate must strip back to the script line exactly, and no tag may lower vocal effort or add breath; both are checked before anything is voiced.",
+ "x-slate-files": ["voice/tags/candidates.json"],
  "type": "object",
  "required": ["lines"],
  "properties": {

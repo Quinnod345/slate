@@ -717,6 +717,8 @@ def trial(film_dir: str | Path, strengths: list[str], *, only: str | list[str] |
     lines_out: dict[str, dict] = {}
     reel_items: list[dict] = []
     sheets: list[str] = []
+    spectra: dict[str, list[dict]] = {}  # with sheets: every line's long-term spectrum, unpolished and per strength
+    harsh_lines: list[dict] = []
     for ln in vf.select(only):
         src = vf.unpolished_audio(ln.shot)
         if src is None:
@@ -739,8 +741,16 @@ def trial(film_dir: str | Path, strengths: list[str], *, only: str | list[str] |
             reel_items.append({"file": out, "title": f"{ln.shot} {res['label']}"})
             outs.append((res["label"], out))
         lines_out[ln.shot] = row
+        from slate.voice import spectrum as spec  # noqa: PLC0415
+
+        unpolished = spec.measure(x, sr)  # its hottest moments make the harshest-moments reel
+        harsh_lines.append({"shot": ln.shot, "measure": unpolished, "versions": [("unpolished", src)] + outs})
         if sheet:
             from slate.voice import sheet as sheet_mod  # noqa: PLC0415
+
+            spectra.setdefault("unpolished", []).append(unpolished)
+            for label, path in outs:
+                spectra.setdefault(label, []).append(spec.measure(path))
 
             png = sheet_mod.compare_files([("unpolished", src)] + outs, folder / "sheets" / f"{ln.shot}.png",
                                           title=f"{ln.shot}: the polish at {', '.join(r['label'] for r in resolved)}",
@@ -751,8 +761,24 @@ def trial(film_dir: str | Path, strengths: list[str], *, only: str | list[str] |
     reel_info = reel.build(reel_items, folder / "reel.wav", gap_s=0.8)
     pooled = {label: {"position": v["position"], "between": v["between"], "chain": v["chain"],
                       "effect": summarize_pairs(v["pairs"])} for label, v in per_strength.items()}
+    spectrum_out = None
+    if spectra:
+        from slate.voice import spectrum as spec  # noqa: PLC0415
+        from slate.voice.sheet import ACCENTS, INK  # noqa: PLC0415
+
+        sets = {label: spec.pooled(ms) for label, ms in spectra.items()}
+        curves = [(label, INK if label == "unpolished" else ACCENTS[(i - 1) % len(ACCENTS)], s["thirds_db"])
+                  for i, (label, s) in enumerate(sets.items())]
+        chart = spec.chart(curves, folder / "sheets" / "spectrum.png",
+                           title="Where the harshness lives: the long-term spectrum, unpolished and polished")
+        spectrum_out = {"chart": vf.rel(chart), "sets": {label: spec.public(s) for label, s in sets.items()}}
+    from slate.voice import spectrum as spec  # noqa: PLC0415
+
+    harsh = spec.harshest_reel(harsh_lines, folder / "harshest.wav")
     out = {"generated": "do not edit by hand: slate voice polish --try", "film": vf.id, "tuning": tuning.get("source"),
            "strengths": pooled, "lines": lines_out, "reel": vf.rel(Path(reel_info["reel"])), "sheets": sheets,
+           "harshest": {"reel": vf.rel(Path(harsh["reel"])) if harsh["reel"] else None, "moments": harsh["moments"]},
+           **({"spectrum": spectrum_out} if spectrum_out else {}),
            "at": _now(), "note": "Trials only: nothing is pinned or registered. Listen to reel.wav (level-matched), "
                                  "then polish with the strength you pick (slate voice polish --strength <it>)."}
     jsonio.write_atomic(folder / "trial.json", out)

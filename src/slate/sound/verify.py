@@ -152,6 +152,15 @@ def gate_gap(c: _Ctx) -> gates.GateResult:
         return gates.GateResult.pass_("sound.gap", "no score in this film (voice and effects only), so no music gaps",
                                       engine=_engine(), inputs=c.inputs(*rels))
     stops = planned_stops(film)
+    if stops:
+        # The music fading into a planned silence (and back out of it) is part of that silence, the rule the owner
+        # approved on 2026-09-30: each stop is widened by the music's own fade, as sound.planned_stops does. A hole
+        # anywhere else is still a hole.
+        from slate.sound import balance  # noqa: PLC0415
+
+        st = balance.palette_balance(film.palette).get("stops") or {}
+        stops, _ = balance.widen_stops(music, film.sr, stops, under_median_db=float(st.get("under_median_db", 20.0)),
+                                       cap_s=float(st.get("fade_cap_s", 2.0)), step_s=float(st.get("step_s", 0.1)))
     res = gap.check(music, film.sr, stops)
     summary = (f"quietest music window outside {len(stops)} planned stop(s): {res['quietest_outside_stops_dbfs']} dBFS "
                f"(floor {res['threshold_dbfs']:g})")

@@ -1,11 +1,12 @@
 {
  "$schema": "https://json-schema.org/draft/2020-12/schema",
  "$id": "https://slate.local/schemas/score.schema.json",
- "title": "Score files: the plan (sound/score/plan.json), a take record (sound/score/takes/<part>_s<seed>.json) and the assembly (sound/score/score.json)",
- "description": "Written by `slate score plan`, `slate score compose` and `slate score assemble`. `kind` says which one a file is.",
+ "title": "Score files: the plan (sound/score/plan.json), a take record (sound/score/takes/<part>_s<seed>.json), the assembly (sound/score/score.json), and each composition plan exactly as it's sent to Eleven Music (sound/score/plans/<part>.json, sound/score/takes/<part>_s<seed>.plan.json)",
+ "description": "Written by `slate score plan`, `slate score compose` and `slate score assemble`. `kind` says which of the first three a file is; a composition plan has no `kind`, because it's the request body, sent as it is.",
  "type": "object",
- "required": [
-  "kind"
+ "anyOf": [
+  {"required": ["kind"]},
+  {"not": {"required": ["kind"]}, "$ref": "#/$defs/composition_plan"}
  ],
  "properties": {
   "kind": {
@@ -22,6 +23,7 @@
  "allOf": [
   {
    "if": {
+    "required": ["kind"],
     "properties": {
      "kind": {
       "const": "plan"
@@ -34,6 +36,7 @@
   },
   {
    "if": {
+    "required": ["kind"],
     "properties": {
      "kind": {
       "const": "take"
@@ -46,6 +49,7 @@
   },
   {
    "if": {
+    "required": ["kind"],
     "properties": {
      "kind": {
       "const": "assembly"

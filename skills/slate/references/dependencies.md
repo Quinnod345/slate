@@ -9,6 +9,11 @@ anyone installs it.
 asking first. The five connect steps are `slate connect claude`, `slate connect higgsfield`, `slate connect elevenlabs`
 and `slate connect aftereffects` (the person runs the sign-ins in their own Terminal).
 
+Once doctor is green, `slate demo` proves the whole studio works here: a neutral 15-second 9:16 reel for the demo
+brand, made through every stage in a few minutes, one line per stage, with the vendors replayed so nothing is spent.
+Run it once from each agent that will make films. `slate demo --live` spends (it asks the person first; an agent
+never sets SLATE_LIVE itself).
+
 | Thing | Why | Who sets it up |
 |---|---|---|
 | ffmpeg and ffprobe, Rubber Band (arm64), uv, Node | encoding and QA, voice pacing, the Python and Node runtimes | the installer, asking first |

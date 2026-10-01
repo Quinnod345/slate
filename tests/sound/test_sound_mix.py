@@ -35,9 +35,11 @@ def test_score_and_voice_alone_mix_to_target(sound_film):
     assert (info.sample_rate, info.bits, info.frames) == (SR, 24, 14 * SR)  # exactly the film's length at 25 fps
     assert _stems_sum_error(sound_film) <= 1e-6
     assert rep["stems_sum_max_abs"] <= 1e-6
-    assert rep["music_vs_voice_lu"] == -15.0 and rep["duck_db"] == 4.0
+    assert rep["music_vs_voice_lu"] == -18.5 and rep["duck_db"] == 6.0  # the owner's approved p3 balance
     assert rep["music_check"]["pass"]
     assert not rep["outputs"]["engine_stems"]  # no effects in this film
+    # the stems it has nothing for are still written (four stems, always), and the record says why they're silent
+    assert rep["empty_stems"] == {"effects": "no effect stems in this film", "ambience": "no ambience stems in this film"}
     assert jsonio.validate(rep, "mix") == []
 
 
@@ -55,13 +57,13 @@ def test_music_sits_under_the_voice_and_ducks(sound_film):
     film = load(sound_film)
     dlg, music = H.read(sound_film / "sound/mix/stems/dialogue.wav"), H.read(sound_film / "sound/mix/stems/music.wav")
     rel = measure.integrated(music, SR) - measure.integrated(dlg, SR)
-    assert -21.0 < rel < -15.0  # 15 LU under before the 4 dB duck under speech takes a little more off
+    assert -25.0 < rel < -18.5  # 18.5 LU under before the 6 dB duck under speech takes a little more off
     score = H.read(sound_film / "sound/score/score.wav")
     ratio = lambda a, b: 20 * np.log10(np.sqrt(np.mean(music[a:b] ** 2)) / np.sqrt(np.mean(score[a:b] ** 2)))  # noqa: E731
     first = vo.cue_time(film, vo.cues(film)[0])
     before = ratio(0, int((first - 0.1) * SR))
     during = ratio(int((first + 0.8) * SR), int((first + 2.0) * SR))
-    assert 2.0 < before - during <= 4.05  # the score's own gain is fixed; the only change is the duck (up to 4 dB)
+    assert 3.0 < before - during <= 6.05  # the score's own gain is fixed; the only change is the duck (up to 6 dB)
 
 
 def test_voice_only_without_a_score(slate_home):

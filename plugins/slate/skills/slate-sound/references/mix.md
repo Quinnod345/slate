@@ -30,12 +30,36 @@ slate mix --under 17 --duck 5   # the score's level under the voice and its duck
 - **The voice** is placed from `timing/vo_cues.json`, each take levelled by its voiced loudness, protected by a
   zero-latency limiter on the voice alone (a limiter with latency once moved the voice 240 samples late).
 - **The score** sits under the voice and is ducked under every word by a follower on the voice.
+- **The score's own clarity guard** runs next: wherever the score on its own would come within 19 dB of the voice in
+  1–5 kHz during a word, its top (above 600 Hz) dips under that word by just enough, at most 20 dB, held 0.15 s either
+  side and ramped over 0.3 s, so it moves at a phrase's pace; everywhere else it plays as composed. The mix record
+  lists every dip (`score_guard`), and a brand turns it off with `score_guard: false` in its palette's balance.
 - **Effect stems** come from `sound/stems/` at the palette's levels against the voice; wood clicks don't duck.
 - **One linear gain** takes the whole to the target (−14 LUFS integrated, true peak at or under −1 dBTP, 4× oversampled),
   any limiting as one linked curve on every stem, never a one-pass loudness normalizer (its stems couldn't sum).
 - **The output**: `sound/mix/final_mix.wav` at 48 kHz, 24-bit, exactly as long as the picture (never trimmed to the
   shortest stream), and four delivery stems (dialogue, effects, ambience, music) in `sound/mix/stems/` that sum to it
   within one part in a million.
+
+## The brand's balance
+
+The balance gates and the score's guard read the `balance` in the brand's sound palette, laid key by key over the
+starting balance (the films' approved mix). A palette that names its `families` replaces them whole.
+
+| Key | What it sets (the starting value) |
+|---|---|
+| `families` | which cue kinds make each family: accents (tap, land, snap, count, data, stamp, character), textures (type, draw, page, whoosh), swells, impacts; the score is the music stem, the plate the ambience |
+| `clarity` | the consonant band (1–5 kHz), the rule (every word 12 dB clear of everything else), the trade's flag and floor (8 and 6 dB), and a family's own floor (`alone_min_db`: the score 19 dB on its own) |
+| `score_guard` | the score's clarity guard in `slate mix` (target 19 dB, split at 600 Hz, a dip of 20 dB at most, held 0.15 s, ramped over 0.3 s); `false` turns it off |
+| `never_over` | how far under the voice everything stays while it speaks (0 dB: never louder) |
+| `texture_air` | the textures' 2–6 kHz at least 20 dB under the voice's own |
+| `accents_over_score` | accents and impacts clear the score by 3 dB in their own loudest band, over their loudest 120 ms |
+| `levels` | each family's range against the voice: integrated, hit by hit and inside words (the score: −28 to −17 LU integrated, −19 at most inside words) |
+| `stops` | how silences are read: the fade that counts as part of a planned stop (20 dB under the music's median, up to 2 s), whether the score's own rests count as planned (`score_rests`), the gap floor (−60 dBFS over 0.5 s), and whether the film may open or end in silence (`open_silent`, `end_silent`: only when the plan says so) |
+| `approved_spans` | stretches the owner approved by ear (`{"from", "to"}` in film seconds): a word under the clarity rule there is listed as approved, not failed |
+
+`slate sound balance --words` prints every word's clarity, so a level change can be judged word by word before the
+next mix.
 
 ## Effect stems and their manifest
 

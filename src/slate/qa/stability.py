@@ -35,7 +35,9 @@ Triage, in order, so what's left is what a person has to look at:
 1. Planned beats. A pop within ±3 frames of a planned beat is the film's own (an instant snap, a stamp, a type-on's
    first letter): it's skipped and listed, the glitch gate's rule kept exactly as it is. The motion classes are never
    skipped near a beat: a designed move never steps in whole pixels, and the films' worst snap sat on its own
-   landing beat.
+   landing beat. When the film's format burns its captions into the picture, each caption cue coming and going is
+   planned the same way (timing/captions.json: its start, its end, and a quarter second inside each, where the
+   kit's settle commits), so a caption appearing on its word isn't a pop for a person to judge.
 2. The reference. A flag a reference render of the act shares (same class, within 2 frames and one tile) belongs to
    the act's design or was there before. A reference rendered with one sample has no motion blur, so fast moves flag
    differently there: expect a few flags at such moves in the full render alone.
@@ -893,6 +895,34 @@ def triage(flags: list[dict], *, beats: Iterable[int] = (), reference: list[dict
             "accepted_by_baseline": sorted(accepted, key=key), "open": sorted(open_, key=key)}
 
 
+CAPTION_SETTLE_S = 0.25  # a burned-in caption settles in and out over the brand's shortest step, under this
+
+
+def caption_changes(ctx) -> list[int]:
+    """Film frames where a burned-in caption comes or goes: each cue's start and end, and CAPTION_SETTLE_S inside
+    each, from the film's captions (timing/captions.json first). Only when the film's format burns captions into the
+    picture (captions.burn_in); otherwise nothing on screen changes at a cue."""
+    from slate.qa import textmatch  # noqa: PLC0415
+
+    fmt = ctx.format() if callable(getattr(ctx, "format", None)) else None
+    cap = fmt.get("captions") if isinstance(fmt, dict) else None
+    if not (isinstance(cap, dict) and cap.get("burn_in")) or ctx.clock is None:
+        return []
+    path = ctx.captions_path()
+    if path is None:
+        return []
+    try:
+        cues = textmatch.load_cues(path)
+    except (OSError, ValueError, KeyError, TypeError):
+        return []
+    out: set[int] = set()
+    for c in cues:
+        start, end = float(c["start"]), float(c["end"])
+        settle = min(CAPTION_SETTLE_S, max(0.0, (end - start) / 2))
+        out.update(ctx.frame_of(t) for t in (start, start + settle, end - settle, end))
+    return sorted(out)
+
+
 def counts(flags: Iterable[dict], classes: Iterable[str] = GATED) -> dict[str, int]:
     """What counts against the limits: distinct frames for the motion classes, flags for the rest."""
     flags = list(flags)
@@ -1170,7 +1200,7 @@ def gate(film_dir: Path) -> GateResult:
     if unknown:
         raise UsageError(f"The film has no act {', '.join(map(str, unknown))}.")
     current = ctx.current_renders()
-    beats = [b["frame"] for b in ctx.beats()]
+    beats = [b["frame"] for b in ctx.beats()] + caption_changes(ctx)
     lim = limits()
     jobs = opts.get("jobs")
     read: list[Any] = ["film.json", ctx.REGISTRY, ctx.SHOTS, "timing/timeline.json", REFERENCES,

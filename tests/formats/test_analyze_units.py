@@ -149,6 +149,33 @@ def test_whisper_missing_is_unchecked_not_a_crash(slate_home, monkeypatch, tmp_p
     assert result.status == "UNCHECKED" and data == {} and "Install" in " ".join(result.evidence)
 
 
+def test_slate_whisper_names_the_cli_analyze_hears_with(slate_home, monkeypatch, tmp_path):
+    """SLATE_WHISPER names one Whisper for every stage (voice, timing, and here the reference transcript), so a
+    particular build or a test's stand-in is the one Slate runs, whatever Homebrew has."""
+    import json
+    import sys
+
+    monkeypatch.delenv("SLATE_FAKE_VENDORS", raising=False)
+    fake = tmp_path / "bin" / "whisper-stand-in"
+    fake.parent.mkdir()
+    fake.write_text(f"""#!{sys.executable}
+import json, sys
+from pathlib import Path
+args = sys.argv[1:]
+out = Path(args[args.index("--output_dir") + 1])
+words = [{{"word": " Hello", "start": 0.1, "end": 0.4, "probability": 0.99}}]
+(out / (Path(args[0]).stem + ".json")).write_text(json.dumps(
+    {{"text": " Hello", "language": "en", "segments": [{{"id": 0, "start": 0.1, "end": 0.4, "text": " Hello",
+                                                       "words": words}}]}}))
+""")
+    fake.chmod(0o755)
+    monkeypatch.setenv("SLATE_WHISPER", str(fake))
+    audio = tmp_path / "a.wav"
+    audio.write_bytes(b"")
+    result, info = transcript.transcribe(audio, sha256="0" * 64, duration_s=1.0, language="en")
+    assert result["segments"][0]["words"][0]["word"] == " Hello" and info["replay"] is False
+
+
 # ---------------------------------------------------------------------------------------------------------------
 # Demucs and librosa through uvx
 

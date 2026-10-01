@@ -65,6 +65,28 @@ def test_cues_place_each_take_at_its_lead(voiced):
     assert all(c["gain"] == -20.0 and c["fade_in"] == 0.01 and c["fade_out"] == 0.05 for c in cues["cues"])
 
 
+def test_the_studio_polish_reaches_the_cue_sheet(voiced):
+    """A polished take is what the film plays: the cue sheet (and so the mix) carries the polished file, ahead of the
+    paced one it was made from. The polish keeps every sample where it was, so the reads and words don't move."""
+    import shutil
+
+    folder = voiced / "voice" / "takes" / "S02"
+    folder.mkdir(parents=True)
+    raw = voiced / "voice" / "takes" / "S02.wav"
+    for name in ("t01.wav", "t01.paced.wav", "t01.polished.wav"):
+        shutil.copyfile(raw, folder / name)
+    write_json(voiced / "voice" / "takes.json", {"shots": {"S02": {"selected": "t01", "approved": None, "takes": {
+        "t01": {"raw": "voice/takes/S02/t01.wav", "paced": "voice/takes/S02/t01.paced.wav",
+                "polished": "voice/takes/S02/t01.polished.wav"}}},
+        "S03": {"file": "voice/takes/S03.wav"}, "S04": {"file": "voice/takes/S04.wav"}}})
+    code, out, _ = timing("--film", str(voiced))
+    assert code == 0 and out["status"] == "PASS"
+    cues = {c["shot"]: c["file"] for c in jsonio.read(voiced / "timing" / "vo_cues.json")["cues"]}
+    assert cues == {"S02": "voice/takes/S02/t01.polished.wav", "S03": "voice/takes/S03.wav",
+                    "S04": "voice/takes/S04.wav"}
+    assert jsonio.read(voiced / "timing" / "vo_words.json")["shots"]["S02"]["take"] == "voice/takes/S02/t01.polished.wav"
+
+
 def test_timeline_lands_moves_on_words_with_the_brands_eases(voiced):
     timing("--film", str(voiced))
     tl = jsonio.read(voiced / "timing" / "timeline.json")

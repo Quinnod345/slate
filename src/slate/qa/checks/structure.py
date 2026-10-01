@@ -44,13 +44,20 @@ SCHEMA_MAP: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("sound/mix/final_mix.json", ("mix",)),
     ("sound/score/plan.json", ("score",)),
     ("sound/score/score.json", ("score",)),
-    ("sound/score/takes/*.json", ("score",)),
+    ("sound/score/takes/*.json", ("score",)),  # a take's record, and the composition plan it was composed from
+    ("sound/score/plans/*.json", ("score",)),
     ("voice/takes/*/*.json", ("voice_take",)),
     ("plates/*/generation.json", ("generation",)),
     ("plates/*/plate/plate.json", ("plate",)),
     ("captures/*/capture.json", ("capture",)),
     ("qa/gates.json", ("gates",)),
 )
+
+
+# Bookkeeping files the stages write as they go: the schema gate validates them as they are, but doesn't record them
+# as its inputs, or it would go stale the moment the next command recorded its work (qa/gates.json is the very report
+# this result is written into, and every stage adds to film.lock.json).
+BOOKKEEPING = ("qa/gates.json", "film.lock.json", "approvals.json")
 
 
 # ---------------------------------------------------------------------------------------------- schema
@@ -145,7 +152,8 @@ def schema(film_dir: Path) -> GateResult:
         subs.append(Sub("valid", "PASS", f"{plural(len(valid), 'file')} {matches}",
                         [f"{v['file']} ✓ {v['schema']}" for v in valid]))
     schema_files = [paths.SCHEMAS_DIR / f"{n}.schema.json" for n in sorted(used)]
-    return combine("schema", subs, engine=engine, inputs=ctx.inputs([*files, *schema_files]),
+    recorded = [f for f in files if f not in BOOKKEEPING]
+    return combine("schema", subs, engine=engine, inputs=ctx.inputs([*recorded, *schema_files]),
                    details={"valid": valid, "invalid": invalid, "no_schema": unschemaed},
                    empty_summary="no film data files found to validate")
 

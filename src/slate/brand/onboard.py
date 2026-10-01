@@ -49,6 +49,9 @@ TRUTH_MD = "onboarding/truth/TRUTH.md"
 LOOK_INPUTS = "onboarding/look/inputs.json"
 LOOK_PROPOSAL = "onboarding/look/motion.proposed.json"
 REVIEW_SHEET = "onboarding/look/review_sheet.png"
+# The review sheet's still: frame 45 of the kit's review composition, the frame the kit's own golden still uses, where
+# the logo build and the type in motion are mid-move (at frame 0 both panels are still empty).
+REVIEW_FRAME = 45
 VOICE_TAKE = "onboarding/voice/take.json"
 SOUND_LEVELS = "onboarding/sound/levels.json"
 LOOK_TEST_S = (10.0, 15.0)
@@ -1058,7 +1061,7 @@ def render_review_sheet(folder: Path, raw: dict) -> Path:
         jsonio.write_atomic(film / "film.json", fj)
         entry = scratch / "review-entry.tsx"
         entry.write_text(review_entry_source(google, kit), encoding="utf-8")
-        result = bridge.call("stills", {"film": str(film), "entry": str(entry), "specs": ["Kit-Review:0"],
+        result = bridge.call("stills", {"film": str(film), "entry": str(entry), "specs": [f"Kit-Review:{REVIEW_FRAME}"],
                                         "out_dir": str(scratch / "out"), "scale": 1, "brand_path": str(folder)},
                              timeout=900)
         stills = result.get("stills") or []

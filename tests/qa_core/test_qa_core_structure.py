@@ -164,6 +164,24 @@ def test_schema_validates_the_gate_report_with_the_gates_schema(film_builder, sc
     assert r.details["invalid"][0]["file"] == "qa/gates.json"
 
 
+def test_schema_stays_fresh_when_later_commands_record_their_work(film_builder, schemas):
+    """The gate validates qa/gates.json and film.lock.json, but every later command writes them (the gate's own result
+    goes into qa/gates.json), so they aren't its inputs: a delivery read just after `slate qa` found it STALE."""
+    from slate import gates
+
+    fb = film_builder()
+    write_json(schemas / "shots.schema.json", {"type": "object"})
+    write_json(schemas / "film_lock.schema.json", {"type": "object"})
+    jsonio.schema.cache_clear()
+    write_json(fb.path / "film.lock.json", {"schema": 1, "files": {}})
+    r = structure.schema(fb.path)
+    assert r.status == "PASS", r.summary
+    assert {"qa/gates.json", "film.lock.json"}.isdisjoint(r.inputs) and "timing/shots.json" in r.inputs
+    gates.write_report(fb.path, [r])
+    write_json(fb.path / "film.lock.json", {"schema": 1, "files": {"masters/m.mov": {"producer": "slate master"}}})
+    assert gates.load_report(fb.path)["schema"].status == "PASS"
+
+
 def test_schema_files_can_be_claimed_by_x_slate_files(film_builder, schemas):
     fb = film_builder()
     write_json(schemas / "timing_shots_v1.schema.json", {"type": "object", "x-slate-files": ["timing/shots.json"],

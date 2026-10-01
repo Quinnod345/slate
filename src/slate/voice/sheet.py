@@ -32,6 +32,7 @@ INK, INK2, MUTED, HAIR, PAGE, CARD = "#202020", "#404040", "#707070", "#d6d6d6",
 # Okabe and Ito's colour-blind-safe set: the reference take is neutral ink, the others take these in turn.
 ACCENTS = ("#0072b2", "#d55e00", "#009e73", "#cc79a7", "#e69f00", "#56b4e9")
 GOOD, BAD = "#007a5e", "#b23a00"
+RING_EDGE, RING_SIBILANCE = "#e69f00", "#56b4e9"  # the hottest edge and sibilance moments on a spectrogram
 MAGMA = ((0.0, (0, 0, 4)), (0.25, (80, 18, 123)), (0.5, (183, 55, 121)), (0.75, (252, 137, 97)), (1.0, (252, 253, 191)))
 SPEC_H, F0_H, LV_H, WORD_H = 240, 120, 54, 32
 LEFT, RIGHT_COL, PAD = 74, 500, 24
@@ -163,6 +164,10 @@ def _panel(d: ImageDraw.ImageDraw, img: Image.Image, x0: int, y0: int, e: dict, 
     if e.get("span_start_s") is not None:
         xs = x0 + e["span_start_s"] * px_s
         d.line([(xs, y0), (xs, y0 + SPEC_H)], fill=e["accent"], width=2)
+    for mk in e.get("marks") or []:  # the hottest edge and sibilance moments (slate.voice.spectrum), ringed
+        mx, my = x0 + float(mk["t"]) * px_s, y0 + SPEC_H * (1 - min(float(mk["f"]), fmax) / fmax)
+        colour = RING_SIBILANCE if mk.get("kind") == "sibilance" else RING_EDGE
+        d.ellipse([mx - 9, my - 9, mx + 9, my + 9], outline=colour, width=2)
     y = y0 + SPEC_H + 2
     row_end = [-1e9, -1e9]
     for wd in e.get("words") or []:

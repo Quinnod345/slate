@@ -18,12 +18,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from slate import jsonio
-from slate.gates import GateResult
+from slate import __version__, jsonio
+from slate.gates import GateResult, engine
 from slate.state.lock import scene_references
 from slate.story.model import Plan
 
 STORYBOARD = Path("script") / "storyboard.json"
+# The same engine the other script gates name: qa/gates.json's schema needs every result's engine to say what ran.
+ENGINE = engine("slate script build", __version__)
 
 
 def frozen(film_dir: Path) -> list[dict] | None:
@@ -62,7 +64,7 @@ def check(film_dir: Path, plan: Plan) -> GateResult:
     new_ids = [{"id": s.id, "source_id": s.source_id} for s in plan.shots]
     if not before:
         return GateResult.pass_("script.shot_ids", f"{len(new_ids)} shot ids freeze at this build",
-                                details={"frozen": False})
+                                engine=dict(ENGINE), details={"frozen": False})
     by_source_new = {x["source_id"]: x["id"] for x in new_ids}
     by_id_new = {x["id"]: x["source_id"] for x in new_ids}
     moved, reassigned, cut = [], [], []
@@ -84,13 +86,13 @@ def check(film_dir: Path, plan: Plan) -> GateResult:
             f"shot ids are frozen and scenes use them, so this renumber is refused ({', '.join(renumber[:6])})",
             evidence=users[:30] + ["keep the frozen ids (write them as-written in script.json and give new shots new "
                                    "ids), or change the scenes first"],
-            details={"renumber": renumber, "scene_refs": refs})
+            engine=dict(ENGINE), details={"renumber": renumber, "scene_refs": refs})
     dangling = [c for c in cut if c in refs]
     if dangling:
         return GateResult.fail(
             "script.shot_ids", f"{', '.join(dangling)} would be cut but scenes still use {'it' if len(dangling) == 1 else 'them'}",
             evidence=[f"{i}: {', '.join(refs[i][:3])}" for i in dangling] + ["remove the scene code for the cut shot first"],
-            details={"cut": cut, "scene_refs": refs})
+            engine=dict(ENGINE), details={"cut": cut, "scene_refs": refs})
     added = [x["id"] for x in new_ids if x["id"] not in set(frozen_ids)]
     note = []
     if renumber:
@@ -100,4 +102,5 @@ def check(film_dir: Path, plan: Plan) -> GateResult:
     if cut:
         note.append(f"cut: {', '.join(cut[:12])}")
     return GateResult.pass_("script.shot_ids", "shot ids hold" + (f" ({'; '.join(note)})" if note else ""),
-                            evidence=note, details={"renumber": renumber, "added": added, "cut": cut, "frozen": True})
+                            evidence=note, engine=dict(ENGINE),
+                            details={"renumber": renumber, "added": added, "cut": cut, "frozen": True})

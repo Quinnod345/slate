@@ -100,8 +100,8 @@ ae-qa-delivery.md, process-lessons.md, agents-wiring.md, packaging-research.md, 
   docs/                          ARCHITECTURE (this), PLAN, PLAN_TRACKER, METHOD, DECISIONS
 ```
 
-`slate demo` (a neutral 15-second film end to end, [integration]) isn't built yet; `src/slate/demo.py` will add it to
-slate.cli.MODULES when it is.
+`src/slate/demo.py` and `src/slate/demo_film/` (its script and two scenes) are `slate demo` [integration]: a neutral
+15-second 9:16 reel made end to end through every stage, each the real command in its own process.
 
 A builder writes only inside its own module paths plus its tests. Shared modules (foundation) are read-only for
 builders; if one needs a change, the builder says so in its report instead of editing it.
@@ -166,6 +166,7 @@ of them.
 | `slate doctor [--install] [--context NAME] [--only GROUP] [--strict]` | checks everything; `--install` installs free prerequisites, asking first | doctor |
 | `slate connect claude\|higgsfield\|elevenlabs\|aftereffects` | the four connect steps; a sign-in that needs a browser is printed for the person to run | doctor |
 | `slate guide [topic]` | prints skill reference files | packaging |
+| `slate demo [--live] [--keep]` | a neutral 15-second 9:16 reel through every stage, one line per stage; replayed unless `--live` (asked first in a Terminal, refused under an agent unless the person set `SLATE_LIVE=1`) | integration |
 | `slate new <id> --brand B --format F [--mode M] [--parent P --derivation JSON]` | scaffolds a film folder | state |
 | `slate status [--write]` | per stage: fresh/stale/missing/locked + next command | state |
 | `slate make [target] [--list] [--spend]` | rebuilds only stale nodes | state |
@@ -207,8 +208,6 @@ of them.
 | `slate evals list\|run\|report` | agent evals: triggering, routing, negatives, the dry run | knowledge |
 | `slate update` | git pull + reinstall | packaging |
 | `slate install [--check]` / `slate uninstall` | wire Slate into every agent here, or undo it | install |
-
-Not built yet: `slate demo [--live]`, a neutral 15-second film end to end (integration).
 
 ## 5. The film folder (one film = one folder; film as data, one clock)
 
@@ -300,9 +299,10 @@ twice on the way (`slate.jobs.resume`).
 
 - pytest in `tests/`, vitest in `engine/tests/`. Tests must pass offline with `SLATE_FAKE_VENDORS=1`.
 - Opt-in, never in the default run: `slow` (a real environment or install; `SLATE_TEST_SLOW=1`), `render` (a real
-  render; `SLATE_TEST_RENDER=1`), `live` (a vendor or a real model), Whisper (`-m whisper` or
-  `SLATE_WHISPER_LIVE=1`) and Apple Vision OCR (`SLATE_TEST_VISION=1`; the default run never loads it, so OCR gates
-  are UNCHECKED unless a test scripts a backend).
+  render; `SLATE_TEST_RENDER=1`), `integration` (`slate demo` end to end, minutes: `SLATE_TEST_INTEGRATION=1` or
+  `-m integration`), `live` (a vendor or a real model), Whisper (`-m whisper` or `SLATE_WHISPER_LIVE=1`) and Apple
+  Vision OCR (`SLATE_TEST_VISION=1`; the default run never loads it, so OCR gates are UNCHECKED unless a test scripts a
+  backend).
 - No test changes another's world: process-wide registries (replay fakers, resume hooks and balance readers, revise
   hooks, gate lists) change only through monkeypatch, and module reloads restore the package attribute too.
 - Golden data: generalized tools rerun on FILMROOT's A/B/C inputs must match the delivered JSON within stated
@@ -385,8 +385,19 @@ answer (a keyless submit is never retried); an ambiguous keyed submit is `Higgsf
 
 **voice** (`slate.voice`): `tags.strip(text) -> str` · `tags.check(tagged, line) -> list[str]` (problems; banned tags refused)
 · `profile.load(brand_pack) -> dict` · `captions.build(film_dir) -> list[Path]`
+· `polish.run(film_dir, *, only=None, strength=None, ...) -> dict` (the studio chain on every take: length and loudness
+kept, verified by measurement, pinned per film; `<take>.polished.wav` and its `<take>.polish.json` report)
+· `polish.trial(film_dir, strengths, *, only=None, sheet=False)` · `polish.apply(x, sr, chain) -> (y, info)`
+· `polish.tuning_for(profile) -> dict` · `analyze.measure_take(path, *, text=None, words=None, ...) -> dict`
+· `analyze.run(targets, *, film_dir=None, ab_ref=None, sheet=False, stage=None, ...) -> dict` (measured inflection, A/B
+spectrogram sheets) · `align.transcribe(path, *, model=None, language="en") -> dict` (the one Whisper runner; honours
+`SLATE_WHISPER`). A selected take's audio is its last stage: polished, paced, clean, then raw; timing's take resolver
+keeps the same order, so the cue sheets and the mix play the polished take. Gates: `voice_polish`, `voice_inflection`
+(with policy, direction, takes, words, tails and fit).
 
 **sound** (`slate.sound`): `measure.loudness(path) -> dict` (integrated LUFS, true peak, LRA) · `mix.run(film_dir) -> Path`
+(`sound/mix/final_mix.wav` with its four stems; `final_mix.json` names in `empty_stems` the stems a film has nothing
+for, written silent on purpose)
 · `verify.run(film_dir, names=None, *, write=True) -> list[GateResult]` · `verify.GATE_NAMES` (the core gates)
 · `verify.gate_names()` (with every gate merged in from `slate.sound.balance`, which deliver requires)
 · `effects.require_proof3()` (raises Refused until proof 3 is approved)
@@ -436,6 +447,9 @@ and the master gates) · `review.packet(film_dir, *, rebuild=False) -> Path`
 act, `timing/motion/actN.json` = `[{id, shot, prop, ease, frame_in, frame_out, from, to, samples: [[frame, value]…],
 entrance: bool, loop_period: int|null, rig: str|null}]`, which `slate qa motion` checks. Optional keys the motion gate
 reads: `class` (rig | ui | carry | whip: which speed limits apply; a rig part is rig, a camera move or a page or card
-carried across the frame is carry), `exempt` (reading_sweep | steady) with its `reason`, `exception`, and `size`.
+carried across the frame is carry), `exempt` (reading_sweep | steady) with its `reason`, `exception`, `size` and
+`unit`. Besides the brand's named eases, a trace's `ease` may be one of the kit's own (`linear`, `sine`, `spring0`, or
+`even`: rest to rest through a third of the travel at each third of the time, for long carries and camera drifts) or
+`measured` (an act sampled in After Effects). `src/slate/schemas/motion_trace.schema.json` holds the shape.
 Renders register in `renders/registry.json` = `{entries: [{act, engine, file, frames: [in, out], samples, sha256,
 made_at, bundle_hash}]}`.

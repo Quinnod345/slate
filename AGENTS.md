@@ -78,6 +78,11 @@ SLATE_TEST_SLOW=1 .venv/bin/python -m pytest tests/install -q -p no:cacheprovide
 # the engine's tests
 cd engine && npx --no-install vitest run
 
+# the whole pipeline on one neutral 15-second reel, every stage for real, vendors replayed (a few minutes), and the
+# same run as a test
+.venv/bin/python -m slate demo
+SLATE_TEST_INTEGRATION=1 .venv/bin/python -m pytest tests/integration -q -p no:cacheprovider
+
 # generated copies and manifests still match their sources
 .venv/bin/python -m slate skills build --check
 .venv/bin/python -m slate mcpb build --check

@@ -8,9 +8,9 @@ It's built from the pipeline behind three brand films, with every brand pulled o
 one gets its own look, motion, voice and sound during onboarding.
 
 > **Status:** 0.1.0 is being built. Every stage has its command, from `slate doctor` and `slate connect` to
-> `slate deliver`, along with the installer, `slate update`, the MCP server, the ten skills, the open web renderer and
-> the knowledge ledger (`slate knowledge check`). Still to come: `slate demo` (a neutral 15-second film, end to end).
-> `CHANGELOG.md` keeps the list.
+> `slate deliver`, along with the installer, `slate update`, the MCP server, the ten skills, the open web renderer, the
+> knowledge ledger (`slate knowledge check`) and `slate demo`, which makes a neutral 15-second reel through every stage
+> to prove it all works on your Mac. `CHANGELOG.md` keeps the list.
 
 ## Download
 
@@ -41,6 +41,14 @@ whether each agent is wired up. `INSTALL_FOR_AGENTS.md` walks an agent through a
    settings); finishing works without it, and Slate never changes it.
 
 Then run `slate doctor`. It names anything missing, with the fix, and goes green when nothing is.
+
+To watch the whole studio work once, run `slate demo`. It makes a neutral 15-second 9:16 reel for the demo brand
+through every stage, each the real command: the script, the voice with its studio polish and measured inflection, the
+film clock, a kit-built act and a placeholder act rendered with motion blur, the score and the mix, every quality gate,
+the master, the review packet and a draft delivery. One line per stage says what it did and how long it took. The
+vendors are replayed, so nothing is spent, and the delivery's manifest says it isn't final because the voice and
+score are stand-ins. It takes a few minutes; `slate demo --keep` keeps the film in your films folder, and
+`slate demo --live` voices and scores it for real, after you say yes.
 
 ## What you need first
 
@@ -113,7 +121,7 @@ see MCP servers.
 Every paid call goes through one ledger: estimate first, budget check, a row with the vendor's request id before Slate
 waits, so a restart never pays twice. Each film has a budget and each mode a monthly cap. Slate never buys credits,
 upgrades a plan or starts a licence; when a balance runs out, the work stops and asks. Tests, evals and the demo film
-(`slate demo`, still to come) replay recorded vendor answers (`SLATE_FAKE_VENDORS=1`) and spend nothing.
+(`slate demo`) replay recorded vendor answers (`SLATE_FAKE_VENDORS=1`) and spend nothing.
 
 Generations made in a chat through Higgsfield's or ElevenLabs' own connectors bypass the ledger. So a working session
 starts and ends with `slate ledger snapshot --all --session <label>`, then closes with

@@ -388,8 +388,10 @@ def _film_words(vf, shot: str, take: str, path: Path) -> tuple[list[dict] | None
 
 def run(targets: list[str], *, film_dir: str | Path | None = None, ab_ref: str | None = None, sheet: bool = False,
         text: str | None = None, tagged: str | None = None, words_file: str | None = None, whisper: bool = False,
-        stage: str | None = None, out: str | Path | None = None, name: str | None = None) -> dict:
-    """Measure takes (and compare them with a reference). Writes analysis.json (and sheet.png with `sheet`)."""
+        stage: str | None = None, out: str | Path | None = None, name: str | None = None,
+        spectrum: bool = False) -> dict:
+    """Measure takes (and compare them with a reference). Writes analysis.json (and sheet.png with `sheet`; with
+    `spectrum`, each take's long-term spectrum against natural speech and spectrum.png, slate.voice.spectrum)."""
     import json  # noqa: PLC0415
     import time  # noqa: PLC0415
 
@@ -445,13 +447,17 @@ def run(targets: list[str], *, film_dir: str | Path | None = None, ab_ref: str |
         elif reference is not None:
             row["vs_reference"] = ab(reference, m)
         rows.append(row)
+    spectrum_doc, spectra = _spectrum(rows, folder) if spectrum else (None, None)
     sheet_path = None
     if sheet:
+        from slate.voice import spectrum as spec  # noqa: PLC0415
+
         letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
         entries = [{"label": f"{letters[i % 26]} · {r['label']}", "path": r["file"], "frames": r["_frames"],
                     "measures": r["measures"],
                     "words": r["_words"], "vs": r.get("vs_reference"),
-                    "span_start_s": r["measures"].get("scope_from_s") or None} for i, r in enumerate(rows)]
+                    "span_start_s": r["measures"].get("scope_from_s") or None,
+                    "marks": spec.marks(spectra[i]) if spectra else None} for i, r in enumerate(rows)]
         title = "A/B: " + " against ".join(r["label"] for r in rows[:3]) + (" …" if len(rows) > 3 else "")
         sheet_path = sheet_mod.ab_sheet(entries, folder / "sheet.png", title=title)
     for r in rows:
@@ -460,10 +466,34 @@ def run(targets: list[str], *, film_dir: str | Path | None = None, ab_ref: str |
     doc = {"generated": "do not edit by hand: slate voice analyze", "film": vf.id if vf else None,
            "reference": rows[0]["label"] if ab_ref else None, "takes": rows,
            "sheet": str(sheet_path) if sheet_path else None, "at": now(),
+           **({"spectrum": spectrum_doc} if spectrum_doc else {}),
            "note": "Proxies, not ears: these measure breath, pitch, endings, sibilance and what Whisper heard. Listen "
                    "before you pick."}
     problems = jsonio.validate(doc, "voice_analysis")
     if problems:  # pragma: no cover - a bug in this module, not in the takes
         raise UsageError("The analysis doesn't match its schema: " + "; ".join(problems[:5]))
     path = jsonio.write_atomic(folder / "analysis.json", doc)
-    return {"file": str(path), "sheet": doc["sheet"], "takes": rows, "reference": doc["reference"]}
+    return {"file": str(path), "sheet": doc["sheet"], "takes": rows, "reference": doc["reference"],
+            **({"spectrum": spectrum_doc} if spectrum_doc else {})}
+
+
+def _spectrum(rows: list[dict], folder: Path) -> tuple[dict, list[dict]]:
+    """Each take's long-term spectrum against natural speech (the reference first, in neutral ink), and the chart.
+    Returns the report and the raw measures (the sheet rings their hottest moments)."""
+    from slate.voice import spectrum as spec  # noqa: PLC0415
+    from slate.voice.sheet import ACCENTS, INK  # noqa: PLC0415
+
+    measured, curves, k = [], [], 0
+    for r in rows:
+        m = spec.measure(r["file"], words=r.get("_words"))
+        measured.append(m)
+        colour = INK if r.get("reference") else ACCENTS[k % len(ACCENTS)]
+        k += 0 if r.get("reference") else 1
+        curves.append((r["label"], colour, m["thirds_db"]))
+    title = ("Where the harshness lives: " + " against ".join(r["label"] for r in rows[:3])
+             + (" …" if len(rows) > 3 else ""))
+    chart = spec.chart(curves, folder / "spectrum.png", title=title)
+    takes = [{"label": r["label"], **spec.public(m)} for r, m in zip(rows, measured)]
+    return {"chart": str(chart), "takes": takes,
+            "note": "Third-octave long-term spectrum over speech at -20 LUFS, set equal to natural speech (ANSI S3.5) "
+                    "over 500 Hz-1 kHz: a band well over it at 2-5 kHz reads as edge, at 5-9 kHz as sibilance."}, measured

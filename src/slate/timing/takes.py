@@ -1,11 +1,15 @@
 """Where a film's voice takes are, and how long each read is.
 
-The voice stages (`slate voice tts|clean|pace`) own the takes and record them in `voice/takes.json`:
+The voice stages (`slate voice tts|clean|pace|polish`) own the takes and record them in `voice/takes.json`:
 
     {"shots": {"S02": {"selected": "t01", "approved": {...} | null,
-                       "takes": {"t01": {"raw": "voice/takes/S02/t01.wav", "clean": "…clean.wav", "paced": "…paced.wav"}}}}}
+                       "takes": {"t01": {"raw": "voice/takes/S02/t01.wav", "clean": "…clean.wav", "paced": "…paced.wav",
+                                         "polished": "…polished.wav"}}}}}
 
-A shot's take is its selected take's final stage: paced, else clean, else raw (the voice module's own rule). Timing
+A shot's take is its selected take's final stage: polished, else paced, else clean, else raw (the voice module's own
+rule, slate.voice.film.VoiceFilm.STAGES). The studio polish keeps every sample where it was, so a polished take reads
+exactly as long as the stage it was polished from and its words land at the same times; picking it here is what
+carries the de-esser, the EQ and the room into the cue sheets and the mix. Timing
 also accepts a flat list ({"takes": [{"shot", "file", "seconds", "dur"}]}) and, with no manifest at all, files named
 `voice/takes/<shot>.<wav|flac|aif|aiff|mp3|m4a>`. `dur` (or `trim`) is a play length shorter than the file, for a
 take whose leaked tail was trimmed (film A trimmed S10 and S20 this way). A take's read length is that trim when it
@@ -27,7 +31,7 @@ from slate.timing import audio
 MANIFEST = Path("voice") / "takes.json"
 TAKES_DIR = Path("voice") / "takes"
 EXTENSIONS = (".wav", ".flac", ".aif", ".aiff", ".mp3", ".m4a")
-STAGES = ("paced", "clean", "raw")  # the final stage wins
+STAGES = ("polished", "paced", "clean", "raw")  # the final stage wins
 
 
 @dataclass

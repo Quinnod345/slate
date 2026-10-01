@@ -14,7 +14,8 @@ and check it.
                                    length and loudness kept, verified by measurement; --try A,B to hear strengths
     slate voice align              word timings: local Whisper, or ElevenLabs Forced Alignment to evaluate
     slate voice analyze            measured inflection: pitch, breath, sibilance, endings, the Whisper checks, and
-                                   A/B spectrogram sheets for comparing takes, tags or polish strengths
+                                   A/B spectrogram sheets for comparing takes, tags or polish strengths; --spectrum
+                                   charts the long-term spectrum against natural speech (where the harshness lives)
     slate voice captions           SRT, WebVTT and timing/captions.json, timed to the words
     slate voice check              the voice gates (policy, direction, takes, words, tails, fit, inflection, polish)
     slate voice approve            record the person's approval of a take and lock it by hash
@@ -446,7 +447,7 @@ def cmd_analyze(args) -> int:
     film = _maybe_film(args)
     res = analyze.run(args.takes, film_dir=film, ab_ref=args.ab, sheet=args.sheet, text=args.text,
                       tagged=args.tagged, words_file=args.words, whisper=args.whisper, stage=args.stage, out=args.out,
-                      name=args.name)
+                      name=args.name, spectrum=args.spectrum)
     rows = []
     for t in res["takes"]:
         line = t["measures"].get("line") or {}
@@ -463,6 +464,18 @@ def cmd_analyze(args) -> int:
                                                                  " (breathier)" if b["breathier"] else "")
         rows.append(row)
     human = "\n".join(rows) + f"\nanalysis: {res['file']}" + (f"\nsheet: {res['sheet']}" if res["sheet"] else "")
+    spec = res.get("spectrum")
+    if spec:
+        for t in spec["takes"]:
+            v = {int(k): x for k, x in (t.get("vs_ansi_db") or {}).items()}
+            edge = [x for f, x in v.items() if 2000 <= f <= 5000]
+            sib = [x for f, x in v.items() if 5000 <= f <= 8000]
+            hot = ", ".join(f"{h['word']} ({h['kind']})" for h in (t.get("hottest") or [])[:3])
+            human += (f"\n{t['label']}: over natural speech by "
+                      f"{(sum(edge) / len(edge)) if edge else float('nan'):+.1f} dB at 2-5 kHz, "
+                      f"{(sum(sib) / len(sib)) if sib else float('nan'):+.1f} dB at 5-8 kHz"
+                      + (f"; hottest: {hot}" if hot else ""))
+        human += f"\nspectrum: {spec['chart']}"
     log.result(res, human)
     return 0
 
@@ -666,6 +679,9 @@ def register(sub) -> None:
     p.add_argument("takes", nargs="+", help="WAV files, or shots in the film (S01, or S01/t02)")
     p.add_argument("--ab", metavar="REFERENCE", help="compare every take with this one (it's drawn first, as A)")
     p.add_argument("--sheet", action="store_true", help="draw the A/B spectrogram sheet (PNG)")
+    p.add_argument("--spectrum", action="store_true",
+                   help="each take's long-term spectrum against natural speech (ANSI S3.5): band levels, edge and "
+                        "sibilance, the hottest words, and a chart (PNG)")
     p.add_argument("--text", help="the script line (for files outside a film)")
     p.add_argument("--tagged", help="what was sent, tags included (measures the tag's scope)")
     p.add_argument("--words", help="a Whisper JSON with the takes' words (files outside a film)")

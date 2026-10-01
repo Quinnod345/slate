@@ -14,7 +14,11 @@ function currentShot(list: Shot[], frame: number): Shot | null {
   return hit;
 }
 
-/** The read of a shot with the word being said at t picked out (from vo_words; the plain line when there are none). */
+/**
+ * The read of a shot with the word being said at t picked out (from vo_words; the plain line when there are none).
+ * Only the colour changes: a word that turned bold would widen and push every word after it sideways a pixel or so,
+ * and the line would jitter on every word (the render-stability check flags it as snaps and relative motion).
+ */
 function Read({id, t}: {id: string; t: number}) {
   const tk = useTokens();
   const s = useType('body', tk.color.ink3);
@@ -28,7 +32,7 @@ function Read({id, t}: {id: string; t: number}) {
         const on = t >= base + w.start && t < base + w.end;
         const said = t >= base + w.end;
         return (
-          <span key={i} style={{color: on ? tk.color.accentInk : said ? tk.color.ink2 : undefined, fontWeight: on ? 700 : undefined}}>
+          <span key={i} style={{color: on ? tk.color.accentInk : said ? tk.color.ink2 : undefined}}>
             {w.w}
             {i < words.length - 1 ? ' ' : ''}
           </span>

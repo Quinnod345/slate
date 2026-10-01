@@ -89,6 +89,30 @@ def test_regression_a_digitally_silent_stem_fails(film_builder):
     assert "-70.0 LUFS" in ambience_row and "digital silence" in ambience_row
 
 
+@needs_ffmpeg
+def test_a_stem_the_mix_says_is_empty_on_purpose_passes(film_builder):
+    """A score-and-voice film has no effects or ambience: `slate mix` still writes those stems (every delivery has
+    four) and lists them in final_mix.json's empty_stems. Those are silent on purpose; an unlisted silent stem still
+    fails."""
+    import json
+
+    fb = film_builder()
+    n = 48000 * 3
+    fb.mix({"dialogue": tone(3.0), "music": tone(3.0, amp=0.05), "effects": np.zeros((n, 2)),
+            "ambience": np.zeros((n, 2))})
+    record = fb.path / "sound" / "mix" / "final_mix.json"
+    record.write_text(json.dumps({"kind": "mix", "empty_stems": {"effects": "no effect stems in this film",
+                                                                 "ambience": "no ambience stems in this film"}}))
+    r = audio_gates.silent_stems(fb.path)
+    assert r.status == "PASS", r.summary
+    assert "ambience and effects are empty on purpose" in r.summary
+    assert r.details["empty_on_purpose"] == {"ambience": "no ambience stems in this film",
+                                             "effects": "no effect stems in this film"}
+    record.write_text(json.dumps({"kind": "mix", "empty_stems": {"effects": "no effect stems in this film"}}))
+    r = audio_gates.silent_stems(fb.path)
+    assert r.status == "FAIL" and r.details["silent"] == ["ambience"]
+
+
 def test_regression_silence_rule():
     assert audio_gates.is_silent(-math.inf, -70.0)
     assert audio_gates.is_silent(-40.0, -70.0)  # the meter's floor: no block above the gate

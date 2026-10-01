@@ -8681,7 +8681,7 @@
      "\"release_s\"",
      "\"effects_ceiling_dbtp\""
     ],
-    "note": "The score's level under the voice, its duck and the effects ceiling are palette data; the p3 balance's newer numbers (18.5 LU under, a 6 dB duck) are the second harvest's lessons."
+    "note": "The score's level under the voice, its duck and the effects ceiling are palette data. Proof 2's 15 LU and 4 dB were the films' mix defaults; since 2026-10-01 the starting palette uses the p3 balance the owner approved (18.5 LU under, a 6 dB duck), lesson L-sound-S025."
    }
   },
   {
@@ -38150,19 +38150,31 @@
     "FILMROOT/sound/trudy_voice/V4_TAGS.md:553-559; FILMROOT/sound/trudy_voice/tools/polish_report.py (docstring)"
    ],
    "destination": {
-    "type": "gap",
-    "module": "voice",
-    "change": "src/slate/voice/analyze.py and sheet.py: add a voice spectrum report (`slate voice analyze --spectrum`, and in the polish trial): the long-term average spectrum in third-octave bands over speech frames at -20 LUFS against the ANSI S3.5 standard speech spectrum set equal over 500 Hz-1 kHz, drawn as a chart; band levels for the lows, the body, the 1-5 kHz clarity band, the 2-5 kHz edge, 5-9 kHz sibilance and the air; the hottest edge and sibilance moments word by word, ringed on each line's spectrogram; and a harshest-moments reel (each moment unpolished, then at each strength); a pytest with a synthetic voice whose top is boosted finds it there.",
-    "change_id": "VOICE-SPECTRUM"
+    "type": "code_default",
+    "file": "src/slate/voice/spectrum.py",
+    "symbol": "measure",
+    "line": 132,
+    "terms": [
+     "out[\"vs_ansi_db\"] = shape_vs_ansi(thirds)",
+     "dsp.db_to_gain(polish.WORK_LUFS - lufs)",
+     "polish._speech_frames(p)"
+    ],
+    "tests": [
+     "tests/voice/test_voice_spectrum.py::test_sibilant_words_are_the_hottest_and_a_plain_read_measures_less_sibilance",
+     "tests/voice/test_voice_spectrum.py::test_ansi_speech_set_against_itself_has_no_shape",
+     "tests/voice/test_voice_spectrum.py::test_the_chart_and_the_analyze_report",
+     "tests/voice/test_voice_polish.py::test_trials_write_listening_files_and_pin_nothing"
+    ],
+    "note": "`slate voice analyze --spectrum`: the third-octave long-term spectrum over speech at -20 LUFS against ANSI S3.5 (set equal over 500 Hz-1 kHz), the band levels, the edge and sibilance over time, the hottest words (ringed on the A/B sheet) and spectrum.png; the polish trial pools every line into the same chart and writes a harshest-moments reel (each moment unpolished, then at every strength). Closed 2026-10-01."
    },
    "also": [
     {
      "type": "skill_rule",
      "terms": [
-      "measure where a voice's harshness lives before tuning its chain"
+      "where the harshness lives"
      ],
-     "line": 18,
-     "target": "skills/slate-voice/references/polish.md"
+     "line": 54,
+     "target": "skills/slate-voice/references/measuring-reads.md"
     }
    ]
   },
@@ -38334,9 +38346,18 @@
     "FILMROOT/sound/trudy_voice/V4_TAGS.md:599-604; FILMROOT/sound/trudy_voice/tools/vo_polish.py (polish_set)"
    ],
    "destination": {
-    "type": "gap",
-    "module": "timing",
-    "change": "src/slate/timing/takes.py STAGES: put 'polished' first (('polished', 'paced', 'clean', 'raw')), as slate.voice.film.final_audio does, so the polished film-stage take reaches the cue sheets and the mix; today timing still picks the paced take, so the polish never reaches the film. A pytest that a polished film's timing/vo_cues.json points at each take's .polished.wav."
+    "type": "code_default",
+    "file": "src/slate/timing/takes.py",
+    "symbol": "STAGES",
+    "line": 34,
+    "terms": [
+     "(\"polished\", \"paced\", \"clean\", \"raw\")"
+    ],
+    "tests": [
+     "tests/story/test_timing_build.py::test_the_studio_polish_reaches_the_cue_sheet",
+     "tests/story/test_story_build.py::test_a_polished_take_comes_before_the_stage_it_was_polished_from"
+    ],
+    "note": "Timing resolves a shot's take in the voice module's own order (polished, paced, clean, raw), so the cue sheets and the mix play the polished take, while breath, pitch and tag measures still read the take before its polish (VoiceFilm.unpolished_audio). Closed 2026-10-01; `slate demo` fails if the cue sheet or the mix doesn't play the polished takes."
    },
    "also": [
     {
@@ -38565,9 +38586,17 @@
     "FILMROOT/sound/trudy_voice/tools/spectro_ab.py (docstring)"
    ],
    "destination": {
-    "type": "gap",
-    "module": "voice",
-    "change": "tests/voice/test_voice_analyze.py: add a test that draws a sheet of known test tones (1, 2 and 5 kHz at known times) through slate.voice.sheet.spectrogram and spectrogram_image and checks each lands on its row and column, so the picture's axes are proven before anyone reads them."
+    "type": "code_default",
+    "file": "src/slate/voice/sheet.py",
+    "symbol": "spectrogram",
+    "line": 63,
+    "terms": [
+     "s = s[f <= fmax][::-1]"
+    ],
+    "tests": [
+     "tests/voice/test_voice_spectrum.py::test_the_spectrogram_puts_each_tone_on_its_row_and_its_time_on_its_column"
+    ],
+    "note": "The spectrogram's rows (frequency, high at the top) and columns (time) are proven with 1, 2 and 5 kHz tones at known times, in the numbers and in the picture. Closed 2026-10-01."
    }
   },
   {
@@ -38740,7 +38769,7 @@
    "destination": {
     "type": "gap",
     "module": "sound",
-    "change": "src/slate/sound/mix.py: the guards, after a first pass measured with slate.sound.balance: the clarity guard rides only the accents that really cover a word (their top above 600 Hz, at most 15 dB, the whole hit if that isn't enough) and the air guard rides textures whole (at most 12 dB), solved together as the least total riding that clears every word, each hit's own reverb counted; an accent landing on a word is ridden at most half the guard's depth (the owner's 'in between'); the score's own guard dips its top above 600 Hz where the score alone comes within 19 dB of the voice in 1-5 kHz during a word (at most 20 dB, held 0.15 s either side, ramped over 0.3 s, a quarter of the clarity budget, waiting for an opening silence, and also under an accent it would mask); the never-over guard runs last (0.5 dB to spare against the voice as delivered: the hits making it loud ridden down whole by at most 12 dB more, an impact keeping its first 80 ms, the score dipping under that word, every family's loudest-hit limit enforced). Then close the loop against the voice as the master delivers it (raise a short word's target by its shortfall, at most two more passes), keep an approved span exactly as approved (its own cues, its rides frozen, its score level over the span's core trimmed in with a ramp: palette balance approved_spans and rides.json pinned), re-measure every hit's anchor as mixed (moved at most 10 ms, never within 1 ms of its frame's edge), and write sound/mix/rides.json, which the balance gates already read. Tests on synthetic mixes: a click on a word is ridden until the word clears, a half-depth accent is listed rather than failed, and an approved span's rides don't move.",
+    "change": "src/slate/sound/mix.py: the guards, after a first pass measured with slate.sound.balance: the clarity guard rides only the accents that really cover a word (their top above 600 Hz, at most 15 dB, the whole hit if that isn't enough) and the air guard rides textures whole (at most 12 dB), solved together as the least total riding that clears every word, each hit's own reverb counted; an accent landing on a word is ridden at most half the guard's depth (the owner's 'in between'); the score's own guard under words is in (slate.sound.guard, 2026-10-01), so what's left of it is waiting for an opening silence and dipping under an accent it would mask; the never-over guard runs last (0.5 dB to spare against the voice as delivered: the hits making it loud ridden down whole by at most 12 dB more, an impact keeping its first 80 ms, the score dipping under that word, every family's loudest-hit limit enforced). Then close the loop against the voice as the master delivers it (raise a short word's target by its shortfall, at most two more passes), keep an approved span exactly as approved (its own cues, its rides frozen, its score level over the span's core trimmed in with a ramp: palette balance approved_spans and rides.json pinned), re-measure every hit's anchor as mixed (moved at most 10 ms, never within 1 ms of its frame's edge), and write sound/mix/rides.json, which the balance gates already read. Tests on synthetic mixes: a click on a word is ridden until the word clears, a half-depth accent is listed rather than failed, and an approved span's rides don't move.",
     "change_id": "MIX-GUARDS"
    }
   },
@@ -38757,7 +38786,7 @@
    "destination": {
     "type": "gap",
     "module": "sound",
-    "change": "src/slate/sound/mix.py: the guards, after a first pass measured with slate.sound.balance: the clarity guard rides only the accents that really cover a word (their top above 600 Hz, at most 15 dB, the whole hit if that isn't enough) and the air guard rides textures whole (at most 12 dB), solved together as the least total riding that clears every word, each hit's own reverb counted; an accent landing on a word is ridden at most half the guard's depth (the owner's 'in between'); the score's own guard dips its top above 600 Hz where the score alone comes within 19 dB of the voice in 1-5 kHz during a word (at most 20 dB, held 0.15 s either side, ramped over 0.3 s, a quarter of the clarity budget, waiting for an opening silence, and also under an accent it would mask); the never-over guard runs last (0.5 dB to spare against the voice as delivered: the hits making it loud ridden down whole by at most 12 dB more, an impact keeping its first 80 ms, the score dipping under that word, every family's loudest-hit limit enforced). Then close the loop against the voice as the master delivers it (raise a short word's target by its shortfall, at most two more passes), keep an approved span exactly as approved (its own cues, its rides frozen, its score level over the span's core trimmed in with a ramp: palette balance approved_spans and rides.json pinned), re-measure every hit's anchor as mixed (moved at most 10 ms, never within 1 ms of its frame's edge), and write sound/mix/rides.json, which the balance gates already read. Tests on synthetic mixes: a click on a word is ridden until the word clears, a half-depth accent is listed rather than failed, and an approved span's rides don't move.",
+    "change": "src/slate/sound/mix.py: the guards, after a first pass measured with slate.sound.balance: the clarity guard rides only the accents that really cover a word (their top above 600 Hz, at most 15 dB, the whole hit if that isn't enough) and the air guard rides textures whole (at most 12 dB), solved together as the least total riding that clears every word, each hit's own reverb counted; an accent landing on a word is ridden at most half the guard's depth (the owner's 'in between'); the score's own guard under words is in (slate.sound.guard, 2026-10-01), so what's left of it is waiting for an opening silence and dipping under an accent it would mask; the never-over guard runs last (0.5 dB to spare against the voice as delivered: the hits making it loud ridden down whole by at most 12 dB more, an impact keeping its first 80 ms, the score dipping under that word, every family's loudest-hit limit enforced). Then close the loop against the voice as the master delivers it (raise a short word's target by its shortfall, at most two more passes), keep an approved span exactly as approved (its own cues, its rides frozen, its score level over the span's core trimmed in with a ramp: palette balance approved_spans and rides.json pinned), re-measure every hit's anchor as mixed (moved at most 10 ms, never within 1 ms of its frame's edge), and write sound/mix/rides.json, which the balance gates already read. Tests on synthetic mixes: a click on a word is ridden until the word clears, a half-depth accent is listed rather than failed, and an approved span's rides don't move.",
     "change_id": "MIX-GUARDS"
    }
   },
@@ -38772,10 +38801,19 @@
     "FILMROOT/sound/p3/BALANCE.md:631-678; FILMROOT/sound/p3/tools/render_v2.py (score_bus, score_accent_dips)"
    ],
    "destination": {
-    "type": "gap",
-    "module": "sound",
-    "change": "src/slate/sound/mix.py: the guards, after a first pass measured with slate.sound.balance: the clarity guard rides only the accents that really cover a word (their top above 600 Hz, at most 15 dB, the whole hit if that isn't enough) and the air guard rides textures whole (at most 12 dB), solved together as the least total riding that clears every word, each hit's own reverb counted; an accent landing on a word is ridden at most half the guard's depth (the owner's 'in between'); the score's own guard dips its top above 600 Hz where the score alone comes within 19 dB of the voice in 1-5 kHz during a word (at most 20 dB, held 0.15 s either side, ramped over 0.3 s, a quarter of the clarity budget, waiting for an opening silence, and also under an accent it would mask); the never-over guard runs last (0.5 dB to spare against the voice as delivered: the hits making it loud ridden down whole by at most 12 dB more, an impact keeping its first 80 ms, the score dipping under that word, every family's loudest-hit limit enforced). Then close the loop against the voice as the master delivers it (raise a short word's target by its shortfall, at most two more passes), keep an approved span exactly as approved (its own cues, its rides frozen, its score level over the span's core trimmed in with a ramp: palette balance approved_spans and rides.json pinned), re-measure every hit's anchor as mixed (moved at most 10 ms, never within 1 ms of its frame's edge), and write sound/mix/rides.json, which the balance gates already read. Tests on synthetic mixes: a click on a word is ridden until the word clears, a half-depth accent is listed rather than failed, and an approved span's rides don't move.",
-    "change_id": "MIX-GUARDS"
+    "type": "code_default",
+    "file": "src/slate/sound/guard.py",
+    "symbol": "apply",
+    "line": 112,
+    "terms": [
+     "short = {i: target - v for i, v in now.items() if v < target - 0.05 and dips.get(i, 0.0) > cap}",
+     "out = low + high * gain[:, None] if dips else music"
+    ],
+    "tests": [
+     "tests/sound/test_sound_guard.py::test_the_top_dips_under_crowded_words_by_just_enough_and_nowhere_else",
+     "tests/sound/test_sound_guard.py::test_the_mix_guards_its_score_and_the_score_alone_floor_holds"
+    ],
+    "note": "`slate mix` runs the score's own clarity guard after the duck (slate.sound.guard, ported from the films' p3 score bus): 19 dB in 1-5 kHz, the top above 600 Hz, at most 20 dB, held 0.15 s and ramped over 0.3 s, from the brand's palette balance (score_guard). The accents', air and never-over guards wait for the effects engine's family buses (MIX-GUARDS). Closed 2026-10-01."
    },
    "also": [
     {
@@ -38788,6 +38826,14 @@
       "tests/sound_balance/test_sound_balance_measure.py::test_the_score_alone_keeps_its_own_floor"
      ],
      "note": "The check side holds the score to its own 19 dB floor on every word; the mix doesn't dip it yet."
+    },
+    {
+     "type": "skill_rule",
+     "terms": [
+      "The score's own clarity guard"
+     ],
+     "line": 33,
+     "target": "skills/slate-sound/references/mix.md"
     }
    ]
   },
@@ -38804,7 +38850,7 @@
    "destination": {
     "type": "gap",
     "module": "sound",
-    "change": "src/slate/sound/mix.py: the guards, after a first pass measured with slate.sound.balance: the clarity guard rides only the accents that really cover a word (their top above 600 Hz, at most 15 dB, the whole hit if that isn't enough) and the air guard rides textures whole (at most 12 dB), solved together as the least total riding that clears every word, each hit's own reverb counted; an accent landing on a word is ridden at most half the guard's depth (the owner's 'in between'); the score's own guard dips its top above 600 Hz where the score alone comes within 19 dB of the voice in 1-5 kHz during a word (at most 20 dB, held 0.15 s either side, ramped over 0.3 s, a quarter of the clarity budget, waiting for an opening silence, and also under an accent it would mask); the never-over guard runs last (0.5 dB to spare against the voice as delivered: the hits making it loud ridden down whole by at most 12 dB more, an impact keeping its first 80 ms, the score dipping under that word, every family's loudest-hit limit enforced). Then close the loop against the voice as the master delivers it (raise a short word's target by its shortfall, at most two more passes), keep an approved span exactly as approved (its own cues, its rides frozen, its score level over the span's core trimmed in with a ramp: palette balance approved_spans and rides.json pinned), re-measure every hit's anchor as mixed (moved at most 10 ms, never within 1 ms of its frame's edge), and write sound/mix/rides.json, which the balance gates already read. Tests on synthetic mixes: a click on a word is ridden until the word clears, a half-depth accent is listed rather than failed, and an approved span's rides don't move.",
+    "change": "src/slate/sound/mix.py: the guards, after a first pass measured with slate.sound.balance: the clarity guard rides only the accents that really cover a word (their top above 600 Hz, at most 15 dB, the whole hit if that isn't enough) and the air guard rides textures whole (at most 12 dB), solved together as the least total riding that clears every word, each hit's own reverb counted; an accent landing on a word is ridden at most half the guard's depth (the owner's 'in between'); the score's own guard under words is in (slate.sound.guard, 2026-10-01), so what's left of it is waiting for an opening silence and dipping under an accent it would mask; the never-over guard runs last (0.5 dB to spare against the voice as delivered: the hits making it loud ridden down whole by at most 12 dB more, an impact keeping its first 80 ms, the score dipping under that word, every family's loudest-hit limit enforced). Then close the loop against the voice as the master delivers it (raise a short word's target by its shortfall, at most two more passes), keep an approved span exactly as approved (its own cues, its rides frozen, its score level over the span's core trimmed in with a ramp: palette balance approved_spans and rides.json pinned), re-measure every hit's anchor as mixed (moved at most 10 ms, never within 1 ms of its frame's edge), and write sound/mix/rides.json, which the balance gates already read. Tests on synthetic mixes: a click on a word is ridden until the word clears, a half-depth accent is listed rather than failed, and an approved span's rides don't move.",
     "change_id": "MIX-GUARDS"
    },
    "also": [
@@ -38868,7 +38914,7 @@
    "destination": {
     "type": "gap",
     "module": "sound",
-    "change": "src/slate/sound/mix.py: the guards, after a first pass measured with slate.sound.balance: the clarity guard rides only the accents that really cover a word (their top above 600 Hz, at most 15 dB, the whole hit if that isn't enough) and the air guard rides textures whole (at most 12 dB), solved together as the least total riding that clears every word, each hit's own reverb counted; an accent landing on a word is ridden at most half the guard's depth (the owner's 'in between'); the score's own guard dips its top above 600 Hz where the score alone comes within 19 dB of the voice in 1-5 kHz during a word (at most 20 dB, held 0.15 s either side, ramped over 0.3 s, a quarter of the clarity budget, waiting for an opening silence, and also under an accent it would mask); the never-over guard runs last (0.5 dB to spare against the voice as delivered: the hits making it loud ridden down whole by at most 12 dB more, an impact keeping its first 80 ms, the score dipping under that word, every family's loudest-hit limit enforced). Then close the loop against the voice as the master delivers it (raise a short word's target by its shortfall, at most two more passes), keep an approved span exactly as approved (its own cues, its rides frozen, its score level over the span's core trimmed in with a ramp: palette balance approved_spans and rides.json pinned), re-measure every hit's anchor as mixed (moved at most 10 ms, never within 1 ms of its frame's edge), and write sound/mix/rides.json, which the balance gates already read. Tests on synthetic mixes: a click on a word is ridden until the word clears, a half-depth accent is listed rather than failed, and an approved span's rides don't move.",
+    "change": "src/slate/sound/mix.py: the guards, after a first pass measured with slate.sound.balance: the clarity guard rides only the accents that really cover a word (their top above 600 Hz, at most 15 dB, the whole hit if that isn't enough) and the air guard rides textures whole (at most 12 dB), solved together as the least total riding that clears every word, each hit's own reverb counted; an accent landing on a word is ridden at most half the guard's depth (the owner's 'in between'); the score's own guard under words is in (slate.sound.guard, 2026-10-01), so what's left of it is waiting for an opening silence and dipping under an accent it would mask; the never-over guard runs last (0.5 dB to spare against the voice as delivered: the hits making it loud ridden down whole by at most 12 dB more, an impact keeping its first 80 ms, the score dipping under that word, every family's loudest-hit limit enforced). Then close the loop against the voice as the master delivers it (raise a short word's target by its shortfall, at most two more passes), keep an approved span exactly as approved (its own cues, its rides frozen, its score level over the span's core trimmed in with a ramp: palette balance approved_spans and rides.json pinned), re-measure every hit's anchor as mixed (moved at most 10 ms, never within 1 ms of its frame's edge), and write sound/mix/rides.json, which the balance gates already read. Tests on synthetic mixes: a click on a word is ridden until the word clears, a half-depth accent is listed rather than failed, and an approved span's rides don't move.",
     "change_id": "MIX-GUARDS"
    },
    "also": [
@@ -39110,7 +39156,7 @@
    "destination": {
     "type": "gap",
     "module": "sound",
-    "change": "src/slate/sound/effects/palette.py, the starting palette's levels.music: under_voice_lu 18.5 and duck_db 6.0 (the p3 balance the owner approved: about -21 LU against the voice, 1.5 dB under the clip he found 'a teeny bit loud'), where today it's 15 and 4 from proof 2; with a composed score the effects engine's port drops the continuous pad bed and the landing's pad bloom (the score blooms there with the impact's sub, knock and low layer). Adjust the tests that pin 15 and 4."
+    "change": "src/slate/sound/effects/engine.py (the effects engine port, after proof 3): with a composed score, drop the continuous pad bed and the landing's pad bloom (the score blooms there with the impact's sub, knock and low layer). The score's own level is in since 2026-10-01: the starting palette sets it 18.5 LU under the voice with a 6 dB duck."
    },
    "also": [
     {
@@ -39119,7 +39165,11 @@
      "symbol": "STARTING_PALETTE",
      "line": 41,
      "terms": [
-      "\"under_voice_lu\": 15.0"
+      "\"under_voice_lu\": 18.5",
+      "\"duck_db\": 6.0"
+     ],
+     "tests": [
+      "tests/sound/test_sound_mix.py::test_score_and_voice_alone_mix_to_target"
      ]
     }
    ]

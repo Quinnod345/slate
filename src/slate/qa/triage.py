@@ -5,11 +5,14 @@ everything that isn't PASS: what failed, what went stale, what couldn't be check
 person. Gates that have never run count as unchecked: nothing unchecked is ever reported as passed.
 
 It also triages the glitch scan. Flags within ±3 frames of a planned beat are the film's own moves (film B had 1,442
-flags, mostly smooth fast moves); they're listed as skipped, grouped by act, so the open ones stand out.
+flags, mostly smooth fast moves); they're listed as skipped, grouped by act, so the open ones stand out. The render
+stability scan gets the same per act: open flags by class, how many the planned beats, the reference render and the
+baseline took out, and the strips to look at.
 """
 
 from __future__ import annotations
 
+import re
 from collections import Counter
 from pathlib import Path
 
@@ -55,6 +58,33 @@ def _glitch_summary(film_dir: Path) -> dict | None:
             "missing_acts": data.get("missing_acts") or []}
 
 
+def _stability_summary(film_dir: Path) -> dict | None:
+    """Each act's render-stability triage from its last scan (qa/stability/act<N>.json), shown the way the glitch
+    scan's is: what's open by class, what the planned beats, the reference render and the baseline took out, and the
+    strips to look at."""
+    folder = film_dir / "qa" / "stability"
+    reports = [p for p in folder.glob("act*.json") if re.fullmatch(r"act\d+\.json", p.name)] if folder.is_dir() else []
+    acts = []
+    for path in sorted(reports, key=lambda p: int(p.stem[3:])):
+        data = jsonio.read(path, default=None)
+        if not isinstance(data, dict):
+            continue
+        act = data.get("act", int(path.stem[3:]))
+        # the strips this scan made: one per open class and frame (older renders' strips may still be on disk)
+        named = {f"act{act}_{f.get('class')}_{int(f['frame'])}.png" for f in data.get("open") or []
+                 if isinstance(f, dict) and f.get("frame") is not None}
+        strips = sorted(n for n in named if (folder / "strips" / n).is_file())
+        acts.append({"act": act, "render": data.get("render"),
+                     "open_by_class": {k: v for k, v in sorted((data.get("counts") or {}).items()) if v},
+                     "over_limits": list(data.get("over") or []),
+                     "near_beats": len(data.get("near_beats") or []),
+                     "shared_with_reference": len(data.get("shared_with_reference") or []),
+                     "accepted_by_baseline": len(data.get("accepted_by_baseline") or []),
+                     "reference": (data.get("reference") or {}).get("file"), "baseline": data.get("baseline"),
+                     "strips": [f"qa/stability/strips/{n}" for n in strips][:20]})
+    return {"acts": acts} if acts else None
+
+
 def report(film_dir: Path, gate_names: list[str] | None = None) -> dict:
     """Everything that isn't passing, grouped by status, with the next step for each."""
     from slate.qa import GATES, park  # noqa: PLC0415
@@ -81,6 +111,7 @@ def report(film_dir: Path, gate_names: list[str] | None = None) -> dict:
         "not_run": not_run,
         "parked": park.status(film_dir),
         "glitch": _glitch_summary(film_dir),
+        "stability": _stability_summary(film_dir),
     }
 
 
@@ -112,6 +143,16 @@ def format_report(rep: dict) -> str:
                       f"(skipped; {acts}); {g['accepted']} accepted; {g['open_count']} open"]
         for it in g["open"][:15]:
             lines.append(f"  [{it['ref']}] {it['what']}")
+    s = rep.get("stability")
+    if s:
+        lines += ["", "Stability triage (each act's last scan):"]
+        for a in s["acts"]:
+            opened = ", ".join(f"{n} {cls}" for cls, n in a["open_by_class"].items()) or "nothing open"
+            lines.append(f"  act {a['act']}: {opened}; {a['near_beats']} near a planned beat, "
+                         f"{a['shared_with_reference']} shared with the reference, {a['accepted_by_baseline']} in the "
+                         f"baseline" + (f"; over the limits: {', '.join(a['over_limits'])}" if a["over_limits"] else ""))
+            for strip in a["strips"][:5]:
+                lines.append(f"      strip: {strip}")
     if rep["passed"]:
         lines += ["", "Passed: " + ", ".join(rep["passed"])]
     return "\n".join(lines)

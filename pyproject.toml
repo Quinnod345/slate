@@ -44,5 +44,6 @@ addopts = "-q -p no:cacheprovider"
 markers = [
   "slow: builds a real environment or runs a whole install (a minute or more); opt in with SLATE_TEST_SLOW=1",
   "render: a real render with headless Chrome and ffmpeg (opt in: SLATE_TEST_RENDER=1)",
+  "integration: `slate demo` end to end, a real render and every gate, minutes (opt in: SLATE_TEST_INTEGRATION=1 or -m integration)",
   "live: spends on a vendor or runs a real model; never part of the default run",
 ]

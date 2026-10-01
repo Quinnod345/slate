@@ -57,7 +57,7 @@ def transcribe(audio: Path, *, sha256: str, duration_s: float, language: str) ->
         request = {"line": "", "seconds": duration_s, "language": language, "file_sha256": sha256}
         result = replay.respond("whisper", "transcribe", request, key=f"analyze-{sha256[:16]}-{model}")
         return result, {"engine": "whisper", "model": model, "version": "replay", "replay": True}
-    exe = procs.require("whisper", hint="Install openai-whisper (Homebrew) with `slate doctor --install`.")
+    exe = align.whisper_exe()  # SLATE_WHISPER (or slate.toml's [voice] whisper) first, like timing and voice
     timeout = max(900.0, 8.0 * float(duration_s or 0))
     with _lock(), tempfile.TemporaryDirectory(prefix="slate-analyze-whisper-") as tmp:
         procs.run([exe, str(audio), "--model", model, "--language", language, "--word_timestamps", "True",

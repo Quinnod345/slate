@@ -1,0 +1,27 @@
+{
+ "title": "Slate demo",
+ "version": "the demo's script: two acts, four shots, about fifteen seconds",
+ "language": "en",
+ "acts": [
+  {
+   "name": "Open",
+   "job": "the hook: one clock under every film",
+   "shots": [
+    {"id": "D01", "vo": "One script. One clock. One film.", "on_screen": "One clock",
+     "picture": "the kit's placeholder: the shot, its timing and its read", "hold": 1.2},
+    {"id": "D02", "vo": "Demo Studio makes short films from data.", "on_screen": "Short films from data",
+     "claims": ["demo-1"], "picture": "the kit's placeholder", "hold": 0.8}
+   ]
+  },
+  {
+   "name": "Close",
+   "job": "the payoff: every film is checked",
+   "shots": [
+    {"id": "D03", "vo": "Every film is checked before it ships.", "on_screen": "Checked before it ships",
+     "claims": ["demo-2"], "picture": "a card rises into place as \"checked\" is said", "hold": 0.8},
+    {"id": "D04", "vo": "Made in Demo Studio.", "on_screen": "Demo Studio",
+     "picture": "the studio's name settles under the card on \"Studio\"", "hold": 1.6}
+   ]
+  }
+ ]
+}

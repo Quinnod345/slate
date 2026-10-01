@@ -1,0 +1,38 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "slate/motion_trace",
+ "title": "An act's motion trace (timing/motion/actN.json)",
+ "description": "Every traced move of one act, written by the engine that built it (the kit's defineMotion registry through `slate emit-events` and `slate render`, the open web renderer, or `slate ae acts export`), and read by `slate qa motion`. docs/ARCHITECTURE.md §12 is the contract: each entry names its move, the property it moves, the ease, its film frames and its values, with samples at whole frames. An act with no moves (a placeholder, a still) writes an empty list. The optional keys tell the motion gate what moves and what it may do: class (rig, ui, carry or whip, which speed limits apply), exempt with its reason, exception (a break a person signs off), size and unit.",
+ "type": "array",
+ "items": {
+  "type": "object",
+  "required": ["id", "shot", "prop", "ease", "frame_in", "frame_out", "from", "to", "samples"],
+  "properties": {
+   "id": {"type": "string", "minLength": 1},
+   "shot": {"type": ["string", "null"], "description": "the shot the move starts in (null when an engine couldn't place it)"},
+   "prop": {"type": "string", "minLength": 1},
+   "ease": {"type": "string", "minLength": 1, "description": "a brand ease, a kit curve (linear, sine, spring0, even), or measured (sampled in After Effects)"},
+   "frame_in": {"type": "number"},
+   "frame_out": {"type": "number"},
+   "from": {"$ref": "#/$defs/value"},
+   "to": {"$ref": "#/$defs/value"},
+   "samples": {"type": "array", "items": {"type": "array", "minItems": 2, "maxItems": 2,
+                                          "prefixItems": [{"type": "number"}, {"$ref": "#/$defs/value"}]}},
+   "entrance": {"type": "boolean"},
+   "loop_period": {"type": ["number", "null"]},
+   "rig": {"type": ["string", "null"]},
+   "class": {"enum": ["rig", "ui", "carry", "whip", "character", "mark", "element", "page", "camera"]},
+   "exempt": {"enum": ["reading_sweep", "steady"]},
+   "reason": {"type": "string"},
+   "exception": {"type": "string"},
+   "size": {"oneOf": [{"type": "number", "exclusiveMinimum": 0},
+                      {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "number", "exclusiveMinimum": 0}}]},
+   "unit": {"type": "string"},
+   "engine": {"type": "string"},
+   "layer": {"type": ["string", "integer", "null"]}
+  }
+ },
+ "$defs": {
+  "value": {"oneOf": [{"type": "number"}, {"type": "array", "items": {"type": "number"}}]}
+ }
+}

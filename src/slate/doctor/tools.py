@@ -284,11 +284,37 @@ def whisper_model_path(env: Env) -> Path:
     return cache / "whisper" / "large-v3-turbo.pt"
 
 
+def whisper_override(env: Env) -> str | None:
+    """The Whisper CLI a person chose for every stage: SLATE_WHISPER, then slate.toml's [voice] whisper (the same
+    switch the voice, timing and analyze stages read)."""
+    chosen = env.getenv("SLATE_WHISPER")
+    if not chosen:
+        try:
+            chosen = ((env.settings() or {}).get("voice") or {}).get("whisper")
+        except Exception:  # noqa: BLE001 - unreadable settings: no override
+            chosen = None
+    return str(Path(str(chosen)).expanduser()) if chosen else None
+
+
 def check_whisper(env: Env, ctx: Ctx) -> list[dict]:
     rows = []
-    path = env.which("whisper")
+    override = whisper_override(env)
+    path = override or env.which("whisper")
     item = brew_item(env, "openai-whisper", "Whisper (openai-whisper, Slate's aligner)", size="about 1 GB with PyTorch")
-    if not path:
+    if override and not (env.is_file(override) and env.is_executable(override)):
+        rows.append(R.red("tool.whisper", f"SLATE_WHISPER names {override}, which isn't an executable file, so no "
+                                          "stage can time its words.",
+                          "point SLATE_WHISPER (or slate.toml's [voice] whisper) at a Whisper CLI, or unset it to use "
+                          "Homebrew's", group=G, details={"override": override}))
+    elif override:
+        resolved = env.realpath(override)
+        m = re.search(r"/Cellar/openai-whisper/([^/]+)/", resolved)
+        version = m.group(1) if m else None
+        rows.append(R.green("tool.whisper", f"Whisper at {override}, named by SLATE_WHISPER for every stage"
+                                            + (f" (openai-whisper {version})" if version else ""),
+                            group=G, details={"path": override, "resolved": resolved, "version": version,
+                                              "override": override}))
+    elif not path:
         rows.append(R.red("tool.whisper", "Whisper isn't installed. It's Slate's aligner: every word's time on the "
                                           "film clock comes from it.", "brew install openai-whisper", group=G,
                           install=item))

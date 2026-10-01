@@ -90,8 +90,10 @@ The one hand-edited file in the score's folder. It says where the music does som
 
 ## Level and licence
 
-- The mix sets the score under the voice and ducks it under speech (the starting palette: about 15 LU under, ducked about
-  4 dB; the owner found one score "a teeny bit loud" and it went about 1.5 dB lower). Adjust by ear per brand and per
-  film (`slate mix --under`, `--duck`).
+- The mix sets the score under the voice and ducks it under speech. The starting palette uses the owner's approved
+  balance: 18.5 LU under before a 6 dB duck, about −21 LU against the voice (he found one score at 17 LU "a teeny bit
+  loud", and it went about 1.5 dB lower). That's also the level `sound.balance.levels` holds a score to (at most −19 LU
+  inside words). Adjust by ear per brand and per film (`slate mix --under`, `--duck`, or the brand's
+  `sound.palette.levels.music`).
 - Online commercial use is fine on paid plans; film, TV and radio need an Enterprise plan. The music-licence gate flags a
   broadcast format.

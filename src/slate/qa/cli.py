@@ -2,7 +2,8 @@
 
     slate qa                          every gate, in film order (writes qa/gates.json)
     slate qa loudness sync            just these gates
-    slate qa --quick                  skip the gates that read the whole picture (ocr, readtime, glitch, psnr)
+    slate qa --quick                  skip the gates that read the whole picture (ocr, readtime, glitch, psnr,
+                                      stability)
     slate qa --list                   the gates, where each comes from, and (in a film) its latest status
     slate qa --detach                 queue the run as a job and return its id at once (`slate job status <id>`)
     slate qa triage                   what isn't passing, most severe first, with the next step for each

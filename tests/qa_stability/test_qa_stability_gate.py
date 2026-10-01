@@ -77,6 +77,32 @@ def test_a_pop_on_a_planned_beat_is_the_films_own(stab_film, helpers):
     assert near[0]["class"] == "pop" and near[0]["distance"] == 2
 
 
+def test_a_pop_where_a_burned_in_caption_comes_or_goes_is_planned(stab_film, helpers):
+    """A format that burns captions into the picture (a social reel) plans every cue's coming and going on the film's
+    clock, like a beat: the caption appearing on its word isn't a pop for a person. Where the captions aren't burned
+    in, the same cue excuses nothing."""
+    f = _film(stab_film, helpers, rev=False)
+    t = (f.act_in(1) + POP_AT) / helpers.FPS[0] * helpers.FPS[1]
+    helpers.write_json(f.path / "timing" / "captions.json", {"cues": [
+        {"shot": "S01", "text": "A line", "lines": ["A line"], "start": round(t - 0.1, 4), "end": round(t + 0.6, 4)}]})
+    film = jsonio.read(f.path / "film.json")
+    jsonio.write_atomic(f.path / "film.json", {**film, "format": "social-reel"})
+    assert S.caption_changes(S_context(f)) == sorted({f.act_in(1) + POP_AT - 2, f.act_in(1) + POP_AT + 4,
+                                                      f.act_in(1) + POP_AT + 8, f.act_in(1) + POP_AT + 14})
+    r = _gate(f)
+    assert r.status == "PASS", r.summary
+    assert r.details["acts"]["1"]["near_beats"] == 1
+    jsonio.write_atomic(f.path / "film.json", {**film, "format": "brand-film"})  # 16:9, captions as sidecar files only
+    assert S.caption_changes(S_context(f)) == []
+    assert _gate(f).status == "REVIEW"
+
+
+def S_context(f):
+    from slate.qa.film import context
+
+    return context(f.path)
+
+
 def test_a_planned_beat_never_excuses_a_reversal(stab_film, helpers):
     f = _film(stab_film, helpers)
     f.events(2, [f.act_in(2) + 17])
@@ -182,6 +208,25 @@ def test_through_slate_qa_run_and_triage_acceptance(stab_film, helpers, monkeypa
     assert again[0].status == "PASS" and again[0].details["accepted"][0]["accepted_by"] == "Quinn"
     latest = gates.load_report(f.path)["stability"]
     assert latest.status == "PASS"
+
+
+def test_triage_shows_each_acts_last_scan(stab_film, helpers, tmp_path):
+    """`slate qa triage` shows each act's stability the way it shows the glitch scan: what's open by class, what the
+    planned beats, the reference and the baseline took out, and this scan's strips (never an older render's)."""
+    from slate.qa import triage
+
+    f = _film(stab_film, helpers)
+    _gate(f)
+    (f.path / "qa/stability/strips/act1_pop_999.png").write_bytes(b"an older render's strip")
+    rep = triage.report(f.path)
+    acts = {a["act"]: a for a in rep["stability"]["acts"]}
+    pop = f"qa/stability/strips/act1_pop_{f.act_in(1) + POP_AT}.png"
+    assert set(acts[1]["open_by_class"]) == {"pop"} and acts[1]["near_beats"] == 0
+    assert acts[1]["strips"] == [pop] and (f.path / pop).is_file()
+    assert acts[2]["open_by_class"] and all((f.path / s).is_file() for s in acts[2]["strips"])
+    text = triage.format_report(rep)
+    assert f"act 1: {acts[1]['open_by_class']['pop']} pop; 0 near a planned beat" in text and f"strip: {pop}" in text
+    assert triage._stability_summary(tmp_path) is None  # never scanned: nothing to show
 
 
 def test_the_command(stab_film, helpers, slate_home, capsys):

@@ -325,6 +325,25 @@ def test_retime_follows_the_voice_modules_selected_take(make_film):
     assert takes["S02"].stage == "paced" and round(takes["S02"].read_seconds, 3) == 2.5
 
 
+def test_a_polished_take_comes_before_the_stage_it_was_polished_from(make_film):
+    """The voice module's own order (polished, paced, clean, raw): the studio polish is what the film plays."""
+    film = make_film()
+    voice_takes(film, {"S02": 2.5})
+    folder = film / "voice" / "takes" / "S02"
+    folder.mkdir(parents=True)
+    (film / "voice" / "takes" / "S02.wav").rename(folder / "t01.paced.wav")
+    (folder / "t01.polished.wav").write_bytes((folder / "t01.paced.wav").read_bytes())
+    write_json(film / "voice" / "takes.json", {"shots": {"S02": {"selected": "t01", "approved": None, "takes": {
+        "t01": {"raw": "voice/takes/S02/t01.wav", "paced": "voice/takes/S02/t01.paced.wav",
+                "polished": "voice/takes/S02/t01.polished.wav"}}}}})
+    from slate.timing.takes import STAGES, find_takes
+
+    assert STAGES[0] == "polished"
+    takes = find_takes(film)
+    assert takes["S02"].rel == "voice/takes/S02/t01.polished.wav" and takes["S02"].stage == "polished"
+    assert round(takes["S02"].read_seconds, 3) == 2.5
+
+
 def test_a_locked_storyboard_is_refused(make_film, monkeypatch):
     from slate.story import builder
 

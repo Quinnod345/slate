@@ -55,6 +55,16 @@ DEFAULTS: dict[str, Any] = {
         "video_resolution": None,
     },
     "ae": {"app": None, "aerender": None},
+    "qa": {
+        "stability": {
+            # Worker processes for the render-stability scan: None means a quarter of the cores, at most 4.
+            "jobs": None,
+            # New flags an act may carry per class before the gate wants a person (0: nothing new, the bar for a
+            # final). Accepted flags live in each act's baseline, not here.
+            "limits": {"pop": 0, "snap": 0, "relative": 0, "shake": 0, "reversal": 0, "wobble": 0, "flicker": 0,
+                       "shimmer": 0},
+        },
+    },
     "models": {},
 }
 

@@ -292,6 +292,17 @@ def test_trials_write_listening_files_and_pin_nothing(voice_film):
         assert (voice_film / png).read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
     a, b = res["strengths"]["A"]["effect"], res["strengths"]["B"]["effect"]
     assert b["change"]["sibilance_peaks_db"] < a["change"]["sibilance_peaks_db"]
+    # the long-term spectrum of every set, pooled over the lines, charted against natural speech
+    spec = res["spectrum"]
+    assert set(spec["sets"]) == {"unpolished", "A", "B", "0.3"} and spec["sets"]["A"]["takes"] == 2
+    assert (voice_film / spec["chart"]).read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
+    sib = {k: v["bands_db"]["sib_5k_9k"] for k, v in spec["sets"].items()}
+    assert sib["B"] < sib["unpolished"]  # the de-esser and the top shelf, seen in the long-term spectrum too
+    # the harshest moments, each heard unpolished and then at every strength, level-matched
+    harsh = res["harshest"]
+    reel = jsonio.read((voice_film / harsh["reel"]).with_suffix(".json"))
+    assert harsh["moments"] and len(reel["items"]) == 4 * len(harsh["moments"])
+    assert [i["title"].rsplit(": ", 1)[1] for i in reel["items"][:4]] == ["unpolished", "A", "B", "0.3"]
     assert get_pin(voice_film, polish.PIN_KEY) is None
     assert VoiceFilm(voice_film).final_stage("S01") == "raw"
 

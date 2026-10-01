@@ -5,8 +5,15 @@ answer), one tagged take isn't enough to know. The tag loop voices several candi
 against the voice's own untagged reads of the same words, gates and ranks them, lets the owner hear the best side by
 side, and puts the pick into the film as that exact file.
 
-The loop's actions (optimize, pick, abc, adopt) belong to the voice stage's direction tools; `slate voice --help`
-lists them and each one's `--help` gives its options.
+```
+slate voice tags optimize --estimate   # the round's cost from voice/tags/candidates.json; nothing is voiced
+slate voice tags optimize              # voice every candidate on every seed plus the untagged reads, then measure
+slate voice tags pick                  # gate and rank each line's takes; ranking.md shows every gate
+slate voice tags abc S01               # the best passing takes, level-matched in one reel, to hear side by side
+slate voice tags adopt S01 N1s101      # the owner's pick (candidate N1, seed 101) goes in as that exact file
+```
+
+Each action works on the round in `voice/tags/main/` unless `--round R` names another; `--help` gives the rest.
 
 ## What the first films learned
 

@@ -41,6 +41,7 @@ from slate.errors import SlateError, UsageError
 MODULES: list[tuple[str, str]] = [
     ("slate.doctor", "doctor, connect"),
     ("slate.guide", "guide"),
+    ("slate.demo", "demo"),
     ("slate.state.cli", "new, status, make, approve, film, variant, revise"),
     ("slate.story.cli", "script"),
     ("slate.timing.cli", "timing"),
@@ -79,7 +80,10 @@ SUBROUTES: dict[tuple[str, str], str] = {("qa", "stability"): "slate.qa.stabilit
 FAST_COMMANDS: dict[str, str] = {"mcp": "slate.mcp.cli"}
 GLOBAL_VALUE_FLAGS = ("--film",)
 
-_state = {"json": False, "stopping": None}
+_state = {"json": False, "stopping": None, "caller_env": {}}
+# The variables the global flags set for the command's own run (--live sets SLATE_LIVE=1, --film sets SLATE_FILM),
+# as the caller had them before that: `caller_env` reads them.
+FLAG_ENV = ("SLATE_LIVE", "SLATE_FILM")
 
 
 class Parser(argparse.ArgumentParser):
@@ -198,6 +202,14 @@ def add_group(subparsers, name: str, help: str, **kw):
     return stages_action
 
 
+def caller_env(name: str) -> str | None:
+    """An environment variable as the caller set it, before this command's own flags changed it. `--live` sets
+    SLATE_LIVE=1 for the command, so a command that must tell a person's explicit SLATE_LIVE=1 from its own flag
+    (`slate demo --live` under an agent) reads it here."""
+    saved = _state.get("caller_env") or {}
+    return saved[name] if name in saved else os.environ.get(name)
+
+
 def flag(args: argparse.Namespace, name: str, default=None):
     """Read a global flag that may be absent (the common flags use SUPPRESS defaults)."""
     return getattr(args, name, default)
@@ -273,8 +285,8 @@ def _note_try_later(exc: SlateError) -> None:
 def main(argv: list[str] | None = None) -> int:
     """Run one command. Returns its exit code (argparse's own exits, like --help, raise SystemExit)."""
     words = list(sys.argv[1:] if argv is None else argv)
-    saved_json, saved_stopping = _state["json"], _state["stopping"]
-    _state["json"], _state["stopping"] = _json_requested(words), None
+    saved_json, saved_stopping, saved_env = _state["json"], _state["stopping"], _state.get("caller_env") or {}
+    _state["json"], _state["stopping"], _state["caller_env"] = _json_requested(words), None, {}
     handlers = _install_signal_handlers()
     try:
         code = _run(words)
@@ -286,7 +298,7 @@ def main(argv: list[str] | None = None) -> int:
         return int(exc.code)
     finally:
         _restore_signal_handlers(handlers)
-        _state["json"], _state["stopping"] = saved_json, saved_stopping
+        _state["json"], _state["stopping"], _state["caller_env"] = saved_json, saved_stopping, saved_env
 
 
 def _positionals(words: list[str]) -> list[tuple[int, str]]:
@@ -345,6 +357,7 @@ def _run(words: list[str]) -> int:
     else:
         parser = _fast_parser(words) or build_parser()
     args = parser.parse_args(words)
+    _state["caller_env"] = {k: os.environ.get(k) for k in FLAG_ENV}
     log.set_json(bool(flag(args, "json", False)))
     log.set_quiet(bool(flag(args, "quiet", False)))
     if flag(args, "live", False):

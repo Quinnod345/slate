@@ -48,7 +48,8 @@ owner asked for.
 
 1. **Try before you pin.** The polish stage's trial mode renders the strengths you name (A and B, say) for every line
    without pinning or registering anything: a level-matched reel (each line unpolished, then each strength), every
-   number in `voice/polish/try/trial.json`, and an A/B spectrogram sheet per line on request.
+   number in `voice/polish/try/trial.json`, and on request an A/B spectrogram sheet per line plus one long-term
+   spectrum chart (every line pooled, unpolished and each strength, against natural speech's shape).
 2. **The owner picks by ear.** Measurements say what changed; the ear says whether it's still the voice.
 3. **Polish with the pick.** The first real polish pins the strength and the whole resolved chain in film.json
    (`voice_polish`). Every later polish of that film uses the pin, so a line re-voiced in week three gets week one's

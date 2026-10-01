@@ -127,6 +127,28 @@ def test_gap_catches_a_hole_unless_it_is_planned(slate_home):
     assert _by_name(verify.run(fd, ["sound.gap"]))["sound.gap"].status == "PASS"
 
 
+def test_a_fade_into_a_planned_silence_is_part_of_the_silence(slate_home):
+    """The owner approved the music fading into a planned stop as part of the stop (2026-09-30): the gap gate widens
+    each stop by the music's own fade, as sound.planned_stops does, and still fails a hole anywhere else."""
+    H.brand(slate_home["brands"])
+    fd = H.film(slate_home["films"], "fading")
+    score = H.pad(14.0)
+    t = np.arange(len(score)) / SR
+    fade = np.clip((7.0 - t) / 1.2, 0.0, 1.0) ** 3  # a 1.2 s fade, mostly far under the floor, into the stop at 7 s
+    score = score * np.where(t < 7.0, fade, 0.0)[:, None] + score * (t >= 8.5)[:, None]
+    audio.write_wav(fd / "sound/score/score.wav", score, SR)
+    jsonio.write_atomic(fd / "sound/score/directions.json",
+                        {"planned_stops": [{"from": 7.0, "to": 8.5, "why": "a held breath"}]})
+    mix.run(fd)
+    r = _by_name(verify.run(fd, ["sound.gap"]))["sound.gap"]
+    assert r.status == "PASS", (r.summary, r.details.get("failures"))
+    score[int(3.0 * SR):int(4.0 * SR)] = 0.0  # a hole nobody planned
+    audio.write_wav(fd / "sound/score/score.wav", score, SR)
+    mix.run(fd)
+    r = _by_name(verify.run(fd, ["sound.gap"]))["sound.gap"]
+    assert r.status == "FAIL" and r.details["failures"][0]["t"] == 3.0
+
+
 def test_voice_sync_catches_a_take_ten_ms_off(sound_film):
     mix.run(sound_film)
     cues = jsonio.read(sound_film / "timing/vo_cues.json")

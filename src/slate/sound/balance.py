@@ -101,6 +101,10 @@ STARTING_BALANCE: dict[str, Any] = {
                  "phrase_gap_s": 0.3},
     "clarity": {"band_hz": [1000.0, 5000.0], "min_db": 12.0, "trade_flag_db": 8.0, "trade_floor_db": 6.0,
                 "alone_min_db": {"score": 19.0}},
+    # The score's own clarity guard in `slate mix` (slate.sound.guard): its top dips under any word it would crowd
+    # to the score-alone floor above, by just enough. `score_guard: false` in a brand's balance turns it off.
+    "score_guard": {"band_hz": [1000.0, 5000.0], "target_db": 19.0, "split_hz": 600.0, "max_dip_db": -20.0,
+                    "hold_s": 0.15, "ramp_s": 0.3},
     "never_over": {"min_margin_db": 0.0},
     "texture_air": {"band_hz": [2000.0, 6000.0], "min_db_under_voice": 20.0, "family": "textures"},
     "accents_over_score": {"min_db": 3.0, "families": ["accents", "impacts"], "score": "score", "window_s": 0.12},

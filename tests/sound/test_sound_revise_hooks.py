@@ -30,10 +30,10 @@ def test_an_unchanged_mix_passes(approved_mix):
 
 def test_music_brought_down_is_a_review_with_the_numbers(approved_mix):
     film, approved, current = approved_mix
-    mix.run(film, under=18.0)  # the note: "the music a touch lower"
+    mix.run(film, under=21.5)  # the note: "the music a touch lower"
     r = revise_hooks.compare(film, approved, current)
     assert r.status == "REVIEW" and "moved" in r.summary
-    assert -3.6 < r.details["balance_shift_lu"] < -2.4  # the score sat 15 LU under the voice, now 18
+    assert -3.6 < r.details["balance_shift_lu"] < -2.4  # the score sat 18.5 LU under the voice, now 21.5
     assert abs(r.details["balance"]["revised"]["voice_gain_db"] - r.details["balance"]["approved"]["voice_gain_db"]) < 1
 
 
