@@ -208,14 +208,103 @@ are data packs, and the tests use a neutral demo brand.
   copy and take banned-word forms with substitutes, `truth.self_commentary` and a mark's colourways. Doctor adds the
   gateway's egress proxy, AE's launch dialogs, one MCP server copy per client, the Claude Code version and a stray
   `.env`.
+- **The demo, green again.** The new `end_hold` and type-size checks stopped `slate demo` at QA: the social reel now
+  says its own end hold (`end_hold_s`, which a format may set now: 1.5 s, a tenth of the shortest reel, where longer
+  films keep the films' 3 s), and the demo's placeholder act, drawn small inside the platforms' safe column, declares
+  its text not for reading. The logo sting says its hold beat's 1.5 s the same way, since 3 s is most of a 5-second
+  sting. Running the state tests before the job tests no longer leaks a fake brand pack.
 - **The ledger, re-mapped.** Every one of the 166 lessons that were gaps now lands somewhere real or waits with its
   planned file: 147 closed, each with its file, symbol and tests; 10 wait for proof 3 and 9 for the tilt wave. The film
   session's work after the second harvest is harvested as an addendum (8 lessons). `slate knowledge gaps --write`
   regenerates `knowledge/GAPS.md` from the ledger, and a test holds the file to it.
+- **The kit's tilt raster mode and its stability bench.** An act opts in with one wrapper at its root
+  (`<RasterModeProvider value={actRasterMode()}>`): type is drawn under a y-skew too small to see, so headless Chrome
+  places it at quarter pixels instead of snapping it to whole ones, and nothing is hinted or kept between frames, so
+  slow moves stay smooth and type stays crisp at once. `TypeTilt`, `TiltSpan` and `TiltPlane` put the tilt where it
+  belongs; `Card`, the cameras, `PerChar`, `PerWord`, `Arrive`, `KineticWords`, `Field` and `StreamText` (one tilted
+  block, each character faded by its colour) handle it themselves; a card whose size morphs lays out at whole even
+  sizes (`morphPose`). Hint mode, the default, draws exactly what it drew: the markup bench proves it against the kit at
+  HEAD (the whole review sheet, 300 samples in two looks, identical), and its new tilt coverage audit holds a converted
+  act to the placement rules without rendering a pixel. The engine kit's stability bench (`engine/remotion/kit/bench`)
+  renders through the queue with `slate qa stability conformance --render --detach`; its first run on this Mac is
+  queued, and the nine tilt lessons stay pending until it passes.
+- **Smaller closings.** A text element's motion trace carries its type role and words, and a gesture's beat its word
+  and stressed syllable. Every supervised After Effects step stops on a launch dialog, and the AE bridge's status
+  names the dialogs AE is showing. A shot's engine travels from the script through the storyboard into
+  `timing/shots.json`. A web act's boundary frames are held to its neighbours' declared rest states, bit for bit.
+  `slate analyze` hears through Slate's one Whisper runner. The script schema names the motion law's transition kinds
+  (`{kind, note}`, beside the words every script so far uses) and a shot's engine; short formats say their end holds.
+  `slate mix` records the brand's sound palette and the effect cue sheet in its own lock entry. A proxy that refuses
+  the tunnel fails at once instead of being retried. Measuring a tag round no longer holds the TTS slot. CI names both
+  skill validators in steps of their own. A queued job keeps the engine its caller chose (`SLATE_ENGINE_DIR`), and the
+  markup bench works through a symlinked data folder.
+- **The data-parity proof (P192).** Timing, cue sheets, captions and every mix, rerun on films A, B and C's own
+  inputs with the heavy tests on, match what they delivered within the stated tolerances: 49 tests, all passing
+  (`docs/PROOFS.md`).
+
+### Live runs (2026-10-01)
+
+- **Renders survive a busy Mac.** Every Remotion render, still and determinism check now waits up to three minutes
+  for a page to be ready (`renderTimeoutMs()` in `engine/remotion/browser.mjs`; `SLATE_RENDER_TIMEOUT_MS` overrides
+  it), and the kit's font gate holds its first frame as long. Remotion's own 30 s default failed `slate demo` while
+  the font gate loaded its faces at load 600. A test holds every render call to it.
+- **`slate timing stress <shot> <word>`.** Where a key word's stressed syllable starts (S) and its contact frame
+  (C = S + 2), measured from the take's loudness envelope with the films' own `stress_onset.py` maths (parity-tested
+  against it), in film seconds on the sync gate's own path. It prints the beat's `stress_start` and `stress_end`, falls
+  back to the word's start when the word has no stop (early, never late), and refuses a word the take never says.
+  It's in the MCP server's quick stages too.
+- **Frame-for-frame comparisons pair frames by their place, not their timestamps.** ffmpeg pairs two videos by time,
+  and two containers that round the same frame times differently (Matroska to the millisecond, QuickTime to 1/30000 s)
+  matched a third of the frames with their neighbours: identical pictures read 27.98 dB. `slate qa psnr`, the `psnr`
+  gate and the Higgsedit benchmark's quality check now renumber both sides on one clock first (`INDEX_CLOCK`), with a
+  test on the same frames as MKV and MOV. `slate qa psnr` also takes `--a-frames` and `--b-frames FIRST-LAST`, so a
+  shot's render is held against its frames in a whole act without cutting a file.
+- **Proofs P193 and P282 are in `docs/PROOFS.md`.** Film A's Act 4 through Slate's engine: all 2,712 frames at 62.91 dB
+  or better against the delivered render (193 bit-identical). `HtmlInCanvasMotionBlur` was 12 times faster than
+  render_mb and lost on quality (an 8-bit canvas sum), so render_mb stays the default.
+- **The font gate holds a page once.** The kit's font gate took its hold on the first frame in a component's state,
+  so a render React threw away, or a tree mounted twice, left a hold nothing released: the stability bench's first
+  tilt-mode variant waited three minutes on a gate that had passed in every tab. The hold is now the page's, one per
+  font plan (`holdFirstFrame`), released by the gate's own result, with tests.
+- **`slate job submit --dry-run` queues nothing.** It used to queue the job for real; now it checks the job exactly as
+  a submit would (`client.plan`) and prints what it would queue.
+- **Eleven Music's stereo stays stereo.** Every live ElevenLabs answer was labelled one channel, so a live look test's
+  48 kHz stereo score was written as mono at twice the length, an octave low. A take is now written with the
+  channels it came in: the answer's own (a WAV header, a `channels=` parameter), else its format's (Eleven Music stereo,
+  speech mono). Recordings keep the count, so a replay writes the live take byte for byte. Tests on a stereo answer, a
+  mono read and a replay.
+- **A brand edit stales only what reads it.** The script and the timing recorded the whole brand.json, so any pack
+  edit, `slate brand approve` included, made every film on the brand stale down to its locked timing. Each now records
+  the blocks it reads: the script `brand:<name>#truth` and its duration scale, the timing `brand:<name>#motion.eases`.
+  An approval or a look edit leaves both fresh; a new claim, duration or ease still stales what reads it. Old locks
+  compare the whole file until their stage runs again.
+- **The hand-in runs the motion law.** `slate check` passed an act that `slate qa motion` failed four ways. It now runs
+  the motion gate's trace checks on the act's own, current trace (`handin.act<N>.motion`, no pixels: 0.06 s for 300
+  moves), so a broken law fails before anything renders; its other gates and output are unchanged.
+- **`labels` means one thing to both gates.** The script gates took `"reading": {"labels": true}` (words that name what
+  the picture shows, such as a Simulator label) and `slate qa readtime` refused it. Readtime now takes it with the same
+  meaning and limits: it answers the 40% voice-share rule only, and the words are still timed in full.
+- **`--dry-run` is a dry run, everywhere.** `slate --dry-run qa` ran two minutes of whole-picture analysis outside the
+  queue and wrote caches; now it names the gates, the renders and whether it would queue, and runs nothing. An audit of
+  every command found about sixty more that ignored the flag: `--detach` dropped it and queued the real, paid job, and
+  others spent, sent an iMessage, asked for a key, opened After Effects or wrote records. Each now stops first
+  (`slate.cli.dry_stop`), and one test holds them all to it with tripwires on processes, network, messages and the queue.
+- **Slate's own starting points keep the motion law.** Once the hand-in ran the law, both acts of the end-to-end test
+  failed it at 320 × 180 over 10 frames: the web template clamped its turn to 10 frames, off the brand's scale, and
+  dropped its line at 3.2 px/frame² against a UI element's 2.7; the kit fixture's card and dot moved 17.5 and 77.8 px a
+  frame against 10. The kit now sizes a move to the law before anything renders: `durFit()` takes the longest step of
+  the scale that fits, and `maxTravel()` the longest travel a move can make inside its class's speed limits at the
+  film's size, measured as the gate measures a trace (a test holds its `SPEED_LIMITS` to the gate's). The template uses
+  both, so a fresh web act passes `handin.act<N>.motion` in any act, and in one with room it draws exactly what it drew
+  before (60 frames at 1080p, hash for hash). The fixture's moves are now a tick long, and travel 4 and 17 px.
+- **The motion gate reads radians.** A rotation traced in radians (three.js records them, as the web template's turn
+  does) was read as degrees, so a whole radian a frame passed the edge-speed limit 57 times over. Traces in radians
+  are converted when they're read, with a regression test.
 
 ### Still to come in 0.1.0
 
 Waiting for a person: the first live After Effects finish (`slate ae smoke --go` and the rest, on Quinn's go), the
-effects engine (after proof 3 is approved) and the agents' live eval runs. Being built: the kit's tilt raster mode and
-its stability bench (bench first), then the effects engine's spotting, guards and family stems once proof 3 is
-approved; `knowledge/GAPS.md` lists each with its planned file.
+effects engine (after proof 3 is approved) and the agents' live eval runs. Being built: the stability bench's first
+pass on this Mac (queued), then acts converted to the kit's tilt raster mode one at a time; the effects engine's
+spotting, guards and family stems once proof 3 is approved. `knowledge/GAPS.md` lists each pending lesson with its
+planned file.

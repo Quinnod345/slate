@@ -39,7 +39,7 @@ export function webScene(filmDir, act) {
 const webModule = () => (process.env.SLATE_WEB_RENDER_MODULE ? path.resolve(process.env.SLATE_WEB_RENDER_MODULE) : path.join(ENGINE_DIR, 'web', 'render.mjs'));
 
 /** The open web renderer's webRender(), or the missing-prerequisite error that says how to get it. */
-async function webRenderer(act) {
+export async function webRenderer(act) {
   const file = webModule();
   if (!fs.existsSync(file)) {
     throw missing(`Act ${act} is a web scene, but the open web renderer isn't in this engine (${file}).`, 'Update Slate and run `slate engine install` again.');

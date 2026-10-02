@@ -47,6 +47,18 @@ jobs:
       - name: The plugin's skill copies, Codex sidecars and OpenClaw entries match the skills
         run: .venv/bin/python -m slate skills build --check
 
+      # The two clients' own validators, named and run here so neither is ever skipped in CI (the drift check above
+      # runs them only where they're installed, and skips each with a notice where it isn't).
+      - name: "claude plugin validate --strict: Claude Code's own check of the built plugin"
+        run: npx --yes @anthropic-ai/claude-code@2.1 plugin validate --strict plugins/slate
+
+      - name: "skills-ref validate: the Agent Skills reference validator, on every built skill"
+        run: |
+          .venv/bin/python -m pip install "skills-ref==0.1.1"
+          for skill in plugins/slate/skills/*/; do
+            .venv/bin/skills-ref validate "$skill"
+          done
+
       - name: The desktop extension's manifest matches Slate
         run: .venv/bin/python -m slate mcpb build --check
 

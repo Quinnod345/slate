@@ -762,6 +762,10 @@ def _size(v: Any) -> tuple[float, float] | None:
     return None
 
 
+#: A trace's rotation in these units is converted to degrees when it is read.
+RADIANS = ("rad", "rads", "radian", "radians")
+
+
 def move_from(e: dict, act: int, index: int, offset: float = 0.0, file: str | None = None) -> Move:
     """A validated trace entry as a Move, its frames shifted by `offset` into film frames."""
     np = _np()
@@ -771,6 +775,11 @@ def move_from(e: dict, act: int, index: int, offset: float = 0.0, file: str | No
     if values.ndim == 1:
         values = values.reshape(-1, 1)
     start, end = _vec(e.get("from")), _vec(e.get("to"))
+    # every check reads a rotation in degrees; a trace may record it in radians (three.js does, the web template's turn)
+    if prop_kind(e["prop"], e.get("unit")) == "rotation" and str(e.get("unit") or "").strip().lower() in RADIANS:
+        values = np.degrees(values)
+        start = None if start is None else np.degrees(np.asarray(start, dtype=float))
+        end = None if end is None else np.degrees(np.asarray(end, dtype=float))
     if start is None and len(values):
         start = values[0].copy()
     if end is None and len(values):
@@ -2656,6 +2665,68 @@ def evaluate(film_dir: Path, *, acts: Iterable[int] | None = None, render: str |
     return result
 
 
+def handin_gate(film_dir: Path, act: int) -> GateResult | None:
+    """handin.act<N>.motion: the motion law on one act's trace, for its hand-in (`slate check`). Every check of the
+    motion gate but the pixel cross-check, so a move that breaks the brand's law fails the hand-in before anything
+    renders. No pixels and no caches: it reads the trace, the shots, film.json and the brand's motion data.
+
+    It reads timing/motion/actN.json, which `slate emit-events` writes with the act's events and records with the
+    act's sources, and holds it to the act as it is now: a trace the act's sources have moved on from is out of date (a
+    FAIL that says to emit again), never judged as if it were current. Returns None when the act has no trace at all
+    (an act drawn without the kit's motion registry, or a web scene not built with defineScene()): there's nothing to
+    read, and the film's `motion` gate judges that act through its pixel cross-check, as before."""
+    from slate.qa.checks import combine  # noqa: PLC0415
+    from slate.qa.film import context  # noqa: PLC0415
+
+    ctx = context(film_dir)
+    act = int(act)
+    rel = f"{TRACE_DIR}/act{act}.json"
+    if not ctx.path(rel).is_file():
+        return None
+    name = f"handin.act{act}.motion"
+    engine = gates.engine("slate qa motion (the trace checks, no pixels)", __version__)
+    state, why = _trace_state(ctx.dir, rel)
+    read = ["film.json", "timing/shots.json", rel]
+    if state == "stale":
+        return GateResult(name, "FAIL", f"{rel} is out of date with the act ({why[0]}): run `slate emit-events --act "
+                          f"{act}`, then hand the act in again", evidence=why, engine=engine,
+                          inputs=ctx.inputs(dict.fromkeys(read)), details={"stage": "scenes", "act": act, "trace": rel})
+    data = load_data(ctx.dir, acts=[act], ctx=ctx)
+    subs = [s for s in (fn(data, ctx) for fn in CHECKS.values()) if s is not None]
+    law = data.law
+    details = {"stage": "scenes", "act": act, "trace": rel, "moves": len(data.moves),
+               "law": law.source if law else None, "law_reason": data.law_reason, "notes": data.notes + why,
+               "pixels": "not read here: `slate qa motion` cross-checks the render", **lifted_review_items(subs)}
+    # the brand's motion law is what it read, not the whole pack: an approval or a look edit leaves it current
+    law_key = f"brand:{ctx.brand}#motion" if ctx.brand else None
+    brand_inputs = [law_key] if law_key and gates.is_named(law_key, ctx.dir) else data.brand_files
+    result = combine(name, subs, engine=engine, inputs=ctx.inputs(dict.fromkeys(read + brand_inputs)),
+                     details=details, empty_summary=f"act {act}'s trace has no moves to check")
+    if result.status == "PASS":
+        result.summary = (f"the motion law holds on act {act}'s trace: {_plural(len(data.moves), 'traced move')} "
+                          "(the pixels are `slate qa motion`'s to cross-check once it renders)")
+    return result
+
+
+def _trace_state(film_dir: Path, rel: str) -> tuple[str, list[str]]:
+    """("current" | "stale" | "unrecorded", why) for an act's trace against what made it, from film.lock.json: its
+    own inputs only (the act's sources and the shots), so a re-time waiting upstream doesn't turn it stale."""
+    try:
+        from slate.state import lock  # noqa: PLC0415 - film state is optional for the gates
+    except ImportError:
+        return "unrecorded", []
+    try:
+        x = lock.explain(film_dir, rel, deep=False)
+    except Exception as exc:  # noqa: BLE001 - an unreadable lock never stops the law being checked
+        return "unrecorded", [f"film.lock.json couldn't say what made {rel} ({exc})"]
+    if x["state"] in ("fresh", "locked"):
+        return "current", []
+    if x["state"] == "unrecorded":
+        return "unrecorded", [f"nothing records what made {rel}, so whether it is the act as it is now can't be "
+                              "told (`slate emit-events` records it)"]
+    return "stale", list(x.get("reasons") or ["it changed"])
+
+
 def lifted_review_items(subs) -> dict:
     """Every sub-check's REVIEW items (and the ones a person accepted), lifted to the gate's own details, where
     `slate qa triage --accept motion:<key>` looks for them."""
@@ -2911,33 +2982,33 @@ def show(result: GateResult) -> str:
 
 def run_command(gate_name: str, args: argparse.Namespace) -> int:
     """`slate qa motion` or `slate qa access` as a command of its own: check the options, run the one gate the way
-    slate.qa.run does (recorded in qa/gates.json and qa/history.jsonl; an autonomous film parks on REVIEW), or only
-    compute it with --dry-run, and print it."""
+    slate.qa.run does (recorded in qa/gates.json and qa/history.jsonl; an autonomous film parks on REVIEW), and print
+    it. With --dry-run it says what would run and runs nothing, as `slate --dry-run qa` does."""
     from slate import cli, qa  # noqa: PLC0415
     from slate.qa import park  # noqa: PLC0415
-    from slate.qa.film import session  # noqa: PLC0415
 
     film_dir = cli.film(args)
     opts = options_from(args, [gate_name], film_dir)
-    dry = bool(cli.flag(args, "dry_run", False))
+    if cli.flag(args, "dry_run", False):  # say what would run; run nothing (no trace read, no pixel scan, no cache)
+        given = {k: v for k, v in opts.items() if v is not None}
+        log.result({"gates": [], "dry_run": True, "would_run": [gate_name], "film_dir": str(film_dir),
+                    "options": given, "queued": False},
+                   f"dry run: would run the {gate_name} gate on {Path(film_dir).name} here (not queued)"
+                   + (f" with {given}" if given else "") + "; nothing ran (qa/gates.json not updated)")
+        return 0
     with run_options(**opts):
-        if dry:
-            with session(film_dir):
-                result = GATE_FUNCTIONS[gate_name]()(film_dir)
-            results = [result]
-        else:
-            results = qa.run(film_dir, [gate_name])
-    report_path = None if dry else Path(film_dir) / "qa" / "gates.json"
-    parked = None if dry else park.status(Path(film_dir))
+        results = qa.run(film_dir, [gate_name])
+    report_path = Path(film_dir) / "qa" / "gates.json"
+    parked = park.status(Path(film_dir))
     human = ["\n".join(show(r) for r in results)]
-    human.append("(dry run: qa/gates.json not updated)" if dry else f"recorded in {report_path}")
+    human.append(f"recorded in {report_path}")
     if parked:
         human.append(f"PARKED: {parked.get('why')} Release: {parked.get('release')}")
     summary = gates.summarize(results)
-    if summary["status"] != "PASS" and not dry:
+    if summary["status"] != "PASS":
         human.append("next: slate qa triage   (what isn't passing, with the next step for each)")
-    log.result({"gates": [r.to_dict() for r in results], "summary": summary,
-                "report": None if report_path is None else str(report_path), "dry_run": dry, "parked": parked,
+    log.result({"gates": [r.to_dict() for r in results], "summary": summary, "report": str(report_path),
+                "dry_run": False, "parked": parked,
                 "options": {k: v for k, v in opts.items() if v is not None}}, "\n".join(human))
     return gates.exit_code(results)
 

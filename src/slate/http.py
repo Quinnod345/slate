@@ -8,6 +8,9 @@
 - A rate limit (429) or an unavailable service (503) that ends a request raises `RateLimited`: an HttpError (so every
   vendor's own handling still sees the status) that is also `slate.errors.TryLater`, exit 75, which the job queue
   answers by trying the job again later instead of failing it. It carries the vendor's Retry-After when there is one.
+- A proxy that refuses the tunnel ("Tunnel connection failed: 403 Forbidden", the OpenClaw gateway's egress proxy for
+  a host it doesn't allow) fails at once, even for a read: the proxy's list doesn't change between tries, so backing
+  off only delays the answer. The message keeps the proxy's words, so slate.vendors.egress can name the allowlist.
 - Error bodies are redacted before they are shown.
 """
 
@@ -18,6 +21,7 @@ import json
 import mimetypes
 import os
 import random
+import re
 import ssl
 import time
 import urllib.error
@@ -37,6 +41,16 @@ RETRYABLE = {408, 425, 429, 500, 502, 503, 504}
 TRY_LATER = {429, 503}  # ends a request as RateLimited (exit 75): the queue tries the job again later
 BILLING_METHODS = ("POST", "PUT", "PATCH", "DELETE")
 SYSTEM_CA_FILES = ("/etc/ssl/cert.pem", "/private/etc/ssl/cert.pem")
+# How http.client reports an HTTPS proxy that turned the CONNECT away ("Tunnel connection failed: 403 Forbidden").
+# The same words slate.vendors.egress.TUNNEL_RE reads; kept here so the foundation never imports a vendor module.
+TUNNEL_REFUSED = re.compile(r"tunnel connection failed:\s*\d{3}", re.IGNORECASE)
+
+
+def tunnel_refused(exc: BaseException) -> bool:
+    """Whether a connection error is a proxy refusing the tunnel: an answer that won't change on a retry."""
+    reason = getattr(exc, "reason", None)
+    return bool(TUNNEL_REFUSED.search(f"{exc} {reason or ''}"))
+
 
 _ssl_context: ssl.SSLContext | None = None
 
@@ -160,9 +174,16 @@ def request(method: str, url: str, *, headers: Mapping[str, str] | None = None, 
             raise http_error(exc.code, url, payload, method=method, headers=exc.headers) from None
         except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
             last_exc = exc
-            if attempt + 1 < attempts:
+            # a proxy's refusal at the tunnel is its allowlist talking: the same answer on every try, so no backoff
+            if attempt + 1 < attempts and not tunnel_refused(exc):
                 _sleep(attempt, None)
                 continue
+            if tunnel_refused(exc):
+                raise SlateError(f"Couldn't reach {url.split('/')[2]}: {redact(str(exc))}",
+                                 hint="An HTTPS proxy turned the connection away before it reached the host, and it "
+                                      "would again: allow the host in that proxy, or run the command where no proxy "
+                                      "stands in the way (Slate's job queue does).",
+                                 details={"tunnel_refused": True}) from None
             raise SlateError(f"Couldn't reach {url.split('/')[2]}: {redact(str(exc))}",
                              hint="Check the network; a POST is never retried automatically.") from None
     raise SlateError(f"Request failed: {last_exc}")  # pragma: no cover

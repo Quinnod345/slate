@@ -39,5 +39,7 @@
  "broadcast": false,
  "generation": "rarely",
  "engines": ["remotion", "ae"],
- "notes": ["Built from the brand pack's logos (SVG) and logo-build spec; the kit's logo build and sting components do the work."]
+ "end_hold_s": 1.5,
+ "notes": ["Built from the brand pack's logos (SVG) and logo-build spec; the kit's logo build and sting components do the work.",
+           "The end hold is the hold beat's own 1.5 s (qa's end_hold): the films' 3 s end card would be most of a 5-second sting and longer than a 2-second one."]
 }

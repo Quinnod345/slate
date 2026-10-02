@@ -177,6 +177,8 @@ def _simple(seg: list[str]) -> Simple | None:
     i = 0
     while i < len(seg):
         tok = seg[i]
+        if tok in ("0", "1", "2") and i + 1 < len(seg) and _is_redirect(seg[i + 1]):
+            tok, i = tok + seg[i + 1], i + 1  # `2>&1`, `2>/dev/null`: the fd belongs to the redirect, not the argv
         if _is_redirect(tok):
             target = seg[i + 1] if i + 1 < len(seg) else ""
             redirects.append((tok, target))
@@ -197,6 +199,8 @@ def _simple(seg: list[str]) -> Simple | None:
     for _ in range(8):  # nested wrappers: `sudo env A=1 nohup slate …`
         if not words or os.path.basename(words[0]) not in _WRAPPERS:
             break
+        if os.path.basename(words[0]) == "command" and any(w in ("-v", "-V") for w in words[1:2]):
+            break  # `command -v chromium` looks a name up; it runs nothing
         name = os.path.basename(words.pop(0))
         takes = _WRAPPERS[name]
         flags: list[str] = []
@@ -310,8 +314,33 @@ def writes(simple: Simple) -> list[str]:
         out += plain[1:]
     code = code_argument(simple)
     if code:
-        for rx in _CODE_WRITE_RES:
-            out += [m.group("p") for m in rx.finditer(code)]
+        out += code_writes(code)
+    return out
+
+
+# `(film / 'script/script.json').write_text(…)` and `(root / 'brief/notes.md').open('w')`: a path built in parentheses,
+# then written. The string literals inside the parentheses name the file.
+_CODE_WRITE_EXPR_RE = re.compile(r"\(([^()\n]{1,300})\)\s*\.(?:write_(?:text|bytes)\(|open\(\s*(['\"])[wax])")
+_LITERAL_RE = re.compile(r"(['\"])([^'\"\n]{1,300})\1")
+
+
+def code_writes(code: str) -> list[str]:
+    """Paths a piece of inline code (`python -c`, `node -e`, or a script in a heredoc) writes to."""
+    out: list[str] = []
+    for rx in _CODE_WRITE_RES:
+        out += [m.group("p") for m in rx.finditer(code)]
+    for m in _CODE_WRITE_EXPR_RE.finditer(code):
+        out += [lit for _q, lit in _LITERAL_RE.findall(m.group(1))]
+    return out
+
+
+def heredoc_writes(text: str) -> list[str]:
+    """Paths the scripts in a command's heredocs write to (`python3 - <<'PY' … PY`). The bodies are data to the shell,
+    but a script's writes are still the agent's writes."""
+    _kept, bodies = strip_heredocs(text or "")
+    out: list[str] = []
+    for body in bodies:
+        out += code_writes(body)
     return out
 
 

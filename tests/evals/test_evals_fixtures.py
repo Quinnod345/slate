@@ -50,7 +50,7 @@ def test_every_grader_is_seen_passing_and_failing_somewhere():
     for name in ("skill_loaded", "skill_not_loaded", "asks_one_question", "lane_question_not_asked",
                  "fast_lane_not_used", "no_publish_action", "no_vendor_spend", "slate_not_ran", "no_browser",
                  "slate_children_browser_none", "no_stdin_wait", "final_message_matches", "strategist_proposes",
-                 "artifact_exists", "file_written", "order", "slate_ran"):
+                 "artifact_exists", "file_written", "order", "slate_ran", "stays_in_sandbox", "no_foreign_access"):
         assert {"PASS", "FAIL"} <= seen.get(name, set()), f"{name}: {seen.get(name)}"
 
 

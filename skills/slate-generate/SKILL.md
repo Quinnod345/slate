@@ -1,6 +1,6 @@
 ---
 name: slate-generate
-description: Decide whether a Slate film should use generated footage or images, and make it well when it should. Covers the policy (rarely by default, as much as the requester wants, code first for anything designed), generating real people, real scenes and stock-style shots where code can't go, the generate block in the script, estimates, takes and judging them (at least two, ugly or AI-looking takes never ship), the best models, grounding in the brand, conforming plates, mattes that use a generation only for its shape, and spend on the Higgsfield Cloud API. Use when a Slate film might need a generated shot, plate, bridge or still, when takes need judging, or when someone asks what generation will cost.
+description: Decide whether a Slate film should use generated footage or images, and make it well when it should. Covers the policy (rarely by default, as much as the requester wants, code first for anything designed), real people, real scenes and stock-style shots where code can't go, estimates, takes and judging them (at least two, and ugly or AI-looking takes never ship), the best models, grounding in the brand, conforming plates, mattes, and spend on the Higgsfield Cloud API. Use when a Slate film might need a generated shot, plate, bridge or still, when takes need judging, or when someone asks what generation will cost.
 ---
 
 # slate-generate

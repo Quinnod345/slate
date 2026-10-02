@@ -455,8 +455,22 @@ def run(film_dir: Path, *, score: str | Path | None = None, no_score: bool = Fal
         if calibration:
             jsonio.write_atomic(out_dir / "calibration.json", jsonio.mark_generated(calibration, "slate mix --calibrate"))
         inputs = ["timing/shots.json", "timing/vo_cues.json"] + ([film.rel(sp)] if sp else []) + list(stem_files.values())
-        record_lock(film, outputs["mix"], producer="slate mix", inputs=[i for i in inputs if film.path(i).exists()])
+        record_lock(film, outputs["mix"], producer="slate mix", inputs=[i for i in inputs if film.path(i).exists()],
+                    tracked=mix_tracked(film))
     return mix_path
+
+
+# What the mix answers to besides the files it reads: the effect cue sheet (spotted against the palette) and the brand's
+# sound palette itself. A palette change re-spots every effect and remakes the mix (the films' rule); recording both
+# in the mix's own lock entry lets `slate status` and `slate make` see it by hash from the first mix on.
+CUE_SHEET = "sound/sound_cues.json"
+
+
+def mix_tracked(film: Film) -> list[str]:
+    """The inputs slate.state.lock hashes for the mix: sound/sound_cues.json (present or not yet) and, when the film
+    names a brand, brand:<name>#sound."""
+    brand = str(film.data.get("brand") or "").strip()
+    return [CUE_SHEET] + ([f"brand:{brand}#sound"] if brand else [])
 
 
 def listening_file(film_dir: Path, *, n: int = 9) -> dict:

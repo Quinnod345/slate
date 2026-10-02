@@ -48,7 +48,10 @@
         "lead": {"type": "number", "minimum": 0},
         "hold": {"type": "number", "minimum": 0},
         "generate": {"type": "object", "description": "the shot's generation request from script.json, carried through to timing/shots.json"},
-        "reading": {"type": "object", "description": "the shot's reading declaration from script.json (voice_matched, not_for_reading, reason), for the script gates and `slate qa readtime`"}
+        "transition": {"description": "how the shot hands to the next, as script.json gives it: words, or {kind, note} in the motion law's kinds",
+                       "oneOf": [{"type": "string"}, {"type": "object", "required": ["kind"], "properties": {"kind": {"type": "string"}, "note": {"type": "string"}}}]},
+        "engine": {"enum": ["remotion", "web", "ae"], "description": "the engine that draws the shot when it isn't its act's, from script.json, carried through to timing/shots.json"},
+        "reading": {"type": "object", "description": "the shot's reading declaration from script.json (voice_matched, not_for_reading, labels, reason), for the script gates and `slate qa readtime`"}
        }
       }
      }

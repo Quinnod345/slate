@@ -1,0 +1,30 @@
+{
+ "case": "routing-ui-recording",
+ "config": "openclaw",
+ "synthetic": false,
+ "started_at": "2026-10-01T18:59:39-04:00",
+ "slate_version": "0.1.0",
+ "setup": [
+  "shares this Mac's render slot (~/Library/Application Support/Slate/locks/render)"
+ ],
+ "timeout_s": 300,
+ "pair_dir": "~/Library/Application Support/Slate/evals/runs/20261001-l1b6-openclaw/routing-ui-recording/openclaw",
+ "workdir": "~/Library/Application Support/Slate/evals/runs/20261001-l1b6-openclaw/routing-ui-recording/openclaw/work",
+ "tools_cwd": "~/oneiro/runtime/workspace",
+ "notice": {
+  "files": [
+   "AGENTS.md",
+   "CLAUDE.md"
+  ],
+  "in_message": true
+ },
+ "exit_code": 0,
+ "killed": false,
+ "duration_s": 125.5,
+ "collected_by": "/opt/homebrew/bin/openclaw gateway call chat.history",
+ "artifacts": [
+  "AGENTS.md",
+  "CLAUDE.md"
+ ],
+ "finished_at": "2026-10-01T19:01:48-04:00"
+}

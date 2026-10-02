@@ -136,19 +136,40 @@ def test_pace_stats_and_the_scene_join():
 
 def test_whisper_missing_is_unchecked_not_a_crash(slate_home, monkeypatch, tmp_path):
     monkeypatch.delenv("SLATE_FAKE_VENDORS", raising=False)
-    from slate.errors import MissingPrerequisite
-    from slate.timing import align
+    from slate.voice import align
 
-    def no_whisper(*, required=True):
-        # the one seam every stage finds Whisper through (SLATE_WHISPER, slate.toml, then PATH): a Mac with Whisper
-        # installed must still see the missing case, and the real CLI never runs here
-        raise MissingPrerequisite("whisper isn't installed or isn't on PATH.", hint="Install openai-whisper.")
-
-    monkeypatch.setattr(align, "whisper_exe", no_whisper)
+    # the one seam every stage finds Whisper through (SLATE_WHISPER, slate.toml, then PATH): a Mac with Whisper
+    # installed must still see the missing case, and the real CLI never runs here
+    monkeypatch.setattr(align, "whisper_info", lambda: {"path": None, "version": None})
     audio = tmp_path / "a.wav"
     audio.write_bytes(b"")
     result, data = transcript.run(audio, {"sha256": "0" * 64, "duration_s": 1.0}, tmp_path, language="en", source="mix")
-    assert result.status == "UNCHECKED" and data == {} and "Install" in " ".join(result.evidence)
+    assert result.status == "UNCHECKED" and data == {} and "slate doctor --install" in " ".join(result.evidence)
+
+
+def test_analyze_hears_through_the_one_whisper_runner(slate_home, monkeypatch, tmp_path):
+    """The reference transcript runs through slate.voice.align.transcribe, the runner every stage shares (its CLI, its
+    whisper lock, its flags), with timing's model and a timeout that grows with the film."""
+    monkeypatch.delenv("SLATE_FAKE_VENDORS", raising=False)
+    from slate.timing import align as timing_align
+    from slate.voice import align
+
+    seen = {}
+
+    def transcribe(path, *, model=None, language="en", timeout=900):
+        seen.update(path=path, model=model, language=language, timeout=timeout)
+        return {"text": " Hi", "segments": [{"start": 0.1, "end": 0.3, "text": " Hi",
+                                             "words": [{"word": " Hi", "start": 0.1, "end": 0.3}]}]}
+
+    monkeypatch.setattr(align, "transcribe", transcribe)
+    monkeypatch.setattr(align, "whisper_info", lambda: {"path": "/opt/whisper", "version": "20250625"})
+    audio = tmp_path / "a.wav"
+    audio.write_bytes(b"")
+    result, info = transcript.transcribe(audio, sha256="0" * 64, duration_s=600.0, language="fr")
+    assert seen == {"path": audio, "model": timing_align.whisper_model(None), "language": "fr", "timeout": 4800.0}
+    assert result["segments"][0]["words"][0]["word"] == " Hi"
+    assert info == {"engine": "whisper", "model": timing_align.whisper_model(None), "version": "20250625",
+                    "replay": False}
 
 
 def test_slate_whisper_names_the_cli_analyze_hears_with(slate_home, monkeypatch, tmp_path):

@@ -47,6 +47,9 @@ COMMAND = "slate timing"
 # The film.json values the timing files are made from: the clock, the frame size, the language and the voice. The lock
 # records these keys rather than the whole file, so a pin written at first use doesn't make the timing stale.
 FILM_KEYS = ("fps_num", "fps_den", "width", "height", "language", "voice")
+# The one block of brand.json the timing reads: the named eases its landings are placed with (brand_eases). The lock
+# records it as brand:<name>#motion.eases, so an approval or a look edit leaves locked timing alone; a new ease does not.
+BRAND_BLOCKS = ("motion.eases",)
 
 
 # --- film inputs --------------------------------------------------------------------------------------------------------
@@ -163,13 +166,15 @@ def guard_timing(film_dir: Path, *, force: bool, approved_by: str | None, reason
 
 def lock_inputs(film_dir: Path, film: dict, takes: dict[str, Take]) -> dict:
     """{input: sha256} for the timing files' lock entries: the storyboard, each take, the film.json keys the clock
-    reads and the brand pack (its eases place the landings). State's named inputs keep each one checkable."""
+    reads and the brand's eases (BRAND_BLOCKS: they place the landings), never the whole pack. State's named inputs
+    keep each one checkable."""
+    from slate.story.inputs import brand_block_inputs  # noqa: PLC0415 (story owns the brand-pack reading)
+
     keys = [str(STORYBOARD), *[t.rel for _sid, t in sorted(takes.items())]]
     if (Path(film_dir) / "timing" / "pinned_words.json").is_file():
         keys.append("timing/pinned_words.json")  # pinned word times shape the timeline too
     keys += [f"film:{k}" for k in FILM_KEYS if k in film]
-    if film.get("brand"):
-        keys.append(f"brand:{film['brand']}")
+    keys += brand_block_inputs(film.get("brand"), BRAND_BLOCKS)
     try:
         from slate.state import lock as state_lock  # noqa: PLC0415
 
@@ -287,6 +292,22 @@ def _warn_if_stale(film_dir: Path, storyboard: dict) -> None:
     script = film_file(Path(film_dir), Path("script") / "script.json")
     if made_from and script.is_file() and jsonio.sha256(script) != made_from:
         log.warn("script/script.json changed since the storyboard was built; run `slate script build` to catch up.")
+
+
+def alignments_to_make(film_dir: Path, *, engine: str = "whisper", realign: bool = False) -> list[str]:
+    """The voiced shots whose takes a run would have to transcribe now, rather than reuse an alignment of the same
+    audio: Whisper on this Mac, or ElevenLabs Forced Alignment, which spends. A dry run says so instead of doing it.
+    Replayed Whisper reads fixtures and writes nothing, so in replay only ElevenLabs (a ledger row) counts."""
+    from slate import replay  # noqa: PLC0415
+
+    if engine == "whisper" and replay.fake_vendors():
+        return []
+    film = load_film(film_dir)
+    lang = film.get("language") or "en"
+    voiced = [sh["id"] for _i, _a, sh in iter_shots(load_storyboard(film_dir)) if (sh.get("vo") or "").strip()]
+    takes = find_takes(film_dir, voiced)
+    return [sid for sid in voiced if sid in takes and (realign or aligner.reusable(
+        film_dir, sid, takes[sid], engine=engine, language=lang, film=film) is None)]
 
 
 def run(film_dir: Path, *, force: bool = False, engine: str = "whisper", realign: bool = False,

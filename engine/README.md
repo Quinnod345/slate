@@ -248,7 +248,11 @@ with media and Google Fonts imports stubbed for Node, and acts that don't use th
   films scanned their charts this way before rendering: L-kit-D146). With `against: <git ref>` every sample is also
   compared with the act as the kit at that ref of Slate's own repository draws it (or as the kit in a folder draws
   it: an installed engine's `remotion/kit` has no git history), so a rendering-only kit change proves itself a no-op
-  in the old mode without rendering a pixel (L-kit-S010);
+  in the old mode without rendering a pixel (L-kit-S010); the comparison draws the act in hint mode (the input prop
+  `raster: "hint"`). The act is also drawn in tilt mode, and when it draws any tilt (the kit's `RasterModeProvider`)
+  every sample is held to the tilt mode's placement rules: every text tilted inside the innermost layer that holds it,
+  no tilt holding a shape outside a card's face, no tilted plane in a 3D world or under a clip-path, no raster hints
+  (a text left untilted on purpose carries `data-slate-untilted="<why>"`, and the audit lists it);
 - `determinism` (with `determinism: true`, `slate check --determinism`): the act's first frames (up to 36) rendered in
   sequence in one page, and four of them each alone in a fresh page, on software GL: every pair identical, or FAIL
   naming the first frame that differs. Chunks, patches and stills all draw frames out of order, so a scene that
@@ -266,9 +270,11 @@ same gates where they mean the same thing: `typecheck` (its scene scripts, from 
 mapped), `page` (the page loads and draws its first frame without an error), `word_misses` and `kit_problems` (read
 from the page: the kit runs inside it), `network` and `fonts` (the page's own wall and font gate), `banned_words` (its
 scripts, its page's visible text and its JSON and text copy), `events` (the file against what the page says now) and
-`contracts` (a web scene declares no rest states; when a neighbour declares one at their boundary the gate says it
-can't compare them yet, UNCHECKED, rather than passing). The page is opened once, in a dry-run emit: nothing is
-written.
+`contracts` (a web scene declares no rest states of its own, so it meets its neighbours' declared ones: where the act
+before ends on a rest state, the web act's first `hold` frames, drawn by the open web renderer at one sample on
+software GL, must match that act's last frame and `Contract-<Name>` bit for bit and hold still, and the same for its
+last frames against the act after; with nothing to compare with yet it says so, UNCHECKED). The page is opened once
+for everything else, in a dry-run emit: nothing is written but the contract stills in `qa/contracts/act<N>/`.
 
 ## Per-shot engines
 
@@ -277,8 +283,9 @@ A shot may carry its own engine; by default it's drawn by its act's (P074). The 
 built, and the rules that keep it safe (`src/slate/render/shot_engines.py` holds them in code):
 
 - **Declaring it.** A shot's `engine` (`remotion`, `web` or `ae`) in `script/script.json`, where a person writes it.
-  `timing/shots.json` takes it first when a shot there names one; until `slate timing` carries it over, render and
-  check read the script's declaration by shot id. A shot that names no engine is drawn by its act's.
+  `slate script build` carries it into the storyboard and `slate timing` into `timing/shots.json`, which render and
+  check read first; a storyboard built before it carried engines falls back to the script's declaration by shot id.
+  A shot that names no engine is drawn by its act's.
 - **Where its scene lives.** A web shot inside a Remotion act is a page of its own,
   `scenes/shots/<SHOT>/web/index.html`, built with `@slate/web` like a web act's (copy the web template there). It draws the act's time and is only ever
   asked for its shot's frames. Its own folder keeps it out of the act's type check and module: the generated entry
@@ -342,13 +349,24 @@ BROWSER=none npx --no-install remotion studio <film>/.slate/entry.tsx --no-open 
   stubbed (fonts load in the browser).
 - **@remotion/motion-blur: learn from.** It isn't a dependency, and a test keeps it out of package.json. render_mb
   stays the default renderer. Before any switch, test its `HtmlInCanvasMotionBlur` (Remotion 4.0.529 and later)
-  against render_mb on the same act, frame for frame. That needs an engine at 4.0.529 or later, which only the
-  render-parity check for a Remotion upgrade installs, so the comparison waits for it:
+  against render_mb on the same act, frame for frame. That needs an engine at 4.0.529 or later in a scratch folder.
+  It ran once (the result below); to run it again after a Remotion release:
   1. install the candidate engine in a scratch folder (never over the pinned one) and point `SLATE_ENGINE_DIR` at it;
   2. render one kit-built act both ways at 16 samples, same frames, same GL (`swangle`, so runs are repeatable);
   3. compare them frame by frame (`slate qa psnr A B`), and look at the fastest moves side by side:
      the shutter (180°, centred), edge gradients and colour must match; speed and memory are the tiebreak;
   4. write the result here, and switch only if it matches and is simpler or faster.
+  - **HtmlInCanvasMotionBlur, tested 2026-10-01 (P282): render_mb stays the default.** On the demo's kit act (228
+    frames, 16 samples, 180° shutter centred on the frame, GL `angle`), through a scratch engine at Remotion 4.0.532,
+    it rendered about 12 times faster than render_mb (7.5-15.6 s against 112-150 s on a calm Mac, a fifth of the CPU)
+    and lost on quality. It sums its samples in an ordinary 8-bit canvas (`lighter` at `globalAlpha` 1/N), so 16
+    samples keep 4 bits a channel, on `swangle` too. Still frames shift: the warm page turns neutral grey and shadows
+    band (43.3 dB against a 64-sample reference, where render_mb is bit-exact). Streaks stray: 1.9 levels RMS in the
+    moving region at the median and up to 34, against render_mb's 0.1 and 4.7, and the card's rising type gets a
+    harder, shorter streak. It also needs the kit's clock to keep fractional frames at sub 1: `filmFrameOf` floors
+    them today, so its samples land on two whole frames and moving type doubles (38.1 dB). render_mb gave the same
+    frames on 4.0.532 as on 4.0.521, within the GPU's run-to-run noise. Look again when a release sums in float or
+    16-bit.
 - **react, react-dom 19.2.8: kept.** The bundler aliases one copy for every film.
 - **typescript 5.9.3: kept**, as the type-check gate (`check`).
 - **esbuild 0.28.1: kept and declared.** emit-events, the check and the bundle hash use it (the films used it

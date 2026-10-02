@@ -60,6 +60,13 @@ def test_transition_words_sort_into_the_laws_kinds():
     assert [k("hard cut"), k("crossfade"), k("dissolve"), k(None), k("")] == ["other", "other", "other", None, None]
 
 
+def test_a_transition_named_by_its_kind_is_read_as_that_kind():
+    """script.json may name the law's kind itself ({kind, note}); anything else it names is not one the law allows."""
+    k = picture.transition_kind
+    assert [k({"kind": kind, "note": "why"}) for kind in picture.TRANSITIONS] == list(picture.TRANSITIONS)
+    assert k({"kind": "Whip"}) == "whip" and k({"kind": "crossfade"}) == "other" and k({"note": "no kind"}) is None
+
+
 @needs_ffmpeg
 def test_a_hard_cut_mid_shot_and_an_undeclared_join_are_review(film_builder):
     """L-qa-013: one hard cut on a join with no transition declared, one landing 10 frames into a shot."""
@@ -84,6 +91,20 @@ def test_a_declared_portal_allows_its_cut(film_builder):
     _storyboard(fb, {"S01": "hard cut"})
     r = picture.cuts(fb.path)
     assert r.status == "REVIEW" and "doesn't allow a cut" in r.details["review_items"][0]["what"]
+
+
+@needs_ffmpeg
+def test_a_portal_named_by_its_kind_in_shots_json_allows_its_cut(film_builder):
+    """`slate timing` carries a shot's transition into shots.json as transition_out; the gate reads it there, in the
+    {kind, note} form too."""
+    fb = film_builder(size=SIZE, shots=[(1, 20), (1, 20)])
+    fb.render(1, _act(40, {0: 1, 20: 2}))
+    doc = json.loads((fb.path / "timing" / "shots.json").read_text())
+    doc["shots"][0]["transition_out"] = {"kind": "portal", "note": "through the dot"}
+    (fb.path / "timing" / "shots.json").write_text(json.dumps(doc))
+    r = picture.cuts(fb.path)
+    assert r.status == "PASS", r.summary
+    assert r.details["declared"] == ["film frame 20: S01→S02 (portal: through the dot)"]
 
 
 @needs_ffmpeg

@@ -140,3 +140,67 @@ def test_a_missing_gate_module_is_named_not_fatal(monkeypatch):
     finally:
         monkeypatch.undo()
         qa.load_external(refresh=True)
+
+
+def test_psnr_holds_a_shot_against_its_frames_in_a_whole_act(film_builder):
+    """`--b-frames` compares a shot render with the same frames of a whole delivered act, no cut file needed."""
+    from qa_core_helpers import moving_square, needs_ffmpeg  # noqa: PLC0415
+
+    if needs_ffmpeg.args[0]:
+        pytest.skip("ffmpeg isn't installed")
+    fb = film_builder()
+    whole = moving_square(30, (64, 48))
+    act = fb.encode("cmp/act.mkv", whole)
+    shot = fb.encode("cmp/shot.mkv", whole[10:20])
+    code, out, err = run_cli(["qa", "psnr", str(shot), str(act), "--b-frames", "10-19", "--json"])
+    doc = json.loads(out)
+    assert code == 0, err
+    assert doc["passed"] and doc["summary"]["frames"] == 10 and doc["b_frames"] == [10, 19] and not doc["problems"]
+    # the same frames one late: a 1 px shift of the square, far under the bar
+    code, out, _ = run_cli(["qa", "psnr", str(shot), str(act), "--b-frames", "11-20", "--json"])
+    assert code == 1 and json.loads(out)["summary"]["below_count"] == 10
+    # a range on each side; frames are reported in A's own numbering
+    code, out, _ = run_cli(["qa", "psnr", str(act), str(shot), "--a-frames", "12-15", "--b-frames", "2-5", "--json"])
+    doc = json.loads(out)
+    assert code == 0 and doc["summary"]["frames"] == 4 and all(w["frame"] >= 12 for w in doc["summary"]["worst"])
+    # without a range the whole act is longer than the shot: refused, saying so
+    code, out, _ = run_cli(["qa", "psnr", str(shot), str(act), "--json"])
+    assert code == 1 and any("frame counts differ" in p for p in json.loads(out)["problems"])
+
+
+def test_psnr_ranges_are_checked_before_anything_runs(film_builder, tmp_path):
+    from qa_core_helpers import moving_square, needs_ffmpeg  # noqa: PLC0415
+
+    if needs_ffmpeg.args[0]:
+        pytest.skip("ffmpeg isn't installed")
+    fb = film_builder()
+    act = fb.encode("cmp/act.mkv", moving_square(12, (64, 48)))
+    for rng, why in (("5", "like 644-1212"), ("9-3", "comes before"), ("4-12", "past the file's last frame"),
+                     ("a-b", "like 644-1212")):
+        code, _, err = run_cli(["qa", "psnr", str(act), str(act), "--b-frames", rng])
+        assert code == 2 and why in err, (rng, err)
+    a, b = tmp_path / "a.png", tmp_path / "b.png"
+    from PIL import Image  # noqa: PLC0415
+
+    for p in (a, b):
+        Image.new("RGB", (8, 8)).save(p)
+    code, _, err = run_cli(["qa", "psnr", str(a), str(b), "--a-frames", "0-0"])
+    assert code == 2 and "for videos" in err
+
+
+def test_psnr_pairs_frames_across_containers_that_round_time_differently(film_builder):
+    """Matroska keeps frame times to the millisecond and QuickTime to 1/30000 s at 30 fps: ffmpeg's default pairing
+    matched a third of the frames with their neighbours (27.98 dB on identical pictures). Pairing by the nearest
+    timestamp holds every frame to its own."""
+    from qa_core_helpers import moving_square, needs_ffmpeg  # noqa: PLC0415
+
+    if needs_ffmpeg.args[0]:
+        pytest.skip("ffmpeg isn't installed")
+    fb = film_builder()
+    frames = moving_square(30, (64, 48))
+    mkv = fb.encode("cmp/same.mkv", frames)
+    mov = fb.encode("cmp/same.mov", frames, codec="prores")
+    code, out, err = run_cli(["qa", "psnr", str(mkv), str(mov), "--json"])
+    doc = json.loads(out)
+    assert code == 0, err
+    assert doc["summary"]["frames"] == 30 and doc["summary"]["min_db"] > 60  # ProRes against lossless, frame for frame

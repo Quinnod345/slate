@@ -267,13 +267,14 @@ def _queue(st: policy.Stage, argv: list[str], film_path: Path) -> dict:
 
     preflight(argv)
     command = [sys.executable, "-m", "slate", *argv]
-    job_id = client.submit(st.kind or st.words[0], command, film=str(film_path), resources=st.resources,
+    resources = st.resources_for(argv)
+    job_id = client.submit(st.kind or st.words[0], command, film=str(film_path), resources=resources,
                            note=f"{st.cli} (from the MCP server)")
     record = store.load(job_id)
     result = {"job": job_id, "state": record.get("state"), "kind": record.get("kind"),
               "resources": record.get("resources"), "priority": record.get("priority"), "log": record.get("log")}
     submit = ["job", "submit", "--kind", st.kind or st.words[0]]
-    for resource in st.resources:
+    for resource in resources:
         submit += ["--resource", resource]
     return envelope(argv, 0, result=result, shown=display(submit + ["--"]) + " " + display(argv))
 

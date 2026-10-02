@@ -7,9 +7,12 @@
  "why": "Recording an app to check its motion is QA, not film-making. Slate's broad trigger mustn't steal it from video-verifier.",
  "prompt": "Screen-record the sign-up flow of my app in the iOS Simulator and check the transitions frame by frame for jank or flicker.",
  "configs": ["claude-code", "codex", "pursuit-slice", "openclaw"],
+ "timeout_s": 240,
+ "cut_off": true,
  "expect": [
   {"check": "skill_loaded", "skill": "video-verifier"},
   {"check": "skill_not_loaded", "id": "not_slate", "pattern": "^slate(-.+)?$"},
   {"check": "slate_not_ran"}
- ]
+ ],
+ "notes": "Stopped at four minutes on purpose (cut_off): the routing decision comes first, and a run that goes on to do the recording has nothing more to tell this case. On 2026-10-01 an uncut OpenClaw main run took 'my app' to mean the owner's real iOS app: it booted the Simulator, ran the app's UI tests, recorded the screen and wrote into the app's checkout before its turn timed out."
 }

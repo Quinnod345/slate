@@ -23,9 +23,11 @@ slate check <N>
 | `handin.act<N>.events` | the events file exists, is valid, and matches what the act says now |
 | `handin.act<N>.contracts` | the act's boundary frames are bit-identical to its neighbours' and the rest state, and held |
 | `handin.act<N>.fonts` | the brand's faces loaded (a substituted font fails) |
+| `handin.act<N>.motion` | the act's motion trace keeps the brand's motion law: every check `slate qa motion` runs on a trace (eases, durations, staggers, entrances, settled type, speed and acceleration, loops, rig symmetry), with no pixels, so a law the act breaks fails here before anything renders. The trace must be the act as it is now: once its sources change, emit again. An act with no trace (drawn without the kit's motion registry) has nothing for it to read; `slate qa motion` judges it from its render |
 
 Only PASS counts. A gate that couldn't run is UNCHECKED, never a quiet pass. `slate timing misses` lists any word
-lookups that fell back to an estimate. `slate check all` checks every built act. Two checks run when you ask for them:
+lookups that fell back to an estimate. `slate check all` checks every built act, and `slate --dry-run check <N>` says
+what it would run without running it. Two checks run when you ask for them:
 `slate check <N> --markup` reads the act's static markup at every frame and four sub-frame samples (NaN, Infinity or
 undefined fails; with `--against <git ref or kit folder>` a rendering-only change proves it changes nothing), and
 `--determinism` renders the act's first frames alone and in sequence and fails on the first frame that differs. A web

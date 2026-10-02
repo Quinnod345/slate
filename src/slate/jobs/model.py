@@ -35,9 +35,11 @@ HISTORY_LIMIT = 60
 # Settings a job carries from whoever submitted it, so it runs against the same folders and in the same replay mode
 # however it's started (a one-shot runner, or the launchd agent, whose environment is bare). Never keys: the job reads
 # those from the Keychain like everything else.
+# SLATE_ENGINE_DIR: a job renders with the engine its caller pointed at (slate.engine.bridge reads it), not whichever
+# engine is installed, so a kit change can be proved through the queue before the installed engine is updated.
 ENV_KEEP = ("SLATE_DATA", "SLATE_FILMS", "SLATE_BRANDS", "SLATE_FAKE_VENDORS", "SLATE_LIVE", "SLATE_FIXTURES",
             "SLATE_RECORD", "SLATE_CONTEXT", "SLATE_RENDER_SLOTS", "SLATE_MB_SAMPLES", "SLATE_DISK_RESERVE_GB",
-            "SLATE_FAKE_DISK_FREE_GB")
+            "SLATE_FAKE_DISK_FREE_GB", "SLATE_ENGINE_DIR")
 ENV_KEEP_PREFIXES = ("SLATE_MODEL_",)
 
 JOB_ID = re.compile(r"^j-[0-9]{8}-[0-9]{6}-[0-9a-f]{4}$")

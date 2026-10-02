@@ -1,8 +1,10 @@
 """The voice-over of a reference film: local Whisper with word timings, cleaned, measured and joined to the scenes.
 
-Whisper runs the way the films ran it (turbo, word timestamps, the film's language), through the same runner and
-model setting as `slate timing` (slate.timing.align). In replay mode (SLATE_FAKE_VENDORS=1: tests, evals, the demo)
-nothing is transcribed: a recorded fixture answers, marked replay, so it can never pass for a real transcript.
+Whisper runs the way the films ran it (turbo, word timestamps, the film's language), through Slate's one Whisper
+runner, slate.voice.align.transcribe: the CLI SLATE_WHISPER (or slate.toml's [voice] whisper) names, the job queue's
+whisper lock, and the model setting `slate timing` uses (slate.timing.align). In replay mode (SLATE_FAKE_VENDORS=1:
+tests, evals, the demo) nothing is transcribed: a recorded fixture answers, marked replay, so it can never pass for a
+real transcript.
 
 The cleanup generalizes the films' build_analysis_data.py, which had to drop a hallucination loop Whisper produced
 at the end of the audio and one spurious word. The rules here are general, and every dropped segment is listed with
@@ -18,12 +20,10 @@ Low-confidence words (below LOW_CONFIDENCE) are flagged, never changed: a person
 
 from __future__ import annotations
 
-import contextlib
 import re
-import tempfile
 from pathlib import Path
 
-from slate import jsonio, procs, replay
+from slate import jsonio, replay
 from slate.errors import MissingPrerequisite, SlateError
 from slate.gates import GateResult, engine as gate_engine
 
@@ -34,40 +34,32 @@ TAIL_MIN_PROBABILITY = 0.3
 
 
 def _align():
-    """The timing module's Whisper runner (it also registers the replay stand-in)."""
+    """The timing module's Whisper settings (the model) and its replay stand-in."""
     from slate.timing import align  # noqa: PLC0415
 
     return align
 
 
-def _lock():
-    try:
-        from slate.jobs import locks  # noqa: PLC0415
-    except ImportError:
-        return contextlib.nullcontext()
-    return locks.hold("whisper", owner="slate analyze")
+def _runner():
+    """Slate's one Whisper runner (slate.voice.align): the CLI, the whisper lock and the flags every stage shares."""
+    from slate.voice import align as voice_align  # noqa: PLC0415
+
+    return voice_align
 
 
 def transcribe(audio: Path, *, sha256: str, duration_s: float, language: str) -> tuple[dict, dict]:
-    """(Whisper's JSON, engine) for one file. Replayed in replay mode; otherwise the whisper CLI under the
-    machine-wide whisper lock, with a timeout that grows with the film."""
-    align = _align()
-    model = align.whisper_model(None)
+    """(Whisper's JSON, engine) for one file. Replayed in replay mode; otherwise slate.voice.align.transcribe, which
+    holds the machine-wide whisper lock, with a timeout that grows with the film."""
+    model = _align().whisper_model(None)
     if replay.fake_vendors():
         request = {"line": "", "seconds": duration_s, "language": language, "file_sha256": sha256}
         result = replay.respond("whisper", "transcribe", request, key=f"analyze-{sha256[:16]}-{model}")
         return result, {"engine": "whisper", "model": model, "version": "replay", "replay": True}
-    exe = align.whisper_exe()  # SLATE_WHISPER (or slate.toml's [voice] whisper) first, like timing and voice
+    runner = _runner()
     timeout = max(900.0, 8.0 * float(duration_s or 0))
-    with _lock(), tempfile.TemporaryDirectory(prefix="slate-analyze-whisper-") as tmp:
-        procs.run([exe, str(audio), "--model", model, "--language", language, "--word_timestamps", "True",
-                   "--output_format", "json", "--output_dir", tmp, "--fp16", "False"], check=True, timeout=timeout)
-        out = Path(tmp) / f"{audio.stem}.json"
-        if not out.is_file():
-            raise SlateError(f"whisper ran on {audio.name} but wrote no JSON.",
-                             hint="Run the same command by hand to see Whisper's own error.")
-        return jsonio.read(out), {"engine": "whisper", "model": model, "version": align.whisper_version(),
-                                  "replay": False}
+    result = runner.transcribe(audio, model=model, language=language, timeout=timeout)
+    version = runner.whisper_info().get("version") or "unknown"
+    return result, {"engine": "whisper", "model": model, "version": str(version), "replay": False}
 
 
 def _norm(text: str) -> str:

@@ -1,0 +1,107 @@
+{
+ "runId": "a93a2041-c6fb-4c88-9868-1206f0677403",
+ "status": "ok",
+ "summary": "completed",
+ "result": {
+  "payloads": [
+   {
+    "text": "Couldn’t generate it: Higgsfield’s connector can’t reach its token endpoint, and this eval has no configured fallback provider. No clip was produced, and I did not start a full Slate production.",
+    "mediaUrl": null
+   }
+  ],
+  "meta": {
+   "durationMs": 140836,
+   "agentMeta": {
+    "sessionId": "02cf1023-aa5e-4b08-adcc-4a557743b58e",
+    "provider": "openai",
+    "model": "gpt-5.6-sol",
+    "contextTokens": 258400,
+    "contextTokensSource": "runtime",
+    "agentHarnessId": "codex",
+    "credentialSource": {
+     "kind": "profile"
+    },
+    "usage": {
+     "input": 73514,
+     "output": 3886,
+     "cacheRead": 487168,
+     "cacheWrite": 0,
+     "reasoningTokens": 1906,
+     "total": 564568
+    },
+    "lastCallUsage": {
+     "input": 73514,
+     "output": 3886,
+     "cacheRead": 487168,
+     "cacheWrite": 0,
+     "reasoningTokens": 1906,
+     "total": 564568,
+     "contextUsage": {
+      "state": "available",
+      "promptTokens": 46848,
+      "totalTokens": 47501
+     }
+    },
+    "promptTokens": 46848,
+    "codeModeEngaged": false,
+    "terminalReceipt": {
+     "runId": "a93a2041-c6fb-4c88-9868-1206f0677403",
+     "sessionId": "02cf1023-aa5e-4b08-adcc-4a557743b58e",
+     "turnId": "01a0f9af-4409-77a2-84dc-8e00f595993d",
+     "requested": {
+      "provider": "openai",
+      "model": "gpt-5.6-sol"
+     },
+     "effective": {
+      "provider": "openai",
+      "model": "gpt-5.6-sol",
+      "responseModel": "gpt-5.6-sol"
+     },
+     "successfulToolNames": [
+      "exec",
+      "video_generate",
+      "process"
+     ],
+     "rerouted": false
+    }
+   },
+   "aborted": false,
+   "finalAssistantVisibleText": "Couldn’t generate it: Higgsfield’s connector can’t reach its token endpoint, and this eval has no configured fallback provider. No clip was produced, and I did not start a full Slate production.",
+   "finalAssistantRawText": "Couldn’t generate it: Higgsfield’s connector can’t reach its token endpoint, and this eval has no configured fallback provider. No clip was produced, and I did not start a full Slate production.",
+   "replayInvalid": true,
+   "livenessState": "working",
+   "stopReason": "stop",
+   "executionTrace": {
+    "winnerProvider": "openai",
+    "winnerModel": "gpt-5.6-sol",
+    "attempts": [
+     {
+      "provider": "openai",
+      "model": "gpt-5.6-sol",
+      "result": "success",
+      "stage": "assistant"
+     }
+    ],
+    "fallbackUsed": false,
+    "runner": "embedded"
+   },
+   "requestShaping": {
+    "authMode": "auth-profile",
+    "thinking": "xhigh"
+   },
+   "completion": {
+    "stopReason": "stop",
+    "finishReason": "stop"
+   },
+   "toolSummary": {
+    "calls": 13,
+    "tools": [
+     "exec",
+     "video_generate",
+     "process"
+    ],
+    "failures": 0
+   }
+  }
+ }
+}

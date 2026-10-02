@@ -9,6 +9,16 @@ Modes:
   slate     runs a real Slate child process through slate.procs (so the probe records it) and says so
   tripwire  hands a URL to $BROWSER, but only after checking $BROWSER is the eval's tripwire
   sleep     starts a command that never finishes, then waits to be killed
+  trust     does what `codex exec` does to $CODEX_HOME/config.toml: adds a trusted-project table for its folder
+  trust-sleep  the same, then writes its pid to agent.pid and works until it's stopped
+  escape    says (in its transcript only; it writes nothing) that it wrote a page in the Obsidian vault, then works on
+            until it's stopped
+  queue     queues a render job in its sandbox's own job queue (`slate job submit`), the way a production would
+  render    says (in its transcript only) that it started the engine's renderer directly, then works on until stopped
+  own-renderer  runs a renderer of its own that its transcript doesn't name (a stand-in `ffmpeg` that only sleeps),
+            then works on until it's stopped
+  stray     starts a child in a session of its own (it would outlive a group kill), writes its pid to stray.pid, and
+            works on until it's stopped
   envelope  prints an OpenClaw-style JSON envelope with a session id (for the collect step)
   collect        (collect step) prints a chat.history-style transcript for the session id it's given
   collect-path   (collect step) writes a session transcript to a temporary file and prints its path
@@ -71,7 +81,7 @@ def main(argv):
     if mode == "env":
         keys = ["BROWSER", "SLATE_FAKE_VENDORS", "SLATE_LIVE", "HF_KEY", "ELEVENLABS_API_KEY", "SLATE_FILMS",
                 "SLATE_DATA", "SLATE_BRANDS", "SLATE_EVAL_PROBE_LOG", "SLATE_EVAL_TRIPWIRE_LOG", "PYTHONPATH", "TERM",
-                "PATH", "SLATE_CONTEXT", "SLATE_EVAL"]
+                "PATH", "SLATE_CONTEXT", "SLATE_EVAL", "HIGGSFIELD_CREDENTIALS_PATH"]
         report = {k: os.environ.get(k) for k in keys}
         report["cwd"] = os.getcwd()
         report["prompt"] = prompt
@@ -96,6 +106,59 @@ def main(argv):
     elif mode == "sleep":
         tool(1, "Bash", {"command": "slate connect elevenlabs"})
         time.sleep(60)
+    elif mode == "escape":
+        # Only the transcript says so, unless the test hands it a scratch path outside the sandbox to really write.
+        page = os.environ.get("FAKE_AGENT_OUTSIDE") or \
+            "/Users/you/Library/Mobile Documents/iCloud~md~obsidian/Documents/notes/Demo \u2014 Project Status.md"
+        tool(1, "Write", {"file_path": page, "content": "# Demo"})
+        if os.environ.get("FAKE_AGENT_OUTSIDE"):
+            os.makedirs(os.path.dirname(page), exist_ok=True)
+            with open(page, "w", encoding="utf-8") as fh:
+                fh.write("# Demo\n")
+        tool_result(1, "File created.")
+        time.sleep(60)
+        result("kept working")
+    elif mode == "render":
+        tool(1, "Bash", {"command": "node /x/slate/engine/cli.mjs web-render --json '{\"frames\": 360}'"})
+        time.sleep(60)
+        result("rendered")
+    elif mode == "own-renderer":
+        tool(1, "Bash", {"command": "python3 build_look_test.py"})
+        import tempfile
+
+        folder = tempfile.mkdtemp(prefix="fake-render-", dir=os.getcwd())  # inside the sandbox
+        ffmpeg = os.path.join(folder, "ffmpeg")
+        os.symlink("/bin/sleep", ffmpeg)  # shows in ps as ".../ffmpeg 60"; it encodes nothing
+        child = subprocess.Popen([ffmpeg, "60"])
+        with open("renderer.pid", "w", encoding="utf-8") as fh:
+            fh.write(str(child.pid))
+        time.sleep(60)
+    elif mode == "stray":
+        child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"], start_new_session=True)
+        with open("stray.pid", "w", encoding="utf-8") as fh:
+            fh.write(str(child.pid))
+        tool(1, "Bash", {"command": "sleep 120 &"})
+        time.sleep(120)
+    elif mode == "queue":
+        argv = [sys.executable, "-m", "slate", "job", "submit", "--kind", "evaltest", "--resource", "render",
+                "--no-resume", "--json", "--", "/bin/sleep", "30"]
+        tool(1, "Bash", {"command": " ".join(argv[1:])})
+        proc = subprocess.run(argv, capture_output=True, text=True, stdin=subprocess.DEVNULL)
+        tool_result(1, proc.stdout or proc.stderr, error=proc.returncode != 0)
+        result("queued a render")
+    elif mode in ("trust", "trust-sleep"):
+        home = os.environ.get("CODEX_HOME") or ""
+        if "pytest-of-" not in home:  # only ever a test's temporary folder, never a real Codex home
+            result("refusing: CODEX_HOME isn't a test folder")
+            return 3
+        config = os.path.join(home, "config.toml")
+        with open(config, "a", encoding="utf-8") as fh:
+            fh.write(f'[projects."{os.getcwd()}"]\ntrust_level = "trusted"\n\n')
+        if mode == "trust-sleep":  # then work until stopped, leaving its pid where the test can find it
+            with open("agent.pid", "w", encoding="utf-8") as fh:
+                fh.write(str(os.getpid()))
+            time.sleep(120)
+        result("trusted my folder, the way codex exec does")
     return 0
 
 

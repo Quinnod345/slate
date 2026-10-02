@@ -9,7 +9,7 @@ import sys
 from typing import Iterator
 
 from slate import log
-from slate.cli import add_command, add_group, flag
+from slate.cli import add_command, add_group, dry_stop, flag
 from slate.doctor import connect, core, prereqs
 from slate.doctor import rows as R
 
@@ -93,18 +93,19 @@ def _doctor(args: argparse.Namespace) -> int:
     name = args.context
     if name:
         core.check_context_name(name)
+    keep = name if not flag(args, "dry_run", False) else None  # a dry run saves no context report
     with _native_writes_to_stderr(log.json_mode()):
         rep = core.report(name, brand=args.brand, only=args.only)
     if rep.get("refused"):
         # Off macOS there's nothing else to check, and nothing to install.
-        if name:
-            rep["saved"] = str(core.save(rep, name))
+        if keep:
+            rep["saved"] = str(core.save(rep, keep))
         log.result(rep, R.format_report(rep))
         return 1
     if args.install:
         return _install(args, rep)
-    if name:
-        rep["saved"] = str(core.save(rep, name))
+    if keep:
+        rep["saved"] = str(core.save(rep, keep))
     log.result(rep, R.format_report(rep))
     return R.exit_code(rep["status"], strict=args.strict)
 
@@ -117,7 +118,7 @@ def _install(args: argparse.Namespace, rep: dict) -> int:
                                                                    if it.get("needs") else "") for it in items)
     if not items:
         rep["install"] = {"items": [], "ran": False}
-        if args.context:
+        if args.context and not flag(args, "dry_run", False):
             rep["saved"] = str(core.save(rep, args.context))
         log.result(rep, R.format_report(rep) + "\n\nNothing to install: every free prerequisite doctor can set up is "
                                                "already here.")
@@ -128,7 +129,7 @@ def _install(args: argparse.Namespace, rep: dict) -> int:
                           "why": "dry run" if flag(args, "dry_run", False) else why,
                           "next": "Open Terminal and run: slate doctor --install (it asks before each one; nothing is "
                                   "installed without your yes)."}
-        if args.context:
+        if args.context and not flag(args, "dry_run", False):
             rep["saved"] = str(core.save(rep, args.context))
         head = ("Dry run: nothing was installed." if flag(args, "dry_run", False) else
                 f"Nothing was installed: installs are only ever run for a person at their own Terminal ({why}).")
@@ -164,10 +165,21 @@ def cmd_connect_claude(args: argparse.Namespace) -> int:
 
 
 def cmd_connect_higgsfield(args: argparse.Namespace) -> int:
+    if args.api_key and not args.check and dry_stop(
+            args, "ask for the Higgsfield Cloud API key in macOS's own prompt and store it in the login Keychain, "
+                  "replacing the one there (--check tests the stored key without changing it)"):
+        return 0
     return _finish(*connect.higgsfield(core.make_env(), api_key=args.api_key, check=args.check))
 
 
+OWNERS = {False: "your", True: "Oneiro's capped"}
+
+
 def cmd_connect_elevenlabs(args: argparse.Namespace) -> int:
+    if not args.check and dry_stop(args, f"ask for {OWNERS[bool(args.oneiro)]} "
+                                         "ElevenLabs key in macOS's own prompt and store it in the login Keychain, "
+                                         "replacing the one there (--check tests the stored key without changing it)"):
+        return 0
     return _finish(*connect.elevenlabs(core.make_env(), oneiro=args.oneiro, check=args.check))
 
 

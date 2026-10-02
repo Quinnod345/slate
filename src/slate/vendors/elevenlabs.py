@@ -66,6 +66,11 @@ FORMAT_MIN_TIER = {"pcm_48000": "pro", "wav_48000": "pro", "pcm_44100": "pro", "
 VOICE_FORMATS = ("pcm_48000", "pcm_44100", "mp3_44100_192", "mp3_44100_128")
 MUSIC_FORMATS = ("pcm_48000", "mp3_48000_192", "mp3_44100_192", "mp3_44100_128")
 FORMAT_REJECTED = (400, 403, 422)  # what ElevenLabs answers when a plan can't have a format (nothing is billed)
+# The channels each operation answers in. The pcm_* formats are bare samples with no header, so unless the answer says
+# otherwise (a WAV header, or a channels= parameter on its content type) a take is written with its format's count:
+# Eleven Music composes in stereo; speech, Voice Design and Remix previews and the isolated voice are mono. Labelling
+# every answer one channel wrote Eleven Music's 48 kHz stereo as mono at twice the length, an octave low.
+FORMAT_CHANNELS = {"music": 2, "tts": 1, "design": 1, "remix": 1, "isolate": 1}
 STITCH_MAX = 3  # previous_request_ids / next_request_ids: the API takes at most three on each side
 
 SUBSCRIPTION_FIELDS = ("tier", "status", "character_count", "character_limit", "next_character_count_reset_unix",
@@ -216,6 +221,40 @@ def parse_format(fmt: str) -> tuple[str, int]:
 
 def is_lossless(fmt: str) -> bool:
     return parse_format(fmt)[0] in ("pcm", "wav")
+
+
+def wav_channels(data: bytes) -> int | None:
+    """The channel count in a WAV header (None when the bytes aren't a WAV, or its fmt chunk isn't there)."""
+    if len(data) < 12 or data[:4] not in (b"RIFF", b"RF64") or data[8:12] != b"WAVE":
+        return None
+    pos = 12
+    while pos + 8 <= len(data):
+        cid, size = data[pos:pos + 4], int.from_bytes(data[pos + 4:pos + 8], "little")
+        if cid == b"fmt " and pos + 12 <= len(data):
+            return int.from_bytes(data[pos + 10:pos + 12], "little") or None
+        pos += 8 + size + (size & 1)
+    return None
+
+
+def answer_channels(op: str, headers: dict | None = None, data: bytes | None = None) -> tuple[int, str]:
+    """(channels, where from) for an audio answer: the answer's own word first (its WAV header, or a `channels=`
+    parameter on its content type), else the count of the format the operation answers in (FORMAT_CHANNELS)."""
+    n = wav_channels(data or b"")
+    if n:
+        return n, "answer"
+    m = re.search(r"channels\s*=\s*(\d+)", str(_lower(headers).get("content-type", "")), re.I)
+    if m and int(m.group(1)) > 0:
+        return int(m.group(1)), "answer"
+    return FORMAT_CHANNELS.get(op, 1), "format"
+
+
+def _replayed_channels(op: str, response: dict, headers: dict, data: bytes) -> int:
+    """A replayed answer's channels. A recording made since channels were kept says where its count came from; one
+    made before said one channel for every answer, so its count is read again the way a live answer's is (an old
+    Eleven Music recording replays as the stereo it was)."""
+    if response.get("channels_from") and int(response.get("channels") or 0) > 0:
+        return int(response["channels"])
+    return answer_channels(op, headers, data)[0]
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -621,6 +660,10 @@ class Client:
             payload = meta.get("payload")
             if meta.get("data_file"):
                 payload = {**(payload or {}), "data": (self._park_dir() / meta["data_file"]).read_bytes()}
+            if isinstance(payload, dict) and payload.get("encoding") == "pcm_s16le" \
+                    and not payload.get("channels_checked"):  # parked before channels were kept: said 1 for all
+                payload["channels"] = answer_channels(key.split("-", 1)[0], meta.get("headers"),
+                                                      payload.get("data"))[0]
         except (OSError, ValueError) as exc:
             log.warn(f"a parked ElevenLabs answer for {key} couldn't be read ({exc}); asking again")
             return None
@@ -658,14 +701,18 @@ class Client:
     def _audio_result(self, op: str, request: dict, fmt: str, *, path: str, query: dict, json_body: Any = None,
                       fields: dict | None = None, files: dict | None = None, accept: str = "*/*",
                       timeout: float = 300) -> tuple[dict, bytes, str, int, int, list | None]:
-        """Run one audio call (replay or live). Returns (headers, data, encoding, rate, channels, fake words)."""
+        """Run one audio call (replay or live). Returns (headers, data, encoding, rate, channels, fake words).
+
+        The channels are the answer's (answer_channels): what it says about itself, else its format's count, never
+        an assumed one. Live answers are recorded with the count and where it came from, so a replay writes the same
+        take the live call wrote."""
         if self.replay:
             headers, response = self._replay(op, request)
             data = base64.b64decode(response["audio_b64"]) if response.get("audio_b64") else \
                 replay.load_payload(PROVIDER, response.get("replay_key", ""), "audio") or b""
             rate = response.get("sample_rate") or (parse_format(fmt)[1] if fmt else 0)
             return (headers, data, response.get("encoding", "pcm_s16le"), int(rate),
-                    int(response.get("channels") or 1), response.get("words"))
+                    _replayed_channels(op, response, headers, data), response.get("words"))
         headers, data = self._live("POST", path, query=query, json_body=json_body, fields=fields, files=files,
                                    accept=accept, timeout=timeout)
         kind, rate = parse_format(fmt) if fmt else ("wav", 0)
@@ -678,12 +725,15 @@ class Client:
             encoding = "wav"
         else:
             encoding = "mp3"
-        self._record(op, request, headers, {"encoding": encoding, "sample_rate": rate, "channels": 1}, data)
-        return headers, data, encoding, rate, 1, None
+        channels, source = answer_channels(op, headers, data)
+        self._record(op, request, headers, {"encoding": encoding, "sample_rate": rate, "channels": channels,
+                                            "channels_from": source}, data)
+        return headers, data, encoding, rate, channels, None
 
     @staticmethod
     def write_audio(data: bytes, encoding: str, rate: int, channels: int, out: str | Path) -> dict:
-        """Write returned audio as WAV at `out` (bit for bit for PCM). mp3 is kept beside it and decoded by ffmpeg."""
+        """Write returned audio as WAV at `out` (bit for bit for PCM, wrapped with its `channels`). mp3 is kept beside
+        it and decoded by ffmpeg, which reads its channels from the stream. Returns the channels the WAV has."""
         out = Path(out)
         out.parent.mkdir(parents=True, exist_ok=True)
         source = None
@@ -700,7 +750,9 @@ class Client:
                                           "ffmpeg.", hint="Run `slate doctor --install` (it asks first).")
             procs.run([ffmpeg, "-v", "error", "-y", "-i", str(source), "-c:a", "pcm_s24le", str(out)], check=True,
                       timeout=300)
-        return {"file": str(out), "source_file": str(source) if source else None,
+        with out.open("rb") as fh:
+            written = wav_channels(fh.read(4096))
+        return {"file": str(out), "source_file": str(source) if source else None, "channels": written or channels,
                 "sha256": jsonio.sha256(out), "seconds": round(audio_mod.duration(out), 4)}
 
     # -- free reads -----------------------------------------------------------------------------------------------
@@ -810,7 +862,9 @@ class Client:
 
     def _audio_call(self, op: str, request: dict, fmt: str, **kw) -> tuple[dict, dict]:
         headers, data, encoding, rate, channels, words = self._audio_result(op, request, fmt, **kw)
-        return headers, {"data": data, "encoding": encoding, "rate": rate, "channels": channels, "words": words}
+        # channels_checked: the count is the answer's own (a parked answer from before it was says 1 for everything)
+        return headers, {"data": data, "encoding": encoding, "rate": rate, "channels": channels, "words": words,
+                         "channels_checked": True}
 
     def _finish_audio(self, res: dict, out: str | Path | None, *, model: str, fmt: str, wanted: str | None,
                       fallbacks: list, extra: dict | None = None) -> dict:
@@ -818,7 +872,7 @@ class Client:
         lossless = is_lossless(fmt) if fmt else payload["encoding"] in ("wav", "pcm_s16le")
         result = {"model": model, "format": fmt or payload["encoding"], "format_wanted": wanted,
                   "format_fallbacks": fallbacks, "lossless": lossless, "encoding": payload["encoding"],
-                  "sample_rate": payload["rate"],
+                  "sample_rate": payload["rate"], "channels": payload["channels"],
                   "request_id": res["request_id"], "client_request_id": res["client_request_id"],
                   "character_cost": res["character_cost"], "ledger_row": res["ledger_row"], "replay": self.replay,
                   **(extra or {})}
@@ -869,7 +923,8 @@ class Client:
                 row["words"] = p["words"]
             if out_dir is not None:
                 enc = "wav" if raw[:4] == b"RIFF" else ("pcm_s16le" if kind in ("pcm",) else "mp3")
-                row.update(self.write_audio(raw, enc, rate, 1, Path(out_dir) / f"{prefix}_{i}.wav"))
+                channels = answer_channels(op, {"content-type": p.get("media_type") or ""}, raw)[0]
+                row.update(self.write_audio(raw, enc, rate, channels, Path(out_dir) / f"{prefix}_{i}.wav"))
             else:
                 row["audio"] = raw
             previews.append(row)
@@ -1036,8 +1091,14 @@ class Client:
         res, fmt, fallbacks = self._with_fallback("music", est, format_chain(wanted, MUSIC_FORMATS), lambda f: (
             {"body": body, "format": f, "seconds": seconds},
             dict(path="/v1/music", query={"output_format": f}, json_body=body, timeout=600)), note=note)
-        return self._finish_audio(res, out, model=model, fmt=fmt, wanted=wanted, fallbacks=fallbacks,
-                                  extra={"seed": body.get("seed"), "seconds_planned": seconds})
+        result = self._finish_audio(res, out, model=model, fmt=fmt, wanted=wanted, fallbacks=fallbacks,
+                                    extra={"seed": body.get("seed"), "seconds_planned": seconds})
+        length_given = composition_plan is not None or music_length_ms is not None
+        if length_given and result.get("seconds") and not 0.67 <= float(result["seconds"]) / seconds <= 1.5:
+            # A take at twice or half its plan is what a channel misread looks like (stereo read as mono doubles it).
+            log.warn(f"the take runs {result['seconds']:.2f} s where {seconds:.2f} s was planned "
+                     f"({result.get('channels')} channel(s) at {result.get('sample_rate')} Hz); listen before using it")
+        return result
 
 
 # ---------------------------------------------------------------------------------------------------------------

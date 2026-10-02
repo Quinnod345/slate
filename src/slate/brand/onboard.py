@@ -866,7 +866,8 @@ def fill_tokens(raw: dict, inputs: dict) -> list[str]:
     return changes
 
 
-def _moodboard(folder: Path, raw: dict, files: list[str], direction: str, grounded_in: str | None) -> str:
+def _moodboard(folder: Path, raw: dict, files: list[str], direction: str, grounded_in: str | None, *,
+               dry_run: bool = False) -> str:
     look = raw.get("look") if isinstance(raw.get("look"), dict) else {}
     raw["look"] = look
     boards = [b for b in look.get("moodboards") or [] if isinstance(b, dict)]
@@ -879,8 +880,9 @@ def _moodboard(folder: Path, raw: dict, files: list[str], direction: str, ground
         try:
             rel = p.resolve().relative_to(folder.resolve()).as_posix()
         except ValueError:
-            dest.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(p, dest / p.name)
+            if not dry_run:  # a dry run names where the board would be copied; it copies nothing
+                dest.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(p, dest / p.name)
             rel = (dest / p.name).relative_to(folder).as_posix()
         kept.append(rel)
     entry = next((b for b in boards if b.get("direction") == direction), None)
@@ -1179,7 +1181,7 @@ def look(name: str, *, from_app: Iterable[str] = (), from_website: str | None = 
     if boards:
         if not direction:
             raise UsageError("Say which direction these moodboards are (--direction NAME).")
-        changes.append(_moodboard(folder, raw, boards, direction, grounded_in))
+        changes.append(_moodboard(folder, raw, boards, direction, grounded_in, dry_run=dry_run))
     elif direction or grounded_in:
         raise UsageError("--direction and --grounded-in describe moodboards: pass the files with --moodboard.")
     changes += fill_tokens(raw, inputs)

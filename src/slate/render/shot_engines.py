@@ -4,8 +4,9 @@ The engine is chosen per brand (brand.json `look.engine`) and, where one shot ne
 give, per shot. What's built, and the rules that keep it safe:
 
 - **Declaring it.** A shot's `engine` (remotion, web or ae) in script/script.json, where a person writes it, carried
-  to timing/shots.json by `slate timing`; until timing carries it, render and check read it from script.json by shot
-  id. A shot that names no engine is drawn by its act's.
+  through script/storyboard.json to timing/shots.json by `slate script build` and `slate timing`. Render and check
+  read shots.json first, then the script by shot id (a storyboard built before it carried engines). A shot that names
+  no engine is drawn by its act's.
 - **Where its scene lives.** A web shot inside a Remotion act is a page of its own, `scenes/shots/<SHOT>/web/
   index.html`, built with `@slate/web` like a web act's: it draws the act's time (defineScene's duration is the
   act's), and is only ever asked for its shot's frames. Its own folder keeps it out of the act's type check and module.

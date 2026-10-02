@@ -14364,9 +14364,13 @@
      "tests/doctor/test_doctor_g5_rows.py::test_no_dialog_open_or_ae_closed_is_green",
      "tests/doctor/test_doctor_g5_rows.py::test_unreadable_windows_are_yellow_never_green",
      "tests/doctor/test_doctor_g5_rows.py::test_the_bridge_can_report_a_dialog_too",
-     "tests/doctor/test_doctor_g5_rows.py::test_launch_dialogs_is_the_check_a_supervised_step_runs_first"
+     "tests/doctor/test_doctor_g5_rows.py::test_launch_dialogs_is_the_check_a_supervised_step_runs_first",
+     "tests/ae/test_ae_report_guard.py::test_a_supervised_step_stops_on_a_launch_dialog",
+     "tests/ae/test_ae_report_guard.py::test_a_dialog_is_only_looked_for_once_the_person_said_go",
+     "tests/ae/test_ae_report_guard.py::test_no_dialog_open_or_ae_closed_lets_the_step_start",
+     "tests/ae/test_ae_bridge.py::test_status_reports_aes_open_launch_dialogs"
     ],
-    "note": "Red rows naming the dialog, from the bridge's open_dialogs or AE's window titles (System Events; AE is never launched). slate.ae calling launch_dialogs() before each supervised step is still to come."
+    "note": "Red rows naming the dialog, from the bridge's open_dialogs or AE's window titles (System Events; AE is never launched). Every supervised AE step runs launch_dialogs() once the person says go and stops on one (exit 5, naming it and the fix: slate.ae.guard.stop_on_dialogs), and `slate ae bridge status` reports open_dialogs."
    },
    "also": [
     {
@@ -14386,6 +14390,24 @@
      ],
      "line": 8,
      "target": "skills/slate-finish/references/ae-finish.md"
+    },
+    {
+     "type": "code_default",
+     "file": "src/slate/ae/guard.py",
+     "symbol": "stop_on_dialogs",
+     "terms": [
+      "launch_dialogs()"
+     ],
+     "note": "person_start runs it after the go: AE closed asks nothing; a dialog is Busy (exit 5) with its fix."
+    },
+    {
+     "type": "code_default",
+     "file": "src/slate/ae/bridge.py",
+     "symbol": "open_dialogs",
+     "terms": [
+      "classify_dialog"
+     ],
+     "note": "The bridge can't see a dialog, so its status reads AE's window titles (only while AE is open) and sorts them with doctor's classifier."
     }
    ]
   },
@@ -20260,10 +20282,11 @@
      "tests/packaging/test_packaging_manifests.py::test_ci_runs_both_validators_through_the_drift_check",
      "tests/packaging/test_packaging_skills.py::test_check_runs_each_clients_validator_where_installed",
      "tests/packaging/test_packaging_skills.py::test_a_validator_that_isnt_installed_is_skipped_with_a_notice",
-     "tests/packaging/test_packaging_skills.py::test_validators_never_judge_a_drifted_copy"
+     "tests/packaging/test_packaging_skills.py::test_validators_never_judge_a_drifted_copy",
+     "tests/packaging/test_packaging_manifests.py::test_ci_names_both_validators_in_steps_of_their_own"
     ],
     "check": "validate",
-    "note": "CI runs `slate skills build --check`, which runs Claude's `plugin validate --strict` and skills-ref wherever they're installed (each skipped with a notice where it isn't); the tests prove CI's check step runs them."
+    "note": "CI names both validators in steps of their own, installed so neither is skipped there (`npx @anthropic-ai/claude-code@2.1 plugin validate --strict plugins/slate`, `skills-ref validate` on every built skill), after `slate skills build --check`, which runs them wherever they're installed."
    },
    "also": [
     {
@@ -22939,7 +22962,7 @@
     ],
     "registry": "slate.qa.GATES",
     "check": "entrances",
-    "note": "Reads the trace's optional `role` (hero); the kit writing it is still to come."
+    "note": "Reads the trace's optional `role`; the kit's defineMotion (engine/remotion/kit/core/motion.ts, traceKeys) and the web runtime's tween write `role` and `text` for a text element (vitest: engine/tests/kit/motion.test.ts, 'type in the trace'), and motion_trace.schema.json names both."
    },
    "also": [
     {
@@ -22958,6 +22981,16 @@
      "terms": [
       "never arrives on opacity alone"
      ]
+    },
+    {
+     "type": "code_default",
+     "file": "engine/remotion/kit/core/motion.ts",
+     "symbol": "traceKeys",
+     "terms": [
+      "out.role",
+      "out.text"
+     ],
+     "note": "A move of type says its role and words; without them the gate can't tell type from a shape."
     }
    ]
   },
@@ -24111,8 +24144,20 @@
     ],
     "registry": "slate.qa.GATES",
     "check": "gestures",
-    "note": "stress_end when the kit records it, else the word's end."
-   }
+    "note": "stress_end when the kit records it, else the word's end: motifBeats puts a gesture's `word` (and `occ`) and, where the act gives them, its stressed syllable's stress_start and stress_end on the gesture's contact beat (engine/remotion/kit/core/motif.ts wordKey; vitest: engine/tests/kit/motif.test.ts)."
+   },
+   "also": [
+    {
+     "type": "code_default",
+     "file": "engine/remotion/kit/core/motif.ts",
+     "symbol": "wordKey",
+     "terms": [
+      "stress_start",
+      "stress_end"
+     ],
+     "note": "With a syllable and no frame or t, a gesture lands on the contact: the syllable's first frame plus 2."
+    }
+   ]
   },
   {
    "id": "L-sound-D001",
@@ -24909,6 +24954,20 @@
      "terms": [
       "SNAP_WINDOW"
      ]
+    },
+    {
+     "type": "code_default",
+     "file": "src/slate/timing/stress.py",
+     "symbol": "onset",
+     "terms": [
+      "GAP_UNDER_MEDIAN_DB",
+      "MIN_GAP_S"
+     ],
+     "tests": [
+      "tests/story/test_timing_stress.py::test_the_stressed_syllable_starts_where_the_stop_gap_before_it_ends",
+      "tests/story/test_timing_stress.py::test_the_maths_matches_the_films_own_tool"
+     ],
+     "note": "`slate timing stress <shot> <word>` measures S from the take (the films' stress_onset.py, unchanged maths) and prints the beat's stress_start and stress_end in film seconds."
     }
    ]
   },
@@ -34300,8 +34359,20 @@
      "tests/qa_core/test_qa_core_readtime_trace.py::test_a_trace_that_names_other_words_leaves_the_statement_to_ocr"
     ],
     "registry": "slate.qa.GATES",
-    "note": "Reads the motion trace's optional `text` key (the kit writing it is still to come)."
-   }
+    "note": "Reads the trace's optional `text`; the kit's defineMotion (engine/remotion/kit/core/motion.ts, traceKeys) and the web runtime's tween write `role` and `text` for a text element (vitest: engine/tests/kit/motion.test.ts, 'type in the trace'), and motion_trace.schema.json names both."
+   },
+   "also": [
+    {
+     "type": "code_default",
+     "file": "engine/remotion/kit/core/motion.ts",
+     "symbol": "traceKeys",
+     "terms": [
+      "out.role",
+      "out.text"
+     ],
+     "note": "A move of type says its role and words; without them the gate can't tell type from a shape."
+    }
+   ]
   },
   {
    "id": "L-motion-D127",
@@ -41161,7 +41232,7 @@
      "tests/qa_stability/test_qa_stability_scans.py::test_morph_rounded_edges_fail",
      "tests/qa_stability/test_qa_stability_scans.py::test_morph_says_when_it_has_gone_blind"
     ],
-    "note": "The check exists; the kit's whole-even-size morph it proves is part of the tilt-mode port (KIT-TILT, L-kit-S007)."
+    "note": "The check, and the kit's whole-even-size morph it proves (morphPose, L-kit-S007), on the bench's kit-morph variant in the conformance run."
    },
    "also": [
     {
@@ -41194,9 +41265,12 @@
     "tests": [
      "tests/qa_stability/test_qa_stability_scans.py::test_conformance_runs_its_steps_on_bench_renders",
      "tests/qa_stability/test_qa_stability_scans.py::test_conformance_step_that_cant_run_is_unchecked_not_passed",
-     "tests/qa_stability/test_qa_stability_scans.py::test_conformance_refuses_without_a_bench"
+     "tests/qa_stability/test_qa_stability_scans.py::test_conformance_refuses_without_a_bench",
+     "tests/qa_stability/test_qa_stability_bench.py::test_every_step_reads_a_variant_the_bench_renders_and_every_variant_is_checked",
+     "tests/qa_stability/test_qa_stability_bench.py::test_render_then_check_renders_every_variant_from_one_bundle",
+     "tests/qa_stability/test_qa_stability_bench.py::test_detach_queues_the_render_and_check_on_the_render_slot"
     ],
-    "note": "The procedure exists and refuses without a bench; the engine kit's bench scene is part of the tilt-mode port (KIT-TILT)."
+    "note": "The engine kit's bench (engine/remotion/kit/bench/stability.tsx, its spec stability_bench.json): `slate qa stability conformance --render` renders every variant through the queue and checks it. PASS on 2026-10-01, 16:05-16:11 EDT (job j-20261001-154309-3c23): all 18 steps over 14 variants at 16 samples. The tilt variants scan clean (drift, arrive, land, free type, zoom, grow), moving type stays 99-101% as crisp as a fresh raster, rest matches the pre-fix drawing (58.3 dB after a blur), two renders match, and the hint-mode controls still fail as they should"
    }
   },
   {
@@ -41210,13 +41284,29 @@
     "FILMROOT/pipeline/r3f/KIT.md:39-46; FILMROOT/pipeline/r3f/src/b/act6/NOTES.md:482-487"
    ],
    "destination": {
-    "type": "pending",
+    "type": "code_default",
     "file": "engine/remotion/kit/paper.tsx",
     "symbol": "TypeTilt",
-    "module": "engine-kit (the tilt wave)",
-    "what": "the kit's tilt raster mode, opt-in per act (a tilt scope only a converting act sets): type drawn under a skewY too small to see in a tilt span around each text, the placement rules, morphing cards at whole even sizes, the stability bench scene and its spec (engine/remotion/kit/bench/stability_bench.json, which `slate qa stability conformance` renders and checks), the markup bench's coverage audit, and the rules in skills/slate-build/references/remotion-gotchas.md",
-    "note": "Its own wave, bench first (GAPS-FINAL A7, NEEDS 193/214): render the stability bench on a quiet Mac and pass the conformance procedure before any act converts; nothing in Slate's kit changes how type rasterises until then."
-   }
+    "line": 179,
+    "terms": [
+     "TILT_SKEW = 6e-4",
+     "skewY"
+    ],
+    "note": "Opt in per act: <RasterModeProvider value={actRasterMode()}> (hint mode stays the default; the input prop raster: \"hint\" draws an act's reference). Proved through the real pipeline on the kit's bench."
+   },
+   "also": [
+    {
+     "type": "gate",
+     "gate": "stability.conformance",
+     "file": "src/slate/qa/stability.py",
+     "symbol": "run_conformance",
+     "line": 1976,
+     "tests": [
+      "tests/qa_stability/test_qa_stability_bench.py::test_render_then_check_renders_every_variant_from_one_bundle"
+     ],
+     "note": "The kit's stability bench (engine/remotion/kit/bench) rendered through the queue at 16 samples: PASS on 2026-10-01, 16:05-16:11 EDT (job j-20261001-154309-3c23): all 18 steps over 14 variants at 16 samples. The tilt variants scan clean (drift, arrive, land, free type, zoom, grow), moving type stays 99-101% as crisp as a fresh raster, rest matches the pre-fix drawing (58.3 dB after a blur), two renders match, and the hint-mode controls still fail as they should"
+    }
+   ]
   },
   {
    "id": "L-kit-S002",
@@ -41229,13 +41319,30 @@
     "FILMROOT/pipeline/r3f/KIT.md:47-50; FILMROOT/pipeline/r3f/src/acts/act2/NOTES.md:164-170; FILMROOT/pipeline/r3f/src/b/act1/NOTES.md:115-117"
    ],
    "destination": {
-    "type": "pending",
+    "type": "code_default",
     "file": "engine/remotion/kit/paper.tsx",
-    "symbol": "TypeTilt",
-    "module": "engine-kit (the tilt wave)",
-    "what": "the kit's tilt raster mode, opt-in per act (a tilt scope only a converting act sets): type drawn under a skewY too small to see in a tilt span around each text, the placement rules, morphing cards at whole even sizes, the stability bench scene and its spec (engine/remotion/kit/bench/stability_bench.json, which `slate qa stability conformance` renders and checks), the markup bench's coverage audit, and the rules in skills/slate-build/references/remotion-gotchas.md",
-    "note": "Its own wave, bench first (GAPS-FINAL A7, NEEDS 193/214): render the stability bench on a quiet Mac and pass the conformance procedure before any act converts; nothing in Slate's kit changes how type rasterises until then."
-   }
+    "symbol": "Card",
+    "line": 377,
+    "terms": [
+     "faceTilt",
+     "0.0006"
+    ],
+    "note": "Card tilts its face's type by default (faceTilt); a wide card with thin lines far from its centre takes faceTilt={false} and a TiltSpan around each text."
+   },
+   "also": [
+    {
+     "type": "gate",
+     "gate": "handin.act<N>.markup",
+     "file": "engine/remotion/markup.mjs",
+     "symbol": "markupGate",
+     "line": 327,
+     "check": "tiltAudit",
+     "tests": [
+      "tests/engine_core/test_handin_gates.py::test_the_markup_bench_audits_an_act_in_tilt_mode"
+     ],
+     "note": "`slate check <act> --markup` draws the act in tilt mode too and holds every sample to the placement rules, without a pixel."
+    }
+   ]
   },
   {
    "id": "L-kit-S003",
@@ -41248,13 +41355,30 @@
     "FILMROOT/pipeline/r3f/KIT.md:54-70"
    ],
    "destination": {
-    "type": "pending",
+    "type": "code_default",
     "file": "engine/remotion/kit/paper.tsx",
-    "symbol": "TypeTilt",
-    "module": "engine-kit (the tilt wave)",
-    "what": "the kit's tilt raster mode, opt-in per act (a tilt scope only a converting act sets): type drawn under a skewY too small to see in a tilt span around each text, the placement rules, morphing cards at whole even sizes, the stability bench scene and its spec (engine/remotion/kit/bench/stability_bench.json, which `slate qa stability conformance` renders and checks), the markup bench's coverage audit, and the rules in skills/slate-build/references/remotion-gotchas.md",
-    "note": "Its own wave, bench first (GAPS-FINAL A7, NEEDS 193/214): render the stability bench on a quiet Mac and pass the conformance procedure before any act converts; nothing in Slate's kit changes how type rasterises until then."
-   }
+    "symbol": "TiltSpan",
+    "line": 155,
+    "terms": [
+     "under a blur",
+     "opacity below 1"
+    ],
+    "note": "PerChar, PerWord and KineticWords put a TiltSpan inside each blurred or fading box; Arrive and Field append the tilt after their own transform (useTypeTilt)."
+   },
+   "also": [
+    {
+     "type": "gate",
+     "gate": "handin.act<N>.markup",
+     "file": "engine/remotion/markup.mjs",
+     "symbol": "markupGate",
+     "line": 327,
+     "check": "tiltAudit",
+     "tests": [
+      "tests/engine_core/test_handin_gates.py::test_the_markup_bench_audits_an_act_in_tilt_mode"
+     ],
+     "note": "`slate check <act> --markup` draws the act in tilt mode too and holds every sample to the placement rules, without a pixel."
+    }
+   ]
   },
   {
    "id": "L-kit-S004",
@@ -41267,12 +41391,15 @@
     "FILMROOT/pipeline/r3f/KIT_C.md:265-267; FILMROOT/pipeline/r3f/src/b/act1/NOTES.md:119-123; FILMROOT/pipeline/r3f/src/b/act2/NOTES.md:325-334"
    ],
    "destination": {
-    "type": "pending",
-    "file": "engine/remotion/kit/paper.tsx",
-    "symbol": "TypeTilt",
-    "module": "engine-kit (the tilt wave)",
-    "what": "the kit's tilt raster mode, opt-in per act (a tilt scope only a converting act sets): type drawn under a skewY too small to see in a tilt span around each text, the placement rules, morphing cards at whole even sizes, the stability bench scene and its spec (engine/remotion/kit/bench/stability_bench.json, which `slate qa stability conformance` renders and checks), the markup bench's coverage audit, and the rules in skills/slate-build/references/remotion-gotchas.md",
-    "note": "Its own wave, bench first (GAPS-FINAL A7, NEEDS 193/214): render the stability bench on a quiet Mac and pass the conformance procedure before any act converts; nothing in Slate's kit changes how type rasterises until then."
+    "type": "code_default",
+    "file": "engine/remotion/markup.mjs",
+    "symbol": "tiltAudit",
+    "line": 215,
+    "terms": [
+     "sits in a 3D world",
+     "sits under a clip-path"
+    ],
+    "note": "The audit fails a tilted plane in a 3D world or under a clip-path; TypeTilt's own note says an empty wrapper around absolutely placed text shears it (use TiltSpan)."
    }
   },
   {
@@ -41286,13 +41413,30 @@
     "FILMROOT/pipeline/r3f/src/acts/act5/NOTES.md:493-497"
    ],
    "destination": {
-    "type": "pending",
-    "file": "engine/remotion/kit/paper.tsx",
-    "symbol": "TypeTilt",
-    "module": "engine-kit (the tilt wave)",
-    "what": "the kit's tilt raster mode, opt-in per act (a tilt scope only a converting act sets): type drawn under a skewY too small to see in a tilt span around each text, the placement rules, morphing cards at whole even sizes, the stability bench scene and its spec (engine/remotion/kit/bench/stability_bench.json, which `slate qa stability conformance` renders and checks), the markup bench's coverage audit, and the rules in skills/slate-build/references/remotion-gotchas.md",
-    "note": "Its own wave, bench first (GAPS-FINAL A7, NEEDS 193/214): render the stability bench on a quiet Mac and pass the conformance procedure before any act converts; nothing in Slate's kit changes how type rasterises until then."
-   }
+    "type": "code_default",
+    "file": "engine/remotion/kit/ui.tsx",
+    "symbol": "StreamText",
+    "line": 313,
+    "terms": [
+     "each character fades by its colour's alpha",
+     "running text tilts whole"
+    ],
+    "note": "In tilt mode a stream is one TypeTilt block whose characters stay inline (the kerning kept) and fade by colour alpha, never an opacity of their own."
+   },
+   "also": [
+    {
+     "type": "gate",
+     "gate": "handin.act<N>.markup",
+     "file": "engine/remotion/markup.mjs",
+     "symbol": "markupGate",
+     "line": 327,
+     "check": "tiltAudit",
+     "tests": [
+      "tests/engine_core/test_handin_gates.py::test_the_markup_bench_audits_an_act_in_tilt_mode"
+     ],
+     "note": "`slate check <act> --markup` draws the act in tilt mode too and holds every sample to the placement rules, without a pixel."
+    }
+   ]
   },
   {
    "id": "L-kit-S006",
@@ -41327,12 +41471,15 @@
     "FILMROOT/pipeline/r3f/KIT.md:85-97; FILMROOT/pipeline/r3f/src/b/act1/NOTES.md:159-172"
    ],
    "destination": {
-    "type": "pending",
+    "type": "code_default",
     "file": "engine/remotion/kit/paper.tsx",
-    "symbol": "TypeTilt",
-    "module": "engine-kit (the tilt wave)",
-    "what": "the kit's tilt raster mode, opt-in per act (a tilt scope only a converting act sets): type drawn under a skewY too small to see in a tilt span around each text, the placement rules, morphing cards at whole even sizes, the stability bench scene and its spec (engine/remotion/kit/bench/stability_bench.json, which `slate qa stability conformance` renders and checks), the markup bench's coverage audit, and the rules in skills/slate-build/references/remotion-gotchas.md",
-    "note": "Its own wave, bench first (GAPS-FINAL A7, NEEDS 193/214): render the stability bench on a quiet Mac and pass the conformance procedure before any act converts; nothing in Slate's kit changes how type rasterises until then."
+    "symbol": "morphPose",
+    "line": 229,
+    "terms": [
+     "whole even sizes",
+     "sawtoothing"
+    ],
+    "note": "Card lays a morphPose-marked pose out at whole even sizes and scales the face, layers and pages to the true size with the content scaled back (exactLayout); proved on the bench's kit-morph."
    },
    "also": [
     {
@@ -41344,6 +41491,17 @@
      "tests": [
       "tests/qa_stability/test_qa_stability_scans.py::test_morph_rounded_edges_fail"
      ]
+    },
+    {
+     "type": "gate",
+     "gate": "stability.conformance",
+     "file": "src/slate/qa/stability.py",
+     "symbol": "run_conformance",
+     "line": 1976,
+     "tests": [
+      "tests/qa_stability/test_qa_stability_bench.py::test_render_then_check_renders_every_variant_from_one_bundle"
+     ],
+     "note": "The kit's stability bench (engine/remotion/kit/bench) rendered through the queue at 16 samples: PASS on 2026-10-01, 16:05-16:11 EDT (job j-20261001-154309-3c23): all 18 steps over 14 variants at 16 samples. The tilt variants scan clean (drift, arrive, land, free type, zoom, grow), moving type stays 99-101% as crisp as a fresh raster, rest matches the pre-fix drawing (58.3 dB after a blur), two renders match, and the hint-mode controls still fail as they should"
     }
    ]
   },
@@ -41379,12 +41537,14 @@
     "FILMROOT/pipeline/r3f/KIT.md:98-104; FILMROOT/pipeline/r3f/src/b/act6/NOTES.md:477-488"
    ],
    "destination": {
-    "type": "pending",
+    "type": "code_default",
     "file": "engine/remotion/kit/paper.tsx",
-    "symbol": "TypeTilt",
-    "module": "engine-kit (the tilt wave)",
-    "what": "the kit's tilt raster mode, opt-in per act (a tilt scope only a converting act sets): type drawn under a skewY too small to see in a tilt span around each text, the placement rules, morphing cards at whole even sizes, the stability bench scene and its spec (engine/remotion/kit/bench/stability_bench.json, which `slate qa stability conformance` renders and checks), the markup bench's coverage audit, and the rules in skills/slate-build/references/remotion-gotchas.md",
-    "note": "Its own wave, bench first (GAPS-FINAL A7, NEEDS 193/214): render the stability bench on a quiet Mac and pass the conformance procedure before any act converts; nothing in Slate's kit changes how type rasterises until then."
+    "symbol": "useMotionHint",
+    "line": 146,
+    "terms": [
+     "slow push came out about 15% softer"
+    ],
+    "note": "Hint mode keeps the raster hints; tilt mode drops every one (useMotionHint), and the bench holds tilt-mode type at least 99% as crisp as a fresh raster while it moves."
    },
    "also": [
     {
@@ -41394,6 +41554,17 @@
      ],
      "line": 11,
      "target": "skills/slate-build/references/remotion-gotchas.md"
+    },
+    {
+     "type": "gate",
+     "gate": "stability.conformance",
+     "file": "src/slate/qa/stability.py",
+     "symbol": "run_conformance",
+     "line": 1976,
+     "tests": [
+      "tests/qa_stability/test_qa_stability_bench.py::test_render_then_check_renders_every_variant_from_one_bundle"
+     ],
+     "note": "The kit's stability bench (engine/remotion/kit/bench) rendered through the queue at 16 samples: PASS on 2026-10-01, 16:05-16:11 EDT (job j-20261001-154309-3c23): all 18 steps over 14 variants at 16 samples. The tilt variants scan clean (drift, arrive, land, free type, zoom, grow), moving type stays 99-101% as crisp as a fresh raster, rest matches the pre-fix drawing (58.3 dB after a blur), two renders match, and the hint-mode controls still fail as they should"
     }
    ]
   },
@@ -41418,9 +41589,12 @@
     ],
     "tests": [
      "tests/engine_core/test_handin_gates.py::test_the_markup_bench_compares_with_the_kit_at_a_git_ref",
-     "tests/engine_core/test_handin_gates.py::test_the_markup_bench_passes_an_opt_in_prop_and_catches_a_changed_default"
+     "tests/engine_core/test_handin_gates.py::test_the_markup_bench_passes_an_opt_in_prop_and_catches_a_changed_default",
+     "tests/engine_core/test_handin_gates.py::test_the_markup_bench_audits_an_act_in_tilt_mode",
+     "tests/engine_core/test_handin_gates.py::test_the_markup_bench_compares_through_a_symlinked_data_folder",
+     "tests/engine_core/test_handin_gates.py::test_the_markup_bench_says_when_an_act_draws_nothing_in_tilt_mode"
     ],
-    "note": "With `--against REF|FOLDER` every sample is compared with the act drawn by the kit at a git ref or in a kit folder. The tilt mode's coverage audit joins it with the tilt wave (L-kit-S001)."
+    "note": "With `--against REF|FOLDER` every sample is compared, in hint mode, with the act drawn by the kit at a git ref or in a kit folder; the act is also drawn in tilt mode and held to the coverage audit (every text tilted inside its layer, no tilt holding a shape outside a card's face, no plane in a 3D world or under a clip, no raster hints). The tilt port proved itself this way: the kit's review sheet, 300 samples in two looks, identical to the kit at HEAD."
    },
    "also": [
     {
@@ -41446,12 +41620,14 @@
     "FILMROOT/pipeline/r3f/KIT_C.md:268-269; FILMROOT/pipeline/r3f/src/b/act1/NOTES.md:180-186"
    ],
    "destination": {
-    "type": "pending",
+    "type": "code_default",
     "file": "engine/remotion/kit/paper.tsx",
-    "symbol": "TypeTilt",
-    "module": "engine-kit (the tilt wave)",
-    "what": "the kit's tilt raster mode, opt-in per act (a tilt scope only a converting act sets): type drawn under a skewY too small to see in a tilt span around each text, the placement rules, morphing cards at whole even sizes, the stability bench scene and its spec (engine/remotion/kit/bench/stability_bench.json, which `slate qa stability conformance` renders and checks), the markup bench's coverage audit, and the rules in skills/slate-build/references/remotion-gotchas.md",
-    "note": "Its own wave, bench first (GAPS-FINAL A7, NEEDS 193/214): render the stability bench on a quiet Mac and pass the conformance procedure before any act converts; nothing in Slate's kit changes how type rasterises until then."
+    "symbol": "RasterModeProvider",
+    "line": 104,
+    "terms": [
+     "both acts on a boundary render in the same mode"
+    ],
+    "note": "Stated with the mode, and held by the boundary contracts: a hand-over's frames must match bit for bit, which two modes can't."
    }
   },
   {
@@ -41500,12 +41676,15 @@
     "FILMROOT/pipeline/r3f/src/b/act1/NOTES.md:141-145; FILMROOT/pipeline/r3f/src/b/act2/NOTES.md:335-337"
    ],
    "destination": {
-    "type": "pending",
+    "type": "code_default",
     "file": "engine/remotion/kit/paper.tsx",
-    "symbol": "TypeTilt",
-    "module": "engine-kit (the tilt wave)",
-    "what": "the kit's tilt raster mode, opt-in per act (a tilt scope only a converting act sets): type drawn under a skewY too small to see in a tilt span around each text, the placement rules, morphing cards at whole even sizes, the stability bench scene and its spec (engine/remotion/kit/bench/stability_bench.json, which `slate qa stability conformance` renders and checks), the markup bench's coverage audit, and the rules in skills/slate-build/references/remotion-gotchas.md",
-    "note": "Its own wave, bench first (GAPS-FINAL A7, NEEDS 193/214): render the stability bench on a quiet Mac and pass the conformance procedure before any act converts; nothing in Slate's kit changes how type rasterises until then."
+    "symbol": "RasterModeProvider",
+    "line": 104,
+    "terms": [
+     "rounds a fractional layout offset under",
+     "lays out at 0 and moves by transform"
+    ],
+    "note": "The placement rule beside the mode; Card centres itself by transform and morphPose keeps its edges whole."
    }
   },
   {

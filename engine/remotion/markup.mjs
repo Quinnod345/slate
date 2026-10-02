@@ -8,8 +8,14 @@
 //                          repository draws it, so a rendering-only kit change proves itself a no-op in the old mode
 //                          without rendering a pixel (L-kit-S010). `against` may instead be a kit folder (an absolute
 //                          path to a folder holding a kit's index.ts, such as an installed engine's remotion/kit,
-//                          which has no git history). The tilt raster mode's coverage audit joins this when the kit
-//                          has the mode.
+//                          which has no git history). The comparison draws the act in hint mode (the render's input
+//                          prop raster: "hint"): an act's hint-mode drawing is its reference.
+//   the tilt coverage audit: the act is drawn again with raster: "tilt"; when it draws in tilt mode at all (the kit's
+//                          RasterModeProvider), every sample is held to the tilt mode's placement rules: every text
+//                          tilted inside the innermost layer that holds it (a 3D transform, a filter, an opacity below
+//                          1, a blend mode or a raster hint), no tilt holding a shape outside a Card's face, no tilted
+//                          plane in a 3D world or under a clip-path, and no raster hints (will-change) at all. A text
+//                          an act leaves untilted on purpose says so: data-slate-untilted="<why>" on its element.
 //
 // In Node, 'remotion' answers the bench's frame and the film's size (useCurrentFrame, useVideoConfig), and the kit's
 // font gate lets its children through: fonts load in the browser, and the hand-in check's renders hold them to the
@@ -54,6 +60,7 @@ function markupPlugin(kitDir, tmp, tag) {
       'export const useVideoConfig = () => globalThis.__slateMarkup.config;',
       'export const delayRender = () => 0;',
       'export const continueRender = () => {};',
+      'export const getInputProps = () => (globalThis.__slateMarkup && globalThis.__slateMarkup.inputProps) || {};',
       'export const cancelRender = (e) => { throw e instanceof Error ? e : new Error(String(e)); };',
       '',
     ].join('\n'),
@@ -63,12 +70,21 @@ function markupPlugin(kitDir, tmp, tag) {
   if (fontsReal) {
     fs.writeFileSync(fontsShim, `export * from ${JSON.stringify(fontsReal)};\nexport function FontGate({children}: {children?: unknown}) {\n  return children as never;\n}\n`);
   }
-  const kit = path.resolve(kitDir) + path.sep;
+  // real paths on both sides: a kit unpacked under a temp folder reached through a symlink (macOS's /var is
+  // /private/var) is still the kit, or its FontGate would hold back every child and the act would draw nothing
+  const real = (p) => {
+    try {
+      return fs.realpathSync(p);
+    } catch {
+      return path.resolve(p);
+    }
+  };
+  const kit = real(path.resolve(kitDir)) + path.sep;
   return {
     name: 'slate-markup',
     setup(b) {
       b.onResolve({filter: /^remotion$/}, () => ({path: remotionShim}));
-      if (fontsReal) b.onResolve({filter: /^\.\/fonts$/}, (a) => ((path.resolve(a.resolveDir) + path.sep).startsWith(kit) && a.importer !== fontsShim ? {path: fontsShim} : undefined));
+      if (fontsReal) b.onResolve({filter: /^\.\/fonts$/}, (a) => ((real(path.resolve(a.resolveDir)) + path.sep).startsWith(kit) && real(a.importer) !== real(fontsShim) ? {path: fontsShim} : undefined));
     },
   };
 }
@@ -104,10 +120,165 @@ async function markupRenderer(ctx, act, kitDir, tmp, tag) {
   const mod = await import(pathToFileURL(outfile).href);
   if (!mod.hasComponent) throw usage(`Act ${act}'s index has no component to draw (a default export, or Act${act}).`);
   const config = {width: ctx.width, height: ctx.height, fps: ctx.fps.value, durationInFrames: a.frames * MARKUP_SAMPLES, id: `Act${act}`, defaultProps: {}, props: {}};
-  return (frame, k) => {
-    globalThis.__slateMarkup = {frame: frame * MARKUP_SAMPLES + k, config};
+  return (frame, k, inputProps = {}) => {
+    globalThis.__slateMarkup = {frame: frame * MARKUP_SAMPLES + k, config, inputProps};
     return mod.render({sub: MARKUP_SAMPLES, act, firstFrame: a.frameIn});
   };
+}
+
+// ---------------------------------------------------------------------------------------------- the tilt coverage audit
+const VOID_TAGS = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr']);
+const ENTITIES = {amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: '\u00a0'};
+const decode = (t) => t.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (m, e) => (e[0] === '#' ? String.fromCodePoint(e[1] === 'x' || e[1] === 'X' ? parseInt(e.slice(2), 16) : Number(e.slice(1))) : ENTITIES[e.toLowerCase()] ?? m));
+
+/** A static markup string (react-dom/server's, well formed) as a tree: {tag, attrs, style, children, parent} and {text}. */
+export function parseMarkup(html) {
+  const root = {tag: '#root', attrs: {}, style: {}, children: [], parent: null};
+  let cur = root;
+  for (const m of html.matchAll(/<(\/?)([a-zA-Z][\w:.-]*)([^>]*?)(\/?)>|([^<]+)/g)) {
+    if (m[5] !== undefined) {
+      cur.children.push({text: decode(m[5]), parent: cur});
+      continue;
+    }
+    const tag = m[2].toLowerCase();
+    if (m[1] === '/') {
+      let n = cur;
+      while (n && n.tag !== tag) n = n.parent;
+      if (n && n.parent) cur = n.parent;
+      continue;
+    }
+    const attrs = {};
+    for (const a of m[3].matchAll(/([^\s=/]+)(?:="([^"]*)")?/g)) attrs[a[1].toLowerCase()] = decode(a[2] ?? '');
+    const node = {tag, attrs, style: parseStyle(attrs.style ?? ''), children: [], parent: cur};
+    cur.children.push(node);
+    if (m[4] !== '/' && !VOID_TAGS.has(tag)) cur = node;
+  }
+  return root;
+}
+
+/** An inline style as {property: value}, split on the semicolons outside any brackets (a data URL keeps its own). */
+export function parseStyle(text) {
+  const out = {};
+  let depth = 0;
+  let start = 0;
+  const take = (part) => {
+    const i = part.indexOf(':');
+    if (i > 0) out[part.slice(0, i).trim().toLowerCase()] = part.slice(i + 1).trim();
+  };
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (c === '(') depth++;
+    else if (c === ')') depth = Math.max(0, depth - 1);
+    else if (c === ';' && depth === 0) {
+      take(text.slice(start, i));
+      start = i + 1;
+    }
+  }
+  take(text.slice(start));
+  return out;
+}
+
+const THREE_D = /translate3d|translatez|rotatex|rotatey|rotate3d|perspective\(|matrix3d|scale3d|scalez/i;
+const isTilt = (n) => Boolean(n.attrs?.['data-slate-tilt']) || /skewY\(/i.test(n.style?.transform ?? '');
+/** What makes an element a layer Chrome may raster on its own: a 3D transform, a filter, opacity below 1, a blend. */
+function layerWhy(n) {
+  const s = n.style ?? {};
+  if (s['will-change'] && s['will-change'] !== 'auto') return 'a raster hint';
+  if (s['transform-style'] === 'preserve-3d' || THREE_D.test(s.transform ?? '')) return 'a 3D transform';
+  if (s.filter && s.filter !== 'none') return 'a filter';
+  if (s['backdrop-filter'] && s['backdrop-filter'] !== 'none') return 'a filter';
+  if (s.opacity !== undefined && Number(s.opacity) < 1) return 'an opacity below 1';
+  if (s['mix-blend-mode'] && s['mix-blend-mode'] !== 'normal') return 'a blend mode';
+  return null;
+}
+const SHAPE_TAGS = new Set(['svg', 'img', 'canvas', 'video', 'hr']);
+/** Whether an element draws a shape of its own (a fill, a border, a shadow, an outline, an SVG or an image). */
+function shapeWhy(n) {
+  if (SHAPE_TAGS.has(n.tag)) return `an <${n.tag}>`;
+  const s = n.style ?? {};
+  const bg = s.background ?? s['background-color'] ?? s['background-image'];
+  if (bg && !/^(none|transparent|initial|inherit)$/i.test(bg) && !/rgba\([^)]*,\s*0\)$/i.test(bg)) return 'a fill';
+  for (const k of ['border', 'border-top', 'border-bottom', 'border-left', 'border-right', 'outline']) {
+    if (s[k] && !/^(none|0|0px)$/i.test(s[k]) && !/\b(none|hidden)\b/i.test(s[k])) return 'a border';
+  }
+  if (s['box-shadow'] && s['box-shadow'] !== 'none') return 'a shadow';
+  return null;
+}
+const hidden = (n) => /^(hidden|collapse)$/i.test(n.style?.visibility ?? '') || n.style?.display === 'none';
+
+/**
+ * The tilt mode's placement rules on one sample's markup: findings [{rule, what}] and the counts. A text is checked
+ * from its element up: the first tilt it meets must come at or before the first layer boundary (the same element may be
+ * both: type moved by its own transform carries the tilt in it); text in an SVG or hidden is skipped, and an element
+ * marked data-slate-untilted (with why) excuses everything in it.
+ */
+export function tiltAudit(html) {
+  const root = parseMarkup(html);
+  const findings = [];
+  const exempt = new Set();
+  let texts = 0;
+  let tilts = 0;
+  const label = (n) => {
+    const words = [];
+    const walk = (x) => {
+      if (words.join(' ').length > 40) return;
+      if (x.text !== undefined) {
+        if (x.text.trim()) words.push(x.text.trim());
+      } else x.children.forEach(walk);
+    };
+    walk(n);
+    const t = words.join(' ').replace(/\s+/g, ' ');
+    return t.length > 40 ? `${t.slice(0, 37)}…` : t;
+  };
+  const visit = (n, ctx) => {
+    if (n.text !== undefined) {
+      const t = n.text.trim();
+      if (!t || ctx.svg || ctx.hidden) return;
+      if (ctx.exempt) {
+        exempt.add(`"${t.slice(0, 40)}" (${ctx.exempt})`);
+        return;
+      }
+      texts++;
+      for (let e = n.parent; e && e.tag !== '#root'; e = e.parent) {
+        if (isTilt(e)) return;
+        const why = layerWhy(e);
+        if (why) {
+          findings.push({rule: 'untilted', what: `"${t.slice(0, 40)}" isn't tilted inside its layer (${why} on <${e.tag}>)`});
+          return;
+        }
+      }
+      findings.push({rule: 'untilted', what: `"${t.slice(0, 40)}" isn't tilted`});
+      return;
+    }
+    const kind = n.attrs?.['data-slate-tilt'];
+    const tilt = isTilt(n);
+    if (tilt) tilts++;
+    if (n.style?.['will-change'] && n.style['will-change'] !== 'auto') findings.push({rule: 'hint', what: `<${n.tag}> carries a raster hint (will-change: ${n.style['will-change']}) in tilt mode`});
+    if (kind === 'plane' && ctx.world) findings.push({rule: 'plane', what: `a tilted plane ("${label(n)}") sits in a 3D world: tilt each text where it sits instead (TiltSpan)`});
+    if (kind === 'plane' && ctx.clip) findings.push({rule: 'plane', what: `a tilted plane ("${label(n)}") sits under a clip-path: tilt each text where it sits instead (TiltSpan)`});
+    if (ctx.tilt && ctx.tilt !== 'face' && n.tag !== '#root') {
+      const why = shapeWhy(n);
+      if (why) findings.push({rule: 'shape', what: `a tilt (${ctx.tilt}) holds ${why} on <${n.tag}>${label(n) ? ` ("${label(n)}")` : ''}: tilt type only, never shapes`});
+    }
+    const next = {
+      ...ctx,
+      svg: ctx.svg || n.tag === 'svg',
+      hidden: ctx.hidden || hidden(n),
+      exempt: ctx.exempt || (n.attrs?.['data-slate-untilted'] !== undefined ? n.attrs['data-slate-untilted'] || 'no reason given' : null),
+      world: ctx.world || n.style?.['transform-style'] === 'preserve-3d',
+      clip: ctx.clip || Boolean(n.style?.['clip-path'] && n.style['clip-path'] !== 'none'),
+      // the innermost tilt holding this subtree: a face tilt may hold the face's shapes (faceTilt), any other may not
+      tilt: tilt ? kind || 'a skew' : ctx.tilt,
+    };
+    // a tilt's own element may be a fill only when it's a face; its children are judged against the tilt above them
+    if (tilt && kind !== 'face' && n.tag !== '#root') {
+      const why = shapeWhy(n);
+      if (why) findings.push({rule: 'shape', what: `a tilt (${kind || 'a skew'}) is itself ${why} on <${n.tag}>: tilt type only, never shapes`});
+    }
+    for (const c of n.children) visit(c, next);
+  };
+  visit(root, {svg: false, hidden: false, exempt: null, world: false, clip: false, tilt: null});
+  return {findings, texts, tilts, exempt: [...exempt]};
 }
 
 /** A kit folder given as `against` (an absolute path holding a kit's index.ts), or null when it's a git ref. */
@@ -173,11 +344,13 @@ export async function markupGate(ctx, act, args, name, inputs) {
     const differ = [];
     const errors = [];
     let samples = 0;
+    const HINT = {raster: 'hint'};
+    const TILT = {raster: 'tilt'};
     for (let f = 0; f < a.frames; f++) {
       for (let k = 0; k < MARKUP_SAMPLES; k++) {
         let html;
         try {
-          html = now(f, k);
+          html = now(f, k, HINT);
         } catch (e) {
           errors.push(`frame ${f} sample ${k}: the act throws while drawing: ${String(e?.message ?? e).split('\n')[0]}`);
           continue;
@@ -187,7 +360,7 @@ export async function markupGate(ctx, act, args, name, inputs) {
         if (then) {
           let old;
           try {
-            old = then(f, k);
+            old = then(f, k, HINT);
           } catch (e) {
             errors.push(`frame ${f} sample ${k}: the act throws while drawing with the earlier kit: ${String(e?.message ?? e).split('\n')[0]}`);
             continue;
@@ -199,13 +372,45 @@ export async function markupGate(ctx, act, args, name, inputs) {
         }
       }
     }
-    const details = {frames: a.frames, samples, per_frame: MARKUP_SAMPLES, against: args.against ?? null, tilt_audit: 'not run: this kit has no tilt raster mode yet'};
+    // the act again in tilt mode: drawn without errors or bad values, and, where it draws any tilt, held to the rules
+    const audit = {samples: 0, tilted_samples: 0, texts: 0, findings: 0, exempt: new Set()};
+    const findings = [];
+    for (let f = 0; f < a.frames; f++) {
+      for (let k = 0; k < MARKUP_SAMPLES; k++) {
+        let html;
+        try {
+          html = now(f, k, TILT);
+        } catch (e) {
+          errors.push(`frame ${f} sample ${k}: the act throws while drawing in tilt mode: ${String(e?.message ?? e).split('\n')[0]}`);
+          continue;
+        }
+        audit.samples++;
+        for (const v of badValues(html)) if (bad.length < 40) bad.push(`frame ${f} sample ${k} (tilt mode): ${v}`);
+        if (!html.includes('data-slate-tilt')) continue;
+        audit.tilted_samples++;
+        const r = tiltAudit(html);
+        audit.texts += r.texts;
+        r.exempt.forEach((x) => audit.exempt.add(x));
+        for (const x of r.findings) {
+          audit.findings++;
+          if (findings.length < 40) findings.push(`frame ${f} sample ${k}: ${x.what}`);
+        }
+      }
+    }
+    const tiltAuditDetails = audit.tilted_samples
+      ? {run: true, samples: audit.samples, tilted_samples: audit.tilted_samples, texts: audit.texts, findings: audit.findings, exempt: [...audit.exempt].slice(0, 20)}
+      : {run: false, why: 'the act draws nothing in tilt mode (no RasterModeProvider): there is nothing to audit'};
+    const details = {frames: a.frames, samples, per_frame: MARKUP_SAMPLES, against: args.against ?? null, tilt_audit: tiltAuditDetails};
     if (errors.length) return gate(name, 'FAIL', `${errors.length} sample${errors.length > 1 ? 's' : ''} couldn't be drawn; the first: ${errors[0]}`, {engine, evidence: [...errors.slice(0, 20), ...bad.slice(0, 20)], inputs, details});
     if (bad.length) return gate(name, 'FAIL', `NaN, Infinity or undefined in the markup; the first: ${bad[0]}`, {engine, evidence: bad, inputs, details});
     if (differ.length) return gate(name, 'FAIL', `the act draws differently from the kit at ${args.against}; the first: ${differ[0].slice(0, 300)}`, {engine, evidence: differ, inputs, details});
+    if (findings.length) return gate(name, 'FAIL', `the tilt mode's placement rules are broken at ${audit.findings} place${audit.findings > 1 ? 's' : ''}; the first: ${findings[0]}`, {engine, evidence: findings, inputs, details});
+    const tiltLine = audit.tilted_samples
+      ? `; in tilt mode every text is tilted inside its layer (${audit.texts} text runs over ${audit.tilted_samples} samples${audit.exempt.size ? `, ${audit.exempt.size} left untilted on purpose` : ''}), no tilt holds a shape outside a card's face, no plane sits in a 3D world or under a clip, and nothing is hinted`
+      : '';
     const summary = then
-      ? `${samples} samples (${a.frames} frames × ${MARKUP_SAMPLES}) clean and identical to the act drawn by the kit at ${args.against}`
-      : `${samples} samples (${a.frames} frames × ${MARKUP_SAMPLES}): no NaN, Infinity or undefined in any style or attribute`;
+      ? `${samples} samples (${a.frames} frames × ${MARKUP_SAMPLES}) clean and identical to the act drawn by the kit at ${args.against}${tiltLine}`
+      : `${samples} samples (${a.frames} frames × ${MARKUP_SAMPLES}): no NaN, Infinity or undefined in any style or attribute${tiltLine}`;
     return gate(name, 'PASS', summary, {engine, inputs, details});
   } finally {
     fs.rmSync(tmp, {recursive: true, force: true});

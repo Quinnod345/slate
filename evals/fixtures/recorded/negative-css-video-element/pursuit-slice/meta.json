@@ -1,0 +1,18 @@
+{
+ "case": "negative-css-video-element",
+ "config": "pursuit-slice",
+ "synthetic": false,
+ "started_at": "2026-10-01T11:36:07-04:00",
+ "slate_version": "0.1.0",
+ "setup": [],
+ "timeout_s": 600,
+ "exit_code": 0,
+ "killed": false,
+ "duration_s": 126.5,
+ "codex_trust_pruned": "Codex marked the sandbox a trusted project in its config.toml; that entry was taken out again",
+ "artifacts": [
+  "site/index.html",
+  "site/styles.css"
+ ],
+ "finished_at": "2026-10-01T11:38:13-04:00"
+}

@@ -220,6 +220,24 @@ def film(args: argparse.Namespace) -> Path:
     return paths.film_dir(flag(args, "film"))
 
 
+def dry_run(args: argparse.Namespace) -> bool:
+    """True when this run is a dry run (the global --dry-run)."""
+    return bool(flag(args, "dry_run", False))
+
+
+def dry_stop(args: argparse.Namespace, would: str, **details) -> bool:
+    """With --dry-run: say what the command would do (`would` reads after "would"), and tell the caller to stop
+    (True) before it changes, spends, queues, sends or runs anything. Without --dry-run: False, and it goes on.
+
+    Every command that changes something, spends, queues work or runs a long analysis asks this first, so
+    `slate --dry-run <command>` means one thing everywhere: say what would happen; run nothing, change nothing."""
+    if not dry_run(args):
+        return False
+    log.result({"dry_run": True, "would": would, **details}, f"Dry run: would {would}. Nothing ran and nothing "
+                                                              "changed.")
+    return True
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = Parser(
         prog="slate", parents=[COMMON], formatter_class=argparse.RawDescriptionHelpFormatter,

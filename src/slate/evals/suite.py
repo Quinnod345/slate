@@ -45,6 +45,7 @@ class Case:
     runner: str = "agent"
     needs_eval_env: bool = False
     timeout_s: int | None = None
+    cut_off: bool = False
     block: list[str] = field(default_factory=list)
     setup: dict = field(default_factory=dict)
     precondition: dict | None = None
@@ -60,7 +61,8 @@ class Case:
             id=data["id"], title=data["title"], group=data["group"], status=data["status"], prompt=data["prompt"],
             configs=list(data["configs"]), expect=[dict(e) for e in data["expect"]], vars=dict(data.get("vars") or {}),
             runner=data.get("runner", "agent"), needs_eval_env=bool(data.get("needs_eval_env", False)),
-            timeout_s=data.get("timeout_s"), block=list(data.get("block") or []), setup=dict(data.get("setup") or {}),
+            timeout_s=data.get("timeout_s"), cut_off=bool(data.get("cut_off", False)),
+            block=list(data.get("block") or []), setup=dict(data.get("setup") or {}),
             precondition=data.get("precondition"), harness=dict(data.get("harness") or {}),
             plan_points=list(data.get("plan_points") or []), why=data.get("why", ""), notes=data.get("notes", ""),
             path=path,

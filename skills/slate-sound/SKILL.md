@@ -1,6 +1,6 @@
 ---
 name: slate-sound
-description: Design, score, mix and verify the sound of a Slate film. Covers the approved starting palette (pads, small soft felt notes, hollow wood clicks and clacks, no chimes) and each brand's own palette, spotting sound from the picture's events with one deliberate sound per kind of interaction, composed scores on Eleven Music planned per act and assembled by measurement, the delivery mix and its balance against the voice, and the sound gates. The designed effects engine waits for the owner's approval of proof 3. Use when a Slate film needs its score planned, composed or assembled, its mix built or rebalanced, its sound verified, a brand's sound palette defined, or a question answered about how a film should sound.
+description: Design, score, mix and verify the sound of a Slate film. Covers the approved starting palette (pads, soft felt notes, hollow wood clicks and clacks, no chimes) and each brand's own palette, spotting sound from the picture's events with one deliberate sound per kind of interaction, Eleven Music scores planned per act and assembled by measurement, the mix and its balance against the voice, and the sound gates (the designed effects engine waits on proof 3). Use when a Slate film needs its score planned, composed or assembled, its mix built or rebalanced, its sound verified, a brand's sound palette defined, or an answer on how a film should sound.
 ---
 
 # slate-sound

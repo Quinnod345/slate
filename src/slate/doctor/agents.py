@@ -528,6 +528,80 @@ def dia_permissions(text: str) -> list[int]:
     return sorted(hits)
 
 
+# What Codex really shows of each skill: `codex debug prompt-input` renders the prompt Codex would send (no model call;
+# on 2026-10-01 it left config.toml and its trust list alone, and refreshed only Codex's own cache under ~/.codex/cache).
+# Codex cut every description to its first 220 characters then (81 skills listed, codex-cli 0.153.4 and
+# 0.155.0-alpha.16.4), so the front door's routing has to come first.
+_CODEX_SKILL_LINE_RE = re.compile(r"^- ([A-Za-z0-9][\w.:-]*): (.*?) \(file: [^)]*\)\s*$", re.M)
+# The front door's routing, each as a phrase that's in its description when it carries that rule.
+FRONT_DOOR_ROUTING = {"the open-request question": "quick generated clip", "its Not-for lines": "Not for"}
+
+
+def _prompt_texts(obj) -> list[str]:
+    """Every "text" in Codex's prompt-input list, in order."""
+    out: list[str] = []
+    if isinstance(obj, dict):
+        for key, value in obj.items():
+            out += [value] if key == "text" and isinstance(value, str) else _prompt_texts(value)
+    elif isinstance(obj, list):
+        for value in obj:
+            out += _prompt_texts(value)
+    return out
+
+
+def codex_visible(text: str) -> dict[str, str]:
+    """{skill: its description as Codex shows it} from `codex debug prompt-input`'s JSON."""
+    import json  # noqa: PLC0415
+
+    try:
+        blob = "\n".join(_prompt_texts(json.loads(text)))
+    except ValueError:
+        blob = text
+    return {m.group(1): m.group(2) for m in _CODEX_SKILL_LINE_RE.finditer(blob)}
+
+
+def _description(env: Env, name: str) -> str:
+    text = env.read_text(env.repo() / "skills" / name / "SKILL.md") or ""
+    m = re.search(r"^description:\s*(.+)$", text.split("\n---", 1)[0], re.M)
+    return m.group(1).strip().strip("'\"") if m else ""
+
+
+def check_codex_visible(env: Env, ctx: Ctx) -> list[dict]:
+    rid = "agents.codex-visible"
+    codex = env.which("codex")
+    if not codex:
+        return [R.green(rid, "Codex isn't on this Mac, so there's no skill list to read.", group=G)]
+    names, built = slate_skills(env)
+    if not built:
+        return [_no_skills_row(rid, "Codex")]
+    ran = env.run([codex, "debug", "prompt-input"], timeout=60)
+    if not ran.ok:
+        return [R.yellow(rid, f"Couldn't read what Codex shows of Slate's skills (`codex debug prompt-input` exited "
+                              f"{ran.returncode}: {ran.text[-160:]}).", "Update Codex, then run `slate doctor` again.",
+                         group=G)]
+    shown = codex_visible(ran.stdout)
+    rows = {n: {"visible": shown[n], "chars": len(shown[n]), "full_chars": len(_description(env, n)),
+                "cut": len(shown[n]) < len(_description(env, n))} for n in names if n in shown}
+    details = {"listed": len(shown), "skills": rows, "missing": sorted(set(names) - set(shown))}
+    if details["missing"]:
+        return [R.yellow(rid, f"Codex's skill list leaves out {len(details['missing'])} of Slate's skills: "
+                              f"{', '.join(details['missing'])}.", f"`{CONNECT}` links them where Codex reads.",
+                         group=G, details=details)]
+    full = _description(env, "slate")
+    lost = [what for what, phrase in FRONT_DOOR_ROUTING.items()
+            if phrase in full and phrase not in (shown.get("slate") or "")]
+    longest = max((r["chars"] for r in rows.values()), default=0)
+    cut = sorted(n for n, r in rows.items() if r["cut"])
+    if lost:
+        return [R.yellow(rid, f"Codex shows the front door only up to \"…{(shown.get('slate') or '')[-40:]}\", so "
+                              f"{' and '.join(lost)} never reach it.",
+                         "Put them first in skills/slate/SKILL.md's description, then `slate skills build`.",
+                         group=G, details=details)]
+    return [R.green(rid, f"Codex lists {len(shown)} skills and shows {len(cut)} of Slate's {len(rows)} cut short "
+                         f"(at most {longest} characters each); the front door's routing is inside what it shows.",
+                    group=G, details=details)]
+
+
 def check_codex_dia(env: Env, ctx: Ctx) -> list[dict]:
     rid = "agents.codex-dia"
     codex_home = Path(env.getenv("CODEX_HOME") or env.home / ".codex")

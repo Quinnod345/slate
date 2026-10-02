@@ -49,8 +49,10 @@ def _graph(ranges: list[list[int]], size: tuple[int, int] | None, metric: str, s
         w, h = size
         parts.append(f"{ref}scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},setsar=1[fit]")
         ref = "[fit]"
-    parts.append(f"{ref}format={PIX_FMT}[b]")
-    parts.append(f"[0:v]setsar=1,format={PIX_FMT}[a]")
+    # both sides renumbered frame by frame: containers round frame times differently, and pairing by time matched
+    # neighbours (slate.qa.measure.INDEX_CLOCK)
+    parts.append(f"{ref}{measure.INDEX_CLOCK},format={PIX_FMT}[b]")
+    parts.append(f"[0:v]{measure.INDEX_CLOCK},setsar=1,format={PIX_FMT}[a]")
     parts.append(f"[a][b]{metric}=stats_file={stats}:eof_action=endall")
     return ";".join(parts)
 

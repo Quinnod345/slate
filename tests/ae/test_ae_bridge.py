@@ -95,6 +95,36 @@ def test_status_reads_the_installed_package_and_the_pref(tmp_path, monkeypatch, 
     assert seen == [["/usr/local/bin/node", str(d / "dist" / "cli.js"), "doctor"]]
 
 
+def test_status_reports_aes_open_launch_dialogs(tmp_path, monkeypatch):
+    """The bridge's status names AE's launch dialogs (open_dialogs [{kind, title}]), read from AE's window titles only
+    while AE is open; doctor and every supervised step read the same."""
+    monkeypatch.setenv("SLATE_AE_BRIDGE_DIR", str(_pkg(tmp_path)))
+    titles = {"running": True, "windows": ["Adobe After Effects 2026 - film.aep", "Home", "Restore project?"],
+              "error": None}
+    monkeypatch.setattr(procs, "ae_running", lambda: True)
+    found = bridge.open_dialogs(lambda: titles)
+    assert found == {"open_dialogs": [{"kind": "home", "title": "Home"},
+                                      {"kind": "crash_recovery", "title": "Restore project?"}],
+                     "dialogs_readable": True}
+    monkeypatch.setattr(bridge, "_ae_windows", lambda: titles)
+    st = bridge.status()
+    assert [d["kind"] for d in st["open_dialogs"]] == ["home", "crash_recovery"] and "launch dialog" in st["next"][0]
+    assert "open_dialogs" not in bridge.status(dialogs=False)  # doctor reads the windows itself
+    monkeypatch.setattr(bridge, "_ae_windows", lambda: {"running": True, "windows": None, "error": "denied"})
+    assert bridge.status()["dialogs_readable"] is False
+
+
+def test_status_asks_nothing_of_ae_while_it_is_closed(tmp_path, monkeypatch):
+    monkeypatch.setenv("SLATE_AE_BRIDGE_DIR", str(_pkg(tmp_path)))
+    monkeypatch.setattr(procs, "ae_running", lambda: False)
+
+    def windows():
+        raise AssertionError("System Events asked while AE is closed")
+
+    assert bridge.open_dialogs(windows) == {"open_dialogs": [], "dialogs_readable": True}
+    assert bridge.status()["open_dialogs"] == []
+
+
 # ---- install --------------------------------------------------------------------------------------------------
 
 

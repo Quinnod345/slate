@@ -1,0 +1,15 @@
+{
+ "status": "ok",
+ "result": {
+  "payloads": [
+   {
+    "text": "Hi Sam, the heating has stopped working."
+   }
+  ],
+  "meta": {
+   "agentMeta": {
+    "sessionId": "11111111-2222-3333-4444-555555555555"
+   }
+  }
+ }
+}

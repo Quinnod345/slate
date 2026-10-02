@@ -18,7 +18,10 @@ and make can place it), the tool version, the SHA-256 of every input and of the 
   is copied. `resolve` finds the real file.
 
 Inputs are film-relative or absolute paths, or named inputs that aren't film files: `brand:<name>` (the brand pack's
-brand.json; `brand:<name>#<dotted.key>` is one block of it, e.g. brand:demo#sound for the sound palette),
+brand.json; `brand:<name>#<dotted.key>` is one block of it, e.g. brand:demo#sound for the sound palette; each stage
+records only the blocks it reads: the script its truth and duration scale, the timing brand:<name>#motion.eases, the
+mix its sound, so approving a reference or editing the look stales nothing that doesn't read it. A lock that recorded
+`brand:<name>` whole keeps comparing the whole file until its stage runs again),
 `film:<dotted.key>` (one film.json value, e.g. film:targets.runtime_s, so a new pin doesn't make
 everything made from the film's targets stale), `film:*` (all of film.json except its bookkeeping: pins, the pin log,
 versions, budgets, model overrides, stamps) and `format:<name>`. Any other `scheme:name` keeps the producer's own
@@ -169,8 +172,11 @@ def _named_input(film_dir: Path, key: str) -> tuple[bool, str | None]:
             node: Any = jsonio.read(path)
         except SlateError:
             return True, None
-        for part in block.split("."):
+        for i, part in enumerate(block.split(".")):
             node = node.get(part) if isinstance(node, dict) else None
+            if i == 0 and part == "motion" and isinstance(node, str):
+                # a motion law kept in its own file (slate.brand.pack.load reads it from there): hash what it says
+                node = jsonio.read(Path(pack_dir) / node, default=None)
         return True, jsonio.sha256_obj(node)
     if scheme == "film":
         data = jsonio.read(Path(film_dir) / "film.json", default=None)

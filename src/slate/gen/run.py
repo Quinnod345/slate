@@ -257,7 +257,7 @@ def run(film_dir: Path, shot_id: str, *, takes: int | None = None, approval: str
     client = client or higgsfield.Client()
     prep = prepare(film_dir, shot_id, takes=takes, client=client)
     rec = store.load_record(film_dir, shot_id)
-    if rec and adopt_orphans(film_dir, rec):
+    if rec and adopt_orphans(film_dir, rec) and not dry_run:  # a dry run sees the adoption, never writes it
         store.save_record(film_dir, shot_id, rec)
     if rec and store.approved_take(rec) and not force:
         picked = store.approved_take(rec)["id"]

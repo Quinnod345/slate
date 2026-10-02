@@ -6,6 +6,7 @@
  "exit_code": 0,
  "killed": false,
  "duration_s": 42.0,
+ "workdir": "/Users/you/evals/work",
  "expect": {
   "status": "PASS",
   "failed": []

@@ -17,7 +17,7 @@ import time
 from pathlib import Path
 
 from slate import jsonio, log, paths
-from slate.cli import add_command, add_group, flag
+from slate.cli import add_command, add_group, dry_stop, flag
 from slate.errors import UsageError
 from slate.jobs import agent, client, disk, locks, model, runner, store
 
@@ -75,9 +75,18 @@ def cmd_submit(args: argparse.Namespace) -> int:
     if not argv:
         raise UsageError("Give the command after --, e.g. slate job submit --kind render -- slate render --act 2")
     film = _film_arg(args)
-    job_id = client.submit(args.kind, argv, film=film, resources=args.resource or (), priority=args.priority,
-                           disk_gb=args.disk_gb, cwd=args.cwd, resumable=not args.no_resume,
-                           max_attempts=args.max_attempts, note=args.note, start_runner=False)
+    opts = dict(film=film, resources=args.resource or (), priority=args.priority, disk_gb=args.disk_gb, cwd=args.cwd,
+                resumable=not args.no_resume, max_attempts=args.max_attempts, note=args.note)
+    if flag(args, "dry_run"):  # checked like a real submit; nothing is queued and no runner starts
+        job = client.plan(args.kind, argv, **opts)
+        keep = ("kind", "argv", "cwd", "film", "resources", "priority", "priority_requested", "disk_gb", "resumable",
+                "max_attempts")
+        out = {"dry_run": True, "queued": False, "would_queue": {k: job.get(k) for k in keep}}
+        log.result(out, f"Would queue a {job['kind']} job at {job['priority']} priority: {' '.join(job['argv'])}\n"
+                        f"  in {job['cwd']}" + (f", holding {', '.join(job['resources'])}" if job.get("resources") else "")
+                   + "\nNothing was queued (--dry-run).")
+        return 0
+    job_id = client.submit(args.kind, argv, start_runner=False, **opts)
     served = client.ensure_runner()
     job = store.load(job_id)
     out = {"id": job_id, "state": job["state"], "priority": job["priority"], "runner": served, "log": job["log"],
@@ -96,13 +105,28 @@ def cmd_submit(args: argparse.Namespace) -> int:
     return 0
 
 
+def _read_only(job_id: str) -> dict:
+    """The job's record as it stands, for a dry run: no settling of a dead supervisor, no runner started."""
+    model.check_id(job_id)
+    return client._decorate(store.load(job_id))  # noqa: SLF001
+
+
 def cmd_status(args: argparse.Namespace) -> int:
+    if flag(args, "dry_run", False):  # status settles a dead job and starts a runner; a dry run only reads
+        job = _read_only(args.id)
+        log.result({**job, "dry_run": True}, _describe(job) + "\n(dry run: read as it stands; nothing settled)")
+        return 0
     job = client.status(args.id)
     log.result(job, _describe(job))
     return 0
 
 
 def cmd_wait(args: argparse.Namespace) -> int:
+    if flag(args, "dry_run", False):
+        job = _read_only(args.id)
+        log.result({**job, "dry_run": True}, _describe(job) + "\n(dry run: would wait for it to finish; nothing "
+                                                               "settled, no runner started)")
+        return 0
     job = client.wait(args.id, timeout=args.timeout, poll=args.poll)
     log.result(job, _describe(job))
     return 0 if job["state"] == "done" else 1
@@ -136,6 +160,10 @@ def cmd_log(args: argparse.Namespace) -> int:
 
 
 def cmd_cancel(args: argparse.Namespace) -> int:
+    grace = f"{args.grace:g} s" if args.grace is not None else "the configured grace"
+    if dry_stop(args, f"cancel job {args.id}: its vendor requests, then its process group (SIGTERM, then SIGKILL "
+                      f"after {grace})"):
+        return 0
     client.cancel(args.id, grace=args.grace)
     job = store.load(args.id)
     log.result({"id": args.id, "state": job["state"], "reason": job.get("reason")},
@@ -144,6 +172,8 @@ def cmd_cancel(args: argparse.Namespace) -> int:
 
 
 def cmd_retry(args: argparse.Namespace) -> int:
+    if dry_stop(args, f"put job {args.id} back in the queue and make sure a runner serves it"):
+        return 0
     job = client.retry(args.id)
     log.result({"id": args.id, "state": job["state"]}, f"{args.id}: back in the queue ({job['state']}).")
     return 0
@@ -166,6 +196,10 @@ def cmd_list(args: argparse.Namespace) -> int:
 
 
 def cmd_serve(args: argparse.Namespace) -> int:
+    if flag(args, "dry_run", False):
+        counts = ", ".join(f"{k} {v}" for k, v in client.summary()["counts"].items() if v) or "empty"
+        if dry_stop(args, f"serve the queue ({counts}){' once' if args.once else ''}, running each queued job"):
+            return 0
     return runner.serve(once=args.once, poll=args.poll)
 
 

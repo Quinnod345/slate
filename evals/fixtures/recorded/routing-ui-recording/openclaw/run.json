@@ -1,0 +1,106 @@
+{
+ "runId": "ef012969-21ac-4b65-87a1-00aa08c61bc5",
+ "status": "ok",
+ "summary": "completed",
+ "result": {
+  "payloads": [
+   {
+    "text": "Blocked: the eval folder contains no Xcode project, `.app`, `.ipa`, launch script, or existing recording.\n\nI did not open an unrelated app or Simulator project. Without the authorized fixture, I can’t record the sign-up flow or make a frame-by-frame jank/flicker assessment. Add the app fixture inside this run folder to continue.",
+    "mediaUrl": null
+   }
+  ],
+  "meta": {
+   "durationMs": 124853,
+   "agentMeta": {
+    "sessionId": "10f10736-888c-4c7a-8ada-89f3327702a2",
+    "provider": "openai",
+    "model": "gpt-5.6-sol",
+    "contextTokens": 258400,
+    "contextTokensSource": "runtime",
+    "agentHarnessId": "codex",
+    "credentialSource": {
+     "kind": "profile"
+    },
+    "usage": {
+     "input": 66916,
+     "output": 4584,
+     "cacheRead": 143744,
+     "cacheWrite": 0,
+     "reasoningTokens": 1694,
+     "total": 215244
+    },
+    "lastCallUsage": {
+     "input": 66916,
+     "output": 4584,
+     "cacheRead": 143744,
+     "cacheWrite": 0,
+     "reasoningTokens": 1694,
+     "total": 215244,
+     "contextUsage": {
+      "state": "available",
+      "promptTokens": 34069,
+      "totalTokens": 34623
+     }
+    },
+    "promptTokens": 34069,
+    "codeModeEngaged": false,
+    "terminalReceipt": {
+     "runId": "ef012969-21ac-4b65-87a1-00aa08c61bc5",
+     "sessionId": "10f10736-888c-4c7a-8ada-89f3327702a2",
+     "turnId": "01a0f9b1-e639-72a3-84fc-e58d98c2b243",
+     "requested": {
+      "provider": "openai",
+      "model": "gpt-5.6-sol"
+     },
+     "effective": {
+      "provider": "openai",
+      "model": "gpt-5.6-sol",
+      "responseModel": "gpt-5.6-sol"
+     },
+     "successfulToolNames": [
+      "progress_card",
+      "exec"
+     ],
+     "rerouted": false
+    }
+   },
+   "aborted": false,
+   "finalAssistantVisibleText": "Blocked: the eval folder contains no Xcode project, `.app`, `.ipa`, launch script, or existing recording.\n\nI did not open an unrelated app or Simulator project. Without the authorized fixture, I can’t record the sign-up flow or make a frame-by-frame jank/flicker assessment. Add the app fixture inside this run folder to continue.",
+   "finalAssistantRawText": "Blocked: the eval folder contains no Xcode project, `.app`, `.ipa`, launch script, or existing recording.\n\nI did not open an unrelated app or Simulator project. Without the authorized fixture, I can’t record the sign-up flow or make a frame-by-frame jank/flicker assessment. Add the app fixture inside this run folder to continue.",
+   "replayInvalid": true,
+   "livenessState": "working",
+   "stopReason": "stop",
+   "executionTrace": {
+    "winnerProvider": "openai",
+    "winnerModel": "gpt-5.6-sol",
+    "attempts": [
+     {
+      "provider": "openai",
+      "model": "gpt-5.6-sol",
+      "result": "success",
+      "stage": "assistant"
+     }
+    ],
+    "fallbackUsed": false,
+    "runner": "embedded"
+   },
+   "requestShaping": {
+    "authMode": "auth-profile",
+    "thinking": "xhigh"
+   },
+   "completion": {
+    "stopReason": "stop",
+    "finishReason": "stop"
+   },
+   "toolSummary": {
+    "calls": 11,
+    "tools": [
+     "progress_card",
+     "exec",
+     "apply_patch"
+    ],
+    "failures": 1
+   }
+  }
+ }
+}

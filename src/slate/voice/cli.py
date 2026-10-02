@@ -107,6 +107,9 @@ def _detach(args, stage: str, parser: argparse.ArgumentParser) -> int:
     film = _maybe_film(args)
     argv = [sys.executable, "-m", "slate", "voice", stage, *(["--film", str(film)] if film else []),
             *(["--live"] if cli.flag(args, "live") else []), *_rebuild(parser, args)]
+    if cli.dry_stop(args, f"queue `slate voice {stage}` as a job holding {', '.join(LONG_STAGES[stage])}, and run it "
+                          "there", queued=True, kind=f"voice-{stage}", argv=argv, resources=list(LONG_STAGES[stage])):
+        return 0  # the job's own argv drops --dry-run, so a dry run must never reach submit
     job = jobs.submit(f"voice-{stage}", argv, film=str(film) if film else None, resources=LONG_STAGES[stage])
     log.result({"job": job, "argv": argv}, f"submitted as job {job}; follow it with `slate job status {job}`")
     return 0
@@ -136,7 +139,7 @@ def cmd_account(args) -> int:
     from slate.vendors.elevenlabs import Client  # noqa: PLC0415
 
     client = Client(mode="autonomous" if args.oneiro else "supervised")
-    sub = client.subscription(snapshot=args.snapshot)
+    sub = client.subscription(snapshot=args.snapshot and not cli.dry_run(args))  # a dry run records no balance
     left = None
     if sub.get("character_limit") is not None:
         left = int(sub["character_limit"]) - int(sub.get("character_count") or 0)
@@ -145,18 +148,26 @@ def cmd_account(args) -> int:
     human += f"\nvoice format: {sub.get('best_voice_format')} ({sub.get('format_reason')})"
     if sub.get("replay"):
         human += "\n(replay: a stand-in plan; run with --live to read the real one, free)"
-    log.result({**sub, "characters_left": left, "key": client.key_name}, human)
+    dry = {"dry_run": True} if cli.dry_run(args) else {}
+    if dry and args.snapshot:
+        human += "\n(dry run: the balance wasn't recorded in the ledger)"
+    log.result({**sub, "characters_left": left, "key": client.key_name, **dry}, human)
     return 0
 
 
 def cmd_cast(args) -> int:
-    if args.detach:
-        return _detach(args, "cast", args._parser)
-    from slate.voice import cast  # noqa: PLC0415
-
     film = None if args.brand else _maybe_film(args)
     if film is None and not args.brand:
         raise UsageError("Cast for a film (--film, or run inside one) or for a brand (--brand).")
+    voices = f"voices {args.voices}" if args.voices else "the profile's candidate voices"
+    reads = f"shots {args.shots}" if args.shots else ("the given text" if args.text else "the film's first two lines")
+    if cli.dry_stop(args, f"run a casting shootout for {('brand ' + args.brand) if args.brand else film.name}: "
+                          f"{voices} each reading {reads} on ElevenLabs (paid), measured and ranked"
+                          + (", as a queued job" if args.detach else ", here"), queued=bool(args.detach), paid=True):
+        return 0
+    if args.detach:
+        return _detach(args, "cast", args._parser)
+    from slate.voice import cast  # noqa: PLC0415
     res = cast.run(film, brand=args.brand, voices=_csv(args.voices), shots=_csv(args.shots), text=args.text,
                    name=args.name, seed=args.seed, model=args.model, out=args.out, make_reel=not args.no_reel)
     lines = [f"{i}. {r['voice']} ({r['source']}): {r['score']:.3f}" for i, r in enumerate(res["ranking"], 1)]
@@ -178,16 +189,20 @@ def cmd_design(args) -> int:
         if args.save:
             if not args.voice_name:
                 raise UsageError("--save needs --voice-name.")
+            if cli.dry_stop(args, f"keep preview {args.save} from {folder} as the voice {args.voice_name!r} in the "
+                                  "ElevenLabs account (a voice slot; no credits)"):
+                return 0
             rec = design.save(folder, args.save, args.voice_name, film_dir=film, brand=args.brand)
             log.result(rec, f"saved {rec['name']} as voice {rec['voice_id']}\nnext: {rec['next']}")
+            return 0
+        if cli.dry_stop(args, f"voice the production-model check of {folder}'s kept voice on "
+                              f"{args.models or 'the default models'} (paid)", paid=True):
             return 0
         res = design.check(folder, text=args.text, models=_csv(args.models), film_dir=film, brand=args.brand)
         rows = [f"{r['voice']} on {r['model']}: {r['metrics'].get('wpm_span')} wpm, "
                 f"F0 {r['metrics'].get('f0_median_hz')} Hz, WER {r['metrics'].get('wer')}" for r in res["renders"]]
         log.result(res, "production-model check:\n" + "\n".join(rows))
         return 0
-    if args.detach:
-        return _detach(args, "design", args._parser)
     if film is None and not args.brand:
         raise UsageError("Design for a film (--film, or run inside one) or for a brand (--brand).")
     if args.spec:
@@ -197,6 +212,13 @@ def cmd_design(args) -> int:
                                  _nums(args.guidance) or [5.0], _nums(args.pitch))
     else:
         raise UsageError("Give a spec (--spec FILE) or --description and --text.")
+    if cli.dry_stop(args, f"run Voice Design from {args.spec or 'the description'} for "
+                          f"{('brand ' + args.brand) if args.brand else film.name} (three previews a prompt, paid), "
+                          "measured and ranked" + (", as a queued job" if args.detach else ", here"),
+                    queued=bool(args.detach), paid=True):
+        return 0
+    if args.detach:
+        return _detach(args, "design", args._parser)
     res = design.run(film, brand=args.brand, spec=spec, name=args.name, out=args.out)
     human = (f"{res['previews']} previews on {res['model']} in {res['folder']}\nbest per prompt: "
              + ", ".join(f"{k}: {v[0]} ({v[1]:.3f})" for k, v in res["best"].items())
@@ -206,7 +228,7 @@ def cmd_design(args) -> int:
 
 
 def cmd_tts(args) -> int:
-    if args.detach:
+    if args.detach and not cli.dry_run(args):  # a dry run is the estimate below, never a queued job
         return _detach(args, "tts", args._parser)
     from slate.voice import tts  # noqa: PLC0415
 
@@ -216,7 +238,9 @@ def cmd_tts(args) -> int:
     if res.get("dry_run"):
         est = res["estimate"]
         human = (f"would voice {len(res['to_voice'])} line(s), {res['characters']} characters: about "
-                 f"{est['amount']:g} {est['unit']} ({est['basis']})")
+                 f"{est['amount']:g} {est['unit']} ({est['basis']})"
+                 + (", as a queued job" if args.detach else ""))
+        res["queued"] = bool(args.detach)
         log.result(res, human)
         return 0
     rows = [f"{t['shot']} {t['take']}: {t['seconds']:.2f} s, {t['format']}"
@@ -245,12 +269,21 @@ def cmd_clean(args) -> int:
         strengths, seeds = _nums(args.strengths) or [r[0] for r in clean.REMIX_RUNS], \
             _nums(args.seeds, int) or [r[1] for r in clean.REMIX_RUNS]
         runs = tuple(zip(strengths, seeds))
+        if cli.dry_stop(args, f"run Voice Remix on voice {voice_id}: {len(runs)} run(s) at strengths "
+                              f"{', '.join(f'{s:g}' for s, _ in runs)} (paid), into voice/clean/remix/", paid=True):
+            return 0
         res = clean.remix(vf, voice_id=voice_id, text=text, description=args.description, runs=runs,
                           out_dir=vf.dir / "voice" / "clean" / "remix", client=Client(mode=vf.mode, film=vf.dir))
         rows = [f"{Path(r['file']).name}: floor {r['gap_floor_dbfs']} dBFS, {r['floor_below_speech_db']} dB under "
                 "speech" for r in res["remixes"]]
         log.result(res, "\n".join(rows) + "\n" + res["note"])
         return 0
+    if not args.diagnose:
+        voiced = [ln.shot for ln in vf.select(args.only) if vf.selected(ln.shot) is not None]
+        how = "Voice Isolator (paid)" if args.method == "isolator" else "the ffmpeg cleaning chain"
+        if cli.dry_stop(args, f"clean {len(voiced)} take(s) ({', '.join(voiced) or 'none voiced yet'}) with {how}",
+                        shots=voiced, paid=args.method == "isolator"):
+            return 0
     results = []
     for ln in vf.select(args.only):
         if args.diagnose:
@@ -284,6 +317,10 @@ def cmd_pace(args) -> int:
                          f"{','.join(info.get('arch') or [])} on {info['machine']}: {info['note']}")
         return 0 if info["status"] == "ok" else 1
     vf = VoiceFilm(_film(args))
+    voiced = [ln.shot for ln in vf.select(args.only) if vf.selected(ln.shot) is not None]
+    if cli.dry_stop(args, f"pace {len(voiced)} take(s) ({', '.join(voiced) or 'none voiced yet'}) with Rubber Band "
+                          "and write the paced takes", shots=voiced):
+        return 0
     results = []
     for ln in vf.select(args.only):
         if vf.selected(ln.shot) is None:
@@ -303,11 +340,20 @@ def cmd_pace(args) -> int:
 
 
 def cmd_align(args) -> int:
+    film = _film(args)
+    which = f"shots {args.only}" if args.only else "every take"
+    if args.compare:
+        if cli.dry_stop(args, f"compare the two aligners' word times for {which} and write their comparison"):
+            return 0
+    elif cli.dry_stop(args, f"align {which} with {args.engine}"
+                            + (" (ElevenLabs Forced Alignment, paid)" if args.engine == "elevenlabs" else "")
+                            + (", as a queued job" if args.detach else ", here"),
+                      queued=bool(args.detach), paid=args.engine == "elevenlabs"):
+        return 0
     if args.detach:
         return _detach(args, "align", args._parser)
     from slate.voice import align  # noqa: PLC0415
 
-    film = _film(args)
     if args.compare:
         res = align.compare(film, only=args.only)
         rows = [f"{s['shot']}: " + (s.get("status") or f"starts differ by {s['start_ms_mean']} ms on average "
@@ -327,7 +373,11 @@ def cmd_align(args) -> int:
 def cmd_captions(args) -> int:
     from slate.voice import captions  # noqa: PLC0415
 
-    paths = captions.build(_film(args), parity=args.parity)
+    film = _film(args)
+    if cli.dry_stop(args, f"write {film.name}'s captions: timing/captions.json and voice/captions/{film.name}.srt "
+                          "and .vtt, timed to the words"):
+        return 0
+    paths = captions.build(film, parity=args.parity)
     data = jsonio.read(paths[0])
     human = f"{len(data['cues'])} captions: {', '.join(str(p) for p in paths)}"
     if data["problems"]:
@@ -389,6 +439,8 @@ def cmd_tags(args) -> int:
             if not tagged:
                 raise UsageError("slate voice tags set <shot> \"<tagged line>\"")
             tags.require(tagged, ln.text, policy=policy, where=shot)
+        if cli.dry_stop(args, f"{'set' if tagged else 'clear'} {shot}'s direction" + (f" to {tagged!r}" if tagged else "")):
+            return 0
         path = vf.set_direction(shot, tagged)
         log.result({"shot": shot, "tagged": tagged, "file": str(path)},
                    f"{shot}: {tagged or '(untagged)'}\nre-voice it: slate voice tts --only {shot} --force")
@@ -397,6 +449,9 @@ def cmd_tags(args) -> int:
         if not rest:
             raise UsageError("slate voice tags ab <shot> --variant \"[tag] line\" [--variant …]")
         from slate.voice import ab  # noqa: PLC0415
+        if cli.dry_stop(args, f"voice {len(args.variant or []) + (0 if args.no_control else 1)} A/B take(s) of "
+                              f"{rest[0]} (paid) and write level-matched clips", paid=True):
+            return 0
         res = ab.run(vf.dir, rest[0], args.variant or [], seed=args.seed, control=not args.no_control, raw=args.raw)
         human = "\n".join(f"{k}: {'passes the measurements' if v else ('measured out' if v is False else 'unchecked')}"
                           for k, v in res["summary"].items())
@@ -413,6 +468,9 @@ def cmd_polish(args) -> int:
 
     film = _film(args)
     if args.try_:
+        if cli.dry_stop(args, f"render strengths {args.try_} of the polish for listening (a reel and sheets; nothing "
+                              "pinned)"):
+            return 0
         res = polish.trial(film, _csv(args.try_) or [], only=args.only, sheet=args.sheet)
         rows = []
         for label, v in res["strengths"].items():
@@ -452,6 +510,11 @@ def cmd_analyze(args) -> int:
     from slate.voice import analyze  # noqa: PLC0415
 
     film = _maybe_film(args)
+    if cli.dry_stop(args, f"measure {', '.join(args.takes)}" + (f" against {args.ab}" if args.ab else "")
+                          + (" with Whisper" if args.whisper else "") + (" and the long-term spectrum" if args.spectrum
+                                                                         else "")
+                          + " and write the analysis" + (" and sheets" if args.sheet else "")):
+        return 0
     res = analyze.run(args.takes, film_dir=film, ab_ref=args.ab, sheet=args.sheet, text=args.text,
                       tagged=args.tagged, words_file=args.words, whisper=args.whisper, stage=args.stage, out=args.out,
                       name=args.name, spectrum=args.spectrum)
@@ -492,8 +555,8 @@ def _tag_loop(args, vf) -> int:
 
     action, rest = args.action, list(args.rest or [])
     name = args.round or "main"
-    if action == "optimize":
-        res = tagloop.optimize(vf.dir, name=name, only=_csv(args.only), estimate_only=args.estimate,
+    if action == "optimize":  # a dry run is the estimate: nothing voiced, nothing measured
+        res = tagloop.optimize(vf.dir, name=name, only=_csv(args.only), estimate_only=args.estimate or cli.dry_run(args),
                                generate_only=args.generate_only, measure_only=args.measure_only,
                                include_held=args.include_held)
         est = res["estimate"]["estimate"]
@@ -506,6 +569,8 @@ def _tag_loop(args, vf) -> int:
         log.result(res, human)
         return 0
     if action == "pick":
+        if cli.dry_stop(args, f"gate and rank round {name}'s tagged takes and write its ranking"):
+            return 0
         res = tagloop.pick_round(vf, name)
         human = "\n".join(f"{shot}: " + (f"pick {p['pick']}" + (f", runner-up {p['runner_up']}" if p["runner_up"] else "")
                                          if p["pick"] else f"no pick ({p['why']})") for shot, p in res["picks"].items())
@@ -514,6 +579,8 @@ def _tag_loop(args, vf) -> int:
     if action == "abc":
         if not rest:
             raise UsageError("slate voice tags abc <shot> [--round R] [--n 3]")
+        if cli.dry_stop(args, f"make a level-matched listening reel of {rest[0]}'s best takes in round {name}"):
+            return 0
         res = tagloop.abc(vf, name, rest[0], n=args.n, also=_csv(args.also))
         human = "\n".join(f"{k}: {v['take']}" + (f" ({v.get('tagged')})" if v.get("tagged") else "")
                           for k, v in res["takes"].items())
@@ -521,6 +588,8 @@ def _tag_loop(args, vf) -> int:
         return 0
     if len(rest) < 2:
         raise UsageError("slate voice tags adopt <shot> <take key> [--round R]")
+    if cli.dry_stop(args, f"put round {name}'s take {rest[1]} into the film as {rest[0]}'s take, with its direction"):
+        return 0
     res = tagloop.adopt(vf, name, rest[0], rest[1], force=args.force)
     log.result(res, f"{res['shot']}: {res['from']} is now {res['take']} ({res['tagged']})\nnext: {res['next']}")
     return 0
@@ -530,7 +599,11 @@ def cmd_check(args) -> int:
     from slate import gates as gates_mod  # noqa: PLC0415
     from slate.voice import gates  # noqa: PLC0415
 
-    results = gates.run(_film(args), args.gate or None)
+    film = _film(args)
+    if cli.dry_stop(args, f"run the voice gates ({', '.join(args.gate) if args.gate else 'all of them'}) on "
+                          f"{film.name}'s takes and record them in qa/gates.json"):
+        return 0
+    results = gates.run(film, args.gate or None)
     log.result({"gates": [r.to_dict() for r in results], "summary": gates_mod.summarize(results)},
                gates_mod.format_table(results))
     return gates_mod.exit_code(results)
@@ -542,6 +615,9 @@ def cmd_approve(args) -> int:
     vf = VoiceFilm(_film(args))
     shot = args.shot
     vf.line(shot)
+    if cli.dry_stop(args, f"record {args.by}'s approval of {shot}'s "
+                          f"{('take ' + args.take) if args.take else 'selected take'} and lock its files by hash"):
+        return 0
     if args.take:
         vf.select_take(shot, args.take)
     sel = vf.selected(shot)
@@ -565,6 +641,8 @@ def cmd_approve(args) -> int:
 def cmd_comp(args) -> int:
     from slate.voice import comp  # noqa: PLC0415
 
+    if cli.dry_stop(args, f"comp a one-word pickup into {args.shot} from {args.donor or 'another take'} (no credits)"):
+        return 0
     res = comp.comp(_film(args), args.shot, word=args.word, donor=args.donor, base=args.base, force=args.force)
     log.result(res, f"{res['shot']} {res['take']}: {res['base']['take']} to {res['base_cut_s']:.3f} s, then "
                     f"{res['donor']['take']} from {res['donor_cut_s']:.3f} s (\"{res['word_text']}\" on, "
@@ -576,6 +654,9 @@ def cmd_preview(args) -> int:
     from slate.voice import reel  # noqa: PLC0415
 
     takes = dict(item.split("=", 1) for item in _csv(args.takes) or [] if "=" in item)
+    if cli.dry_stop(args, "render the re-voiced narration on the film's timeline beside the current one (nothing "
+                          "re-timed)"):
+        return 0
     res = reel.preview(_film(args), takes=takes or None, name=args.name)
     changed = [r for r in res["shots"] if abs(r.get("take_change_s") or 0.0) >= 0.001]
     human = (f"current {res['seconds']['current']:.2f} s, proposed {res['seconds']['proposed']:.2f} s "
@@ -589,7 +670,7 @@ def cmd_preview(args) -> int:
 def cmd_swap(args) -> int:
     from slate.voice import swap  # noqa: PLC0415
 
-    if not args.go:
+    if not args.go or cli.dry_run(args):  # a dry run is the plan
         res = swap.plan(_film(args), args.set)
         lines = [f"{r['shot']}: {r['replaces'] or 'nothing'} -> {r['with']} ({r['stage']})"
                  + ("" if r["heard_as_is"] else "  NOT the file that was heard (its hash differs)") for r in res["takes"]]
@@ -606,13 +687,14 @@ def cmd_trim(args) -> int:
     from slate.voice import trim  # noqa: PLC0415
 
     trim.check_args(args.go, args.force, args.by)
-    rows = trim.apply(_film(args), only=_csv(args.only), force=args.force, by=args.by, reason=args.reason) if args.go \
+    go = args.go and not cli.dry_run(args)  # a dry run is the plan
+    rows = trim.apply(_film(args), only=_csv(args.only), force=args.force, by=args.by, reason=args.reason) if go \
         else trim.plan(_film(args), only=_csv(args.only))
     lines = [f"{r['shot']}: " + (("trimmed: " if r.get("trimmed") else "would cut: ") + r["why"] if r["ok"] else r["why"])
              for r in rows]
-    if not args.go and any(r["ok"] for r in rows):
+    if not go and any(r["ok"] for r in rows):
         lines.append("Nothing is recorded without --go (an approved take also needs --force --by NAME).")
-    log.result({"go": bool(args.go), "takes": rows}, "\n".join(lines))
+    log.result({"go": bool(go), "takes": rows, **({"dry_run": True} if cli.dry_run(args) else {})}, "\n".join(lines))
     return 0
 
 

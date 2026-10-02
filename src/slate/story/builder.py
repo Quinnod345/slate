@@ -65,6 +65,8 @@ def _shot_doc(s) -> dict:
         doc["events"] = d["events"]
     if d.get("generate"):
         doc["generate"] = d["generate"]  # the shot's generation request, carried to timing/shots.json for `slate gen`
+    if d.get("engine"):
+        doc["engine"] = d["engine"]  # the engine that draws this shot when it isn't its act's (P074), for timing
     if d.get("reading") is not None:
         doc["reading"] = d["reading"]  # how its text is read (voice_matched, not_for_reading): `slate qa readtime`
     if d.get("hero_lines"):
@@ -128,11 +130,12 @@ def _record_lock(film_dir: Path, rel: Path, inputs_: dict) -> None:
 
 
 def lock_inputs(film_dir: Path, film: dict, files: list) -> dict:
-    """{input: sha256} for the lock and the storyboard's made_from: the files read, the film.json keys used, the brand
-    pack and the format template (state's named inputs, so each is checked on its own)."""
+    """{input: sha256} for the lock and the storyboard's made_from: the files read, the film.json keys used, the
+    blocks of the brand pack the gates read (inputs.SCRIPT_BRAND_BLOCKS: its truth and duration scale, never the whole
+    pack, so an approval or a look edit leaves the storyboard fresh) and the format template (state's named inputs, so
+    each is checked on its own)."""
     keys = [str(f) for f in files] + [f"film:{k}" for k in FILM_KEYS if k in film]
-    if film.get("brand"):
-        keys.append(f"brand:{film['brand']}")
+    keys += inputs.brand_block_inputs(film.get("brand"), inputs.SCRIPT_BRAND_BLOCKS)
     if film.get("format"):
         keys.append(f"format:{film['format']}")
     try:
@@ -183,9 +186,12 @@ def run(film_dir: Path, *, check_only: bool = False, from_takes: bool = False) -
     input_paths = [SCRIPT, TRUTH]
     if parent.parent_script:
         input_paths.append(parent.parent_script)
-    brand_dir = brand.get("_dir")
-    if brand_dir:
-        input_paths.append(Path(brand_dir) / "brand.json")
+    # the brand blocks the gates read, as the storyboard's lock records them (a pack named by a path keeps its file)
+    brand_keys = inputs.brand_block_inputs(film.get("brand"), inputs.SCRIPT_BRAND_BLOCKS)
+    if brand_keys and gates.is_named(brand_keys[0], film_dir):
+        input_paths += brand_keys
+    elif brand.get("_dir"):
+        input_paths.append(Path(brand["_dir"]) / "brand.json")
     input_paths += [t.path for t in takes.values()]
     stamped = gates.inputs_for(film_dir, input_paths)
     for r in out.results:

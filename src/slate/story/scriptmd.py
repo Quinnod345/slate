@@ -6,7 +6,7 @@ Timecodes are computed, never typed (film A's rule), and the file says where to 
 from __future__ import annotations
 
 from slate.gates import GateResult, summarize
-from slate.story.model import Plan
+from slate.story.model import Plan, transition_words
 
 GENERATED = "<!-- generated: do not edit by hand. `slate script build` writes this from script/script.json. -->"
 
@@ -72,7 +72,7 @@ def render(plan: Plan, *, title: str, results: list[GateResult], target: dict, f
             if d.get("picture"):
                 lines.append(f"Picture: {d['picture']}")
             if d.get("transition"):
-                lines.append(f"Transition out: {d['transition']}")
+                lines.append(f"Transition out: {transition_words(d['transition'])}")
             sources = [x if isinstance(x, str) else (x.get("ref") or x.get("id") or str(x)) for x in d.get("sources") or []]
             if sources:
                 lines.append(f"Sources: {'; '.join(sources)}")

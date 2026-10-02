@@ -1,6 +1,6 @@
 ---
 name: slate
-description: Slate's front door for any video work. Use for any request to make, edit, plan or review a video or film, including explainers, ads, social reels, promos, launch and product videos, brand films, product demos, teasers, logo stings, kinetic type and character-led pieces, cut-downs or new aspects of a film, and delivering or posting a finished Slate film (posting always needs the owner's approval of that exact file). An open request such as "make a video" gets one question first (a full production or a quick generated clip?), and a scoped brief goes straight to production. Also use it to pick up a film already in progress. Not for screen-recording an app to check its UI or motion (use video-verifier), styling or embedding a video element in a web page, or making a single still image.
+description: Use for any request to make, edit, plan or review a video. Open asks get one question (full production or a quick generated clip?). Not for screen-recording an app (video-verifier), styling or embedding a video element. Slate's front door for video work, including explainers, ads, social reels, promos, launch and product videos, brand films, teasers, logo stings, kinetic type, character-led pieces, cut-downs or new aspects of a film, and delivering or posting a finished film (posting needs the owner's approval of that file). An open request is one like "make a video"; a scoped brief goes straight to production. Also for picking up a film in progress. Screen-recording an app to check its UI or motion is video-verifier's work, and a single still image isn't Slate's.
 ---
 
 # Slate
@@ -77,8 +77,9 @@ message.
    of every ask) and `brief/PRODUCTION.md`, and starts the film's git history.
 6. **Record later messages** the same way, verbatim. GOAL.md names the commands that add a message and mark an ask
    done; done always needs evidence.
-7. **Go as far as asked.** When the requester says how far to take it ("as far as the script"), stop there and name
-   what comes next, usually the pre-production sitting.
+7. **Go as far as asked.** When the requester says how far to take it ("as far as the script"), stop there and end by
+   naming the next step in so many words: for a supervised film it's the pre-production sitting, where the owner
+   approves the checklist, the claims, the script and the look before anything is voiced or rendered.
 
 Intake in depth: [intake](references/intake.md).
 

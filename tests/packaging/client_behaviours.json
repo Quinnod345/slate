@@ -1,13 +1,21 @@
 {
- "about": "Five behaviours of the agent clients that Slate's packaging could lean on, each checked hands-on before Slate relies on it. A behaviour stays unconfirmed until someone runs its check on the real client and records the result here (status, the date, the client's version and what was seen). tests/packaging/test_packaging_client_behaviours.py holds this record complete and holds Slate to relying on none of the unconfirmed ones.",
- "statuses": ["confirmed", "refuted", "unconfirmed"],
+ "about": "Five behaviours of the agent clients that Slate's packaging could lean on, each checked hands-on before Slate relies on it. A behaviour stays unconfirmed until someone runs its check on the real client and records the result here (status, the date, the client's version and what was seen, plus as_checked when the check ran differently from its text); an unconfirmed one says exactly what's left (what_is_left). tests/packaging/test_packaging_client_behaviours.py holds this record complete and holds Slate to relying on none of the unconfirmed ones.",
+ "statuses": [
+  "confirmed",
+  "refuted",
+  "unconfirmed"
+ ],
  "behaviours": [
   {
    "id": "openclaw-claude-bundle-placeholders",
    "what": "OpenClaw expands Claude Code's plugin path placeholder (${CLAUDE_PLUGIN_ROOT}) inside a Claude bundle's .mcp.json. Its bundle docs only cover ${PLUGIN_ROOT} for Agent Plugins bundles.",
    "slate_relies_on_it": false,
    "how_slate_avoids_it": "The plugin's MCP configs start the installed `slate` command by name and name no path, so no placeholder needs expanding.",
-   "status": "unconfirmed",
+   "status": "confirmed",
+   "checked_on": "2026-10-01",
+   "client_version": "OpenClaw 2026.9.4 (f37ea13)",
+   "evidence": "In a scratch OpenClaw home (OPENCLAW_HOME, OPENCLAW_STATE_DIR and OPENCLAW_CONFIG_PATH in a scratch folder, its own gateway port), `openclaw plugins install ./scratch-bundle --force --accept-capabilities` installed a Claude bundle (format bundle, bundleFormat claude, one mcpServers capability) whose .mcp.json runs `${CLAUDE_PLUGIN_ROOT}/bin/echo-args --root ${CLAUDE_PLUGIN_ROOT}`. One `openclaw agent --local` turn on that home, with a model provider pointed at a dead loopback port, started the server before its model call: OpenClaw's own log line reads `[bundle-mcp] failed to start server \"echo-args\" (<home>/extensions/scratch-bundle/bin/echo-args --root <home>/extensions/scratch-bundle (cwd=<home>/extensions/scratch-bundle))`, and echo-args itself recorded the same command line. Expanded in the command and its arguments ('failed' only because echo-args isn't a real MCP server). ~/.openclaw/openclaw.json and its extensions were never touched (checksum and listing).",
+   "as_checked": "The behaviour's check with one change: the server's command line came from a local agent turn on the scratch home rather than a gateway started on it, because bundle MCP servers start per agent session, not at gateway start.",
    "check": "On a throwaway OpenClaw state folder (OPENCLAW_STATE_DIR pointing at a temporary folder, never the real one), install a scratch Claude bundle whose .mcp.json runs `${CLAUDE_PLUGIN_ROOT}/bin/echo-args` with `openclaw plugins install ./scratch-bundle`, start the gateway on that state folder, and read the server's command line in its logs: expanded to the bundle's folder, or the literal placeholder."
   },
   {
@@ -15,7 +23,10 @@
    "what": "Codex reads a Claude-style .claude-plugin/marketplace.json whose plugin sources are plain relative strings (\"./plugins/slate\"), not only its own {\"source\": \"local\", \"path\": ...} objects.",
    "slate_relies_on_it": false,
    "how_slate_avoids_it": "Codex gets Slate from the installer (skills linked into ~/.agents/skills, `codex mcp add slate -- slate mcp`); the plugin README says reading this repository as Codex's marketplace isn't confirmed.",
-   "status": "unconfirmed",
+   "status": "confirmed",
+   "checked_on": "2026-10-01",
+   "client_version": "codex-cli 0.153.4 (/opt/homebrew/bin/codex) and 0.155.0-alpha.16.4 (the ChatGPT app's)",
+   "evidence": "With a scratch CODEX_HOME (empty at the start), `codex plugin marketplace add` on a copy of the repository's .claude-plugin/ and plugins/ registered a local marketplace named slate, `codex plugin add slate@slate` installed slate 0.1.0 from the plain relative source \"./plugins/slate\", and `codex plugin list` shows `slate@slate installed, enabled 0.1.0 <copy>/plugins/slate`, the relative source resolved against the marketplace root. The installed copy holds all ten skills. Same on both builds; ~/.codex/config.toml byte-identical and ~/.codex's listing unchanged.",
    "check": "With a scratch CODEX_HOME (never ~/.codex), add a local copy of the repository as a plugin marketplace with `codex plugin`, then list the marketplace's plugins: slate listed with its skills, or an error about the source."
   },
   {
@@ -24,7 +35,8 @@
    "slate_relies_on_it": false,
    "how_slate_avoids_it": "Slate's skills carry only name and description in their frontmatter, and `slate skills build` refuses metadata that isn't one level of strings.",
    "status": "unconfirmed",
-   "check": "Run `skills-ref validate` on a scratch skill whose frontmatter nests `metadata: {openclaw: {requires: {bins: [slate]}}}`, then upload the same zip on claude.ai (Customize, Skills) by hand: accepted, or refused with which error."
+   "check": "Run `skills-ref validate` on a scratch skill whose frontmatter nests `metadata: {openclaw: {requires: {bins: [slate]}}}`, then upload the same zip on claude.ai (Customize, Skills) by hand: accepted, or refused with which error.",
+   "what_is_left": "`skills-ref` isn't installed on this Mac, and installing it is a download nobody approved for this task. Then: `skills-ref validate` on a scratch skill whose frontmatter nests `metadata: {openclaw: {requires: {bins: [slate]}}}`, and the same skill's zip uploaded on claude.ai (Customize, Skills) by hand: accepted, or which error. Slate relies on neither."
   },
   {
    "id": "claude-validate-both-manifests",

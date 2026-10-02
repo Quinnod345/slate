@@ -91,11 +91,11 @@ describe.skipIf(!kitCore)('a kit-built act, end to end through the engine', () =
     // the trace read the act against the same '@film/data' the picture rendered with: the brand's own eases
     expect(r.trace).toEqual({written: true, file: 'timing/motion/act1.json', entries: 2});
     const rows = readJson(path.join(dir, 'timing', 'motion', 'act1.json'));
-    expect(rows.map((m) => [m.id, m.ease])).toEqual([['e2e.card-rise', 'enter'], ['e2e.dot-cross', 'glide']]);
+    expect(rows.map((m) => [m.id, m.ease])).toEqual([['e2e.card-rise', 'enter'], ['e2e.dot-slide', 'glide']]);
     expect(fs.readFileSync(path.join(dir, '.slate', 'film-data.ts'), 'utf8')).toMatch(/"name":"kit-e2e-brand"/);
   });
 
-  it('draws the moves on the frames the beats say: the dot has crossed by the last frame', () => {
+  it('draws the moves on the frames the beats say: the dot has moved by the last frame', () => {
     const outDir = path.join(root, 'stills');
     const s = call('stills', {specs: ['Act1:5', 'Act1:9'], scale: 1, out_dir: outDir, serve_url: bundle.serve_url, gl: 'swangle', pixels: true});
     expect(s.stills.map((x) => path.basename(x.file))).toEqual(['Act1_f00005.png', 'Act1_f00009.png']);
@@ -118,9 +118,10 @@ describe.skipIf(!kitCore)('a kit-built act, end to end through the engine', () =
     for (const row of rows) {
       expect(Object.keys(row).sort()).toEqual(['ease', 'entrance', 'frame_in', 'frame_out', 'from', 'id', 'loop_period', 'prop', 'rig', 'samples', 'shot', 'to']);
     }
-    expect(rows[1]).toMatchObject({id: 'e2e.dot-cross', shot: 'E02', prop: 'x', frame_in: 5, frame_out: 9, from: 40, to: 260, entrance: false});
-    expect(rows[1].samples.map(([f]) => f)).toEqual([5, 6, 7, 8, 9]);
-    expect(rows[1].samples.at(-1)).toEqual([9, 260]);
+    // a tick (5 frames at 25 fps) from E02's first frame, 17 px: within a UI element's limits at 320 x 180
+    expect(rows[1]).toMatchObject({id: 'e2e.dot-slide', shot: 'E02', prop: 'x', frame_in: 5, frame_out: 10, from: 40, to: 57, entrance: false});
+    expect(rows[1].samples.map(([f]) => f)).toEqual([5, 6, 7, 8, 9, 10]);
+    expect(rows[1].samples.at(-1)).toEqual([10, 57]);
   });
 
   it('passes the hand-in check: types, module, word misses, kit problems, banned words, events, contracts', () => {

@@ -1,0 +1,15 @@
+{
+ "case": "routing-ui-recording",
+ "config": "claude-code",
+ "synthetic": false,
+ "started_at": "2026-10-01T11:48:29-04:00",
+ "slate_version": "0.1.0",
+ "setup": [],
+ "timeout_s": 240,
+ "exit_code": 143,
+ "killed": true,
+ "duration_s": 240.7,
+ "claude_project_removed": "Claude Code's empty project folder for the sandbox was removed",
+ "artifacts": [],
+ "finished_at": "2026-10-01T11:52:30-04:00"
+}

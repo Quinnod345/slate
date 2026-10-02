@@ -9,9 +9,11 @@
  "vars": {"brand": "the demo brand"},
  "configs": ["claude-code", "codex", "pursuit-slice", "openclaw"],
  "needs_eval_env": true,
+ "cut_off": true,
  "expect": [
   {"check": "skill_loaded", "skill": "slate"},
   {"check": "fast_lane_not_used"},
   {"check": "no_vendor_spend"}
- ]
+ ],
+ "notes": "Stopped on purpose (cut_off) at its time limit or its first render, whichever comes first: a scoped brief goes straight into a production that runs for hours, so the checks judge what the agent did before the stop, and an eval never renders on this Mac."
 }

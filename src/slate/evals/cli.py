@@ -43,6 +43,9 @@ def register(sub) -> None:
     p_run.add_argument("--allow-host-env", action="store_true",
                        help="run cases that make films even on configurations whose tools can't take the eval "
                             "environment (OpenClaw's Gateway); those films land in your real Slate folders")
+    p_run.add_argument("--keep-going", action="store_true",
+                       help="with --live: run the rest after a pair gets out of its sandbox (by default the run stops "
+                            "there, so the escape isn't repeated)")
     p_run.add_argument("--preconditions", action="store_true",
                        help="ask local services about pending cases' status too (read-only)")
     p_run.add_argument("--out", metavar="DIR", help="where runs are kept (default: Slate's data folder, evals/runs)")
@@ -127,7 +130,8 @@ def _run(args: argparse.Namespace) -> int:
         log.warn(f"live evals: {len(pairs)} agent run(s). They cost model calls; vendors stay in replay "
                  "(SLATE_FAKE_VENDORS=1, zero-cap budget).")
         summary = runner.live(pairs, configs, run_id=args.run_id, out=out, record=args.record,
-                              allow_host_env=args.allow_host_env, services=args.preconditions)
+                              allow_host_env=args.allow_host_env, services=args.preconditions,
+                              keep_going=args.keep_going)
     else:
         summary = runner.replay(pairs, configs, fixtures=args.fixtures, run_id=args.run_id, out=out,
                                 services=args.preconditions)

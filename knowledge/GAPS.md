@@ -2,7 +2,7 @@
 
 Lessons from the films that nothing in Slate reflects yet, grouped by the module that closes them, and lessons being built (pending) with their planned file. Each entry is the exact change and the lesson ids it closes; `slate knowledge show <id>` gives a lesson's text and sources. `slate knowledge check` fails (knowledge.gaps) until every one is closed and the lesson is re-mapped in knowledge/lessons.json.
 
-0 gaps (0 changes) and 19 pending, across 2 modules (generated from the ledger by `slate knowledge gaps --write`; edit the ledger, not this file).
+0 gaps (0 changes) and 10 pending, across 1 module (generated from the ledger by `slate knowledge gaps --write`; edit the ledger, not this file).
 
 ## Pending
 
@@ -20,10 +20,6 @@ Being built, or waiting on something named; each counts against the check like a
 - **L-sound-S015** (src/slate/sound/mix.py::solve_guards): Close the loop against the voice as the master delivers it: raise a short word's target by its shortfall, at most two more passes. Waits for proof 3 (`slate approve proof3 <file> --by NAME`): the effects engine port; the guards ride hits the effects engine renders one by one.
 - **L-sound-S024** (src/slate/sound/effects/engine.py::place_cue): spot(): write-ons aligned on their audible start, up to ±4% rate on library whooshes, same-chord pads handed off over 0.3 s (equal power); tests on synthetic cues. Waits for proof 3 (`slate approve proof3 <file> --by NAME`): the effects engine port.
 - **L-sound-S025** (src/slate/sound/effects/engine.py::pad_bed): With a composed score, no continuous pad bed and no pad bloom at the landing. Waits for proof 3 (`slate approve proof3 <file> --by NAME`): the effects engine port.
-
-### engine-kit (9 lessons)
-
-- **L-kit-S001, L-kit-S002, L-kit-S003, L-kit-S004, L-kit-S005, L-kit-S007, L-kit-S009, L-kit-S012, L-kit-S014** (engine/remotion/kit/paper.tsx::TypeTilt): The kit's tilt raster mode, opt-in per act (a tilt scope only a converting act sets): type drawn under a skewY too small to see in a tilt span around each text, the placement rules, morphing cards at whole even sizes, the stability bench scene and its spec (engine/remotion/kit/bench/stability_bench.json, which `slate qa stability conformance` renders and checks), the markup bench's coverage audit, and the rules in skills/slate-build/references/remotion-gotchas.md. Its own wave, bench first (GAPS-FINAL A7, NEEDS 193/214): render the stability bench on a quiet Mac and pass the conformance procedure before any act converts; nothing in Slate's kit changes how type rasterises until then.
 
 ## Appendix: partly covered
 

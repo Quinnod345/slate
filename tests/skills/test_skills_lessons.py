@@ -178,6 +178,24 @@ LESSONS: dict[str, list[tuple[str, list[str]]]] = {
 }
 
 
+# The post-02:28 addendum's skill rules (knowledge/harvest/addendum_2026-10-01.json): what the film session learned
+# after the second harvest, held the same way.
+ADDENDUM: dict[str, list[tuple[str, list[str]]]] = {
+    "L-kit-A002": [(f"{BUILD}/remotion-gotchas.md", ["A box that grows or settles slowly is sized by a transform too",
+                                                     "counter-scaling its content"])],
+    "L-qa-A001": [("skills/slate-qa/references/triage.md", ["Before calling a flag a fault, check it against a "
+                                                           "synthetic perfect render", "the flag is the design"])],
+    "L-qa-A002": [("skills/slate-qa/references/triage.md", ["Take the fault's flags out of the baseline before you "
+                                                           "re-render the fix"])],
+    "L-qa-A003": [("skills/slate-finish/references/versions-and-review.md",
+                   ["Every installed act passes its regression and stability checks with no reversal and no wobble",
+                    "You've read the 0.5-second contact sheets end to end"])],
+    "L-finish-A001": [("skills/slate-finish/references/versions-and-review.md", ["slate review --audio <mix>"])],
+    "L-generate-A001": [("skills/slate-generate/references/plates.md", ["slate plates repair <shot>",
+                                                                        "puts the frames on a true-time axis"])],
+}
+
+
 def _norm(text: str) -> str:
     return re.sub(r"\s+", " ", text).lower()
 
@@ -202,3 +220,12 @@ def test_rules_every_film_needs_sit_in_skill_md_itself():
     """A rule every film needs is in the SKILL.md an agent reads first, not only in a reference it may never open."""
     for lesson in ("L-jobs-004", "L-sound-100", "L-voice-S033", "L-voice-S036", "L-qa-D044", "L-qa-D055"):
         assert any(rel.endswith("/SKILL.md") for rel, _ in LESSONS[lesson]), lesson
+
+
+@pytest.mark.parametrize("lesson", sorted(ADDENDUM))
+def test_the_addendums_lessons_are_where_agents_meet_them(lesson):
+    missing = []
+    for rel, phrases in ADDENDUM[lesson]:
+        text = _norm((L.REPO / rel).read_text(encoding="utf-8"))
+        missing += [f"{rel}: {p!r}" for p in phrases if _norm(p) not in text]
+    assert not missing, f"{lesson} is no longer stated: " + "; ".join(missing)

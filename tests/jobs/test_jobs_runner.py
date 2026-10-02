@@ -282,6 +282,29 @@ def test_cli_submit_status_wait_list_and_log(queue_home):
     assert code == 2  # no such job
 
 
+
+def test_a_dry_run_submit_checks_the_job_and_queues_nothing(queue_home, monkeypatch):
+    """`slate job submit --dry-run` once queued the job for real (j-20261001-145111-8619 had to be cancelled)."""
+    started = []
+    monkeypatch.setattr(client, "ensure_runner", lambda: started.append(1) or "started")
+    before = {j["id"] for j in store.all_jobs()} if hasattr(store, "all_jobs") else None
+    for argv in (["--json", "--dry-run", "job", "submit", "--kind", "render", "--resource", "render", "--disk-gb", "2",
+                  "--", PY, "-c", "print('never')"],
+                 ["--json", "job", "submit", "--dry-run", "--kind", "render", "--", PY, "-c", "print('never')"]):
+        code, out, err = run_cli(argv)
+        assert code == 0, err
+        doc = json.loads(out)
+        assert doc["dry_run"] is True and doc["queued"] is False and "id" not in doc
+        plan = doc["would_queue"]
+        assert plan["kind"] == "render" and plan["argv"][-1] == "print('never')"
+    assert not started  # no runner was started
+    assert not list(store.by_state("queued")) and not list(store.by_state("running"))
+    if before is not None:
+        assert {j["id"] for j in store.all_jobs()} == before
+    # the plan is checked exactly as a real submit: a bad priority is still refused
+    code, _, err = run_cli(["--dry-run", "job", "submit", "--kind", "test", "--priority", "urgent", "--", "true"])
+    assert code == 2
+
 def test_jobs_status_locks_disk_and_prune(queue_home, monkeypatch):
     monkeypatch.setattr("slate.jobs.agent._launchctl", lambda *a: (113, "not loaded"))
     code, out, _ = run_cli(["--json", "jobs", "status"])

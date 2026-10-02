@@ -43,5 +43,7 @@
             "rework_factor": 1.5, "note": "The explainer row: a character film is crafted like one, whatever its length."},
  "broadcast": false,
  "generation": "rarely",
- "engines": ["remotion", "ae"]
+ "engines": ["remotion", "ae"],
+ "end_hold_s": 2.25,
+ "notes": ["The end hold is the resolution beat at the shortest film, 15% of 15 s (qa's end_hold): 2.25 s, where the films' 3 s would be longer than the resolution."]
 }

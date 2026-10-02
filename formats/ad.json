@@ -42,8 +42,10 @@
  "broadcast": false,
  "generation": "rarely",
  "engines": ["remotion", "web", "ae"],
+ "end_hold_s": 1.5,
  "notes": [
   "For a TV or cinema spot, set broadcast: true in film.json: loudness moves to EBU R 128 or ATSC A/85, and the score needs an Eleven Music Enterprise licence.",
-  "Each aspect is its own derived film with its own layout: a 9:16 ad is re-staged, never a crop of the 16:9 one."
+  "Each aspect is its own derived film with its own layout: a 9:16 ad is re-staged, never a crop of the 16:9 one.",
+  "The end hold is 1.5 s (qa's end_hold): a six-second ad is one message and the brand, so the films' 3 s end card would be half of it; the call to action holds still for its last 1.5 s at every length."
  ]
 }

@@ -21,7 +21,8 @@
 //   handin.act<N>.character      (acts that draw a mark character) the character acceptance checks on each mark
 //   handin.act<N>.markup         (with `markup: true`) the act's static markup at every frame and four sub-frame samples
 //                                has no NaN, Infinity or undefined in any style or attribute; with `against: <git ref>`
-//                                (or a kit folder) every sample is identical to the act drawn by the kit at that ref
+//                                (or a kit folder) every sample is identical to the act drawn by the kit at that ref;
+//                                drawn in tilt mode too, it's held to the tilt mode's placement rules (markup.mjs)
 //   handin.act<N>.determinism    (with `determinism: true`) sampled frames rendered alone and in sequence on software
 //                                GL are identical
 //
@@ -29,7 +30,8 @@
 // renderer: its scene scripts are type-checked from the film folder like any act; its page is opened once in a dry-run
 // emit (nothing written), which proves it loads and draws (handin.act<N>.page), and hands back its beats, its word
 // lookups, what the kit had to assume, and its own network and font gates (handin.act<N>.network, .fonts); its banned
-// words are read from its scripts, its page's text and its copy files.
+// words are read from its scripts, its page's text and its copy files; its boundary frames, drawn by the same renderer,
+// are held to the rest states its neighbours declare (handin.act<N>.contracts).
 import fs from 'node:fs';
 import path from 'node:path';
 import ts from 'typescript';
@@ -37,7 +39,7 @@ import {EngineError, listFiles, log, refused, sha256FileSync, usage} from './lib
 import {actOf} from './lib/film.mjs';
 import {ensureEntry, contractsModule, missingIndexNote, sceneIndex, slateDir} from './entry.mjs';
 import {actMarginList, declarations, loadAct, rigLint} from './load_act.mjs';
-import {actShotScenes, captureBeats, computeEvents, emitWebAct, eventsFile, validateEventsFile, webScene, webShotPage} from './events.mjs';
+import {actShotScenes, captureBeats, computeEvents, emitWebAct, eventsFile, validateEventsFile, webRenderer, webScene, webShotPage} from './events.mjs';
 import {useBundle} from './bundle.mjs';
 import {pixelHash, psnr, renderStills} from './stills.mjs';
 import {browserLogCollector, fontGate} from './kit_bridge.mjs';
@@ -718,48 +720,131 @@ function webEventsGate(ctx, act, page, name, inputsBase) {
 }
 
 /**
- * A web act's boundary contracts. A web scene declares no rest states of its own; when a neighbour declares one at the
- * boundary they share, the web act's frames would have to match it, and that comparison isn't built for web acts yet,
- * so the gate says so (UNCHECKED) rather than passing. With nothing declared on either side there's nothing to meet.
+ * A web act's boundary contracts. A web scene declares no rest states of its own, so its boundaries are its neighbours':
+ * where the act before it ends on a rest state ("out"), the web act's first `hold` frames must draw exactly that, and
+ * where the act after it starts from one ("in"), its last `hold` frames must. The web act's frames are drawn by the
+ * open web renderer (one sample each, software GL, nothing kept but the stills in qa/contracts/act<N>/), the
+ * neighbour's boundary frame and `Contract-<Name>` (when scenes/contracts has it) by Remotion's renderStill, and the
+ * frames compare by their decoded pixels, as a Remotion act's contracts do: the same picture, bit for bit, held still.
  */
-async function webContractsGate(ctx, act, args, name, inputs) {
-  const engine = {name: 'slate boundary contracts', version: 'protocol 1'};
+async function webContractsGate(ctx, act, args, name, inputs, bundles = null) {
+  const engine = {name: 'slate boundary contracts (open web renderer + remotion renderStill, pixel hash)', version: 'protocol 1'};
   if (args.contracts === false) return gate(name, 'UNCHECKED', 'contracts were skipped for this run (contracts: false)', {engine, inputs});
   const idx = ctx.acts.findIndex((a) => a.act === act);
   const declared = async (n) => {
-    if (!sceneIndex(ctx.dir, n)) return {};
+    if (!sceneIndex(ctx.dir, n)) return {built: false, contracts: {}};
     try {
-      return declarations(await loadAct(ctx, n)).contracts ?? {};
+      return {built: true, contracts: declarations(await loadAct(ctx, n)).contracts ?? {}};
     } catch (e) {
-      return {error: String(e?.message ?? e).split('\n')[0]};
+      return {built: true, error: String(e?.message ?? e).split('\n')[0], contracts: {}};
     }
   };
-  const asks = [];
+  const list = [];
   const unreadable = [];
   if (idx > 0) {
     const prev = ctx.acts[idx - 1].act;
     const c = await declared(prev);
     if (c.error) unreadable.push(`act ${prev} didn't load, so its rest states are unknown (${c.error})`);
-    else if (c.out) asks.push(`act ${prev} ends on its rest state "${c.out}"`);
+    else if (c.contracts.out) list.push({side: 'in', neighbour: prev, name: c.contracts.out, ready: c.built, label: `act ${prev} → act ${act}`});
   }
   if (idx >= 0 && idx < ctx.acts.length - 1) {
     const next = ctx.acts[idx + 1].act;
     const c = await declared(next);
     if (c.error) unreadable.push(`act ${next} didn't load, so its rest states are unknown (${c.error})`);
-    else if (c.in) asks.push(`act ${next} starts from its rest state "${c.in}"`);
+    else if (c.contracts.in) list.push({side: 'out', neighbour: next, name: c.contracts.in, ready: c.built, label: `act ${act} → act ${next}`});
   }
-  if (asks.length) {
-    return gate(name, 'UNCHECKED', `${asks[0]}, and a web act's boundary frames aren't compared with rest states yet`, {engine, evidence: [...asks, ...unreadable], inputs});
+  if (!list.length) {
+    if (unreadable.length) return gate(name, 'UNCHECKED', unreadable[0], {engine, evidence: unreadable, inputs});
+    return gate(name, 'PASS', ctx.acts.length > 1 ? 'no pixel contracts at this act\'s boundaries (neither neighbour declares a rest state there)' : 'the film has one act: no boundaries', {engine, inputs});
   }
-  if (unreadable.length) return gate(name, 'UNCHECKED', unreadable[0], {engine, evidence: unreadable, inputs});
-  return gate(name, 'PASS', ctx.acts.length > 1 ? 'no pixel contracts at this act\'s boundaries (neither neighbour declares a rest state there)' : 'the film has one act: no boundaries', {engine, inputs});
+  const hold = Math.max(1, Number(args.hold ?? 6));
+  const gl = args.contract_gl ?? 'swangle';
+  const me = actOf(ctx, act);
+  const n = Math.min(hold, me.frames);
+  const contractComps = new Set();
+  if (contractsModule(ctx.dir)) {
+    const info = await ensureEntry(ctx, {brandPath: args.brand_path ?? null});
+    for (const c of info.contracts) contractComps.add(c);
+  }
+  const problems = [];
+  const unchecked = [...unreadable];
+  const passed = [];
+  const outDir = path.join(ctx.dir, 'qa', 'contracts', `act${act}`);
+  fs.rmSync(outDir, {recursive: true, force: true});
+  fs.mkdirSync(outDir, {recursive: true});
+  const own = bundles ? null : lazyBundle(ctx, args);
+  const logs = browserLogCollector();
+  try {
+    const webRender = await webRenderer(act);
+    for (const bd of list) {
+      const others = [];
+      if (bd.ready) others.push({comp: `Act${bd.neighbour}`, frame: bd.side === 'in' ? actOf(ctx, bd.neighbour).frames - 1 : 0});
+      if (contractComps.has(bd.name)) others.push({comp: `Contract-${bd.name}`, frame: 0});
+      if (!others.length) {
+        unchecked.push(`${bd.label}: act ${bd.neighbour} isn't built yet and scenes/contracts has no ${bd.name} to compare with`);
+        continue;
+      }
+      // the web act's frames at this boundary: its first n (meeting the act before) or its last n (the act after)
+      const from = bd.side === 'in' ? 0 : me.frames - n;
+      const to = from + n - 1;
+      const framesDir = path.join(outDir, `web-${bd.side}`);
+      try {
+        await webRender({film: ctx.dir, act, from, to, samples: 1, gl, out: path.join(outDir, `web-${bd.side}.mkv`), frames_dir: framesDir, trace: false, on_blocked: 'report', on_fonts: 'report', ...(args.brand_path ? {brand_path: args.brand_path} : {}), ...(args.load_timeout_ms ? {load_timeout_ms: args.load_timeout_ms} : {})});
+      } catch (e) {
+        if (!(e instanceof EngineError)) throw e;
+        unchecked.push(`${bd.label}: the web act's boundary frames didn't render (${e.message.split('\n')[0]})`);
+        continue;
+      }
+      const mine = [];
+      let stills;
+      try {
+        for (let f = from; f <= to; f++) {
+          const file = path.join(framesDir, `f${String(f).padStart(5, '0')}_s00.png`);
+          mine.push({comp: `Act${act}`, frame: f, file, pixels: await pixelHash(file)});
+        }
+        const b = await (bundles ?? own).get();
+        stills = await renderStills(ctx, b, others, {outDir, gl, scale: 1, sub: 1, pixels: true, logs});
+      } catch (e) {
+        // a frame the renderer didn't write, or a still a face cancelled (the fonts gate says which): not compared
+        if (!(e instanceof EngineError) && !/font gate/i.test(String(e?.message ?? e))) throw e;
+        unchecked.push(`${bd.label}: the boundary frames couldn't be compared (${String(e?.message ?? e).split('\n')[0]})`);
+        continue;
+      } finally {
+        fs.rmSync(path.join(outDir, `web-${bd.side}.mkv`), {force: true});
+      }
+      const edge = bd.side === 'in' ? mine[0] : mine.at(-1);
+      let held = true;
+      for (const s of mine) {
+        if (s.pixels !== edge.pixels) {
+          held = false;
+          problems.push(`${bd.label}: act ${act} frame ${s.frame} differs from its boundary frame ${edge.frame}: the rest state must hold still for ${n} frames`);
+        }
+      }
+      const ok = [];
+      for (const o of stills) {
+        if (o.pixels === edge.pixels) ok.push(`${o.comp}:${o.frame}`);
+        else {
+          const db = await psnr(edge.file, o.file);
+          problems.push(`${bd.label}: ${edge.comp}:${edge.frame} (the web act) and ${o.comp}:${o.frame} differ (PSNR ${db === Infinity ? '∞' : db?.toFixed(2)} dB); "${bd.name}" must be bit-identical`);
+        }
+      }
+      if (held && ok.length === stills.length) passed.push(`${bd.label}: the web act's ${bd.side === 'in' ? 'first' : 'last'} ${n} frames draw "${bd.name}" exactly as ${ok.join(' and ')}, held still`);
+    }
+  } finally {
+    if (own) own.release();
+  }
+  const details = {hold: n, gl, boundaries: list.length, checked: passed.length};
+  const evidence = [...problems, ...unchecked, ...passed];
+  if (problems.length) return gate(name, 'FAIL', problems[0], {engine, evidence, inputs, details});
+  if (unchecked.length) return gate(name, 'UNCHECKED', unchecked[0], {engine, evidence, inputs, details});
+  return gate(name, 'PASS', passed.join('; '), {engine, evidence, inputs, details});
 }
 
 /**
  * The hand-in check for a web act (scenes/act<N>/web/index.html), through the open web renderer. See the header: the
  * same gates as a Remotion act's where they mean the same thing, read from the page itself.
  */
-export async function checkWebAct(ctx, act, args) {
+export async function checkWebAct(ctx, act, args, {bundles = null} = {}) {
   await ensureEntry(ctx, {brandPath: args.brand_path ?? null});
   const p = `handin.act${act}`;
   const gates = [];
@@ -814,7 +899,8 @@ export async function checkWebAct(ctx, act, args) {
   if (args.never_claim !== undefined) gates.push(neverClaim(ctx, act, args.never_claim, `${p}.never_claim`, null));
   gates.push(literalsGate(ctx, act, `${p}.literals`));
   gates.push(webEventsGate(ctx, act, page, `${p}.events`, files));
-  gates.push(await webContractsGate(ctx, act, args, `${p}.contracts`, inputsFor(ctx, [...files, 'timing/shots.json'])));
+  log(`act ${act}: boundary contracts`);
+  gates.push(await webContractsGate(ctx, act, args, `${p}.contracts`, inputsFor(ctx, [...files, 'timing/shots.json']), bundles));
   return {act, engine: 'web', gates, status: worstOf(gates), passed: gates.every((g) => g.status === 'PASS')};
 }
 
@@ -865,7 +951,7 @@ export async function checkWebShots(ctx, act, args) {
 
 export async function checkAct(ctx, args, {bundles = null} = {}) {
   const act = actOf(ctx, args.act).act;
-  if (webScene(ctx.dir, act)) return checkWebAct(ctx, act, args);
+  if (webScene(ctx.dir, act)) return checkWebAct(ctx, act, args, {bundles});
   if (!sceneIndex(ctx.dir, act)) throw usage(`Act ${act} isn't built yet (${missingIndexNote(ctx.dir, act)}): there's nothing to hand in.`);
   await ensureEntry(ctx, {brandPath: args.brand_path ?? null});
   const p = `handin.act${act}`;

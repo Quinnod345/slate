@@ -80,6 +80,12 @@ def _web(args: argparse.Namespace) -> int:
 
 def _conform(args: argparse.Namespace) -> int:
     film = cli.film(args)
+    if args.spec or args.name:
+        what = (f"the file capture in {args.spec}" if args.spec else
+                f"{args.src} as capture {args.name}" if args.src else f"capture {args.name}")
+        if cli.dry_stop(args, f"conform {what} to a JPEG sequence at the film's rate (captures/), beat-map it and "
+                              "record it"):
+            return 0
     film_json = deps.load_film(film)
     if args.spec:
         spec = spec_mod.normalize(jsonio.read(args.spec), film_json)
@@ -132,6 +138,8 @@ def _conform(args: argparse.Namespace) -> int:
 
 def _beatmap(args: argparse.Namespace) -> int:
     film = cli.film(args)
+    if cli.dry_stop(args, f"beat-map capture {args.name} onto the film's words and record its gate"):
+        return 0
     result = beatmap.run(film, args.name)
     gate = result["gate"]
     human = (f"{gate['status']}: {gate['summary']}\n{result['frames']['count']} frames from film frame "

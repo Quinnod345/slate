@@ -7,7 +7,7 @@ import {afterAll, beforeAll, describe, expect, it} from 'vitest';
 import {cli, decodeFrame, film, kitCore, ok, probe, readJson, scratch, twoActs} from './helpers.mjs';
 import {spawnSync} from 'node:child_process';
 import {ffmpegArgs, filterChain} from '../../remotion/render_mb.mjs';
-import {COMPLETE_FLAGS, COMPLETE_SHELL, browserExecutable, browserStatus} from '../../remotion/browser.mjs';
+import {COMPLETE_FLAGS, COMPLETE_SHELL, DEFAULT_RENDER_TIMEOUT_MS, browserExecutable, browserStatus, renderTimeoutMs} from '../../remotion/browser.mjs';
 
 let root;
 let data;
@@ -48,6 +48,35 @@ describe("the Chrome every Remotion render launches", () => {
     const v = spawnSync(COMPLETE_SHELL, ['--version'], {encoding: 'utf8'});
     expect(v.status).toBe(0);
     expect(v.stdout).toMatch(new RegExp(`\\b${browserStatus().version.replace(/\./g, '\\.')}\\b`));
+  });
+});
+
+describe('how long a render waits for a page to be ready', () => {
+  const REMOTION = path.resolve(import.meta.dirname, '../../remotion');
+
+  it('waits three minutes, not Remotion\'s 30 s, unless SLATE_RENDER_TIMEOUT_MS says otherwise', () => {
+    expect(DEFAULT_RENDER_TIMEOUT_MS).toBe(180000);
+    expect(renderTimeoutMs({})).toBe(180000);
+    expect(renderTimeoutMs({SLATE_RENDER_TIMEOUT_MS: ''})).toBe(180000);
+    expect(renderTimeoutMs({SLATE_RENDER_TIMEOUT_MS: '600000'})).toBe(600000);
+    for (const bad of ['soon', '999', '1.5e3x', '-5', '2500.5']) expect(() => renderTimeoutMs({SLATE_RENDER_TIMEOUT_MS: bad})).toThrow(/SLATE_RENDER_TIMEOUT_MS/);
+  });
+
+  it('is passed by every selectComposition, renderFrames and renderStill (slate demo timed out on the font gate at load 600)', () => {
+    for (const name of ['render_mb.mjs', 'stills.mjs', 'determinism.mjs']) {
+      const src = fs.readFileSync(path.join(REMOTION, name), 'utf8');
+      const calls = (src.match(/\b(selectComposition|renderFrames|renderStill)\(/g) ?? []).length;
+      expect(calls, name).toBeGreaterThan(0);
+      expect((src.match(/timeoutInMilliseconds: renderTimeoutMs\(\)/g) ?? []).length, name).toBe(calls);
+    }
+  });
+
+  it("is never cut short by the kit's font gate, which holds the first frame at least as long", () => {
+    const src = fs.readFileSync(path.join(REMOTION, 'kit', 'fonts.tsx'), 'utf8');
+    const hold = /export const FONT_HOLD_MS = (\d+);/.exec(src);
+    expect(hold).not.toBeNull();
+    expect(Number(hold[1])).toBeGreaterThanOrEqual(DEFAULT_RENDER_TIMEOUT_MS);
+    for (const m of src.matchAll(/timeoutInMilliseconds:\s*(\d+)/g)) expect(Number(m[1])).toBeGreaterThanOrEqual(DEFAULT_RENDER_TIMEOUT_MS);
   });
 });
 

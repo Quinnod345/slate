@@ -1,0 +1,16 @@
+{
+ "case": "negative-css-bug",
+ "config": "pursuit-slice",
+ "synthetic": true,
+ "exit_code": 0,
+ "killed": false,
+ "duration_s": 42.0,
+ "workdir": "/Users/you/evals/work",
+ "note": "Fixes the CSS, then starts Playwright's headless Chromium from a heredoc script to measure the nav: a launch, so no_browser fails, however small.",
+ "expect": {
+  "status": "FAIL",
+  "failed": [
+   "no_browser"
+  ]
+ }
+}

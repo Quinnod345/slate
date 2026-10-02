@@ -93,7 +93,9 @@ def reading(s: PlannedShot) -> tuple[set[str], str | None]:
     """The shot's whole-shot reading declarations ({"voice_matched", "not_for_reading", "labels"} with `true`) and a
     problem with them, if any. A declaration needs its reason; a list of statements is for the picture's QA.
     `labels` says the on-screen words name what the picture shows (a product's own UI, an end card's name and address)
-    rather than a second script, so they may run past 40% of the voice; they still count toward the word cap."""
+    rather than a second script, so they may run past 40% of the voice; they still count toward the word cap and are
+    timed in full. It speaks for the whole shot (`true`). `slate qa readtime` reads it the same way
+    (slate.qa.checks.text.reading_declarations)."""
     raw = s.data.get("reading")
     if raw is None:
         return set(), None
@@ -102,6 +104,8 @@ def reading(s: PlannedShot) -> tuple[set[str], str | None]:
     flags = {f for f in READING_FLAGS if raw.get(f) is True}
     if flags and not str(raw.get("reason") or "").strip():
         return set(), f"{s.id}: declares {', '.join(sorted(flags))} without a reason, so it counts for nothing"
+    if raw.get("labels") not in (None, True, False):
+        return flags, f"{s.id}: labels is true or left out: it speaks for every on-screen word in the shot"
     return flags, None
 
 

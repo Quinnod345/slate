@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import copy
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 from slate import jsonio, log, paths
 from slate.errors import MissingPrerequisite
@@ -92,6 +92,20 @@ def load_brand(name_or_path: str | None) -> dict:
     data = copy.deepcopy(data)
     data.setdefault("_dir", str(folder))
     return data
+
+
+#: The blocks of brand.json the script stage reads, which `slate script build` records as its lock inputs
+#: (`brand:<name>#<block>`) in place of the whole pack: the truth (claims, sources, banned words, what it never claims,
+#: sample data, self-commentary) for the claim, number, quote and banned-word gates, and the duration scale the
+#: read-time gate times entrances by, under each key `durations()` looks in. Approving a reference (`references`) or
+#: editing the look changes none of them, so neither makes a storyboard stale; a change to one of them does.
+SCRIPT_BRAND_BLOCKS = ("truth", "motion.durations", "motion.duration_scale", "motion.tokens")
+
+
+def brand_block_inputs(name: Any, blocks: Iterable[str]) -> list[str]:
+    """`brand:<name>#<block>` for each block of a film's brand pack a stage reads (film state hashes each block on its
+    own: slate.state.lock). Empty when the film has no brand."""
+    return [f"brand:{name}#{b}" for b in blocks] if name else []
 
 
 def _truth(brand: dict) -> dict:

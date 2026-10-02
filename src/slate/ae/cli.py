@@ -58,6 +58,9 @@ def _queue(args: argparse.Namespace, film: Path, kind: str, tail: list[str], *, 
 
     guard.person_start(args.go, what, film_dir=film, action=action)
     command = ["ae", *tail, "--film", str(film), "--json", "--go"]
+    if slate_cli.dry_stop(args, f"queue `slate {' '.join(command[:-3])}` as a job holding the render slot and After "
+                                "Effects", queued=True, command=["slate", *command]):
+        return 0  # the job runs with --go and without --dry-run: a dry run must never queue it
     job = client.detach_current(kind, ("render", "ae"), film=str(film), priority="supervised", argv=command)
     log.result({"ok": True, "ran": "queue", "job_id": job, "command": ["slate", *command]},
                f"Queued as job {job}. After Effects must be closed when it starts (save your work and quit it); "
@@ -222,6 +225,10 @@ def _masters(args: argparse.Namespace) -> int:
                                    ("--keep-cache", args.keep_cache)) if on]
         return _queue(args, film, "ae_masters", tail, what="Rendering the masters with aerender", action="ae_master")
     if args.requeue:
+        if _dry(args):  # re-queueing opens After Effects: a dry run says so and opens nothing
+            log.result({"dry_run": True, "would": "open After Effects to re-queue the masters' chunks"},
+                       "dry run: would open After Effects for a moment to re-queue the masters' chunks; nothing ran")
+            return 0
         rec = masters.queue(film, go=args.go, chunks=args.chunks)
         log.result(rec, f"queued {len(rec['chunks'])} chunks in {rec['aep']}\nnext: save and quit After Effects, then "
                         "`slate ae masters --go`")
@@ -249,6 +256,11 @@ def _audit(args: argparse.Namespace) -> int:
     from slate.ae import audit
 
     film = _film_or_none(args)
+    target = args.aep or "the film's project"
+    if slate_cli.dry_stop(args, f"audit {target}"
+                                + (" in After Effects (validate.jsx)" if args.go else " from its report")
+                                + (" and record its gates in qa/gates.json" if film else "")):
+        return 0
     results = audit.run(args.aep, film_dir=film, go=args.go, report=args.report)
     log.result({"gates": [r.to_dict() for r in results], "summary": gates.summarize(results)}, _gate_text(results))
     return gates.exit_code(results)
@@ -265,6 +277,9 @@ def _acts_export(args: argparse.Namespace) -> int:
     todo = [args.act] if args.act else acts.ae_acts(film)
     if not todo:
         raise UsageError(f"This film has no acts built in AE (no {acts.SCENE_DIR}/actN.json).")
+    if slate_cli.dry_stop(args, f"write the motion trace and events of act{'s' if len(todo) > 1 else ''} "
+                                f"{', '.join(map(str, todo))} from their AE scene data (no AE needed)"):
+        return 0
     out = [acts.export(film, a) for a in todo]
     def plural(n: int, word: str) -> str:
         return f"{n} {word}" + ("" if n == 1 else "s")
@@ -281,6 +296,8 @@ def _acts_render(args: argparse.Namespace) -> int:
     if args.detach:
         return _queue(args, slate_cli.film(args), "ae_render", ["acts", "render", str(args.act)],
                       what="Rendering an act with aerender", action="ae_render")
+    if slate_cli.dry_stop(args, f"render act {args.act} with aerender and register the render"):
+        return 0
     res = acts.render(slate_cli.film(args), args.act, go=args.go)
     log.result(res, f"act {res['act']}: {res['file']} ({res['frames'][1] - res['frames'][0]} frames)"
                + (", registered" if res["registered"] else ""))
@@ -290,6 +307,8 @@ def _acts_render(args: argparse.Namespace) -> int:
 def _acts_measure(args: argparse.Namespace) -> int:
     from slate.ae import acts
 
+    if slate_cli.dry_stop(args, f"open After Effects to sample act {args.act}'s motion and write its measured trace"):
+        return 0
     res = acts.export_measured(slate_cli.film(args), args.act, go=args.go)
     log.result(res, f"act {res['act']}: {res['entries']} measured moves -> {res['motion']}")
     return 0
@@ -313,6 +332,11 @@ def _bridge_status(args: argparse.Namespace) -> int:
              f"acceptance: " + (f"passed on {st['acceptance']['version']}" if st["acceptance_current"] else
                                 "not passed on this version"),
              f"looks ({len(st['looks'])}): {', '.join(st['looks'])}"]
+    if st.get("open_dialogs"):
+        lines.append("After Effects is showing: " + "; ".join(f"{d['kind']} (\u201c{d['title'][:60]}\u201d)"
+                                                           for d in st["open_dialogs"]))
+    elif st.get("dialogs_readable") is False:
+        lines.append("After Effects' windows couldn't be read, so a launch dialog can't be ruled out")
     if st["installed"] and st["looks_missing"]:
         lines.append(f"looks missing from the installed package: {', '.join(st['looks_missing'])}")
     if st["doctor"]:

@@ -181,6 +181,14 @@ def test_autonomous_films_use_oneiros_key_and_pool(fx):
 # The live path, against a fake HTTP layer
 
 
+def _stereo_pcm(seconds: float, sr: int = 48000) -> bytes:
+    """Interleaved 16-bit stereo, left and right different, with no header: how Eleven Music answers pcm_48000."""
+    t = np.arange(int(round(seconds * sr))) / sr
+    left = (np.sin(2 * np.pi * 220.0 * t) * 9000).astype("<i2")
+    right = (np.sin(2 * np.pi * 330.0 * t) * 7000).astype("<i2")
+    return np.stack([left, right], axis=1).tobytes()
+
+
 class FakeHttp:
     def __init__(self):
         self.calls = []
@@ -198,6 +206,8 @@ class FakeHttp:
                 raise http.HttpError(403, url, "output format not allowed on this plan")
             pcm = (np.sin(np.arange(4410) / 10) * 8000).astype("<i2").tobytes()
             return 200, {"Request-Id": "req_live_1", "Character-Cost": "12"}, pcm
+        if url.split("?")[0].endswith("/v1/music"):  # the 4 s plan, in stereo; nothing in the bytes says so
+            return 200, {"Request-Id": "req_music_1", "Content-Type": "application/octet-stream"}, _stereo_pcm(4.0)
         raise AssertionError(f"unexpected call {method} {url}")
 
 
@@ -365,6 +375,71 @@ def test_recorded_responses_replay_later(live, fx, monkeypatch):
     again = Client().tts(voice_id="v", text="Twelve chars", output_format="pcm_44100", out=fx / "again.wav")
     assert len(live.calls) == before and again["replay"]
     assert jsonio.sha256(fx / "again.wav") == jsonio.sha256(fx / "rec.wav")
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Channels: an answer is written with the channels it has (a live look test wrote Eleven Music's 48 kHz
+# stereo as mono at twice the length, an octave low, because every live answer was labelled one channel)
+
+
+def test_live_music_is_written_as_the_stereo_it_is(live, fx):
+    res = Client().compose_music(composition_plan=PLAN, seed=7, output_format="pcm_48000", out=fx / "m.wav")
+    y, sr = audio.read_wav(fx / "m.wav")
+    assert sr == 48000 and y.ndim == 2 and y.shape[1] == 2, y.shape
+    assert abs(len(y) / sr - 4.0) < 1e-9 and res["seconds"] == 4.0 and res["seconds_planned"] == 4.0
+    assert res["channels"] == 2
+    sent = np.frombuffer(_stereo_pcm(4.0), "<i2").reshape(-1, 2).astype(np.int64)
+    assert np.array_equal(np.round(y * 32768).astype(np.int64), sent)  # bit for bit, left and right apart
+
+
+def test_live_speech_stays_mono(live, fx):
+    res = Client().tts(voice_id="v", text="Twelve chars", output_format="pcm_44100", out=fx / "t.wav")
+    x, sr = audio.read_wav(fx / "t.wav")
+    assert x.ndim == 1 and sr == 44100 and len(x) == 4410 and res["channels"] == 1
+
+
+def test_an_answer_that_says_its_channels_is_believed_over_the_format():
+    """The answer's own word wins (a WAV header, a channels= parameter); bare PCM takes its format's count."""
+    stereo_wav = audio.pcm16_to_wav(_stereo_pcm(0.01), 48000, 2)
+    assert elevenlabs.answer_channels("tts", {}, stereo_wav) == (2, "answer")
+    assert elevenlabs.answer_channels("music", {"Content-Type": "audio/pcm; rate=48000; channels=1"}, b"\0" * 8) \
+        == (1, "answer")
+    assert elevenlabs.answer_channels("music", {}, _stereo_pcm(0.01)) == (2, "format")
+    assert elevenlabs.answer_channels("tts", {}, b"\0" * 8) == (1, "format")
+    assert elevenlabs.answer_channels("design", {"content-type": "audio/pcm"}, b"\0" * 8) == (1, "format")
+
+
+def test_a_recorded_stereo_answer_replays_as_the_same_stereo(live, fx, monkeypatch):
+    monkeypatch.setenv("SLATE_RECORD", "1")
+    Client().compose_music(composition_plan=PLAN, seed=7, output_format="pcm_48000", out=fx / "rec.wav")
+    monkeypatch.delenv("SLATE_LIVE")
+    monkeypatch.delenv("SLATE_RECORD")
+    before = len(live.calls)
+    again = Client().compose_music(composition_plan=PLAN, seed=7, output_format="pcm_48000", out=fx / "again.wav")
+    assert len(live.calls) == before and again["replay"] and again["channels"] == 2
+    assert jsonio.sha256(fx / "again.wav") == jsonio.sha256(fx / "rec.wav")
+    (recorded,) = (fx / "fixtures" / "elevenlabs").glob("music-*.json")
+    assert json.loads(recorded.read_text())["response"]["channels"] == 2
+
+
+def test_a_recording_made_before_channels_were_kept_replays_in_its_formats_channels(fx, monkeypatch):
+    """Recordings made before this fix said one channel for every answer. Eleven Music always answered in stereo,
+    so a music recording of that age replays as stereo (the way the live take should have been written); speech
+    recorded then stays mono."""
+    import base64
+
+    def legacy(provider, op, request, key=None):
+        data = _stereo_pcm(4.0) if op == "music" else (np.zeros(4800, "<i2")).tobytes()
+        return {"headers": {"request-id": f"old_{op}"}, "encoding": "pcm_s16le", "sample_rate": 48000,
+                "channels": 1, "audio_b64": base64.b64encode(data).decode(), "replay": True, "replay_key": op}
+
+    monkeypatch.setattr(replay, "respond", legacy)
+    m = Client().compose_music(composition_plan=PLAN, seed=7, out=fx / "old_music.wav")
+    y, sr = audio.read_wav(fx / "old_music.wav")
+    assert y.ndim == 2 and abs(len(y) / sr - 4.0) < 1e-9 and m["channels"] == 2
+    t = Client().tts(voice_id="v", text="Hello there.", out=fx / "old_tts.wav")
+    x, _ = audio.read_wav(fx / "old_tts.wav")
+    assert x.ndim == 1 and len(x) == 4800 and t["channels"] == 1
 
 
 def test_balance_hooks_for_ledger_snapshots(fx):

@@ -23,6 +23,12 @@ def cmd_higgsedit(args: argparse.Namespace) -> int:
     folder = bench.bench_dir(film_dir, args.out)
     if args.action == "run":
         bench.refuse_run()
+    if cli.dry_stop(args, {"plan": "write the Higgsedit benchmark's protocol and report",
+                           "measure": f"measure the {args.arm} cut against the reference (PSNR and SSIM) and record "
+                                      "the run",
+                           "review": f"record {args.by}'s review of the {args.arm} cut",
+                           "report": "write the benchmark's report"}[args.action] + f" in {folder}"):
+        return 0
     if args.action == "plan":
         protocol = bench.plan(film_dir=film_dir, channel=args.channel, cut_s=args.length, ranges=args.ranges,
                               master=args.master, out=args.out)

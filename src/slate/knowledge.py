@@ -981,9 +981,11 @@ def _cmd_check(args: argparse.Namespace) -> int:
     from slate import cli  # noqa: PLC0415
 
     data = load()
-    if cli.flag(args, "run_tests", False):
+    # a dry run checks the ledger itself and runs no tests (the batch takes a while)
+    run_tests = bool(cli.flag(args, "run_tests", False)) and not cli.dry_run(args)
+    if run_tests:
         log.info("knowledge: running every gate-type lesson's tests in one pytest batch (this takes a while)")
-    results = check(ledger=data, run_tests=bool(cli.flag(args, "run_tests", False)))
+    results = check(ledger=data, run_tests=run_tests)
     st = stats(data)
     summary = gates.summarize(results)
     counts = st["by_type"]
@@ -991,10 +993,11 @@ def _cmd_check(args: argparse.Namespace) -> int:
             f"{counts['code_default']} code defaults, {counts['gate']} gates, {counts['skill_rule']} skill rules, "
             f"{counts['dropped']} dropped, {counts['gap']} gaps, {counts['pending']} pending")
     human = head + "\n" + gates.format_table(results)
-    if not cli.flag(args, "run_tests", False):
-        human += "\n(the gate-type lessons' tests weren't run: add --run-tests to run them in one pytest batch)"
+    if not run_tests:
+        human += ("\n(dry run: the gate-type lessons' tests weren't run)" if cli.flag(args, "run_tests", False) else
+                  "\n(the gate-type lessons' tests weren't run: add --run-tests to run them in one pytest batch)")
     log.result({"status": summary["status"], "counts": st, "gates": [r.to_dict() for r in results],
-                "tests_run": bool(cli.flag(args, "run_tests", False))}, human)
+                "tests_run": run_tests}, human)
     return gates.exit_code(results)
 
 
@@ -1051,6 +1054,11 @@ def _cmd_gaps(args: argparse.Namespace) -> int:
     text = gaps_markdown(data)
     st = stats(data)
     counts = {"gaps": st["by_type"]["gap"], "pending": st["by_type"]["pending"]}
+    from slate import cli  # noqa: PLC0415
+
+    if getattr(args, "write", False) and cli.dry_stop(args, f"write {GAPS}: {counts['gaps']} gaps, "
+                                                            f"{counts['pending']} pending"):
+        return 0
     if getattr(args, "write", False):
         path = paths.REPO / GAPS
         jsonio.write_text_atomic(path, text)

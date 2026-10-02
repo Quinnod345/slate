@@ -1,6 +1,6 @@
 ---
 name: slate-build
-description: Build a Slate film's scenes with the kit, act by act. Covers kit-first foundations, act scaffolds and placeholders (a first working version of every shot on disk fast, NOTES.md kept current), beats keyed to the voice's words, frame-exact contracts between acts, exporting visual events, the hand-in check, stills and previews, briefs for parallel act builders, real app captures from the iOS Simulator or the web, product UI drawn truthfully, and acts built in After Effects. Use when writing or fixing an act's scene code under scenes/, briefing act builders, capturing an app for a film, handing an act in, or when a render shows a renderer-specific glitch.
+description: Build a Slate film's scenes with the kit, act by act. Covers kit-first foundations, act scaffolds and placeholders (a first working version of every shot, fast), beats keyed to the voice's words, frame-exact contracts between acts, exporting visual events, the hand-in check, stills and previews, briefs for parallel act builders, real app captures for a film, product UI drawn truthfully, and acts built in After Effects. Use when writing or fixing an act's scene code under scenes/, briefing act builders, capturing an app for a film, handing an act in, or when a render shows a renderer-specific glitch.
 ---
 
 # slate-build
@@ -69,7 +69,8 @@ slate timing misses             # word lookups that fell back to an estimate: mu
 
 `slate check <N>` runs, as gates: the type check from the film folder; the act module loading in Node without throwing;
 an empty word-miss list; what the kit had to assume; the brand's banned words in the act's strings; the events file
-matching the act; and the contracts at its boundaries, bit-identical and held. A web act hands in through the open web
+matching the act; the contracts at its boundaries, bit-identical and held; and the brand's motion law on the act's
+trace, so a broken law fails here, before a render. A web act hands in through the open web
 renderer the same way, plus its page loading and drawing, no network, and its fonts. Only PASS counts. The full
 hand-in checklist, and how to check your work with stills and previews: [hand-in](references/hand-in.md).
 

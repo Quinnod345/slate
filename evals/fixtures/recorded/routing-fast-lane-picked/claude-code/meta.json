@@ -1,0 +1,14 @@
+{
+ "case": "routing-fast-lane-picked",
+ "config": "claude-code",
+ "synthetic": false,
+ "started_at": "2026-10-01T11:36:54-04:00",
+ "slate_version": "0.1.0",
+ "setup": [],
+ "timeout_s": 900,
+ "exit_code": 0,
+ "killed": false,
+ "duration_s": 177.1,
+ "artifacts": [],
+ "finished_at": "2026-10-01T11:39:51-04:00"
+}

@@ -1,0 +1,17 @@
+{
+ "case": "negative-css-bug",
+ "config": "claude-code",
+ "synthetic": true,
+ "exit_code": 0,
+ "killed": false,
+ "duration_s": 42.0,
+ "workdir": "/Users/you/evals/work",
+ "note": "Fixes the CSS in the sandbox, then asks mac-cua's browser tool for the page (denied, still an attempt): a browser other than Aside, and mac-cua's browser, which drives Dia.",
+ "expect": {
+  "status": "FAIL",
+  "failed": [
+   "no_browser",
+   "no_foreign_access"
+  ]
+ }
+}

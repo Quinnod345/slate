@@ -2,7 +2,7 @@
  "case": "dry-run-script-stage",
  "config": "pursuit-slice",
  "synthetic": true,
- "note": "Runs `slate connect`, which waits for a key on stdin; the slice is killed at ten minutes. The kill is the real setup's, so what didn't happen fails; the absence checks can't pass on a killed run.",
+ "note": "Runs `slate connect`, which waits for a key on stdin; the slice is killed at ten minutes. The kill is the real setup's, so the run is judged on what happened before it: what didn't happen fails, the absence checks hold, and the hang fails no_stdin_wait.",
  "exit_code": -15,
  "killed": true,
  "duration_s": 600.0,
@@ -13,15 +13,10 @@
    "slate_ran:script build",
    "order",
    "names_the_sitting",
-   "artifact_exists:films/*/script/storyboard.json",
+   "artifact_exists:*/script/storyboard.json",
    "no_stdin_wait"
   ],
-  "unchecked": [
-   "stops_at_preproduction",
-   "no_vendor_spend",
-   "no_browser",
-   "slate_children_browser_none"
-  ]
+  "unchecked": []
  },
  "artifacts": [
   "films/demo-feature-reel/film.json"

@@ -68,7 +68,10 @@ export default function Act2({sub}: SceneProps) {
 
 - **Everything is a function of film time.** No state carried between frames, no timers, no randomness: the renderer
   draws each frame up to 16 times across the shutter, and every sample must agree.
-- **Use the brand's names** (`roleEase('entrance')`, the duration tokens), never literal curves or seconds.
+- **Use the brand's names** (`roleEase('entrance')`, the duration tokens), never literal curves or seconds. In a
+  short act or a small frame, `durFit(seconds)` takes the longest step on the brand's scale that fits, and
+  `maxTravel(duration, ease, class)` the longest travel the law's speed limits allow; the hand-in's motion gate
+  (`handin.act<N>.motion`) holds every act to them.
 - **Say what moves** when the name doesn't: `defineMotion({..., class: 'carry'})` for a page, card or camera carried
   across the frame (`rig`, `ui` and `whip` are the others), and `exempt: 'reading_sweep'` or `'steady'` with a `reason`
   for a move whose constant speed is the point. A long carry or a camera drift can run on `ease: 'even'`, the kit's
@@ -77,7 +80,8 @@ export default function Act2({sub}: SceneProps) {
 - **Gate each element's entrance on the first word it shows**, not a later one.
 - **Numbers are spoken words**: `word('S05', '2026')` finds "twenty twenty-six"; `word('S05', '&', 2)` finds the second
   "and".
-- For a word stressed on a later syllable, measure the stress onset and record the offset in the beats file.
+- For a word stressed on a later syllable, `slate timing stress <shot> <word>` measures where the stressed
+  syllable starts and prints the beat's `stress_start` and `stress_end`; put them on the gesture in the beats file.
 
 ## NOTES.md
 

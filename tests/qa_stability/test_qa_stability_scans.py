@@ -256,7 +256,7 @@ def test_conformance_refuses_without_a_bench(tmp_path):
     spec.write_text('{"variants": {"base": {}}, "steps": []}')
     with pytest.raises(MissingPrerequisite) as exc:
         S.run_conformance(None, spec)
-    assert "Render every variant" in exc.value.hint
+    assert "slate qa stability conformance --render" in exc.value.hint
 
 
 def test_conformance_runs_its_steps_on_bench_renders(helpers):

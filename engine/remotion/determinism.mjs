@@ -11,7 +11,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {renderFrames, selectComposition} from '@remotion/renderer';
 import {actOf} from './lib/film.mjs';
-import {browserExecutable, chromiumOptions} from './browser.mjs';
+import {browserExecutable, chromiumOptions, renderTimeoutMs} from './browser.mjs';
 import {useBundle} from './bundle.mjs';
 import {pixelHash, renderStills} from './stills.mjs';
 
@@ -48,7 +48,7 @@ export async function determinismGate(ctx, act, args, name, inputs, bundles = nu
   try {
     const gl = 'swangle';
     const inputProps = {sub: 1};
-    const composition = await selectComposition({serveUrl: b.serve_url, id: `Act${act}`, inputProps, chromiumOptions: chromiumOptions(gl), browserExecutable: browserExecutable(), logLevel: 'error'});
+    const composition = await selectComposition({serveUrl: b.serve_url, id: `Act${act}`, inputProps, chromiumOptions: chromiumOptions(gl), browserExecutable: browserExecutable(), timeoutInMilliseconds: renderTimeoutMs(), logLevel: 'error'});
     // in sequence: one page draws frames 0…n−1 in order, so anything a frame leaves behind reaches the next
     const seq = new Map();
     await renderFrames({
@@ -61,6 +61,7 @@ export async function determinismGate(ctx, act, args, name, inputs, bundles = nu
       concurrency: 1,
       chromiumOptions: chromiumOptions(gl),
       browserExecutable: browserExecutable(),
+      timeoutInMilliseconds: renderTimeoutMs(),
       logLevel: 'error',
       onStart: () => {},
       onFrameUpdate: () => {},

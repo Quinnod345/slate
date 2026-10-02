@@ -31,6 +31,14 @@ HF_PKG = "/opt/homebrew/lib/node_modules/@higgsfield/cli"
 ASIDE_APP = "/Users/test/.aside/cli/Aside CLI.app"
 
 
+def codex_prompt_input(skills: dict[str, str]) -> str:
+    """What `codex debug prompt-input` prints, with these skills in its list (each description as Codex shows it)."""
+    listing = "\n".join(f"- {name}: {desc} (file: r1/{name}/SKILL.md)" for name, desc in skills.items())
+    return json.dumps([{"type": "message", "role": "developer", "content": [{"type": "input_text", "text":
+                       f"<skills_instructions>\n## Skills\n### Available skills\n{listing}\n</skills_instructions>"}]},
+                       {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "hi"}]}])
+
+
 class FakeEnv(Env):
     def __init__(self, tmp: Path, **over):
         tmp = Path(tmp).resolve()
@@ -38,7 +46,7 @@ class FakeEnv(Env):
         self.tmp = tmp
         self.home.mkdir(parents=True, exist_ok=True)
         self.repo_dir = tmp / "repo"
-        # render-stability conformance: never run, and the engine kit's bench isn't built (today's real state)
+        # render-stability conformance: never run, on a checkout whose engine kit has no bench (a fixture default)
         self.stability: dict | Exception = {"record": None, "bench": False, "spec_sha256": None}
         self.calls: list[list[str]] = []
         self.lookups: list[str] = []
@@ -98,6 +106,8 @@ class FakeEnv(Env):
                                                                  "args": ["mcp"]}},
                 {"name": "aside", "enabled": True, "transport": {"type": "stdio", "command": "aside", "args": ["mcp"]}},
             ])),
+            ("codex", "debug", "prompt-input"): Ran(0, codex_prompt_input({"slate": "test skill",
+                                                                         "slate-story": "test skill"})),
             ("openclaw", "mcp", "list", "--json"): Ran(0, "OpenClaw 2026.9.4 — banner\n" + json.dumps(
                 {"slate": {"command": str(shim), "args": ["mcp"]}, "aside": {"command": "node", "args": ["a.js"]}})),
             ("higgsfield", "account", "status", "--json"): Ran(0, json.dumps(

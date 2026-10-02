@@ -79,12 +79,16 @@ Some text isn't meant to be read the usual way, and a shot says so in script/scr
 ```json
 {"id": "S07", "on_screen": "…", "reading": {"voice_matched": true, "reason": "the voice reads the definition as it lands"}}
 {"id": "S19", "on_screen": "…", "reading": {"not_for_reading": ["Q3 detail table"], "reason": "the report sits small as a closing object"}}
+{"id": "L02", "on_screen": "…", "reading": {"labels": true, "reason": "the app's own screen title, shown in the Simulator"}}
 ```
 
 - **voice_matched**: a definition the voice reads along as it lands. It may run past the on-screen word budget and
   needs only the 1.5 s floor.
 - **not_for_reading**: a surface shown too small to read on purpose. Its listed statements (or the whole shot, with
   `true`) aren't timed; its large elements still must read.
+- **labels**: the on-screen words name what the picture shows (a product's UI, a Simulator label, an end card), not a
+  second script. It means the same to the script gates and to `slate qa readtime`: it answers the 40% voice-share rule
+  only, so the words still count toward the 12-word cap and are timed in full. It's `true` for the whole shot.
 
 A declaration without a reason, or naming text the shot doesn't show, is reported as a problem, never a quiet pass.
 

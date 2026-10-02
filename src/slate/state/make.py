@@ -13,9 +13,10 @@ replay mode, because make is a convenience and spending must stay a decision.
 
 A node can also track inputs its command doesn't record for itself (`Node.tracked`), including named ones
 (`brand:{brand}#sound`, the film's brand's sound palette). The mix tracks the palette and the effect cues: when the
-palette changes, every effect has to be re-spotted in it and the mix made again (the films' rule). Make adds them to
-the output's lock entry once it has seen that output fresh against them, so from then on a change shows by hash;
-before that, a palette or cue sheet newer than the output counts as a change.
+palette changes, every effect has to be re-spotted in it and the mix made again (the films' rule). `slate mix` records
+both in its own lock entry now; for a mix made before it did, make adds them once it has seen the output fresh against
+them, so from then on a change shows by hash, and before that a palette or cue sheet newer than the output counts as a
+change.
 """
 
 from __future__ import annotations

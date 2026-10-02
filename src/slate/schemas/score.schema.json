@@ -466,6 +466,14 @@
     "output_format": {
      "type": "string"
     },
+    "channels": {
+     "type": [
+      "integer",
+      "null"
+     ],
+     "minimum": 1,
+     "description": "the channels the take was written with: the answer's own, else its format's (Eleven Music is stereo)"
+    },
     "file": {
      "type": "string"
     },

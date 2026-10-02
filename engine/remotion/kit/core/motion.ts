@@ -1,5 +1,6 @@
 // The motion law, bound to the brand in force: its named eases, its duration scale, its staggers and their caps, how
-// a move lands on a beat (T90), and the motion registry that `slate qa motion` reads.
+// a move lands on a beat (T90), the speed limits a move keeps at the film's size, and the motion registry that
+// `slate qa motion` reads.
 //
 // Scenes move things with the brand's names only (`tw(t, t0, dur('base'), 'enter')`). A name the brand doesn't have is
 // recorded, never thrown, and falls back to a sine so the frame still renders; `motionProblems()` lists it and the
@@ -7,12 +8,15 @@
 // (standard CSS curves, a plain duration scale) and that is recorded too: every brand gets its own law at onboarding.
 import {brandPack, memoOnBrand} from './brand';
 import {BUILTIN, makeEase, parseEase, t90, type Ease} from './eases';
-import {actShots, allShots, fps, frameOf, shot} from './film';
+import {actShots, allShots, fps, frameOf, frameSize, shot} from './film';
 import {lerp} from './spline';
 import type {BrandMotion, BrandPack} from './types';
 
 // ------------------------------------------------------------------------------------------------------ the law
 export type MotionRoles = {entrance: string; move: string; state: string; exit: string; relayout?: string; [role: string]: string | undefined};
+
+/** The element classes with speed limits of their own (a whip has none: past a carry's, a person decides). */
+export type LimitedClass = 'rig' | 'ui' | 'carry';
 
 export type MotionLaw = {
   /** the brand's named eases (these names are the only ones `slate qa motion` accepts) */
@@ -28,6 +32,11 @@ export type MotionLaw = {
   exitFactor: number;
   roles: MotionRoles;
   overshoot: {allowed: boolean; max: number; where: string[]};
+  /**
+   * The brand's own speed limits, where its motion data sets them (`speed_limits`), as fractions of the frame's short
+   * side per frame and per frame²; SPEED_LIMITS stands in for the rest. Read the way `slate qa motion` reads them.
+   */
+  speedLimits: Partial<Record<LimitedClass, {speed?: number; accel?: number}>>;
   /** true when the brand had no motion law and the kit's neutral law stood in */
   neutral: boolean;
   problems: string[];
@@ -155,9 +164,36 @@ export function motionLawFrom(motion: BrandMotion | undefined | null, rate?: num
     exitFactor,
     roles,
     overshoot,
+    speedLimits: brandSpeedLimits(m.speed_limits),
     neutral,
     problems,
   };
+}
+
+/**
+ * A brand's own speed limits ({rig|ui|carry: {speed, accel}}), as fractions of the short side: a value under 1 is a
+ * fraction already, a larger one is px on the `short_side` the brand names. The same reading as the motion gate's
+ * (slate.qa.motion.brand_speed_limits). What it can't read is left to Slate's limits and not recorded here: the gate
+ * lists it with the law's notes, and the kit draws the same either way.
+ */
+function brandSpeedLimits(raw: unknown): MotionLaw['speedLimits'] {
+  const out: MotionLaw['speedLimits'] = {};
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out;
+  for (const [name, spec] of Object.entries(raw as Record<string, unknown>)) {
+    const cls = CLASS_ALIASES[matchKey(name)];
+    if (!cls || cls === 'whip' || !spec || typeof spec !== 'object' || Array.isArray(spec)) continue;
+    const s = spec as Record<string, unknown>;
+    const on = num(s.short_side);
+    const got: {speed?: number; accel?: number} = {};
+    for (const k of ['speed', 'accel'] as const) {
+      const n = num(s[k]);
+      if (n === null || n <= 0) continue;
+      const f = n < 1 ? n : on && on > 0 ? n / on : null;
+      if (f !== null) got[k] = f;
+    }
+    if (got.speed !== undefined || got.accel !== undefined) out[cls] = got;
+  }
+  return out;
 }
 
 function safeFps(): number | undefined {
@@ -263,6 +299,83 @@ export function durationToken(seconds: number): string | null {
   return null;
 }
 
+/**
+ * The longest step of the brand's duration scale that fits in `seconds`, counted in whole frames at the film's rate (as
+ * tween() and landOn() count a move), or the scale's shortest step when none fits. A move sized by it is always on the
+ * scale, where a clamp (`Math.min(dur('base'), room)`) falls off the scale whenever the room is shorter than the step:
+ * in an act too short for the step a scene asked for, the move takes the next step down that fits. A step that fits
+ * comes back exactly as it went in, so `durFit(durRank(2))` is `durRank(2)` in any act with room for it.
+ */
+export function durFit(seconds: number): number {
+  const steps = Object.values(law().durations).sort((a, b) => b - a);
+  if (!steps.length) return seconds;
+  const room = frameOf(seconds);
+  if (steps.includes(seconds) && durFrames(seconds) <= room) return seconds;
+  return steps.find((s) => durFrames(s) <= room) ?? steps[steps.length - 1];
+}
+
+// ------------------------------------------------------------------------------------------------- speed limits
+/**
+ * How fast each class of element may move, as fractions of the frame's short side: `speed` per frame, and `accel`, the
+ * change in speed, per frame². These are `slate qa motion`'s own limits (SPEED_CLASSES in src/slate/qa/motion.py;
+ * tests/engine_kit/test_speed_limits.py holds this table to them): at 1080p a rig part 30 px/frame and 8 px/frame², a
+ * UI element 60 and 16, a page, card or camera carried across the frame 170 and 45. They scale with the short side, so
+ * a 9:16 reel keeps 1080p's numbers. A whip has no ceiling of its own: past a carry's, a person decides.
+ */
+export const SPEED_LIMITS: Readonly<Record<LimitedClass, Readonly<{speed: number; accel: number}>>> = {
+  rig: {speed: 1 / 36, accel: 1 / 135},
+  ui: {speed: 1 / 18, accel: 2 / 135},
+  carry: {speed: 17 / 108, accel: 17 / 405},
+};
+
+/**
+ * The speed (px a frame) and acceleration (px a frame²) a class of element may reach at this film's size: the brand's
+ * own limits where its motion data sets them, else SPEED_LIMITS. `cls` is rig, ui (the default, as for any move that
+ * doesn't say), carry or whip, or one of the gate's other names for them (character, mark, element, page, camera). A
+ * whip gets a carry's limits, since past them a person decides.
+ */
+export function speedLimits(cls: MotionClass | string = 'ui'): {speed: number; accel: number} {
+  let c = CLASS_ALIASES[matchKey(cls)];
+  if (!c) {
+    problem(`speed limits for class "${cls}": it isn't one of ${MOTION_CLASSES.join(', ')} (or character, mark, element, page, camera), so a UI element's stand in`);
+    c = 'ui';
+  }
+  const k: LimitedClass = c === 'whip' ? 'carry' : c;
+  const own = law().speedLimits[k] ?? {};
+  const short = frameSize().short;
+  return {speed: short * (own.speed ?? SPEED_LIMITS[k].speed), accel: short * (own.accel ?? SPEED_LIMITS[k].accel)};
+}
+
+/**
+ * The longest travel (px, in a straight line) a move can make and keep its class's speed limits at this film's size:
+ * a move of `duration` (a token of the scale or seconds, in whole frames as tween() and landOn() count it) on the ease
+ * `name` (the brand's entrance ease unless named), from rest to rest. It's measured the way `slate qa motion` measures
+ * a trace: the ease sampled on every whole frame of the move and held at rest the frame before and the frame after,
+ * speed the step from one frame to the next, acceleration the change in that step. It comes back a hair (0.01%) under
+ * the limits, since the trace rounds its samples.
+ *
+ * A scene that wants a set travel in any act takes `Math.min(want, maxTravel(…))`: in an act with room for the
+ * duration it asked for, that's the travel it wanted; in a shorter one, the move travels less and keeps the law.
+ */
+export function maxTravel(duration: string | number, name?: string, cls: MotionClass | string = 'ui'): number {
+  const frames = durFrames(duration);
+  const e = easeNamed(name ?? roleEase('entrance'));
+  const at = [0];
+  for (let k = 0; k <= frames; k++) at.push(e(k / frames));
+  at.push(1);
+  let fastest = 0;
+  let hardest = 0;
+  let before = 0;
+  for (let k = 1; k < at.length; k++) {
+    const step = at[k] - at[k - 1];
+    fastest = Math.max(fastest, Math.abs(step));
+    hardest = Math.max(hardest, Math.abs(step - before));
+    before = step;
+  }
+  const {speed, accel} = speedLimits(cls);
+  return Math.min(fastest > 0 ? speed / fastest : Infinity, hardest > 0 ? accel / hardest : Infinity) * (1 - 1e-4);
+}
+
 // ---------------------------------------------------------------------------------------------------- staggers
 /**
  * The step between staggered items: the unit (seconds, or a name from the brand's staggers), shrunk so the whole
@@ -357,6 +470,14 @@ export type MotionSpec = {
   size?: number | [number, number];
   /** what the values are in (px, deg, rad …) */
   unit?: string;
+  /**
+   * For a text element, its type role (hero, h1, body, label …, as the brand's type roles name them): the hero-entrance
+   * check holds a hero line to moving or unmasking as it enters, and the settled check holds type still while a carry
+   * moves under it. Without a role the gate can't tell type from a shape, and those checks stay quiet.
+   */
+  role?: string;
+  /** for a text element, the words it shows (the legibility and settled checks name it by them) */
+  text?: string;
 };
 
 export type MotionInput<V extends MotionValue> = {
@@ -378,13 +499,17 @@ export type MotionInput<V extends MotionValue> = {
   exception?: string;
   size?: number | [number, number];
   unit?: string;
+  /** a text element's type role (hero, h1, body, label …): see MotionSpec.role */
+  role?: string;
+  /** a text element's words */
+  text?: string;
 };
 
 /**
  * The optional trace keys for a move, checked the way `slate qa motion` reads them. A class or exemption it wouldn't
  * know is recorded (motionProblems) and left off, never written for the gate to trip on.
  */
-function traceKeys(input: {id: string; prop: string; rig?: string | null; class?: string; exempt?: string; reason?: string; exception?: string; size?: number | [number, number]; unit?: string}): Partial<MotionSpec> {
+function traceKeys(input: {id: string; prop: string; rig?: string | null; class?: string; exempt?: string; reason?: string; exception?: string; size?: number | [number, number]; unit?: string; role?: string; text?: string}): Partial<MotionSpec> {
   const out: Partial<MotionSpec> = {};
   if (input.class !== undefined && input.class !== null) {
     const c = CLASS_ALIASES[matchKey(input.class)];
@@ -402,6 +527,16 @@ function traceKeys(input: {id: string; prop: string; rig?: string | null; class?
   if (typeof input.exception === 'string' && input.exception.trim()) out.exception = input.exception.trim();
   if (typeof input.size === 'number' ? input.size > 0 : Array.isArray(input.size) && input.size.length === 2 && input.size.every((v) => v > 0)) out.size = input.size;
   if (typeof input.unit === 'string' && input.unit.trim()) out.unit = input.unit.trim();
+  // a text element says what it is, so the type checks can see it (the gate reads the role in lower case)
+  if (input.role !== undefined && input.role !== null) {
+    if (typeof input.role === 'string' && input.role.trim()) out.role = input.role.trim().toLowerCase();
+    else problem(`motion "${input.id}": role must be a type role's name (hero, h1, body, label …)`);
+  }
+  if (input.text !== undefined && input.text !== null) {
+    if (typeof input.text === 'string' && input.text.trim()) out.text = input.text.replace(/\s+/g, ' ').trim();
+    else problem(`motion "${input.id}": text must be the words the element shows`);
+  }
+  if (out.text && !out.role) problem(`motion "${input.id}": it names its text but not its type role, so the type checks can't place it (add role: 'hero', 'body' …)`);
   return out;
 }
 
@@ -439,7 +574,8 @@ function mixValue(from: MotionValue, to: MotionValue, u: number): MotionValue {
  * Say what the element is when the gate can't tell: `class: 'carry'` for a page or card carried across the frame (a
  * rig part is rig and the camera a carry without saying so), `exempt` with a `reason` for a declared exemption,
  * `exception` for a deliberate break a person signs off. A carry may use the kit's "even" curve without the brand
- * naming it.
+ * naming it. A move of type says so with its `role` (the type role it's set in: hero, h1, body, label …) and its
+ * `text` (the words): the hero-entrance, settled and legibility checks read them, and stay quiet without them.
  *
  * Never throws: an id defined twice with a different spec, an unknown shot or ease, reversed frames or mismatched
  * values are recorded in motionProblems(), and the function still returns something drawable.

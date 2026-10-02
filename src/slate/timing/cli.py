@@ -1,4 +1,4 @@
-"""`slate timing`, `slate timing words`, `slate timing misses`, `slate timing show <shot>`."""
+"""`slate timing`, `slate timing words`, `slate timing misses`, `slate timing show <shot>`, `slate timing stress`."""
 
 from __future__ import annotations
 
@@ -22,6 +22,7 @@ Stages:
   misses    word lookups that fell back to an estimate; must be empty at hand-in (exit 1 when it isn't)
   show ID   one shot: frames, timecodes, its read, its words and events
   pin       keep a shot's delivered word times through a re-voice (--shot S --words a,b#2 | all; --list; --clear)
+  stress    where a word's stressed syllable starts (S) and its contact frame (C = S + 2), measured from the take
 
 Exit codes: 0 written and every gate passed or is waiting on a person, 1 a gate failed or the timing is locked,
 2 usage, 3 missing prerequisite (no storyboard, no Whisper)."""
@@ -62,10 +63,26 @@ def _exit(out) -> int:
     return 1 if gates.summarize(out.results)["counts"]["FAIL"] else 0
 
 
+def _align_first(args: argparse.Namespace, film_dir, engine: str = "whisper", realign: bool = False) -> bool:
+    """A dry run whose takes would have to be transcribed first says so and stops (True): transcribing is the slow,
+    and with ElevenLabs the paid, part of a run. With every alignment reusable, the dry run builds in memory."""
+    if not cli.dry_run(args):
+        return False
+    from slate.timing.builder import alignments_to_make  # noqa: PLC0415
+
+    need = alignments_to_make(film_dir, engine=engine, realign=realign)
+    how = "ElevenLabs Forced Alignment (paid)" if engine == "elevenlabs" else "Whisper on this Mac"
+    return bool(need) and cli.dry_stop(args, f"transcribe {len(need)} take(s) ({', '.join(need)}) with {how}, then "
+                                             "build and write the timing files", align=need, engine=engine,
+                                       paid=engine == "elevenlabs")
+
+
 def _build(args: argparse.Namespace) -> int:
     from slate.timing.builder import run  # noqa: PLC0415
 
     film_dir = cli.film(args)
+    if _align_first(args, film_dir):
+        return 0
     out = run(film_dir, force=bool(getattr(args, "force", False)), dry_run=bool(cli.flag(args, "dry_run", False)),
               approved_by=getattr(args, "approved_by", None), reason=getattr(args, "reason", None))
     log.result(_payload(out, film_dir), "\n".join([_table(out.results), *_summary_lines(out, film_dir)]))
@@ -76,6 +93,8 @@ def _words(args: argparse.Namespace) -> int:
     from slate.timing.builder import run  # noqa: PLC0415
 
     film_dir = cli.film(args)
+    if _align_first(args, film_dir, engine=args.engine, realign=bool(getattr(args, "realign", False))):
+        return 0
     out = run(film_dir, force=bool(getattr(args, "force", False)), engine=args.engine,
               realign=bool(getattr(args, "realign", False)), dry_run=bool(cli.flag(args, "dry_run", False)),
               approved_by=getattr(args, "approved_by", None), reason=getattr(args, "reason", None))
@@ -168,14 +187,34 @@ def _pin(args: argparse.Namespace) -> int:
         log.result({"pinned": shots}, "\n".join(lines) or "Nothing is pinned: every word follows its take.")
         return 0
     if args.clear:
+        if cli.dry_stop(args, f"let go of {', '.join(words) if words else 'every pinned word'}"
+                              + (f" in {args.shot}" if args.shot else "") + " (timing/pinned_words.json)"):
+            return 0
         res = pins.clear(film_dir, args.shot, words or None)
         log.result(res, f"let go of {res['cleared']} pinned word(s); rebuild the timing (slate timing) to use the takes'")
         return 0
     if not args.shot or not words:
         raise UsageError("Pin words of one shot: slate timing pin --shot S12 --words companies,growth#2 [--why ...]")
+    if cli.dry_stop(args, f"pin {args.shot}'s {', '.join(words)} at their delivered times in timing/pinned_words.json"):
+        return 0
     res = pins.pin(film_dir, args.shot, words, why=args.why)
     log.result(res, f"{args.shot}: pinned " + ", ".join(f"{p['w']} ({p['start']:.3f} s)" for p in res["pinned"])
                + f" in {res['file']}. A re-voice keeps them; `slate timing` lays them over the new take.")
+    return 0
+
+
+def _stress(args: argparse.Namespace) -> int:
+    from slate.timing import stress  # noqa: PLC0415
+
+    res = stress.measure(cli.film(args), args.shot, args.word, occ=args.occ, gap=args.gap)
+    occ = f" (time {res['occ']})" if res["occ"] > 1 else ""
+    lines = [f"{res['shot']} {res['word']!r}{occ}: S at {res['stress_start']:.3f} s (frame {res['s_frame']}), "
+             f"contact frame {res['contact_frame']}",
+             f"  {res['why']}" + (f" (in the take: {res['gap_take_s'][0]:.3f}-{res['gap_take_s'][1]:.3f} s)"
+                                   if res["gap_take_s"] else ""),
+             "  beat: " + ", ".join(f"{k}: {v!r}" for k, v in res["beat"].items()),
+             "  stress_end is the word's end; re-measure after any re-voice."]
+    log.result(res, "\n".join(lines))
     return 0
 
 
@@ -215,3 +254,15 @@ def register(sub) -> None:
     pin.add_argument("--why", help="what leans on these times (an approved neighbour, a contract)")
     pin.add_argument("--list", action="store_true", help="show what's pinned")
     pin.add_argument("--clear", action="store_true", help="let pins go (a shot's, some of its words, or all)")
+    stress = cli.add_command(stages, "stress", _stress,
+                             help="where a word's stressed syllable starts (S) and its contact frame (C = S + 2)",
+                             description="Measure S for a gesture keyed to a word: the word's start for first-syllable "
+                                         "stress, else the end of the stop gap before the stressed syllable, found in "
+                                         "the take's loudness envelope (the films' stress_onset.py). Prints film "
+                                         "seconds and frames, and the beat's word, stress_start and stress_end to put "
+                                         "in the act's beats. Changes nothing.")
+    stress.add_argument("shot", help="the shot id, e.g. S12")
+    stress.add_argument("word", help="the key word, as the line says it")
+    stress.add_argument("--occ", type=int, default=1, help="which time the word is said in the line (default 1)")
+    stress.add_argument("--gap", type=int, default=1,
+                        help="the Nth stop gap from the word's end (default 1, the last): ex-CLU-sive has two")

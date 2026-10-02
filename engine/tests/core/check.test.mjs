@@ -201,6 +201,65 @@ describe('check: boundary contracts', () => {
   });
 });
 
+/** contractFilm with act 2 drawn by the open web renderer: its page parks the square (the "Rest" state) for 6 frames. */
+function webContractFilm(name, {restLeftNudge = 0} = {}) {
+  const dir = contractFilm(name, {withAct2: false});
+  const web = path.join(dir, 'scenes/act2/web');
+  fs.mkdirSync(web, {recursive: true});
+  fs.writeFileSync(
+    path.join(web, 'index.html'),
+    [
+      '<!doctype html>',
+      '<html lang="en"><head><meta charset="utf-8"><title>act 2</title>',
+      '<style>html, body { margin: 0; padding: 0; overflow: hidden; background: #101010; }',
+      '#sq { position: absolute; width: 40px; height: 40px; background: #f0f0f0; }</style></head>',
+      '<body><div id="sq"></div><script type="module" src="./scene.ts"></script></body></html>',
+      '',
+    ].join('\n'),
+  );
+  fs.writeFileSync(
+    path.join(web, 'scene.ts'),
+    [
+      '// The square parked in the middle (scenes/contracts.tsx\'s Rest) for the first 6 frames, then leaving.',
+      "import {frameSize} from '@slate/kit/core';",
+      "import {defineScene} from '@slate/web';",
+      'const {width, height} = frameSize();',
+      'document.body.style.width = `${width}px`;',
+      'document.body.style.height = `${height}px`;',
+      "const sq = document.getElementById('sq') as HTMLElement;",
+      `const rest = (width - 40) / 2 + ${restLeftNudge};`,
+      'sq.style.top = `${(height - 40) / 2}px`;',
+      'defineScene({',
+      "  silent: 'the square leaves quietly',",
+      '  fonts: false,',
+      '  seek: (_t, info) => {',
+      '    sq.style.left = `${info.frame < 6 ? rest : rest + (info.frame + 1) * 12}px`;',
+      '  },',
+      '});',
+      '',
+    ].join('\n'),
+  );
+  return dir;
+}
+
+describe("check: a web act's boundary contracts", () => {
+  it("holds a web act's first frames to the rest state the act before it ends on, bit for bit", () => {
+    const dir = webContractFilm('web-meet');
+    const g = byGate(check(dir, 2, {contract_gl: 'swangle'})).contracts;
+    expect(g.status, g.evidence.join('\n')).toBe('PASS');
+    expect(g.summary).toBe('act 1 → act 2: the web act\'s first 6 frames draw "Rest" exactly as Act1:14 and Contract-Rest:0, held still');
+    expect(g.details).toMatchObject({hold: 6, boundaries: 1, checked: 1});
+    expect(fs.readdirSync(path.join(dir, 'qa/contracts/act2/web-in'))).toContain('f00000_s00.png');
+  });
+
+  it("fails a web act whose boundary frame isn't the neighbour's rest state", () => {
+    const dir = webContractFilm('web-miss', {restLeftNudge: 1});
+    const g = byGate(check(dir, 2, {contract_gl: 'swangle'})).contracts;
+    expect(g.status).toBe('FAIL');
+    expect(g.summary).toMatch(/Act2:0 \(the web act\) and Act1:14 differ \(PSNR [\d.]+ dB\); "Rest" must be bit-identical/);
+  });
+});
+
 describe('check: word misses', () => {
   it.skipIf(!kitCore)("fails while a kit word lookup fell back to an estimate, and the events can't be current", () => {
     const dir = film(root, 'misses');

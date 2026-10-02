@@ -45,7 +45,10 @@
      "vo_frame": {"type": "integer"},
      "vo_words": {"type": "object"},
      "events": {"type": "array"},
-     "generate": {"type": "object", "description": "the script's generation request for this shot (slate gen reads it)"}
+     "generate": {"type": "object", "description": "the script's generation request for this shot (slate gen reads it)"},
+     "transition_out": {"description": "how the shot hands to the next, as the script gives it: words, or {kind, note} in the motion law's kinds (`slate qa cuts` reads it)",
+                        "oneOf": [{"type": "string"}, {"type": "object", "required": ["kind"], "properties": {"kind": {"type": "string"}, "note": {"type": "string"}}}]},
+     "engine": {"enum": ["remotion", "web", "ae"], "description": "the engine that draws the shot when it isn't its act's (P074): slate render and slate check read it here"}
     }
    }
   }

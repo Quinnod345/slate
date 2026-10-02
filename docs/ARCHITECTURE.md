@@ -126,7 +126,8 @@ builders; if one needs a change, the builder says so in its report instead of ed
   newline), `sha256(path)`, `validate(obj, schema_name)`.
 - `slate.gates`: `GateResult` (§6), `inputs_for(film_dir, paths)`, `write_report(film_dir, results)`,
   `load_report(film_dir)` (STALE when an input changed), `summarize(results)`. Inputs may be named
-  (`film:<dotted.key>`, `film:*`, `brand:<name>`, `format:<name>`, hashed through `slate.state.lock.hash_inputs`);
+  (`film:<dotted.key>`, `film:*`, `brand:<name>` or one block of it, `brand:<name>#<dotted.key>`, `format:<name>`,
+  hashed through `slate.state.lock.hash_inputs`);
   listing `film.json` records `film:*` (film.json without its bookkeeping), so a pin, a version or a budget raise
   doesn't turn gates STALE.
 - `slate.errors`: one exception per exit code (§4): `Refused` 1, `UsageError` 2, `MissingPrerequisite` 3,
@@ -145,14 +146,17 @@ builders; if one needs a change, the builder says so in its report instead of ed
   module with exactly the commands it adds (each registered once; `REGISTERED` records who added what and `BROKEN`
   why a module couldn't, and the tests hold it empty). `SUBROUTES` sends `slate qa stability …` to that module's own
   command, and `FAST_COMMANDS` lets `slate mcp` start without importing every module. Handlers return an int exit code
-  and print human text, or JSON with `--json`.
+  and print human text, or JSON with `--json`. `dry_run(args)` and `dry_stop(args, would, **details)`: a command that
+  changes, spends, queues, sends or runs long work asks `dry_stop` first, which under `--dry-run` says what it would
+  do and tells it to stop.
 
 ## 4. CLI surface (the contract every agent relies on)
 
 Global flags, before or after the command: `--json` (machine output: exactly one JSON object on stdout, usage errors
 included as `{"error": "usage", "message", "exit_code": 2, "usage", "hint"}`; logs on stderr), `--film <id|path>`
-(default: the film folder you're in), `--live` (spend; default is replay when `SLATE_FAKE_VENDORS=1`), `--dry-run`,
-`--quiet`. Exit codes: 0 ok, 1 gate failed or refused, 2 usage, 3 missing prerequisite, 4 spend refused
+(default: the film folder you're in), `--live` (spend; default is replay when `SLATE_FAKE_VENDORS=1`), `--dry-run`
+(say what would happen, on what, and whether it would be queued; then run nothing and change nothing: no file or
+record written, no spend, no queued job, no message, no process, no long analysis, on every command), `--quiet`. Exit codes: 0 ok, 1 gate failed or refused, 2 usage, 3 missing prerequisite, 4 spend refused
 (budget/approval), 5 busy (AE open, a lock or slot held), 75 try later (a vendor's rate limit or a service that's
 briefly unavailable; a queued job goes back in the queue after a backoff, at least the vendor's Retry-After). A
 command stopped with SIGTERM or SIGHUP stops what it started first, then exits 143 or 129.
@@ -175,7 +179,7 @@ of them.
 | `slate variant <parent> <child> [--aspect A] [--cut S] [--language L] [--format F] [--by NAME --reason TEXT]` | a derived film that reuses its parent's work by reference (it starts in its parent's mode) | state |
 | `slate revise start\|check\|done\|list` | perfect, don't replace: revise approved work by its notes | state |
 | `slate script build\|lint` | script.json → storyboard.json + SCRIPT.md, refuses on failed gates | story-timing |
-| `slate timing [words\|misses\|show\|pin]` | shots.json, vo_cues.json, vo_words.json, events.json, timeline.json; `pin` keeps a shot's delivered word times through a re-voice | story-timing |
+| `slate timing [words\|misses\|show\|pin\|stress]` | shots.json, vo_cues.json, vo_words.json, events.json, timeline.json; `pin` keeps a shot's delivered word times through a re-voice; `stress <shot> <word>` measures where the word's stressed syllable starts (S, C = S + 2) and writes nothing | story-timing |
 | `slate voice profile\|account\|cast\|design\|tags\|tts\|clean\|pace\|polish\|analyze\|align\|captions\|check\|approve\|comp\|preview\|swap\|trim` | the voice stages, from casting to the studio polish, measured inflection and captions; re-voicing: a one-word pickup (`comp`), the re-voiced narration on the timeline (`preview`), an approved set swapped in (`swap`), a leaked tail trimmed off a take's play length (`trim`) | voice |
 | `slate score plan\|compose\|assemble\|qa` / `slate mix [--listen [N]]` / `slate verify [gate ...]` | score, mix (and the listening file of the hardest-ridden accents), the sound gates (with slate.sound.balance's) | sound |
 | `slate sfx [status\|spot\|render]` | effects engine; refuses until the proof-3 gate is cleared | sound |
@@ -185,10 +189,10 @@ of them.
 | `slate capture ios\|web\|conform\|beatmap` | scripted captures, conformed to the film's clock and beat-mapped | gen-capture |
 | `slate engine install\|status\|path\|skills\|scaffold\|golden` | the Node engine; `golden` checks the kit's golden stills, or with `--approved FILM` every approved act against this kit | engine |
 | `slate emit-events [--act N]` | visual events and motion traces from each act's scenes | engine |
-| `slate check <act> [--markup [--against REF\|FOLDER]] [--determinism]` | hand-in check: type check, word misses, banned words, never-claims, frame literals, timing margins, the character, events, contracts, each web shot of a Remotion act | engine |
+| `slate check <act> [--markup [--against REF\|FOLDER]] [--determinism]` | hand-in check: type check, word misses, banned words, never-claims, frame literals, timing margins, the character, events, contracts, each web shot of a Remotion act, and the motion law on the act's trace (`handin.act<N>.motion`: the motion gate's checks without the pixels, on a trace current with the act) | engine |
 | `slate render [list\|splice\|clean\|stills] [--act N] [--from F --to T] [--engine remotion\|web\|ae] [--sub N] [--resume] [--detach]` | renders | render |
-| `slate qa [gate ...] [--quick] [--list] [--detach]` / `slate qa triage\|psnr\|unpark` | the film's gates (`slate qa motion`, `slate qa access` run those gates with their own flags) | qa |
-| `slate qa stability [run\|baseline\|reference\|strip\|compare\|selftest\|controls\|conformance]` | render stability and its tools; `baseline --drop F[-F] --by NAME --reason TEXT` takes a fault's flags out of the baseline before its fix is re-rendered | qa (stability) |
+| `slate qa [gate ...] [--quick] [--list] [--detach]` / `slate qa triage\|psnr\|unpark` | the film's gates (`slate qa motion`, `slate qa access` run those gates with their own flags); `psnr A B [--min DB] [--a-frames F-L] [--b-frames F-L]` compares two pictures or videos frame for frame, or a stretch of either | qa |
+| `slate qa stability [run\|baseline\|reference\|strip\|compare\|selftest\|controls\|conformance]` | render stability and its tools; `baseline --drop F[-F] --by NAME --reason TEXT` takes a fault's flags out of the baseline before its fix is re-rendered; `conformance --render [--detach]` renders the engine kit's stability bench through the engine and checks it | qa (stability) |
 | `slate ae prefs\|smoke\|build\|run\|masters\|audit\|acts\|bridge` | After Effects, started only on a person's go | ae |
 | `slate master [--ae\|--ffmpeg] [--go]` | masters | finish/ae |
 | `slate deliver [--draft] [--list]` | delivery set + platform files + manifest (last) | finish |
@@ -255,8 +259,10 @@ Generated files carry `"generated": "do not edit by hand: <command>"`.
 ```
 
 `qa/gates.json` holds the latest result per gate. A result turns STALE when any input's hash changes. Named inputs
-(`film:<dotted.key>`, `film:*`, `brand:<name>`, `format:<name>`) are hashed by value, so a pin or a new version in
-film.json doesn't make a gate STALE; changing what the gate read does. Gates whose names don't say which stage they
+(`film:<dotted.key>`, `film:*`, `brand:<name>`, `brand:<name>#<dotted.key>`, `format:<name>`) are hashed by value, so
+a pin or a new version in film.json doesn't make a gate STALE; changing what the gate read does. A stage names the
+brand blocks it reads, not the whole pack: the script its `truth` and duration scale, the timing
+`brand:<name>#motion.eases`, the mix its `sound`. Approving a reference or editing the look stales none of them. Gates whose names don't say which stage they
 check add `details.stage`.
 
 ## 7. Brand packs
@@ -286,7 +292,8 @@ with this kit and compared with their approved renders), `web-render` (the open 
 derived film's reused files reach the engine through `.slate/refs.json` (written from `slate.state.lock.resolve`).
 
 **Per-shot engines (P074).** The brand picks the engine for its scenes (`look.engine`); a shot may name its own `engine`
-in script.json (read there until timing carries it), and by default it's drawn by its act's. Built: a web shot inside a
+in script.json (carried through storyboard.json into timing/shots.json, where render and check read it), and by
+default it's drawn by its act's. Built: a web shot inside a
 Remotion act. Its page lives in `scenes/shots/<SHOT>/web/`, its beats join the act's events, `slate check` hands it in
 (`handin.act<N>.shot.<ID>.*` and `handin.act<N>.shots`), and `slate render` renders it over exactly its frames at the
 act's samples and splices it in with proof before the act is registered (the registry entry lists `shot_engines`). A
@@ -338,7 +345,8 @@ its own tests, and says so in its report. Film paths are always the film folder 
 - `film.load(film_dir) -> dict` · `film.save(film_dir, data) -> None` (validated, atomic) · `film.new_version(film_dir, note=None) -> int`
 - `lock.record(film_dir, rel_path, *, producer, inputs, tool_version=None) -> dict` (a film.lock.json entry; inputs are
   paths or named inputs: `film:<dotted.key>`, `film:*` (film.json without pins, the pin log, versions, budgets, model
-  overrides and stamps), `brand:<name>`, `format:<name>`) · `lock.hash_inputs(film_dir, inputs) -> dict`
+  overrides and stamps), `brand:<name>#<dotted.key>` (one block of brand.json; `brand:<name>` whole is still read for
+  locks made before stages named their blocks), `format:<name>`) · `lock.hash_inputs(film_dir, inputs) -> dict`
 - `lock.is_stale(film_dir, rel_path) -> bool` · `lock.lock_asset(film_dir, rel_path, *, reason) -> None` · `lock.is_locked(film_dir, rel_path) -> bool`
 - `lock.resolve(film_dir, rel_path) -> Path` (a derived film's reused file: its own first, then its parent's)
 - `lock.freeze_shot_ids(film_dir, ids, *, source=...) -> dict` · `lock.scene_references(film_dir, ids) -> dict[str, list[str]]`
@@ -364,8 +372,9 @@ its own tests, and says so in its report. Film paths are always the film folder 
 
 **story / timing** (`slate.story`, `slate.timing`)
 - `story.build(film_dir) -> list[GateResult]` · `story.gates.check_script(script, *, brand, fmt) -> list[GateResult]`
-  (a shot's `reading` declaration, voice_matched or not_for_reading with its reason, is honoured and carried into
-  storyboard.json)
+  (a shot's `reading` declaration, voice_matched, not_for_reading or labels with its reason, is honoured and carried
+  into storyboard.json; `labels`, words that name what the picture shows, means the same to `slate qa readtime`: it
+  answers the 40% voice-share rule only, and buys no read time)
 - `timing.build(film_dir) -> list[Path]` (shots, vo_cues, vo_words, timeline) · `timing.load_shots(film_dir) -> dict`
   (follows a derived film's references)
 - `timing.words.word_time(film_dir, shot_id, word, occ=1, which="start") -> tuple[float, bool]` (never raises; bool = exact)
@@ -395,7 +404,8 @@ its own tests, and says so in its report. Film paths are always the film folder 
 **vendors** (`slate.vendors.elevenlabs.Client()`, `slate.vendors.higgsfield.Client()`) — replay-aware; every paid call goes
 through `slate.ledger`. ElevenLabs: `subscription()`, `tts(...)`, `design(...)`, `remix(...)`, `isolate(...)`,
 `align(...)`, `compose_music(...)`; `music_plan_schema(model_id)` reads registry.json (`chunks` for music_v2 and
-v2_5, `sections` for music_v1). Higgsfield: `probe()`, `estimate(path, body)`, `submit(path, body)`, `wait(request_id)`,
+v2_5, `sections` for music_v1). Audio is written with the channels it came in (`answer_channels`: the answer's own
+word, else its format's, Eleven Music stereo and speech mono), live and replayed alike. Higgsfield: `probe()`, `estimate(path, body)`, `submit(path, body)`, `wait(request_id)`,
 `cancel(request_id)`, `upload(path)`; `/estimate`'s `usd` is the price and `discount.usd` the saving; every submit
 carries an `Idempotency-Key` derived from its ledger row and is resent with the same key and body after a lost
 answer (a keyless submit is never retried); an ambiguous keyed submit is `HiggsfieldTryLater` (exit 75), a rate limit
@@ -444,6 +454,9 @@ its gates (`render.actN.frames`, `render.splice`, the engine's fonts and `web.ne
 · `ocr.stdout_to_stderr()` (every OCR call: Vision's native prints never reach a `--json` stdout). qa-motion adds its
 gates to `GATES` from `slate.qa.motion` and `slate.qa.access`, and the stability agent from `slate.qa.stability`
 (`GATES = {"stability": gate}`, `register(sub)` for `slate qa stability <action>`), each import-guarded.
+`motion.handin_gate(film_dir, act) -> GateResult | None` is the hand-in's motion law: every motion check but the
+pixels, on one act's trace, FAIL when the act's sources have moved on since `slate emit-events` wrote it, None when
+the act has no trace.
 
 **ae** (`slate.ae`): `prefs` (byte-safe: `check()`, `get()`, `set()`, `restore()`) · `driver.run_jsx(path, *, args=None) -> dict`
 · `driver.ae_lock()` (context manager, shared with the bridge's lock) · `smoke.run(out_dir) -> GateResult`
@@ -470,7 +483,9 @@ act, `timing/motion/actN.json` = `[{id, shot, prop, ease, frame_in, frame_out, f
 entrance: bool, loop_period: int|null, rig: str|null}]`, which `slate qa motion` checks. Optional keys the motion gate
 reads: `class` (rig | ui | carry | whip: which speed limits apply; a rig part is rig, a camera move or a page or card
 carried across the frame is carry), `exempt` (reading_sweep | steady) with its `reason`, `exception`, `size` and
-`unit`. Besides the brand's named eases, a trace's `ease` may be one of the kit's own (`linear`, `sine`, `spring0`, or
+`unit`, and for type its `role` (hero, h1, body, label …) and `text`, which the hero-entrance, settled and legibility
+checks read (they stay quiet without them). A character beat keyed to a word carries `word` (and `occ`) and, where the
+act has them, its stressed syllable's `stress_start` and `stress_end`. Besides the brand's named eases, a trace's `ease` may be one of the kit's own (`linear`, `sine`, `spring0`, or
 `even`: rest to rest through a third of the travel at each third of the time, for long carries and camera drifts) or
 `measured` (an act sampled in After Effects). `src/slate/schemas/motion_trace.schema.json` holds the shape.
 Renders register in `renders/registry.json` = `{entries: [{act, engine, file, frames: [in, out], samples, sha256,

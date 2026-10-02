@@ -9,6 +9,7 @@ motion law says they may, and fail everywhere else.
 from __future__ import annotations
 
 import json
+import math
 
 import numpy as np
 import pytest
@@ -263,3 +264,17 @@ def test_an_even_drift_longer_than_the_scale_is_a_drift_and_a_shorter_one_keeps_
     assert M.check_durations(data([on_scale])).status == "PASS"
     label = entry("label", "x", 0, 96, 0, 300, ease="even", fn=even)  # a UI element may not use even undeclared
     assert M.check_durations(data([label])).status == "FAIL"
+
+
+def test_a_rotation_traced_in_radians_is_held_to_the_same_limits_as_degrees():
+    """three.js records rotation in radians (the web template's turn): read as degrees, a whole radian a frame looked
+    like one degree and passed the edge-speed limit 57 times over."""
+    size = {"size": [200, 200], **cls("ui")}
+    deg = entry("turn-deg", "rotation", 0, 12, 0, 360, ease="move", unit="deg", **size)
+    rad = entry("turn-rad", "rotation.y", 0, 12, 0, 2 * math.pi, ease="move", unit="rad", **size)
+    slow_rad = entry("nudge-rad", "rotation.y", 0, 24, 0, 0.02, ease="move", unit="rad", **size)
+    assert M.check_speed(data([deg], size=HD)).status == "FAIL"
+    assert M.check_speed(data([rad], size=HD)).status == "FAIL"  # the same turn in radians fails the same way
+    assert M.check_speed(data([slow_rad], size=HD)).status == "PASS"
+    moves = [M.move_from(e, 1, i) for i, e in enumerate([deg, rad])]
+    assert np.allclose(moves[0].values[-1], moves[1].values[-1]) and np.isclose(moves[1].end[0], 360.0)

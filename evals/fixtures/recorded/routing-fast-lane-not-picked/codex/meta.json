@@ -1,0 +1,30 @@
+{
+ "case": "routing-fast-lane-not-picked",
+ "config": "codex",
+ "synthetic": false,
+ "started_at": "2026-10-01T17:37:59-04:00",
+ "slate_version": "0.1.0",
+ "setup": [
+  "shares this Mac's render slot (~/Library/Application Support/Slate/locks/render)"
+ ],
+ "timeout_s": 900,
+ "pair_dir": "~/Library/Application Support/Slate/evals/runs/20261001-l1b5-codex/routing-fast-lane-not-picked/codex",
+ "workdir": "~/Library/Application Support/Slate/evals/runs/20261001-l1b5-codex/routing-fast-lane-not-picked/codex/work",
+ "tools_cwd": null,
+ "notice": {
+  "files": [
+   "AGENTS.md",
+   "CLAUDE.md"
+  ],
+  "in_message": false
+ },
+ "exit_code": 0,
+ "killed": false,
+ "duration_s": 23.1,
+ "codex_trust_pruned": "Codex marked the sandbox a trusted project in its config.toml; that entry was taken out again",
+ "artifacts": [
+  "AGENTS.md",
+  "CLAUDE.md"
+ ],
+ "finished_at": "2026-10-01T17:38:22-04:00"
+}

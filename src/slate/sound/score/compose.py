@@ -180,7 +180,8 @@ def compose(film_dir: Path, parts: list[str] | None = None, seeds: list[int] | N
             jsonio.write_atomic(plan_copy, part["composition_plan"])
             take_qa = qa.check_file(out, film.sr)
             record = {"kind": "take", "part": part["id"], "seed": seed, "model_id": plan["model_id"],
-                      "output_format": info.get("format") or fmt, "file": film.rel(out),
+                      "output_format": info.get("format") or fmt, "channels": info.get("channels"),
+                      "file": film.rel(out),
                       "plan_file": film.rel(plan_copy),
                       "plan_sha256": jsonio.sha256_obj(part["composition_plan"]), "seconds_planned": part["seconds"],
                       "request_id": info.get("request_id"),

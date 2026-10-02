@@ -19,6 +19,7 @@
   "runner": {"enum": ["agent", "strategist"], "description": "agent (default): one of the four configurations. strategist: Oneiro's strategist harness."},
   "needs_eval_env": {"type": "boolean", "description": "The expected behaviour makes films or could spend, so the run must get replay mode and sandbox folders. Configurations whose tools can't take the eval environment skip the case unless --allow-host-env is passed."},
   "timeout_s": {"type": "integer", "minimum": 10, "maximum": 3600},
+  "cut_off": {"type": "boolean", "description": "The run is stopped on purpose, at its time limit or at its first render (whichever comes first): what the case asks for (a production) runs for hours, so the checks judge what happened before the stop, and an eval never renders on this Mac. A kill there is the end of the run, not a failure to finish."},
   "block": {"type": "array", "uniqueItems": true, "items": {"enum": ["aside_actions"]}, "description": "Harness-level blocks for this case, mapped per configuration in configs.json."},
   "setup": {
    "type": "object",

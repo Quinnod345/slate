@@ -400,7 +400,11 @@ CROSSFADE_ALLOWED = ("whip", "portal")
 
 def transition_kind(text) -> str | None:
     """A declared transition, in the law's words: carry, portal, mask, whip, ui_cut, music_cut or seam; None for
-    nothing declared, and "other" for anything the law doesn't allow (a hard cut, a crossfade, a dissolve)."""
+    nothing declared, and "other" for anything the law doesn't allow (a hard cut, a crossfade, a dissolve). A script
+    may name the kind itself ({kind, note}); words are sorted into the kinds."""
+    if isinstance(text, dict):
+        kind = str(text.get("kind") or "").strip().lower()
+        return (kind if kind in TRANSITIONS else "other") if kind else None
     if not isinstance(text, str) or not text.strip():
         return None
     t = text.strip().lower().replace("-", " ").replace("_", " ")
@@ -417,15 +421,24 @@ def transition_kind(text) -> str | None:
     return "other"
 
 
-def _transitions(ctx: FilmContext) -> dict[str, str | None]:
+def _said(declared) -> str:
+    """A declared transition in words, for a message: its own words, or "<kind>: <note>"."""
+    if isinstance(declared, dict):
+        kind, note = str(declared.get("kind") or ""), str(declared.get("note") or "")
+        return f"{kind}: {note}" if kind and note else (kind or note)
+    return str(declared)
+
+
+def _transitions(ctx: FilmContext) -> dict[str, str | dict | None]:
     """{shot id: its declared transition}: timing/shots.json, else the storyboard, else script/script.json."""
     from slate.qa.checks.text import script_shots  # noqa: PLC0415
     from slate.qa.film import iter_storyboard_shots  # noqa: PLC0415
 
     out: dict[str, str | None] = {}
     for sid, shot in ((str(s.get("id")), s) for s in ctx.shots):
-        if shot.get("transition"):
-            out[sid] = shot["transition"]
+        declared = shot.get("transition") or shot.get("transition_out")  # shots.json names it transition_out
+        if declared:
+            out[sid] = declared
     for shot in iter_storyboard_shots(ctx.storyboard or {}):
         sid = str(shot.get("id"))
         if sid not in out and shot.get("transition"):
@@ -540,9 +553,9 @@ def cuts(film_dir: Path) -> GateResult:
             if kind == "music_cut":
                 music += 1
             if kind in CUT_ALLOWED and not (kind == "music_cut" and music > MUSIC_CUTS_MAX):
-                listed.append(f"film frame {p['frame']}: {join} ({declared})")
+                listed.append(f"film frame {p['frame']}: {join} ({_said(declared)})")
                 continue
-            why = (f"its declared transition ({declared!r}) doesn't allow a cut" if declared else
+            why = (f"its declared transition ({_said(declared)!r}) doesn't allow a cut" if declared else
                    "no transition is declared for it")
             if kind == "music_cut":
                 why = f"it's music cut {music}, past the {MUSIC_CUTS_MAX} the law allows"
@@ -575,7 +588,7 @@ def cuts(film_dir: Path) -> GateResult:
                 items.append({"key": f"crossfade:{j}", "basis": basis, "frame": j,
                               "what": f"film frames {fade['start']}–{fade['end']} (act {a['index']}): a "
                                       f"{fade['blended']}-frame crossfade at the join {join}"
-                                      + (f" (declared {declared!r}, which isn't a whip or a portal)" if declared else
+                                      + (f" (declared {_said(declared)!r}, which isn't a whip or a portal)" if declared else
                                          " (no transition declared)")})
     open_items, accepted = review_items(ctx, "cuts", items)
     subs = []

@@ -2,7 +2,7 @@
  "case": "routing-open-request",
  "config": "claude-code",
  "synthetic": true,
- "note": "Asks two questions, and loads a Higgsfield video skill before anyone picked the fast lane.",
+ "note": "Asks two questions, and loads a Higgsfield video skill before anyone picked the fast lane. Loading it is the vendor skill winning the trigger (no_vendor_skill_first); with slate loaded first and nothing generated, it isn't taking the fast lane (fast_lane_not_used judges what the agent did, not what it read).",
  "exit_code": 0,
  "killed": false,
  "duration_s": 42.0,
@@ -10,7 +10,6 @@
   "status": "FAIL",
   "failed": [
    "asks_one_question",
-   "fast_lane_not_used",
    "no_vendor_skill_first"
   ]
  }

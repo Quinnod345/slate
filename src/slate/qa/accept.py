@@ -48,8 +48,10 @@ def split_ref(ref: str) -> tuple[str, str]:
     return gate, key
 
 
-def accept(film_dir: Path, ref: str, *, by: str | None, reason: str | None, mode: str = "supervised") -> dict:
-    """Record a person's acceptance of one REVIEW item from the latest (not stale) result of its gate."""
+def accept(film_dir: Path, ref: str, *, by: str | None, reason: str | None, mode: str = "supervised",
+           dry_run: bool = False) -> dict:
+    """Record a person's acceptance of one REVIEW item from the latest (not stale) result of its gate. With `dry_run`
+    every check runs and the record that would be written comes back, but nothing is written."""
     gate, key = split_ref(ref)
     if not (by or "").strip() or not (reason or "").strip():
         raise UsageError("Accepting a REVIEW item needs the person's name and their reason: --by NAME --reason TEXT.")
@@ -72,6 +74,8 @@ def accept(film_dir: Path, ref: str, *, by: str | None, reason: str | None, mode
         raise UsageError(f"The latest {gate} result has no REVIEW item {key!r} (open items: {known}).")
     record = {"gate": gate, "key": key, "what": item.get("what"), "basis": item.get("basis") or {},
               "by": by.strip(), "reason": reason.strip(), "at": gates.now_iso(), "agent": procs.agent_context()}
+    if dry_run:
+        return {**record, "dry_run": True}
     data = jsonio.read(_path(film_dir), default={}) or {}
     data.setdefault("accepted", []).append(record)
     data["note"] = "A person's verdicts on REVIEW items, each bound to the file hashes it was given on (slate qa triage)."

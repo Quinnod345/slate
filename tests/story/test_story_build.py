@@ -363,8 +363,8 @@ def test_a_pin_written_into_film_json_leaves_the_storyboard_and_its_gates_fresh(
     film = make_film(film=NO_TARGET)
     assert cli("script", "build", "--film", str(film))[0] == 0
     inputs = lock.entry(film, "script/storyboard.json")["inputs"]
-    assert {"film:brand", "film:format", "film:mode", "film:targets", "brand:crumb"} <= set(inputs)
-    assert "film.json" not in inputs
+    assert {"film:brand", "film:format", "film:mode", "film:targets", "brand:crumb#truth"} <= set(inputs)
+    assert "film.json" not in inputs and "brand:crumb" not in inputs  # the blocks the gates read, not the whole pack
     fj = json.loads((film / "film.json").read_text())
     fj["pins"] = {"remotion": "4.0.521"}
     write_json(film / "film.json", fj)

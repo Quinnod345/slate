@@ -361,3 +361,23 @@ def test_the_section_12_interfaces_keep_their_signatures():
     assert list(inspect.signature(analyze.run).parameters)[:1] == ["video"]
     for name in ("plan", "record_run", "record_review", "decide", "report", "refuse_run"):
         assert callable(getattr(higgsedit, name))
+
+
+def test_every_formats_end_hold_fits_its_last_beat_at_its_shortest():
+    """qa's end_hold holds a film's end still for the films' 3 s unless its format says otherwise. A format whose own
+    end beat, at its shortest length, is shorter than that says its own hold (a 6 s ad, a 2 s logo sting): never longer
+    than the end beat (1.5 s at the least, a line you can read), never more than 3 s, and none for a seamless loop."""
+    from slate import formats
+
+    for name in formats.names():
+        fmt = formats.load(name)
+        hold, _why = formats.end_hold_for(fmt)
+        if (fmt.get("loop") or {}).get("seamless"):
+            assert hold == 0, name
+            continue
+        assert 1.5 <= hold <= 3.0, (name, hold)
+        beats = (fmt.get("structure") or {}).get("beats") or []
+        share = beats[-1].get("share") if beats else None
+        shortest = fmt["runtime_s"]["min"] if isinstance(fmt["runtime_s"], dict) else fmt["runtime_s"]
+        if share is not None:
+            assert hold <= max(1.5, share * shortest) + 1e-9, (name, hold, share * shortest)

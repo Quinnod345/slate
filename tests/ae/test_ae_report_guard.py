@@ -143,3 +143,61 @@ def test_require_ae_closed_is_busy_with_the_exact_ask(monkeypatch):
     with pytest.raises(Busy):
         guard.require_ae_closed("mastering")
     guard.require_ae_closed("mastering", allow_aerender=True)
+
+
+# ---- AE's launch-time dialogs (L-ae-048) -------------------------------------------------------------------------
+
+
+def _dialogs(monkeypatch, titles, *, running=True, readable=True):
+    """AE running (or not) with these window titles, read through doctor's launch_dialogs as a supervised step does."""
+    from slate.doctor import aftereffects
+    from slate.doctor.env import Env
+
+    class FakeEnv(Env):
+        def ae_running(self):
+            return running
+
+        def ae_windows(self):
+            return {"running": running, "windows": list(titles) if readable else None,
+                    "error": None if readable else "no Accessibility permission"}
+
+        def ae_bridge_status(self):
+            return {}
+
+    monkeypatch.setattr(procs, "ae_running", lambda: running)
+    asked = []
+    monkeypatch.setattr(guard, "launch_dialogs", lambda: asked.append(1) or aftereffects.launch_dialogs(FakeEnv()))
+    return asked
+
+
+def test_a_supervised_step_stops_on_a_launch_dialog(tmp_path, monkeypatch):
+    """Every supervised AE step runs doctor's launch_dialogs() once the person said go, and stops (exit 5) on a dialog
+    a script can't dismiss, naming it and saying what the person does."""
+    asked = _dialogs(monkeypatch, ["Adobe After Effects 2026 - Untitled Project.aep", "Missing Fonts"])
+    with pytest.raises(Busy) as exc:
+        guard.person_start(True, "Building the AE project", film_dir=_film(tmp_path), action="ae_build")
+    assert asked == [1] and exc.value.exit_code == 5
+    assert "a missing-fonts dialog" in exc.value.message and "Building the AE project would hang" in exc.value.message
+    assert "Install or replace the fonts" in exc.value.hint
+    assert exc.value.details["dialogs"] == [{"kind": "missing_fonts", "title": "Missing Fonts"}]
+
+
+def test_a_dialog_is_only_looked_for_once_the_person_said_go(tmp_path, monkeypatch):
+    asked = _dialogs(monkeypatch, ["Restore project?"])
+    with pytest.raises(Refused):
+        guard.person_start(False, "Building the AE project", film_dir=_film(tmp_path))
+    assert asked == []  # a refused step never reaches into System Events
+
+
+def test_no_dialog_open_or_ae_closed_lets_the_step_start(tmp_path, monkeypatch):
+    _dialogs(monkeypatch, ["Adobe After Effects 2026 - Untitled Project.aep", "Composition: Act 1"])
+    guard.person_start(True, "Building the AE project", film_dir=_film(tmp_path))
+    asked = _dialogs(monkeypatch, [], running=False)
+    guard.person_start(True, "Rendering the masters with aerender", film_dir=_film(tmp_path / "b"), action="ae_master")
+    assert asked == []  # AE closed: nothing is asked of System Events at all
+
+
+def test_unreadable_windows_warn_and_let_the_person_go_on(tmp_path, monkeypatch, capsys):
+    _dialogs(monkeypatch, [], readable=False)
+    guard.person_start(True, "Building the AE project", film_dir=_film(tmp_path))
+    assert "Couldn't read After Effects' windows" in capsys.readouterr().err

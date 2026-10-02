@@ -152,6 +152,34 @@ describe('sound and checks', () => {
     expect(beats.every((b) => b.kind === 'character' && Number.isInteger(b.frame))).toBe(true);
   });
 
+  it("keys a gesture's contact beat to its word and its stressed syllable, for the sync gate", () => {
+    // a turn keyed to "steady" (its stressed syllable at 1.30-1.42 s), a wave keyed to a word with no syllable known
+    const track: MotifTrack = [
+      {kind: 'turn', t: 1.3, word: 'steady', stress_start: 1.3, stress_end: 1.42},
+      {kind: 'wave', frame: 90, word: 'again', occ: 2},
+    ];
+    const beats = motifBeats(track, spec);
+    const turn = beats.find((b) => b.gesture === 'turn')!;
+    expect(turn).toMatchObject({word: 'steady', stress_start: 1.3, stress_end: 1.42, kind: 'character'});
+    const waves = beats.filter((b) => b.gesture === 'wave');
+    expect(waves[0]).toMatchObject({word: 'again', occ: 2});
+    expect('stress_end' in waves[0]).toBe(false); // no syllable known: the gate uses the word's end
+    expect(waves.slice(1).every((b) => b.word === undefined)).toBe(true); // the wave's later steps follow its contact
+  });
+
+  it("lands a gesture keyed to a stressed syllable on the contact: the syllable's first frame plus 2", () => {
+    const fps = FILM.film.fps_num / FILM.film.fps_den;
+    const [beat] = motifBeats([{kind: 'turn', word: 'now', stress_start: 2.0, stress_end: 2.2}], spec);
+    expect(beat.frame).toBe(Math.round(2.0 * fps) + 2);
+    expect(beat).toMatchObject({word: 'now', stress_start: 2.0, stress_end: 2.2});
+  });
+
+  it("keeps a word on its frame's one sound when a gesture of higher priority takes the frame", () => {
+    const beats = motifBeats([{kind: 'ripple', frame: 40, word: 'land'}, {kind: 'turn', frame: 40}], spec);
+    expect(beats).toHaveLength(1);
+    expect(beats[0]).toMatchObject({gesture: 'turn', word: 'land'});
+  });
+
   it('lints gestures that crowd each other', () => {
     expect(motifLint([{kind: 'pulse', frame: 10}, {kind: 'turn', frame: 12}]).length).toBe(1);
     expect(motifLint([{kind: 'pulse', frame: 10}, {kind: 'turn', frame: 40}])).toEqual([]);

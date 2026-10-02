@@ -248,15 +248,21 @@ def load(film_dir: str | Path) -> Film:
     return Film(film_dir, data, shots, fps_num, fps_den, sr, duration, tg, brand, pal, fmt, notes)
 
 
-def record_lock(film: Film, rel_path: str, *, producer: str, inputs: list[str | Path]) -> None:
-    """Record a derived file in film.lock.json through slate.state when it's installed (quietly skipped otherwise)."""
+def record_lock(film: Film, rel_path: str, *, producer: str, inputs: list[str | Path],
+                tracked: list[str] = ()) -> None:
+    """Record a derived file in film.lock.json through slate.state when it's installed (quietly skipped otherwise).
+
+    `inputs` are files that exist now, hashed here. `tracked` are inputs slate.state.lock hashes itself: named ones
+    (`brand:<name>#sound`, one block of the brand pack) and files that may not exist yet (an effect cue sheet), so
+    their arrival or change later makes this file stale."""
     try:
         from slate.state import lock  # noqa: PLC0415
     except ImportError:
         return
     try:
         hashes = jsonio.hash_inputs([film.path(p) for p in inputs])
-        rel_hashes = {film.rel(k): v for k, v in hashes.items()}
+        rel_hashes: dict[str, str | None] = {film.rel(k): v for k, v in hashes.items()}
+        rel_hashes.update({str(k): None for k in tracked if str(k) not in rel_hashes})
         lock.record(film.dir, rel_path, producer=producer, inputs=rel_hashes)
     except Exception as exc:  # noqa: BLE001 - a lock record must never lose a finished mix
         log.warn(f"couldn't record {rel_path} in film.lock.json: {exc}")

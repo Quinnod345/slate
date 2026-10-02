@@ -1,9 +1,9 @@
-// Act 1, built with the kit: a card rises into place and a dot crosses the frame, drawn in the brand's tokens on the
-// film's clock. Every value is a pure function of film time, so the motion-blur samples land between frames.
+// Act 1, built with the kit: a card rises into place and a dot sets off along its line, drawn in the brand's tokens on
+// the film's clock. Every value is a pure function of film time, so the motion-blur samples land between frames.
 import React from 'react';
 import {ActRoot, Text, useFilmFrame, useFrameSize, useTokens} from '@slate/kit';
 import type {SceneProps} from '@film/data';
-import {cardRise, dotCross} from './beats';
+import {cardRise, dotSlide} from './beats';
 
 function Picture() {
   const frame = useFilmFrame();
@@ -31,7 +31,7 @@ function Picture() {
           One clock
         </Text>
       </div>
-      <div style={{position: 'absolute', left: dotCross(frame), top: height * 0.72, width: dot, height: dot, borderRadius: dot / 2, background: tokens.color.accent}} />
+      <div style={{position: 'absolute', left: dotSlide(frame), top: height * 0.72, width: dot, height: dot, borderRadius: dot / 2, background: tokens.color.accent}} />
     </div>
   );
 }

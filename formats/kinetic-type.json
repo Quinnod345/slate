@@ -37,5 +37,7 @@
             "rework_factor": 1.5, "note": "Generation is rarely useful here: the type is the picture."},
  "broadcast": false,
  "generation": "rarely",
- "engines": ["remotion", "web", "ae"]
+ "engines": ["remotion", "web", "ae"],
+ "end_hold_s": 2.0,
+ "notes": ["The end hold is the landing beat at the shortest film, a fifth of 10 s (qa's end_hold): the line to remember holds still for its last 2 s, where the films' 3 s would be longer than the landing itself."]
 }

@@ -38,6 +38,9 @@ def test_script_schema_accepts_the_neutral_script_and_lines():
     lambda s: s.update(ids="shuffle"),
     lambda s: s["acts"][0]["shots"][0]["events"][0].pop("t"),
     lambda s: s["acts"][0]["shots"][0]["events"][0].update(land="settle"),
+    lambda s: s["acts"][0]["shots"][0].update(transition={"kind": "crossfade"}),  # not one of the law's kinds
+    lambda s: s["acts"][0]["shots"][0].update(transition={"note": "a carry, but which kind?"}),
+    lambda s: s["acts"][0]["shots"][0].update(engine="blender"),
     lambda s: s.update(timing={"lead": -1}),
 ])
 def test_script_schema_rejects_malformed_scripts(breakage):
@@ -116,3 +119,38 @@ def test_the_films_v2_beats_fit_except_the_draw_and_count_spans_they_left_implic
             checked += 1
     assert checked == 15
     assert spanless == 102  # B: 72 draws and 8 counts; C: 19 draws and 3 counts
+
+
+def test_a_scripts_transition_is_words_or_one_of_the_laws_kinds():
+    """A shot's transition is the law's kinds when it names one ({kind, note}), and words otherwise, as every
+    script so far writes it; a sources entry may quote its source with where it is."""
+    from slate.qa.checks.picture import TRANSITIONS
+    from slate.story.model import TRANSITION_KINDS
+
+    assert set(TRANSITION_KINDS) == set(TRANSITIONS)  # the schema, the story module and the cuts gate agree
+    assert jsonio.schema("script")["$defs"]["transition_kind"]["enum"] == list(TRANSITION_KINDS)
+    s = copy.deepcopy(SCRIPT)
+    shot = s["acts"][0]["shots"][0]
+    for kind in TRANSITION_KINDS:
+        shot["transition"] = {"kind": kind, "note": "why"}
+        assert jsonio.validate(s, "script") == [], kind
+    shot["transition"] = "Whip (motion-masked cut) into the signup screen"
+    shot["engine"] = "web"
+    shot["sources"] = [{"ref": "app:copy", "quote": "Start free", "where": "src/pages/home.tsx:12"}]
+    assert jsonio.validate(s, "script") == []
+
+
+def test_every_transition_the_films_wrote_still_fits_the_script_schema(filmroot):
+    """Checked before the kinds went into the schema: films A, B and C wrote 106 transitions as words with the kind
+    first ("Carry: …", "Portal: …", "UI state cut, camera locked"), so the schema keeps words and adds {kind, note}
+    rather than an enum a single film's script would fail."""
+    seen = 0
+    for rel in ("build/shots.json", "build/B/shots.json", "build/C/shots.json"):
+        for sh in json.loads((filmroot / rel).read_text())["shots"]:
+            words = sh.get("transition_out")
+            if not words:
+                continue
+            seen += 1
+            doc = {"acts": [{"name": "A", "shots": [{"id": "S01", "dur": 1.0, "transition": words}]}]}
+            assert jsonio.validate(doc, "script") == [], words
+    assert seen >= 100

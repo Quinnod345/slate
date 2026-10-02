@@ -1,0 +1,31 @@
+{
+ "case": "routing-ui-recording",
+ "config": "pursuit-slice",
+ "synthetic": false,
+ "started_at": "2026-10-01T18:35:35-04:00",
+ "slate_version": "0.1.0",
+ "setup": [
+  "shares this Mac's render slot (~/Library/Application Support/Slate/locks/render)"
+ ],
+ "timeout_s": 240,
+ "pair_dir": "~/Library/Application Support/Slate/evals/runs/20261001-l1b6-pursuit-slice/routing-ui-recording/pursuit-slice",
+ "workdir": "~/Library/Application Support/Slate/evals/runs/20261001-l1b6-pursuit-slice/routing-ui-recording/pursuit-slice/work",
+ "tools_cwd": null,
+ "notice": {
+  "files": [
+   "AGENTS.md",
+   "CLAUDE.md"
+  ],
+  "in_message": false
+ },
+ "exit_code": 0,
+ "killed": false,
+ "duration_s": 40.5,
+ "codex_trust_pruned": "Codex marked the sandbox a trusted project in its config.toml; that entry was taken out again",
+ "artifacts": [
+  "AGENTS.md",
+  "CLAUDE.md",
+  "artifacts/video-verification/20261001-signup/report.md"
+ ],
+ "finished_at": "2026-10-01T18:36:15-04:00"
+}

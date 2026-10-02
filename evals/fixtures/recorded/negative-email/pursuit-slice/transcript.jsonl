@@ -1,0 +1,4 @@
+{"type":"thread.started","thread_id":"01a0f81d-be0a-7d23-a7d6-026a81f9d370"}
+{"type":"turn.started"}
+{"type": "item.completed", "item": {"id": "item_0", "type": "agent_message", "text": "Hi [Landlord’s Name],\n\nThe heating in my apartment isn’t working properly. Could you please arrange to have it fixed this week? Let me know when someone can come by.\n\nThanks,\nQuinn"}}
+{"type":"turn.completed","usage":{"input_tokens":19681,"cached_input_tokens":17280,"cache_write_input_tokens":0,"output_tokens":117,"reasoning_output_tokens":70}}

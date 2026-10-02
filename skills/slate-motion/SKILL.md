@@ -1,6 +1,6 @@
 ---
 name: slate-motion
-description: The motion law and motion craft for Slate films. Covers named eases by job, the duration scale, staggers and their caps, landing moves on the voice's words, look and motion development, camera, transitions, morphs and shared elements, signature moments, a brand mark moved as a character, the anti-glitch rules and the glitch catalogue, read time and safe areas, with The Browser Company's craft as the north star (the feeling, never their brand) and Material 3, IBM Carbon and Apple HIG as alternative motion systems. Use when designing, building, reviewing or fixing how anything moves in a Slate film, writing a brand's motion law, animating a brand mark or motif as a character, or chasing a jitter, pop, strobe or flicker.
+description: The motion law and motion craft for Slate films. Covers named eases by job, the duration scale, staggers, landing moves on the voice's words, look and motion development, camera, transitions, morphs and shared elements, signature moments, a brand mark moved as a character, the anti-glitch rules and glitch catalogue, read time and safe areas, with The Browser Company's craft as the north star (the feeling, never their brand). Use when designing, building, reviewing or fixing how anything moves in a Slate film, writing a brand's motion law, animating a brand mark or motif as a character, or chasing a jitter, pop, strobe or flicker.
 ---
 
 # slate-motion

@@ -76,8 +76,10 @@ def park(film_dir: Path, reviews: list[GateResult]) -> dict:
     return record
 
 
-def unpark(film_dir: Path, *, by: str | None, note: str | None = None, mode: str = "supervised") -> dict:
-    """Release a parked film. Only a person does this; an agent can't release an autonomous film it is making."""
+def unpark(film_dir: Path, *, by: str | None, note: str | None = None, mode: str = "supervised",
+           dry_run: bool = False) -> dict:
+    """Release a parked film. Only a person does this; an agent can't release an autonomous film it is making. With
+    `dry_run` every check runs and the record that would be written comes back, but nothing changes."""
     film_dir = Path(film_dir)
     current = status(film_dir)
     if current is None:
@@ -89,6 +91,8 @@ def unpark(film_dir: Path, *, by: str | None, note: str | None = None, mode: str
                       "evidence.", hint="Run `slate qa unpark --by NAME` in your own Terminal.")
     record = {**current, "parked": False, "released_by": by.strip(), "released_at": gates.now_iso(),
               "release_note": (note or "").strip() or None}
+    if dry_run:
+        return {**record, "dry_run": True}
     jsonio.write_atomic(_path(film_dir), record)
     try:  # close the state module's parking question too (its status also reconciles from this record)
         state_park = importlib.import_module("slate.state.park")

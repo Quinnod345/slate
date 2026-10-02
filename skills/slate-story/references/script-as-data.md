@@ -88,7 +88,7 @@ for a film that's mostly voice).
 | `vo` | The voice-over line, words only; direction is added later as audio tags that never change a word. |
 | `on_screen` | The words on screen: a string, or a list of strings for separate lines. |
 | `hero_lines` | The on-screen lines set in the hero role (a string or a list): six words or fewer each, at most two in an act. |
-| `reading` | A declaration, with its `reason`, when on-screen text isn't read the usual way: `voice_matched` (the voice reads it as it lands), `not_for_reading` (shown too small to read on purpose), or `labels` (the picture's own words, a product's UI or an end card, which don't count against the 40%). |
+| `reading` | A declaration, with its `reason`, when on-screen text isn't read the usual way: `voice_matched` (the voice reads it as it lands), `not_for_reading` (shown too small to read on purpose), or `labels` (the picture's own words, a product's UI, a Simulator label or an end card, which don't count against the 40% but still count toward the 12-word cap and are timed in full, by the script gates and `slate qa readtime` alike). |
 | `picture` | What the picture does, for the builders. They may restage it; the words and beats stay. |
 | `transition` | How the shot hands to the next: a carry, a portal, a mask, a whip, a UI state cut (slate-motion). |
 | `sources` | Pinned source ids from the truth pack, optionally with where (`app:src/x.tsx:40`); a source that quotes the product's own copy gives the `quote` and `where` (`path:line`), re-read at the pinned commit before every build. |

@@ -53,6 +53,8 @@ def make_shots(storyboard: dict, *, clock: Clock, width: int, height: int, cues:
             rec["events"] = event_shots[sh["id"]]
         if sh.get("generate"):
             rec["generate"] = sh["generate"]  # the script's generation request for this shot (read by `slate gen`)
+        if sh.get("engine"):
+            rec["engine"] = sh["engine"]  # the engine that draws it when it isn't its act's (slate.render.shot_engines)
         shots.append(rec)
         t += d
     total_f = clock.frame_of(t)

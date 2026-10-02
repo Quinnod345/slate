@@ -177,24 +177,39 @@ def from_voice_stage(film_dir: Path, shot: str, sha: str, engine: str, replaying
                        "language": doc.get("language")}}
 
 
-def align_take(film_dir: Path, shot: str, take: Take, line: str, *, engine: str = "whisper", language: str = "en",
-               force: bool = False, film: dict | None = None, write_cache: bool = True) -> dict:
-    """The alignment record for one take: the voice stage's, else timing's cache, else a fresh transcription."""
+def reusable(film_dir: Path, shot: str, take: Take, *, engine: str = "whisper", language: str = "en",
+             film: dict | None = None) -> dict | None:
+    """The alignment align_take reuses for this take without transcribing anything (the voice stage's own record,
+    else timing's cache of the same audio, language and model), or None when it would have to transcribe."""
     if engine not in ENGINES:
         raise SlateError(f"Unknown aligner {engine!r}; use one of: {', '.join(ENGINES)}.")
     sha = take.sha256()
     replaying = replay.fake_vendors()
     model = whisper_model(film) if engine == "whisper" else None
-    path = cache_path(film_dir, engine, shot)
-    if not force:
-        reused = from_voice_stage(film_dir, shot, sha, engine, replaying)
-        if reused is not None:
-            reused["take"] = take.rel
-            return reused
-    cached = jsonio.read(path, default=None)
-    if (not force and isinstance(cached, dict) and cached.get("take_sha256") == sha and cached.get("language") == language
+    reused = from_voice_stage(film_dir, shot, sha, engine, replaying)
+    if reused is not None:
+        reused["take"] = take.rel
+        return reused
+    cached = jsonio.read(cache_path(film_dir, engine, shot), default=None)
+    if (isinstance(cached, dict) and cached.get("take_sha256") == sha and cached.get("language") == language
             and (model is None or cached.get("model") == model) and bool(cached.get("replay")) == replaying):
         return cached
+    return None
+
+
+def align_take(film_dir: Path, shot: str, take: Take, line: str, *, engine: str = "whisper", language: str = "en",
+               force: bool = False, film: dict | None = None, write_cache: bool = True) -> dict:
+    """The alignment record for one take: the voice stage's, else timing's cache, else a fresh transcription."""
+    if engine not in ENGINES:
+        raise SlateError(f"Unknown aligner {engine!r}; use one of: {', '.join(ENGINES)}.")
+    if not force:
+        found = reusable(film_dir, shot, take, engine=engine, language=language, film=film)
+        if found is not None:
+            return found
+    sha = take.sha256()
+    replaying = replay.fake_vendors()
+    model = whisper_model(film) if engine == "whisper" else None
+    path = cache_path(film_dir, engine, shot)
     if engine == "whisper":
         if replaying:
             request = {"take_sha256": sha, "line": line, "seconds": take.read_seconds, "model": model,

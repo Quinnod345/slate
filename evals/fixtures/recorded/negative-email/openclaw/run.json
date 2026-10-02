@@ -1,0 +1,94 @@
+{
+ "runId": "fa67597b-9bae-4cee-8cad-63e8f3db1475",
+ "status": "ok",
+ "summary": "completed",
+ "result": {
+  "payloads": [
+   {
+    "text": "Subject: Heating Repair Needed This Week\n\nHi [Landlord’s Name],\n\nThe heating isn’t working properly. Please arrange to have it fixed this week and let me know when someone can come by.\n\nThanks,  \nQuinn",
+    "mediaUrl": null
+   }
+  ],
+  "meta": {
+   "durationMs": 16063,
+   "agentMeta": {
+    "sessionId": "cce67bf0-6ef4-45b6-b1e2-59d76b2facfa",
+    "provider": "openai",
+    "model": "gpt-5.6-sol",
+    "contextTokens": 258400,
+    "contextTokensSource": "runtime",
+    "agentHarnessId": "codex",
+    "credentialSource": {
+     "kind": "profile"
+    },
+    "usage": {
+     "input": 24025,
+     "output": 101,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "reasoningTokens": 50,
+     "total": 24126
+    },
+    "lastCallUsage": {
+     "input": 24025,
+     "output": 101,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "reasoningTokens": 50,
+     "total": 24126,
+     "contextUsage": {
+      "state": "available",
+      "promptTokens": 24025,
+      "totalTokens": 24126
+     }
+    },
+    "promptTokens": 24025,
+    "codeModeEngaged": false,
+    "terminalReceipt": {
+     "runId": "fa67597b-9bae-4cee-8cad-63e8f3db1475",
+     "sessionId": "cce67bf0-6ef4-45b6-b1e2-59d76b2facfa",
+     "turnId": "01a0f9ae-996a-7480-a42c-f7aa9550e4c9",
+     "requested": {
+      "provider": "openai",
+      "model": "gpt-5.6-sol"
+     },
+     "effective": {
+      "provider": "openai",
+      "model": "gpt-5.6-sol",
+      "responseModel": "gpt-5.6-sol"
+     },
+     "successfulToolNames": [],
+     "rerouted": false
+    }
+   },
+   "aborted": false,
+   "finalAssistantVisibleText": "Subject: Heating Repair Needed This Week\n\nHi [Landlord’s Name],\n\nThe heating isn’t working properly. Please arrange to have it fixed this week and let me know when someone can come by.\n\nThanks,  \nQuinn",
+   "finalAssistantRawText": "Subject: Heating Repair Needed This Week\n\nHi [Landlord’s Name],\n\nThe heating isn’t working properly. Please arrange to have it fixed this week and let me know when someone can come by.\n\nThanks,  \nQuinn",
+   "replayInvalid": false,
+   "livenessState": "working",
+   "stopReason": "stop",
+   "executionTrace": {
+    "winnerProvider": "openai",
+    "winnerModel": "gpt-5.6-sol",
+    "attempts": [
+     {
+      "provider": "openai",
+      "model": "gpt-5.6-sol",
+      "result": "success",
+      "stage": "assistant"
+     }
+    ],
+    "fallbackUsed": false,
+    "runner": "embedded"
+   },
+   "requestShaping": {
+    "authMode": "auth-profile",
+    "thinking": "xhigh"
+   },
+   "completion": {
+    "stopReason": "stop",
+    "finishReason": "stop"
+   }
+  }
+ }
+}

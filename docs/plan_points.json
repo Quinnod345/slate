@@ -248,8 +248,8 @@
   "id": "P028",
   "owner": "sound",
   "status": "done",
-  "evidence": "verify.py gate_repeats + checks.repeats_check (one sound per kind, no identical repeats); tests in test_sound_verify.py pass. Re-checked 2026-10-01: cited tests and files exist, and the full offline suite passes (3,833 passed, 0 failed).",
-  "source": "final-critic.json"
+  "evidence": "Not touched. P028-P030 are the effects design (one sound per kind, no glides, effects levels under the voice), not the lock; the lock and staleness points are P061 and P081, reported above.",
+  "source": "live-l3b-fixes.json"
  },
  {
   "section": "What we're packaging",
@@ -275,8 +275,8 @@
   "id": "P031",
   "owner": "ae",
   "status": "needs-quinn",
-  "evidence": "AEP from data and chunked aerender masters (Rec.709 Gamma 2.4 working space) are tested against the mock, queueable with --detach. Live doctor: AE and aerender present, smoke never run. Left: Quinn's go for `slate ae build --go`, `slate ae audit --go`, then `slate ae masters --go`.",
-  "source": "final-critic.json"
+  "evidence": "Unchanged: still waits on Quinn's go for `slate ae build --go`, `ae audit --go` and `ae masters --go`. Related safety only: no AE command opens After Effects under --dry-run any more (masters --requeue, audit --go, acts measure, acts render, acts render --detach).",
+  "source": "live-l3b-fixes.json"
  },
  {
   "section": "What we're packaging",
@@ -284,8 +284,8 @@
   "id": "P032",
   "owner": "qa-core",
   "status": "done",
-  "evidence": "Checked, real and passing: every film-level gate takes the film folder (qa/__init__.py CORE; checks/text.py readtime + banned_words, checks/sync.py, checks/audio.py loudness, checks/picture.py glitch + psnr, plus schema, frames, events_complete, bit_depth, silent_stems, stems_sum, captions, claims, ocr, boundary). tests/qa_core: 179 passed; heavy golden checks against the delivered films pass with SLATE_GOLDEN_HEAVY=1. My demo run: 19 film gates PASS with OCR on Apple Vision. Re-checked 2026-10-01: cited tests and files exist, and the full offline suite passes (3,833 passed, 0 failed).",
-  "source": "final-critic.json"
+  "evidence": "Read time by OCR now takes the script's `labels` declaration with the same meaning and limits, so the look test's L02 can pass both gates truthfully (test_qa_core_declared.py, 4 new). `slate --dry-run qa` plans the film gates and runs none (test_qa_core_dry_run.py, 5 new).",
+  "source": "live-l3b-fixes.json"
  },
  {
   "section": "What we're packaging",
@@ -301,9 +301,9 @@
   "text": "- **Knowledge.** `MOTION.md`, `TRUDY_MOTION.md`, `SOUND.md`, `V4_TAGS.md`, 20 act `NOTES.md` files (3,565 lines) and the memory notes, most of it hard-won. `SOUND_V2.md` is kept as a record only.",
   "id": "P034",
   "owner": "knowledge",
-  "status": "partial",
-  "evidence": "Every harvested rule is mapped and checked (`slate knowledge check`: mapped, destinations, components and left_behind PASS; 1,816 items, 1,600 lessons). Of the 166 that were gaps, 147 now land in code, gates or skills with their tests; 10 wait for proof 3 (the effects engine) and 9 for the kit's tilt raster wave (bench first), so knowledge.gaps still fails on those 19 (knowledge/GAPS.md).",
-  "source": "gaps-verify.json"
+  "status": "needs-quinn",
+  "evidence": "The knowledge ledger maps all 1,816 harvested items (1,600 lessons): `slate knowledge check` passes mapped, destinations (every destination resolves), components and left_behind. The nine tilt lessons were re-mapped once the kit's stability bench passed 18 of 18 on this Mac (job j-20261001-154309-3c23, 16:05-16:11, after the font-gate fix). 10 lessons stay pending, all sound, and all wait on proof 3: they land with the effects engine once Quinn approves it (`slate approve proof3 <file> --by Quinn`); knowledge/GAPS.md lists each with its planned file.",
+  "source": "live-orchestrator.json"
  },
  {
   "section": "How it fits together",
@@ -328,9 +328,9 @@
   "text": "3. **No brand in the core.** Brands are data packs, and every brand gets its own look. TrueSpace becomes one private pack.",
   "id": "P037",
   "owner": "brand",
-  "status": "later-wave",
-  "evidence": "No brand in the core, verified: grep finds no company names, colours or fonts in src, skills, formats, brands, engine or plugins; brand hash-guard tests pass; `slate knowledge check` left_behind PASS. Left for the brand-pack wave: TrueSpace's private pack in ~/code/slate-brands (only inner-echo has been started there).",
-  "source": "final-critic.json"
+  "status": "done",
+  "evidence": "TrueSpace is one private pack: ~/code/slate-brands/truespace (store commits 5c28143, ceb2473), `slate brand validate truespace` PASS 13 of 13, every section from the films' own material. No brand in the core: the brand, skills, gencap, packaging and knowledge guards pass (590 passed, 1 environment skip), the kit's no-brand test passes 5 of 5, knowledge.left_behind passes on this checkout, and a search for the packs' distinctive values finds nothing in the repo.",
+  "source": "live-l4-packs.json"
  },
  {
   "section": "How it fits together",
@@ -410,8 +410,8 @@
   "id": "P046",
   "owner": "skills",
   "status": "done",
-  "evidence": "slate-build: kit first, act scaffolds and placeholders, contracts, events, hand-in checks, builder briefs, captures, AE-built acts, with 15 references. Test: test_each_craft_skill_carries_its_rules[slate-build]. Re-checked 2026-10-01: cited tests and files exist, and the full offline suite passes (3,833 passed, 0 failed).",
-  "source": "final-critic.json"
+  "evidence": "slate-build's hand-in reference and SKILL.md now list handin.act<N>.motion (the brand's motion law on the act's current trace, before anything renders) and `slate --dry-run check`; the plugin copy and claude.ai zip are rebuilt.",
+  "source": "live-l3b-fixes.json"
  },
  {
   "section": "1. Skills: what the agent knows",
@@ -500,8 +500,8 @@
   "id": "P056",
   "owner": "packaging",
   "status": "done",
-  "evidence": "`slate skills build` generates the whole plugin (manifests, MCP configs, README, LICENSE, copies, sidecars, OpenClaw entries, claude.ai zips); `slate skills build --check` exit 0 here, with `claude plugin validate --strict` passing (skills-ref not installed, skipped with a notice).",
-  "source": "gaps-verify.json"
+  "evidence": "CI names both validators in steps of their own: `claude plugin validate --strict` and `skills-ref validate` on every built skill (tests/packaging/test_packaging_manifests.py). The skills-ref step proves itself on CI's first run.",
+  "source": "live-l5-code.json"
  },
  {
   "section": "1. Skills: what the agent knows",
@@ -509,8 +509,8 @@
   "id": "P057",
   "owner": "skills",
   "status": "done",
-  "evidence": "SKILL.md §1: an open request gets exactly one question, alone ('Do you want a full production or a quick generated clip?', which matches both of the evals' mention patterns), a scoped brief goes straight to production. Checked against evals/cases routing-open-request, routing-fast-lane-not-picked ('a short video of a paper boat in a storm' is listed as open), triggering-launch-video and triggering-social-reel (length, format or brand named: no lane question). Re-checked 2026-10-01: cited tests and files exist, and the full offline suite passes (3,833 passed, 0 failed).",
-  "source": "final-critic.json"
+  "evidence": "Confirmed live: 'make a video' and an open paper-boat request get exactly one question offering a full production or a quick generated clip in all four configurations, and the two scoped briefs go straight to production without it on Claude Code, Codex and the slice.",
+  "source": "live-l1-agents.json"
  },
  {
   "section": "1. Skills: what the agent knows",
@@ -527,17 +527,17 @@
   "id": "P059",
   "owner": "skills",
   "status": "done",
-  "evidence": "Fast lane only when picked and no brand; brand work never, even for 'a quick Higgsfield clip' (matches routing-fast-lane-picked: no `slate new`, no second question; routing-fast-lane-brand: slate loaded, fast lane not used). Test: test_front_door_routing_is_in_skill_md_itself. Re-checked 2026-10-01: cited tests and files exist, and the full offline suite passes (3,833 passed, 0 failed).",
-  "source": "final-critic.json"
+  "evidence": "Confirmed live: a picked quick clip with no brand takes the fast lane in all four configurations (Higgsfield's CLI is denied or signed out, so nothing generates), and 'a quick Higgsfield clip for the demo brand's launch' goes through Slate on Claude Code, Codex and the slice (OpenClaw's brand case needs the eval environment).",
+  "source": "live-l1-agents.json"
  },
  {
   "section": "1. Skills: what the agent knows",
   "text": "4. Routing evals check that open requests get the question, scoped briefs load `slate` in every agent, and UI screen-recording requests still go to video-verifier. If a vendor skill keeps winning, Slate adjusts how it triggers, under your one-time permission. It never deletes a vendor skill.",
   "id": "P060",
   "owner": "knowledge",
-  "status": "later-wave",
-  "evidence": "13 eval cases exist (routing-open-request, routing-ui-recording, routing-fast-lane-*, triggering-*, negatives, dry-run, oneiro-strategist-slate-move; `slate evals list` here) with four configurations in evals/configs.json; tests/evals pass against a fake agent. Left: live runs in Claude Code, Codex, a pursuit slice and OpenClaw.",
-  "source": "final-critic.json"
+  "status": "partial",
+  "evidence": "Routing and triggering re-run live on 2026-10-01 with the reordered front door and the contained harness: Codex and the slice 7 of 7 each (plus the dry run), Claude Code 1 of 1 triggering, OpenClaw main 4 of 4 routing. The open request gets the one question and the UI recording goes to video-verifier everywhere. What's left: OpenClaw's scoped briefs and its brand and picked fast-lane cases run only with --allow-host-env, which is Quinn's call. No vendor skill won a trigger, so only Slate's own description changed.",
+  "source": "live-l1b-evals.json"
  },
  {
   "section": "2. Engine: what does the work",
@@ -545,8 +545,8 @@
   "id": "P061",
   "owner": "state",
   "status": "done",
-  "evidence": "slate new/status/make built and run for real in a scratch folder; film.lock.json records producer, tool version and input hashes (lock.record/is_stale/guard_regenerate); test_new.py, test_status.py, test_make.py pass. Re-checked 2026-10-01: cited tests and files exist, and the full offline suite passes (3,833 passed, 0 failed).",
-  "source": "final-critic.json"
+  "evidence": "film.lock.json still records what made every file, and now records only the brand blocks a stage reads: the storyboard brand:<name>#truth and its duration scale, the timing files brand:<name>#motion.eases. Stale steps still rebuild when what they read changes (truth, durations, eases) and no longer when an approval or a look edit touches the pack; whole-pack locks from before compare the whole file until rebuilt. tests/story/test_brand_inputs.py (5), with tests/story and tests/state passing.",
+  "source": "live-l3b-fixes.json"
  },
  {
   "section": "2. Engine: what does the work",
@@ -589,9 +589,9 @@
   "text": "| **capture** | video-verifier's `record_ios_sim.sh`; Oneiro's hand-built Inner Echo reels | `slate capture ios\\|web`: the Simulator with status-bar overrides, a seeded demo account and a pinned build; web through Aside at a fixed viewport. Captures are conformed to the film's frame rate as JPEG sequences (the plate path), written up in `capture.json`, and beat-mapped so taps land on VO words and make sounds |",
   "id": "P066",
   "owner": "gencap",
-  "status": "later-wave",
-  "evidence": "slate capture ios|web is built and tested against a fake simctl (pinned build, isolated device, 9:41 status bar, demo account, VFR conform, beat map); web capture through Aside proven by its builder. Live doctor: simctl green. Left for the tracer wave: one real Simulator capture on a quiet Mac. A tap driver (idb or AXe) isn't installed: Quinn's call.",
-  "source": "final-critic.json"
+  "status": "done",
+  "evidence": "One real Simulator capture, live: two takes with `slate capture ios` (isolated, created and deleted Simulators; pinned build 2.0 (2026061101), sha256 9fb0bb0b… matched; 9:41; the app's App Store fixtures; conformed to 30 fps; beat-mapped onto 'prompts' and 'page' with capture_beats PASS, worst 0 frames). Records: ~/Movies/Slate/ie-look-night/captures/*/capture.json. Taps that land on words and make sounds need a tap driver (idb or AXe), which isn't installed: Quinn's call, as before; these marks are silent screen arrivals.",
+  "source": "live-l3-inner-echo.json"
  },
  {
   "section": "2. Engine: what does the work",
@@ -644,8 +644,8 @@
   "id": "P072",
   "owner": "qa-core",
   "status": "done",
-  "evidence": "`slate qa` with every tool taking the film folder; `slate qa motion` / `slate qa access` run the merged gates with their own flags through the real command (test_qa_core_cli_gates.py); the four validator bugs have regression tests (P185). Scratch walkthrough: every gate on a two-act film, exit 1 with FAIL/UNCHECKED named; narrowed runs exit 1; unknown gate, unknown film and misplaced flags exit 2. Re-checked 2026-10-01: cited tests and files exist, and the full offline suite passes (3,833 passed, 0 failed).",
-  "source": "final-critic.json"
+  "evidence": "`slate qa` keeps every tool on the film folder, and its dry run now says which gates, on what, and whether it would queue, then runs and writes nothing; psnr's --a-frames/--b-frames and frame pairing are kept (tests/qa_core passes).",
+  "source": "live-l3b-fixes.json"
  },
  {
   "section": "2. Engine: what does the work",
@@ -662,8 +662,8 @@
   "id": "P074",
   "owner": "ae",
   "status": "needs-quinn",
-  "evidence": "Per brand and per shot: look.engine starts acts (AE included), and a web shot inside a Remotion act is handed in and spliced with proof (tests/render/test_render_shot_engines.py, tests/ae/test_ae_look_engine.py). Other mixes are refused by name (engine/README.md, ARCHITECTURE §8). Left: Quinn's call on per-shot AE, and the live AE build.",
-  "source": "gaps-verify.json"
+  "evidence": "A shot's engine now travels from script.json through the storyboard into timing/shots.json, where render reads it first (tests/story/test_timing_build.py). Quinn's call on per-shot AE stands.",
+  "source": "live-l5-code.json"
  },
  {
   "section": "2. Engine: what does the work",
@@ -725,8 +725,8 @@
   "id": "P081",
   "owner": "state",
   "status": "done",
-  "evidence": "Gates turn STALE from their input hashes; approved takes, score takes and plates lock by content hash (guard_regenerate needs force plus a spend approval); the timeline locks on the first registered act render (test_lock.py, test_status.py::test_stale_gates_place_themselves). Re-checked 2026-10-01: cited tests and files exist, and the full offline suite passes (3,833 passed, 0 failed).",
-  "source": "final-critic.json"
+  "evidence": "Gate results still turn STALE from their input hashes; the script gates are now stamped with the same brand blocks as the storyboard's lock, so `slate brand approve` no longer turns them STALE while a truth edit still does (test_brand_inputs.py asserts both). Locks and approvals of takes, score takes and plates are unchanged.",
+  "source": "live-l3b-fixes.json"
  },
  {
   "section": "3. The film folder, its state and its pins",
@@ -770,17 +770,17 @@
   "id": "P086",
   "owner": "brand",
   "status": "done",
-  "evidence": "The look-and-motion step (onboard.look, `slate brand onboard <name> --step look`), whose inputs, outputs and gate are P087-P089; run live in the sandbox. Re-checked 2026-10-01: cited tests and files exist, and the full offline suite passes (3,833 passed, 0 failed).",
-  "source": "final-critic.json"
+  "evidence": "The look-and-motion step run live for inner-echo: `slate brand onboard inner-echo --step look` (pack commit a0a09fa), checklist 8 of 10, the two open items being the optional reference films and Quinn's approval.",
+  "source": "live-l3-inner-echo.json"
  },
  {
   "section": "4. Brands: onboarding once, then a pack",
   "text": "- Inputs: the brand's own components (website code, app screens or SwiftUI views, guidelines); two or three reference films run through `slate analyze` and `fit_ease`; the product's own motion values (CSS easing tokens, or SwiftUI spring response and damping).",
   "id": "P087",
   "owner": "brand",
-  "status": "done",
-  "evidence": "Inputs read in place: app and website code, SwiftUI, asset catalogs, app screens, guidelines PDFs, a website's HTML and CSS without a browser, reference films through slate analyze and measured moves through fit_ease, CSS easing tokens and SwiftUI springs as named eases. Re-checked 2026-10-01: cited tests and files exist, and the full offline suite passes (3,833 passed, 0 failed).",
-  "source": "final-critic.json"
+  "status": "partial",
+  "evidence": "Live for inner-echo: the app's own code read in place (472 files at e0c5b71) and its SwiftUI springs converted into named eases (625 found; 8 in the law, each with its lineage). Not run: two or three reference films through slate analyze and fit_ease. That item is optional in the step's checklist, and which films is a taste call, so it's Quinn's: name them and run `slate brand onboard inner-echo --step look --reference-film FILE --analyze`.",
+  "source": "live-l3-inner-echo.json"
  },
  {
   "section": "4. Brands: onboarding once, then a pack",
@@ -788,17 +788,17 @@
   "id": "P088",
   "owner": "brand",
   "status": "done",
-  "evidence": "Every output exists: the motion law with lineage on every ease, motion.json and MOTION.md checked for drift, palette, roles, type and contrast pairs from the brand's own code (brand.review.json), and now the kit review sheet: in a sandbox, `slate brand onboard <copy of demo> --step look --sheet` rendered onboarding/look/review_sheet.png (1600x900 at frame 45, every panel drawn, the font gate passing), and the checklist ticks 'the kit rebuilt in the brand's design language'. Re-checked 2026-10-01: cited tests and files exist, and the full offline suite passes (3,833 passed, 0 failed).",
-  "source": "final-critic.json"
+  "evidence": "Every output exists for inner-echo: palette, roles, type, contrast pairs, logos, MOTION.md and motion.json with lineage on every ease, the overshoot policy and the signature motion, and the kit review sheet (onboarding/look/review_sheet.png). The look tests are the kit rebuilt in the brand's tokens and eases, and both pass the brand's motion gate (trace and pixels).",
+  "source": "live-l3-inner-echo.json"
  },
  {
   "section": "4. Brands: onboarding once, then a pack",
   "text": "- Gate: at least two moodboard directions grounded in the brand kit, then you approve a moving 10–15-second look-and-motion test with sound. Stills don't count.",
   "id": "P089",
   "owner": "brand",
-  "status": "done",
-  "evidence": "approve look_motion refuses stills, anything outside 10-15 s, no audio stream, silent sound, and fewer than two moodboard directions grounded in a kit. Verified live (still: exit 1; silent: exit 1; 12 s with sound after two grounded directions: approved) and by test_look_motion_is_a_moving_test_with_sound, test_look_motion_needs_two_grounded_moodboard_directions. Re-checked 2026-10-01: cited tests and files exist, and the full offline suite passes (3,833 passed, 0 failed).",
-  "source": "final-critic.json"
+  "status": "needs-quinn",
+  "evidence": "Two moodboard directions grounded in the pack are recorded, and two moving 13.5 s tests with sound are mastered; `slate --dry-run brand approve inner-echo look_motion` passes on both files and records nothing. Quinn picks one: `slate brand approve inner-echo look_motion --file ~/Movies/Slate/ie-look-night/review/look-step/look-tests/night-echo_look-test.mp4 --by \"Quinn O'Donnell\" --note \"<your words>\"` (or the morning page: `slate brand approve inner-echo look_motion --file ~/Movies/Slate/ie-look-night/review/look-step/look-tests/morning-page_look-test.mp4 --by \"Quinn O'Donnell\" --note \"<your ",
+  "source": "live-l3-inner-echo.json"
  },
  {
   "section": "4. Brands: onboarding once, then a pack",
@@ -824,8 +824,8 @@
   "id": "P092",
   "owner": "voice",
   "status": "done",
-  "evidence": "vendors/elevenlabs.py Client: tts (eleven_v4), design (always sends eleven_ttv_v3), remix, isolate, align (Forced Alignment, evaluation only), compose_music (always sends music_v2_5, chunk plans on v2+), subscription (free, no ledger row). Paid calls through slate.jobs.resume.paid_call. Keys only via slate.secrets. Live doctor: ElevenLabs Pro plan (lossless PCM 48 kHz), key in Keychain. Re-checked 2026-10-01: cited tests and files exist, and the full offline suite passes (3,833 passed, 0 failed).",
-  "source": "final-critic.json"
+  "evidence": "The ElevenLabs client writes every audio answer with the channels it came in (answer_channels: the answer's own word, else the operation's format: Eleven Music stereo, speech, Design and Remix mono), live, replayed and parked alike; before, live answers were all labelled mono and Eleven Music's 48 kHz stereo came out double length, an octave low. tests/voice/test_client.py (5 new) and tests/voice pass.",
+  "source": "live-l3b-fixes.json"
  },
  {
   "section": "5. Connectors, credentials and the browser guardrail",
@@ -895,9 +895,9 @@
   "text": "5. An eval checks that no browser other than Aside is ever launched.",
   "id": "P100",
   "owner": "knowledge",
-  "status": "later-wave",
-  "evidence": "evals/configs.json global_checks [no_browser, slate_children_browser_none] with a BROWSER tripwire (src/slate/evals/checks.py, which also flags Remotion Studio without --no-open); tests/evals pass in my run. It proves itself only on live eval runs in the four configurations.",
-  "source": "final-critic.json"
+  "status": "done",
+  "evidence": "no_browser now tells a library probe from a launch and catches launches in heredoc scripts and in script files run later; mac-cua's browser by any route is a global check of its own (no_foreign_access), with the bridge read in escaped JSON too (tests/evals/test_evals_checks.py, six new synthetic fixtures). Live on 2026-10-01: no browser in any of the 25 final pairs.",
+  "source": "live-l1b-evals.json"
  },
  {
   "section": "6. Every agent: Claude Code, Codex, OpenClaw, Oneiro",
@@ -1022,8 +1022,8 @@
   "id": "P114",
   "owner": "story",
   "status": "done",
-  "evidence": "Pace (2.6 words a second), read time, density (now honouring a format's 0: test_a_format_whose_picture_carries_no_words_fails_any_on_screen_word), banned words, runtime ±10% (UNCHECKED without a target), no unsourced numbers: test_story_gates.py (39 cases) plus the golden agreement with films A and C's own checks. Re-checked 2026-10-01: cited tests and files exist, and the full offline suite passes (3,833 passed, 0 failed).",
-  "source": "final-critic.json"
+  "evidence": "The script gates (pace, read time, banned words, runtime, claims) are unchanged; their `labels` declaration now agrees with `slate qa readtime`, and a list form is refused by the script schema. The storyboard's lock and gates record the brand's truth and duration scale rather than the whole pack.",
+  "source": "live-l3b-fixes.json"
  },
  {
   "section": "7. The production method",
@@ -1517,8 +1517,8 @@
   "id": "P169",
   "owner": "qa-motion",
   "status": "done",
-  "evidence": "`slate qa motion` runs the merged `motion` gate through the real `slate qa`, with --act, --render, --render-from, --no-pixels and --only (tests/qa_core/test_qa_core_cli_gates.py, tests/qa_motion/test_qa_motion_runs.py against the real command); scratch walkthrough exit 1 on a FAIL, exit 0 on a clean film, exit 2 on misplaced flags. Re-checked 2026-10-01: cited tests and files exist, and the full offline suite passes (3,833 passed, 0 failed).",
-  "source": "final-critic.json"
+  "evidence": "`slate qa motion` is unchanged, and its trace checks now also run at hand-in through motion.handin_gate (the same CHECKS table, no pixels). Its stage-style command's dry run now says what it would run instead of computing the gate. tests/qa_motion and tests/engine_core/test_handin_motion.py pass.",
+  "source": "live-l3b-fixes.json"
  },
  {
   "section": "Quality: gates, tests and evals",
@@ -1526,8 +1526,8 @@
   "id": "P170",
   "owner": "qa-motion",
   "status": "done",
-  "evidence": "check_eases / check_durations / check_staggers on the brand's law read through slate.motion.eases (test_qa_motion_rules.py), now with the generic rig curves, the even profile and declared exemptions (test_qa_motion_classes.py). 186 tests pass. Re-checked 2026-10-01: cited tests and files exist, and the full offline suite passes (3,833 passed, 0 failed).",
-  "source": "final-critic.json"
+  "evidence": "Named eases, the duration scale and stagger caps now also fail a hand-in: test_an_act_whose_trace_breaks_the_law_fails_the_hand_in has durations FAIL for a 0.7 s move off the scale.",
+  "source": "live-l3b-fixes.json"
  },
  {
   "section": "Quality: gates, tests and evals",
@@ -1535,8 +1535,8 @@
   "id": "P171",
   "owner": "qa-motion",
   "status": "done",
-  "evidence": "check_entrances: scale entrances start from at least 85% (test_qa_motion_rules.py::test_entrances_start_from_at_least_85_percent and neighbours; measured AE scale-ups go to a person). Re-checked 2026-10-01: cited tests and files exist, and the full offline suite passes (3,833 passed, 0 failed).",
-  "source": "final-critic.json"
+  "evidence": "Entrances from at least 85% now also fail a hand-in: the same test's card entering from 50% fails entrances.",
+  "source": "live-l3b-fixes.json"
  },
  {
   "section": "Quality: gates, tests and evals",
@@ -1544,8 +1544,8 @@
   "id": "P172",
   "owner": "qa-motion",
   "status": "needs-quinn",
-  "evidence": "The plan's 30 px/frame and 8 px/frame² at 1080p hold for rig parts only. Slate also applies UI 60/16 and carry 170/45 (src/slate/qa/motion.py SPEED_CLASSES), because one ceiling failed every approved carry in the films; tests pass in my run. That changes the plan's rule, so Quinn confirms the per-class limits and the short-side scaling.",
-  "source": "final-critic.json"
+  "evidence": "Unchanged rule (rig 30/8, UI 60/16, carry 170/45 at 1080p, still Quinn's to confirm), now enforced at hand-in as well as in `slate qa motion`: the look test's acceleration failure would have stopped the hand-in.",
+  "source": "live-l3b-fixes.json"
  },
  {
   "section": "Quality: gates, tests and evals",
@@ -1553,8 +1553,8 @@
   "id": "P173",
   "owner": "qa-motion",
   "status": "done",
-  "evidence": "check_loops (16-frame floor, never faster than 1.9 Hz, the brand may ask for slower) and check_symmetry (unison, pairs, wave; whole-frame delays) with their tests in test_qa_motion_rules.py. Re-checked 2026-10-01: cited tests and files exist, and the full offline suite passes (3,833 passed, 0 failed).",
-  "source": "final-critic.json"
+  "evidence": "Loops and mark-rig symmetry now also run at hand-in (the same check_loops and check_symmetry), so the look test's rig-symmetry failure would have stopped `slate check`.",
+  "source": "live-l3b-fixes.json"
  },
  {
   "section": "Quality: gates, tests and evals",
@@ -1625,8 +1625,8 @@
   "id": "P181",
   "owner": "story",
   "status": "done",
-  "evidence": "Whole-mix parity for all three films (tests/sound/test_sound_golden.py: C, B, A and A as delivered) passed with SLATE_GOLDEN_HEAVY=1 at 06:48-06:51 (G4). The code it runs hasn't changed since: mix.py, dsp.py and balance.py last changed at 06:37, score/assemble.py at 06:43 (sound/film.py's mode property changed at 07:25, which the parity tests don't read). Timing, cues and captions matched.",
-  "source": "gaps-verify.json"
+  "evidence": "Re-proved inside P192: the whole-mix parity for all three films passed again with SLATE_GOLDEN_HEAVY=1 (tests/sound/test_sound_golden.py, 20 passed).",
+  "source": "live-l5-code.json"
  },
  {
   "section": "Quality: gates, tests and evals",
@@ -1670,44 +1670,44 @@
   "id": "P186",
   "owner": "foundation",
   "status": "done",
-  "evidence": "src/slate/replay.py; conftest forces SLATE_FAKE_VENDORS=1; `slate demo` replays unless --live, and --live spends only after a person's yes (Terminal) or the person's own SLATE_LIVE=1 under an agent; tests/demo/test_demo_cli.py passes in my run. My demo run spent nothing: every vendor stage says 'replayed: nothing spent'.",
-  "source": "final-critic.json"
+  "evidence": "Replay mode spends nothing as before; recordings made with SLATE_RECORD=1 now keep the channel count and where it came from, so a replayed take equals the live one byte for byte (test_a_recorded_stereo_answer_replays_as_the_same_stereo), and a recording from before replays in its format's count.",
+  "source": "live-l3b-fixes.json"
  },
  {
   "section": "Quality: gates, tests and evals",
   "text": "- Claude Code (Opus 5.5);",
   "id": "P187",
   "owner": "knowledge",
-  "status": "later-wave",
-  "evidence": "The Claude Code configuration is in evals/configs.json, held to the plan by tests/evals/test_evals_suite_files.py::test_models_and_setups_match_the_plan (passes in my run). Slate is now installed into Claude Code (verified), so the live eval run can happen in the evals wave.",
-  "source": "final-critic.json"
+  "status": "done",
+  "evidence": "Claude Code on Opus 5.5 at max effort: triggering-launch-video re-run live and contained (run 20261001-l1b6-claude-code), and 12 of 12 in the replay of its recordings with today's graders.",
+  "source": "live-l1b-evals.json"
  },
  {
   "section": "Quality: gates, tests and evals",
   "text": "- Codex CLI on gpt-6-astra;",
   "id": "P188",
   "owner": "knowledge",
-  "status": "later-wave",
-  "evidence": "The Codex CLI configuration is in evals/configs.json and held by the same test (passes in my run). Slate is installed for Codex (verified). Left: the live eval run.",
-  "source": "final-critic.json"
+  "status": "done",
+  "evidence": "Codex on gpt-6-astra with Quinn's config: 8 of 8 live and contained (run 20261001-l1b5-codex), including the four pairs that wrote to the vault in L1 and the one that read the bridge-token; 12 of 12 in replay.",
+  "source": "live-l1b-evals.json"
  },
  {
   "section": "Quality: gates, tests and evals",
   "text": "- the pursuit-slice setup: `codex exec --ignore-user-config` on gpt-6-sol, with only the aside and apple MCPs;",
   "id": "P189",
   "owner": "knowledge",
-  "status": "later-wave",
-  "evidence": "The pursuit-slice setup (codex exec --ignore-user-config, only the aside and apple MCPs) is in evals/configs.json, held by the same test. A real slice already ran doctor (04:46, exit 0). Left: the live eval run.",
-  "source": "final-critic.json"
+  "status": "done",
+  "evidence": "The pursuit-slice setup: 8 of 8 live and contained (run 20261001-l1b6-pursuit-slice), including the dry run that wrote a vault page and the UI recording that read the bridge-token in L1; 11 of 12 in replay, the 12th being L1's negative-css-bug recording, a real headless-browser failure outside Slate.",
+  "source": "live-l1b-evals.json"
  },
  {
   "section": "Quality: gates, tests and evals",
   "text": "- OpenClaw main on gpt-5.6-sol.",
   "id": "P190",
   "owner": "knowledge",
-  "status": "later-wave",
-  "evidence": "The OpenClaw main configuration is in evals/configs.json, held by the same test. Slate is registered with OpenClaw (verified) and doctor ran through the gateway. Left: the live eval run.",
-  "source": "final-critic.json"
+  "status": "partial",
+  "evidence": "OpenClaw main on gpt-5.6-sol: 8 of 8 live and contained, the sandbox notice in its message (runs 20261001-l1b6-openclaw-probe and -openclaw); seven of its eight turns made no call to Oneiro's API, and the eighth only read from it (no /feel or /index-turn on any). The four film-making cases, and now routing-fast-lane-picked (main reached for a real Higgsfield generation), run only with --allow-host-env: Quinn's call.",
+  "source": "live-l1b-evals.json"
  },
  {
   "section": "Quality: gates, tests and evals",
@@ -1723,18 +1723,18 @@
   "text": "- Data parity on all three films: timing, cue sheets and mix data regenerate and match what was delivered.",
   "id": "P192",
   "owner": "orchestrator",
-  "status": "later-wave",
-  "evidence": "Its prerequisite (A4) is met: every film's whole mix regenerates within tolerance. The formal parity run recorded as the proof (GAPS-FINAL B7) is still the proofs wave's.",
-  "source": "gaps-g4-sound.json"
+  "status": "done",
+  "evidence": "docs/PROOFS.md, Data parity: timing and cue sheets 23, captions 4, mixes 20 and balance 2 heavy golden tests on A, B and C, all passing, none skipped (2026-10-01 10:30-10:49), with each file's tolerance.",
+  "source": "live-l5-code.json"
  },
  {
   "section": "Quality: gates, tests and evals",
   "text": "- Render parity on A's Act 4, a kit-built act, at Remotion 4.0.521: every frame ≥ 40 dB PSNR against the delivered render.",
   "id": "P193",
   "owner": "orchestrator",
-  "status": "later-wave",
-  "evidence": "Not started: rendering A's Act 4 through Slate's engine at 4.0.521 and comparing every frame at >= 40 dB PSNR against the delivered render. The pieces exist (render_mb port, splice PSNR proof, `slate qa psnr`). Needs a quiet Mac: a long render.",
-  "source": "final-critic.json"
+  "status": "done",
+  "evidence": "docs/PROOFS.md 'Render parity on film A's Act 4 (P193)': all 2,712 frames of A's Act 4 rendered through Slate's engine at Remotion 4.0.521 held against the delivered render (sha256 3a707a61...1e13): worst 62.91 dB, median 82.32 dB, 193 bit-identical, none under 60 dB (jobs j-20261001-142502-1d93 and j-20261001-165810-5e84).",
+  "source": "live-orchestrator.json"
  },
  {
   "section": "Quality: gates, tests and evals",
@@ -1750,9 +1750,9 @@
   "text": "2. **EOS:** a 45–60-second promo from a new Claude Code session, supervised. Done when you've watched it next to its brand references and approved it in your own words.",
   "id": "P195",
   "owner": "orchestrator",
-  "status": "later-wave",
-  "evidence": "Not started. Needs the EOS pack (onboarding with an EOS Worldwide approver for claims and brand use) and then a supervised 45-60 s promo from a new Claude Code session, which Quinn watches next to the references and approves in his own words.",
-  "source": "final-critic.json"
+  "status": "needs-quinn",
+  "evidence": "The EOS proof needs EOS's onboarding first, and that starts with Quinn naming the approver at EOS Worldwide. The skeleton is ready for it: ~/code/slate-brands/eos (sources pinned, brand-use rules as never-claims, the approver's slot, look inputs), validate REVIEW with no FAIL; then the four references, then the supervised 45-60 s promo from a new session.",
+  "source": "live-l4-packs.json"
  },
  {
   "section": "Quality: gates, tests and evals",
@@ -1769,17 +1769,17 @@
   "id": "P197",
   "owner": "orchestrator",
   "status": "needs-quinn",
-  "evidence": "Slate's side is done: vendor commands inside the OpenClaw gateway queue themselves or refuse with the exact next step, and doctor explains the egress proxy (tests/vendors/test_vendors_egress.py, tests/doctor/test_doctor_g5_rows.py). Green from all three contexts waits on Quinn's yellows (Rubber Band, stale /usr/local/bin copies, Oneiro's key, the AE go, ~/.codex/AGENTS.md line 44) and his gateway allowlist call.",
-  "source": "gaps-verify.json"
+  "evidence": "A proxy refusing the tunnel now fails at once with its own words and why a retry won't help (tests/test_cli_surface.py). The gateway's allowlist is still Quinn's.",
+  "source": "live-l5-code.json"
  },
  {
   "section": "Build phases",
   "text": "| 2. Tracer bullet: the Inner Echo reel, by Oct 8 | 2–4 days | A light Inner Echo onboarding (truth, look and motion, voice and sound references; your approvals needed by about Oct 4). Then a 15-second 9:16 reel, supervised first, with one Simulator capture. Only the token, font and clock adapters; vendor calls replay from fixtures unless `--live`; render at 4 samples. The supervised run gets its AE finish through the osascript route, which works without the file-write pref. Sound is the score, the voice and the onboarding sound reference, through the existing mix plumbing. Gates cover schema, frame counts, loudness, sync, captions and master PSNR. Then Oneiro's pursuit makes the real reel in autonomous mode, on its own topic, mastered with ffmpeg and held for you. Schema v1 freezes at the end | You approve the reel, and Oneiro posts that exact file |",
   "id": "P198",
   "owner": "orchestrator",
-  "status": "later-wave",
-  "evidence": "The mechanics are proven offline: my `slate demo` run made a 15-second 9:16 reel at 4 samples with polished voice, score, mix, every gate, an ffmpeg master and a held packet. Left: Inner Echo's onboarding approvals (truth drafted; look, voice and sound not started; Quinn's approvals by about Oct 4), the live voice and score, the Simulator capture, the AE finish's go, Quinn's approval.",
-  "source": "final-critic.json"
+  "status": "partial",
+  "evidence": "The tracer's inputs, live: the Simulator capture is done, the live voice (one library-voice line) and the live score (Eleven Music) work through Slate with the ledger, and the look step waits on Quinn's one command. Still open: Quinn's approvals of truth and look (due about Oct 4), then onboarding's voice step (cast from the library or design one, Quinn's call) and sound step, then the reel itself.",
+  "source": "live-l3-inner-echo.json"
  },
  {
   "section": "Build phases",
@@ -1795,27 +1795,27 @@
   "text": "| 4. Knowledge and evals | 3–5 days, overlapping phase 3 | The ten skills and their references, the knowledge ledger, `registry.json`, the eval matrix | Nothing unmapped; evals pass in all four configurations |",
   "id": "P200",
   "owner": "knowledge",
-  "status": "later-wave",
-  "evidence": "Nothing unmapped (knowledge.mapped PASS, 0 gaps; 19 pending with planned files: 10 on proof 3, 9 the tilt wave). `slate knowledge check --run-tests`: 397 of the 401 tests behind the 232 gate-type lessons pass, 0 fail, 4 opt-in heavy goldens skipped. The ten skills carry the ledger's rules. Evals passing live in all four configurations is the evals wave.",
-  "source": "gaps-verify.json"
+  "status": "partial",
+  "evidence": "The eval half: Claude Code and Codex 12 of 12, the slice 11 of 12 (a real headless-browser failure outside Slate), OpenClaw main 8 of 8 run with four cases waiting on Quinn. Replay of every recording: 43 PASS, 1 FAIL, 4 not run, 1 pending.",
+  "source": "live-l1-agents.json"
  },
  {
   "section": "Build phases",
   "text": "| 5. Everywhere | 1–2 days | Installs for Claude Code, Codex and OpenClaw (including Higgsfield's skills); the MCP server and desktop extension; the claude.ai knowledge skill | Each agent runs `slate demo`; the clean-machine test passes |",
   "id": "P201",
   "owner": "install",
-  "status": "later-wave",
-  "evidence": "Installs are done and verified live for Claude Code, Codex and OpenClaw, Higgsfield's skills included (~/.agents/skills/higgsfield-*), with MCP registered in all three. Left: the desktop extension and claude.ai zips (Quinn's clicks), `slate demo` from Codex and OpenClaw (only Claude Code has run it), and the clean-machine test (scripts/fresh_home_test.sh, opt-in, plus the AE checklist and a VM).",
-  "source": "final-critic.json"
+  "status": "needs-quinn",
+  "evidence": "Unchanged by this task. scripts/doctor_spike.py, P201's tool, gained a sealed --client-check mode; its demo spike is untouched. What's left is Quinn's alone: the desktop extension and claude.ai zips, the After Effects checklist and a fresh macOS VM.",
+  "source": "live-l1b-evals.json"
  },
  {
   "section": "Build phases",
   "text": "| 6. Onboarding and proofs | About a week, mostly your review time | Onboard EOS (with an EOS Worldwide approver for claims and brand) and finish Inner Echo's onboarding, then the parity and EOS proofs | Both approved by you |",
   "id": "P202",
   "owner": "orchestrator",
-  "status": "later-wave",
-  "evidence": "Not started: EOS onboarding (with an EOS Worldwide approver), finishing Inner Echo's onboarding (truth drafted only), then the parity and EOS proofs, each approved by Quinn.",
-  "source": "final-critic.json"
+  "status": "partial",
+  "evidence": "Inner Echo's onboarding: truth drafted and dry-run clean, look ready for approval, voice and sound not started. EOS onboarding and the parity and EOS proofs belong to other lanes.",
+  "source": "live-l3-inner-echo.json"
  },
  {
   "section": "Build phases",
@@ -1922,8 +1922,8 @@
   "id": "P214",
   "owner": "skills",
   "status": "done",
-  "evidence": "The skills' part: the lane question on open requests, a precise description with explicit negatives (UI screen recordings to video-verifier, a video element in a web page, a single still), and adjusting Slate's own trigger with the owner's one-time permission, never deleting a vendor skill. The routing evals are knowledge's. Tests: test_descriptions_announce_precisely, test_front_door_credits_and_vendor_skills. Re-checked 2026-10-01: cited tests and files exist, and the full offline suite passes (3,833 passed, 0 failed).",
-  "source": "final-critic.json"
+  "evidence": "Only Slate's own front door changed: its description reordered so the open-request question and the Not-for lines come first within the 220 characters Codex shows (737 to 774 characters, Codex's list 7,101 of 8,000), every tested phrase kept, and no vendor skill touched. No regression live on Codex, the slice or Claude Code.",
+  "source": "live-l1b-evals.json"
  },
  {
   "section": "Risks and licences",
@@ -1966,9 +1966,9 @@
   "text": "| The Oct 8 date | Oneiro's self-want lands on Oneiro's own schedule, and a light Inner Echo onboarding needs your approvals by about Oct 4 | File the self-want on day 1; if it's late, the reel still ships through a supervised run that Oneiro's campaign posts after your yes |",
   "id": "P219",
   "owner": "orchestrator",
-  "status": "later-wave",
-  "evidence": "The mitigation is in place: the self-want was filed on day one (chain #64, verified live) and supervised films work end to end (my demo run). The risk is live: #64 is awaiting_evidence behind five other wants while the self-build loop is stuck on #37, and Inner Echo's approvals are due about Oct 4. Flagged for Quinn.",
-  "source": "final-critic.json"
+  "status": "needs-quinn",
+  "evidence": "The risk stands: the reel needs Inner Echo's approvals by about Oct 4. Two are one command each now: `slate brand approve inner-echo truth --file ~/code/slate-brands/inner-echo/onboarding/truth/TRUTH.md --by \"Quinn O'Donnell\" --note \"<your words>\"` and the look_motion command above. Voice and sound follow once Quinn picks a voice route.",
+  "source": "live-l3-inner-echo.json"
  },
  {
   "section": "Decisions for you",
@@ -2120,8 +2120,8 @@
   "id": "P236",
   "owner": "brand",
   "status": "done",
-  "evidence": "A client brand names its claim authority at that organisation, and brand use (look_motion) is approved by that same person: test_a_client_brands_use_is_approved_by_its_named_approver_there. Re-checked 2026-10-01: cited tests and files exist, and the full offline suite passes (3,833 passed, 0 failed).",
-  "source": "final-critic.json"
+  "evidence": "EOS Worldwide's pack is a client brand whose claim authority slot sits at EOS Worldwide and decides claims and brand use (brand.json truth.claim_authority); Slate refuses a look approval by anyone but that approver (src/slate/brand/approve.py _client_approver), and the brand tests that cover it pass in this run.",
+  "source": "live-l4-packs.json"
  },
  {
   "section": "Decisions for you",
@@ -2407,9 +2407,9 @@
   "text": "| \"take everything that we just did and all the pipelines we created, and create it as a concrete, reusable pipeline for dynamic video creation\" | §2 engine, §3 film folder, §7 method, Appendix A |",
   "id": "P268",
   "owner": "orchestrator",
-  "status": "partial",
-  "evidence": "The reusable pipeline now carries the films' newest stages (plate repair, proposed-mix review, re-voicing tools, delivery READMEs and snapshots, the new gates) and `slate demo` runs it end to end in replay. Left: the effects engine (proof 3), the live AE lane, and the kit's tilt raster mode.",
-  "source": "gaps-verify.json"
+  "status": "needs-quinn",
+  "evidence": "The reusable pipeline carries the films' stages, now including the tilt raster mode (bench passed 18 of 18), the stressed-syllable measurement (`slate timing stress`), frame-range parity checks (`slate qa psnr --a-frames/--b-frames`) and the films' render parity (P193: 2,712 frames at 62.91 dB or better). Left, both Quinn's: the effects engine waits on proof 3's approval, and the live After Effects lane waits on his go.",
+  "source": "live-orchestrator.json"
  },
  {
   "section": "Your asks, and where each is answered",
@@ -2452,18 +2452,18 @@
   "text": "| \"somebody can just use my skill or just talk about making a video with Claude\" | §1 front door and routing; negative evals |",
   "id": "P273",
   "owner": "orchestrator",
-  "status": "later-wave",
-  "evidence": "The front door is installed live in every agent and routes by its description (precise trigger with negatives; tests pass). The negative and routing evals exist (13 cases) but have only run against a fake agent; live runs in all four configurations are the evals wave.",
-  "source": "final-critic.json"
+  "status": "done",
+  "evidence": "The front door claims video requests by its description, and now carries its question and negatives in the 220 characters Codex shows. It routed them live on all four configurations on 2026-10-01, and the negatives pass (OpenClaw's email, CSS, video-element and unapproved-post cases live; Codex's and the slice's in replay, except the slice's CSS run, which fails on its own headless browser, not on routing).",
+  "source": "live-l1b-evals.json"
  },
  {
   "section": "Your asks, and where each is answered",
   "text": "| \"Claude will understand everything, know best motion design practices\" | §1 slate-motion; §4 look and motion development; the knowledge ledger |",
   "id": "P274",
   "owner": "orchestrator",
-  "status": "partial",
-  "evidence": "slate-motion, slate-build and the gates carry every motion lesson the ledger listed (sending parts away, moving contracts, paper techniques, staging, read time by cap height, hero entrances, type waiting for the camera, slow tails by transform). Left: the kit's tilt raster mode (9 lessons, its own wave, bench first).",
-  "source": "gaps-verify.json"
+  "status": "done",
+  "evidence": "slate-motion carries the motion law and every motion lesson the ledger maps; the kit's tilt raster mode passed its stability bench on this Mac (18 of 18 steps, 14 variants at 16 samples: tilt type 99-101% as crisp as a fresh raster, two renders identical, hint-mode controls still failing as they should); the hand-in now runs the motion law on every act's trace (L3b: handin.act<N>.motion); `slate timing stress` measures a key word's stressed syllable so gestures land on it (C = S + 2), parity-tested against the films' own tool (tests/story/test_timing_stress.py).",
+  "source": "live-orchestrator.json"
  },
  {
   "section": "Your asks, and where each is answered",
@@ -2488,9 +2488,9 @@
   "text": "| \"if I wanted to make a video for EOS… I would just open a new chat, just start prompting\" | The promise (\"a new Claude Code session\"); §4 onboarding; proof 2 |",
   "id": "P277",
   "owner": "orchestrator",
-  "status": "later-wave",
-  "evidence": "A new Claude Code session now has Slate (installed live), and `slate new` plus the front door handle a scoped brief. EOS needs its onboarding first (an EOS approver, four references), then the EOS proof.",
-  "source": "final-critic.json"
+  "status": "partial",
+  "evidence": "A new Claude Code session that's asked for an EOS video now finds the EOS pack, and `slate brand status eos` routes it to onboarding (next: name the authority at EOS Worldwide). The promise completes once onboarding and the EOS proof (P195) are done.",
+  "source": "live-l4-packs.json"
  },
  {
   "section": "Your asks, and where each is answered",
@@ -2533,9 +2533,9 @@
   "text": "| @remotion/motion-blur | Declared, unused | Learn from | Test HtmlInCanvasMotionBlur (≥ 4.0.529) against render_mb; render_mb stays the default |",
   "id": "P282",
   "owner": "engine-core",
-  "status": "partial",
-  "evidence": "render_mb stays the default. The HtmlInCanvasMotionBlur comparison needs a live run: a scratch engine at Remotion 4.0.529 or later (installed in a scratch folder, never the pinned engine), the demo's kit act rendered both ways and compared.",
-  "source": "gaps-verify.json"
+  "status": "done",
+  "evidence": "docs/PROOFS.md 'The motion-blur comparison (P282)' and engine/README.md: HtmlInCanvasMotionBlur (Remotion 4.0.532, scratch install) rendered about 12 times faster and lost on quality (8-bit canvas sum: worst 40.7 dB against a 64-sample reference where render_mb is bit-exact on still frames), so render_mb stays the default.",
+  "source": "live-orchestrator.json"
  },
  {
   "section": "Appendix A: dependency ledger",
@@ -2795,8 +2795,8 @@
   "id": "P311",
   "owner": "packaging",
   "status": "done",
-  "evidence": "The MCP allowlist runs the tag loop and render stability (long work as jobs) and `qa triage`; every allowlisted stage resolves in the live CLI (tests/packaging/test_packaging_mcp.py); `slate mcpb build --check` matches.",
-  "source": "gaps-verify.json"
+  "evidence": "A free run of a paid stage holds no paid vendor's slot: `voice tags optimize --measure-only` through MCP holds Whisper only (tests/packaging/test_packaging_mcp.py::test_the_tag_loop_through_the_server).",
+  "source": "live-l5-code.json"
  },
  {
   "section": "Appendix A: dependency ledger",
@@ -2965,9 +2965,9 @@
   "text": "| truespace-frontend-taste | You | Moves to the TrueSpace pack | Brand-specific |",
   "id": "P330",
   "owner": "brand",
-  "status": "later-wave",
-  "evidence": "Brand skills live in a pack's skills/ folder (pack.skills, validated; an example in brands/demo). Moving the company's frontend-taste skill waits for the company's private pack (brand-pack wave) and Quinn's go.",
-  "source": "final-critic.json"
+  "status": "needs-quinn",
+  "evidence": "truespace-frontend-taste is copied into ~/code/slate-brands/truespace/skills/ (three files, SHA-256s identical to the global copy) and validates as a brand skill. The global copy at ~/.claude/skills/truespace-frontend-taste is untouched; removing it is Quinn's call.",
+  "source": "live-l4-packs.json"
  },
  {
   "section": "Appendix A: dependency ledger",
@@ -3002,8 +3002,8 @@
   "id": "P334",
   "owner": "sound",
   "status": "done",
-  "evidence": "config.model('music', film) (music_v2_5, pinned at first use), always passed; the plan's shape now follows the model (chunks for v2+, sections for v1): test_v2_models_get_chunk_plans_never_v1_sections, test_a_v1_model_still_gets_its_section_plan, test_compose_refuses_a_plan_built_for_another_models_shape. Re-checked 2026-10-01: cited tests and files exist, and the full offline suite passes (3,833 passed, 0 failed).",
-  "source": "final-critic.json"
+  "evidence": "Eleven Music on music_v2_5 as before; its takes are now written as the stereo it sends, at their planned length, with `channels` on each take record, and compose_music warns when a take runs about twice or half its plan. test_live_music_is_written_as_the_stereo_it_is.",
+  "source": "live-l3b-fixes.json"
  },
  {
   "section": "Appendix A: dependency ledger",
@@ -3271,9 +3271,9 @@
   "origin": "paragraph",
   "id": "P362",
   "owner": "knowledge",
-  "status": "later-wave",
-  "evidence": "evals/configs.json covers GPT-6 Astra (Codex and OpenClaw), gpt-6-sol pursuit slices and gpt-5.6-sol deployed agents, held by tests/evals (passes in my run). Live runs are the evals wave.",
-  "source": "final-critic.json"
+  "status": "done",
+  "evidence": "Unchanged: the evals ran live on gpt-6-astra (Codex), gpt-6-sol (the slice), gpt-5.6-sol (OpenClaw main) and Opus 5.5 (Claude Code).",
+  "source": "live-l1b-evals.json"
  },
  {
   "section": "6. Every agent: Claude Code, Codex, OpenClaw, Oneiro",
@@ -3382,8 +3382,8 @@
   "id": "P373",
   "owner": "qa-core",
   "status": "done",
-  "evidence": "Every result names its engine and version (gates.schema.json requires engine {name, version}; qa.run validates each result); STALE from each result's input hashes (now including script.json for readtime and film.json plus the format file for captions). test_qa_core_run_cli.py::test_run_writes_a_valid_report_and_every_result_names_its_engine passes. Re-checked 2026-10-01: cited tests and files exist, and the full offline suite passes (3,833 passed, 0 failed).",
-  "source": "final-critic.json"
+  "evidence": "PASS only: the hand-in's motion gate is UNCHECKED, never a pass, when the brand's law can't be read, and FAIL on a trace older than the act; STALE now follows the brand blocks a gate read.",
+  "source": "live-l3b-fixes.json"
  },
  {
   "section": "Quality: gates, tests and evals",
@@ -3391,9 +3391,9 @@
   "origin": "paragraph",
   "id": "P374",
   "owner": "knowledge",
-  "status": "later-wave",
-  "evidence": "Each case covers triggering, routing, negatives, a dry run to the script stage and the no-browser check; oneiro-strategist-slate-move exists; tests/evals run them against a fake agent (pass). Live runs, and the strategist dry run once #64 lands, are the evals wave.",
-  "source": "final-critic.json"
+  "status": "partial",
+  "evidence": "Triggering, routing, the negatives, the dry run and the no-browser check all ran live and contained on 2026-10-01, with the two new global containment checks on every pair. Still waiting: OpenClaw main's film cases (Quinn's yes) and the strategist's dry run on pursuit #27 (chain #64).",
+  "source": "live-l1b-evals.json"
  },
  {
   "section": "Quality: gates, tests and evals",
@@ -3411,9 +3411,9 @@
   "origin": "paragraph",
   "id": "P376",
   "owner": "install",
-  "status": "later-wave",
-  "evidence": "scripts/fresh_home_test.sh (fresh HOME, minimal PATH, curl | bash from a snapshot remote, 17 checks) is an opt-in slow test, skipped in my run; docs/CLEAN_MACHINE.md has the procedure, the AE checklist and the VM. Not run yet: the scripted test, the AE checklist (Quinn) and a fresh macOS VM.",
-  "source": "final-critic.json"
+  "status": "needs-quinn",
+  "evidence": "The scripted fresh-home install passes: SLATE_TEST_SLOW=1 .venv/bin/python -m pytest tests/install/test_install_fresh_home.py, 1 passed in 76.52 s (Slate job j-20261001-163222-13a1, exit 0, 12:32-12:33). What's left is Quinn's alone: the manual After Effects checklist (no agent may launch After Effects) and a fresh macOS VM.",
+  "source": "live-l1-agents.json"
  },
  {
   "section": "Build phases",

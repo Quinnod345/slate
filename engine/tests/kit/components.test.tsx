@@ -284,6 +284,10 @@ describe('the motif and the character', () => {
   });
   it('maps meanings to gestures', () => {
     expect(gesture('hello', {frame: 10}).map((g) => g.kind)).toEqual(['enter', 'grow']);
+    // a meaning keyed to a word keys its first step only: that's the one that lands on the word
+    const keyed = gesture('hello', {frame: 10, word: 'hello', stress_start: 0.4, stress_end: 0.6});
+    expect(keyed[0]).toMatchObject({word: 'hello', stress_start: 0.4, stress_end: 0.6});
+    expect(keyed.slice(1).every((g) => !('word' in g) && !('stress_end' in g))).toBe(true);
     expect(gesture('thinking', {frame: 10})[0].kind).toBe('breathe');
   });
 });

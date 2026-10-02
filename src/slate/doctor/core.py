@@ -64,6 +64,7 @@ def registry() -> list[tuple[str, str, Check]]:
         ("agents", "claude-code-version", agents.check_claude_version),
         ("agents", "cli-path", agents.check_cli_path),
         ("agents", "codex-dia", agents.check_codex_dia),
+        ("agents", "codex-visible", agents.check_codex_visible),
         ("system", "disk", system.check_disk),
         ("system", "browser", system.check_browser),
         ("system", "jobs-agent", system.check_jobs_agent),

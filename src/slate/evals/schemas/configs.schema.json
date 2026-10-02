@@ -19,7 +19,29 @@
     "note": {"type": "string"},
     "set": {"type": "object", "additionalProperties": {"type": "string"}},
     "unset": {"type": "array", "items": {"type": "string"}},
-    "budget": {"type": "object", "description": "Written to the run's SLATE_DATA/budget.json: zero caps, so a stray --live is refused before it spends."}
+    "budget": {"type": "object", "description": "Written to the run's SLATE_DATA/budget.json: zero caps, so a stray --live is refused before it spends."},
+    "notice": {
+     "type": "object",
+     "required": ["template", "files"],
+     "additionalProperties": false,
+     "description": "The sandbox notice: a template under evals/ ({workdir} expands), written into every sandbox under each file name, and put at the top of the message for a configuration with notice_in_message ({notice} and {prompt} expand).",
+     "properties": {
+      "template": {"type": "string"},
+      "files": {"type": "array", "minItems": 1, "items": {"type": "string", "pattern": "^[^/]+$"}},
+      "message": {"type": "string"},
+      "note": {"type": "string"}
+     }
+    },
+    "shared_locks": {
+     "type": "object",
+     "required": ["resources"],
+     "additionalProperties": false,
+     "description": "Resources whose slots an eval sandbox shares with this Mac (its SLATE_DATA/locks/<resource> links to the machine's), so its work waits behind the machine's queue.",
+     "properties": {
+      "resources": {"type": "array", "items": {"enum": ["render", "ae", "elevenlabs_tts", "elevenlabs_music", "higgsfield", "whisper"]}},
+      "note": {"type": "string"}
+     }
+    }
    }
   },
   "configurations": {
@@ -46,6 +68,9 @@
     "model": {"type": "string"},
     "node": {"type": "string"},
     "argv": {"type": "array", "minItems": 2, "items": {"type": "string"}},
+    "notice_in_message": {"type": "boolean", "description": "The sandbox notice goes at the top of the message: for an agent that reads its instructions from a workspace of its own (OpenClaw main), not from its working folder."},
+    "tools_cwd": {"type": "string", "description": "Where the agent's tools run when it isn't the sandbox (OpenClaw main's own workspace): a relative path the agent writes lands there."},
+    "turn_timeout_s": {"type": "integer", "minimum": 10, "description": "The agent's own turn limit, passed as {turn_timeout_s} (OpenClaw's --timeout: the Gateway keeps running a turn after the local CLI is killed, so a cut-off case has to stop the turn itself)."},
     "deny": {"type": "array", "items": {"type": "string"}},
     "blocks": {
      "type": "object",

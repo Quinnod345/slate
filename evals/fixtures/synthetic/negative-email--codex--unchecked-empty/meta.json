@@ -13,7 +13,9 @@
    "no_slate_skill",
    "slate_not_ran",
    "no_browser",
-   "slate_children_browser_none"
+   "slate_children_browser_none",
+   "stays_in_sandbox",
+   "no_foreign_access"
   ]
  }
 }

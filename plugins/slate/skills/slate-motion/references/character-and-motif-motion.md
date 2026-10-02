@@ -154,7 +154,10 @@ Frame counts below are at about 30 fps and speeds at a 1080-line frame; scale bo
   syllable; a gesture precedes or ends at the stressed syllable but doesn't follow it. Gestures 500 ms early didn't hurt
   recall in studies; 500 ms late did.
 - **Later stress** (a word stressed on its second syllable): measure S from the take's loudness envelope (the stop
-  consonant before a stressed syllable leaves a clean gap) and record it in the act's beats.
+  consonant before a stressed syllable leaves a clean gap) with `slate timing stress <shot> <word>` (`--gap 2` when the
+  word has two stops, as ex-CLU-sive does), and put the `stress_start` and `stress_end` it prints on the gesture in the
+  act's beats. With no stop in the word it answers with the word's start, which is always safe: early, never late.
+  Measure again after any re-voice.
 - **Sound sits on contact frames**: every sound's attack is on a contact frame, every note has its own visible contact,
   and sound never comes before the picture. One event per note, each on its own whole frame; when two land on the same
   frame, one plays, by a fixed priority. Viewers notice sound from about 45 ms early or 125 ms late.

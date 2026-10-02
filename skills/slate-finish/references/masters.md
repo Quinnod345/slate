@@ -24,7 +24,9 @@ the mode it was made in, whatever film.json says. The AE route in detail: [AE fi
 - **Loudness** of the master's audio on target.
 
 `slate qa frames loudness psnr` runs them (slate-qa). To compare any two pictures or videos directly,
-`slate qa psnr <a> <b>` prints their PSNR, frame for frame.
+`slate qa psnr <a> <b>` prints their PSNR, frame for frame (frames pair by their place in each file, whatever
+timestamps the containers kept). `--a-frames` and `--b-frames FIRST-LAST` compare a stretch of either side: one
+shot's render against its frames in a whole delivered act, with no cut file.
 
 ## Formats inside a master
 

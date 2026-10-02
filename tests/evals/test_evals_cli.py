@@ -29,6 +29,15 @@ def test_list_cases_and_configurations(slate_home, monkeypatch):
 
 def test_run_defaults_to_replay_and_report_shows_the_latest(slate_home, monkeypatch):
     monkeypatch.setenv("HOME", str(slate_home["tmp"]))
+    # A copy of the suite without its recordings, so "no recording yet" is what replay finds whatever has been recorded.
+    import shutil
+
+    from slate import paths
+
+    suite_copy = slate_home["tmp"] / "evals"
+    shutil.copytree(paths.REPO / "evals", suite_copy, ignore=shutil.ignore_patterns("recorded"))
+    (suite_copy / "fixtures" / "recorded").mkdir()
+    monkeypatch.setenv("SLATE_EVALS_DIR", str(suite_copy))
     out = slate_home["tmp"] / "runs"
     code, stdout, _ = run_cli(["evals", "run", "--fixtures", "synthetic", "--out", str(out), "--run-id", "a", "--json"])
     assert code == 0 and json.loads(stdout)["overall"] == "PASS"
@@ -38,7 +47,8 @@ def test_run_defaults_to_replay_and_report_shows_the_latest(slate_home, monkeypa
     code, text, _ = run_cli(["evals", "report", "--out", str(out)])
     assert code == 1 and "run b" in text and "not run: no recording yet" in text
     code, text, _ = run_cli(["evals", "report", "a", "--out", str(out), "--brief"])
-    assert code == 0 and "26 of 26 synthetic transcripts graded as expected" in text
+    n = sum(1 for f in (suite_copy / "fixtures" / "synthetic").iterdir() if (f / "meta.json").exists())
+    assert code == 0 and n >= 32 and f"{n} of {n} synthetic transcripts graded as expected" in text
 
 
 def test_usage_errors(slate_home):

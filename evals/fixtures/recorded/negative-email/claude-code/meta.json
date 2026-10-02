@@ -1,0 +1,14 @@
+{
+ "case": "negative-email",
+ "config": "claude-code",
+ "synthetic": false,
+ "started_at": "2026-10-01T11:52:59-04:00",
+ "slate_version": "0.1.0",
+ "setup": [],
+ "timeout_s": 900,
+ "exit_code": 0,
+ "killed": false,
+ "duration_s": 28.8,
+ "artifacts": [],
+ "finished_at": "2026-10-01T11:53:28-04:00"
+}

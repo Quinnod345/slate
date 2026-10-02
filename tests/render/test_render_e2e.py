@@ -84,6 +84,7 @@ def test_slate_renders_hands_in_and_emits_a_kit_act_and_a_web_act(kit_film):
     statuses = {g["gate"]: g["status"] for g in out["gates"]}
     assert set(statuses.values()) == {"PASS"}, statuses
     assert "handin.act1.word_misses" in statuses and "handin.act1.banned_words" in statuses
+    assert "handin.act1.motion" in statuses  # the motion law on the act's trace, with the engine's gates
 
     # the render's own gates are kept in qa/gates.json, tied to the render they judged
     report = json.loads((film / "qa" / "gates.json").read_text())["gates"]
@@ -127,7 +128,7 @@ def test_slate_renders_hands_in_and_emits_a_kit_act_and_a_web_act(kit_film):
     statuses = {g["gate"]: g["status"] for g in out["gates"]}
     assert set(statuses) == {f"handin.act2.{n}" for n in ("typecheck", "page", "word_misses", "kit_problems",
                                                           "network", "fonts", "banned_words", "never_claim", "literals",
-                                                          "events", "contracts")}
+                                                          "events", "contracts", "motion")}
     assert set(statuses.values()) == {"PASS"}, statuses
     code, out, err = _slate("--film", str(film), "check", "all", cwd=film)
     assert code == 0, (out, err[-3000:])

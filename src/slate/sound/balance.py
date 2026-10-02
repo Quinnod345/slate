@@ -1543,10 +1543,15 @@ def register(sub) -> None:
 def _cmd(args: argparse.Namespace) -> int:
     from slate.cli import film as film_of  # noqa: PLC0415
 
+    from slate.cli import dry_stop  # noqa: PLC0415
+
     film_dir = film_of(args)
     names = [g if g.startswith("sound.") else (f"sound.balance.{g}" if f"sound.balance.{g}" in GATES else f"sound.{g}")
              for g in (args.gates or [])]
-    results = run(film_dir, names or None, write=not bool(getattr(args, "dry_run", False)))
+    if dry_stop(args, f"measure the mix's balance word by word ({', '.join(names) if names else 'every balance gate'}),"
+                      " here (not queued), and record it"):
+        return 0  # the measurement reads the whole mix: a dry run starts none of it
+    results = run(film_dir, names or None, write=True)
     rep = jsonio.read(Path(film_dir) / REPORT, default={}) or {}
     lines = [gates.format_table(results)]
     lv = (rep.get("levels") or {}).get("integrated_lu_vs_voice") or {}

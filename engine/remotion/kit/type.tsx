@@ -7,7 +7,7 @@ import {fps} from './core/film';
 import {durRank, easeNamed, exitDur, law, roleEase, staggerStep} from './core/motion';
 import {clamp01} from './core/spline';
 import {useFilmTime, useKit, useType} from './context';
-import {inMotion, motionHint} from './paper';
+import {inMotion, motionHint, TiltSpan, useMotionHint, useRasterMode, useTypeTilt} from './paper';
 
 type Common = {
   /** film seconds the first unit starts moving (use startFor(word(…), …) to land it on a word) */
@@ -44,12 +44,14 @@ function baseDur(): number {
 
 /**
  * Per-character write-on (hero lines): each character rises and sharpens into place on the entrance ease, staggered by
- * the brand's character unit and capped so the whole line spreads no more than the brand allows.
+ * the brand's character unit and capped so the whole line spreads no more than the brand allows. In tilt mode each
+ * character's tilt sits inside its blurred box (TiltSpan), which Chrome may raster on its own, and nothing is hinted.
  */
 export function PerChar({text, t0, out, t: tOverride, role = 'hero', color, style, duration}: Common & {text: string; duration?: number}) {
   const clock = useFilmTime();
   const {short} = useKit();
   const s = useType(role, color);
+  const tilt = useRasterMode() === 'tilt';
   const t = tOverride ?? clock;
   const d = duration ?? baseDur();
   const chars = Array.from(text);
@@ -73,10 +75,10 @@ export function PerChar({text, t0, out, t: tOverride, role = 'hero', color, styl
               opacity: clamp01(u * 1.4) * ex.op,
               transform: `translateY(${((1 - u) * rise + ex.dy).toFixed(3)}px)`,
               filter: u < 0.999 ? `blur(${((1 - u) * blur).toFixed(3)}px)` : undefined,
-              ...motionHint(inMotion(u) || (ex.dy < -0.0001 && ex.op > 0.001)),
+              ...(tilt ? {} : motionHint(inMotion(u) || (ex.dy < -0.0001 && ex.op > 0.001))),
             }}
           >
-            {ch}
+            <TiltSpan>{ch}</TiltSpan>
           </span>
         );
       })}
@@ -84,11 +86,15 @@ export function PerChar({text, t0, out, t: tOverride, role = 'hero', color, styl
   );
 }
 
-/** Per-word build (lines): each word rises on the entrance ease, by the brand's word unit or at given times. */
+/**
+ * Per-word build (lines): each word rises on the entrance ease, by the brand's word unit or at given times. In tilt
+ * mode each word's tilt sits inside its blurred box (TiltSpan), and nothing is hinted.
+ */
 export function PerWord({text, t0, out, t: tOverride, role = 'h2', color, style, duration, wordTimes}: Common & {text: string; duration?: number; wordTimes?: number[]}) {
   const clock = useFilmTime();
   const {short} = useKit();
   const s = useType(role, color);
+  const tilt = useRasterMode() === 'tilt';
   const t = tOverride ?? clock;
   const d = duration ?? baseDur();
   const words = text.split(/\s+/).filter(Boolean);
@@ -110,10 +116,10 @@ export function PerWord({text, t0, out, t: tOverride, role = 'h2', color, style,
                 opacity: clamp01(u * 1.3) * ex.op,
                 transform: `translateY(${((1 - u) * rise + ex.dy).toFixed(3)}px)`,
                 filter: u < 0.999 ? `blur(${((1 - u) * blur).toFixed(3)}px)` : undefined,
-                ...motionHint(inMotion(u) || (ex.dy < -0.0001 && ex.op > 0.001)),
+                ...(tilt ? {} : motionHint(inMotion(u) || (ex.dy < -0.0001 && ex.op > 0.001))),
               }}
             >
-              {w}
+              <TiltSpan>{w}</TiltSpan>
             </span>
             {i < words.length - 1 ? ' ' : null}
           </React.Fragment>
@@ -123,7 +129,10 @@ export function PerWord({text, t0, out, t: tOverride, role = 'h2', color, style,
   );
 }
 
-/** A block that arrives as one piece (a line, a row, a card's content): rise and opacity on an ease. */
+/**
+ * A block that arrives as one piece (a line, a row, a card's content): rise and opacity on an ease. In tilt mode its
+ * own transform carries the type's tilt after the rise (unless it's already inside a tilt), and nothing is hinted.
+ */
 export function Arrive({t0, out, t: tOverride, duration, rise = 0.0185, ease, children, style}: Common & {duration?: number; rise?: number; ease?: string; children?: React.ReactNode}) {
   const clock = useFilmTime();
   const {short} = useKit();
@@ -131,7 +140,9 @@ export function Arrive({t0, out, t: tOverride, duration, rise = 0.0185, ease, ch
   const d = duration ?? baseDur();
   const u = easeNamed(ease ?? roleEase('entrance'))((t - t0) / d);
   const ex = useExit(t, out, 0.015, short);
-  return <div style={{opacity: clamp01(u * 1.3) * ex.op, transform: `translateY(${((1 - u) * rise * short + ex.dy).toFixed(3)}px)`, ...motionHint(inMotion(u) || (ex.dy < -0.0001 && ex.op > 0.001)), ...style}}>{children}</div>;
+  const tt = useTypeTilt();
+  const hint = useMotionHint(inMotion(u) || (ex.dy < -0.0001 && ex.op > 0.001));
+  return <div style={{opacity: clamp01(u * 1.3) * ex.op, transform: `translateY(${((1 - u) * rise * short + ex.dy).toFixed(3)}px)${tt}`, ...hint, ...style}}>{children}</div>;
 }
 
 /** The film time a count reads at `t`: its master frame's, so every motion-blur sub-sample of a frame (they sit within

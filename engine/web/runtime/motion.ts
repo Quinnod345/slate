@@ -77,6 +77,12 @@ export type TraceClass = {
   class?: string;
   exempt?: string;
   reason?: string;
+  /**
+   * For type: the type role it's set in (hero, h1, body, label …) and its words. The hero-entrance, settled and
+   * legibility checks read them, and stay quiet without them.
+   */
+  role?: string;
+  text?: string;
 };
 
 const extras = new Map<string, TraceExtra>();
@@ -180,6 +186,8 @@ export function tween(target: gsap.TweenTarget, props: Record<string, TweenValue
       ...(opts.class !== undefined ? {class: opts.class} : {}),
       ...(opts.exempt !== undefined ? {exempt: opts.exempt} : {}),
       ...(opts.reason !== undefined ? {reason: opts.reason} : {}),
+      ...(opts.role !== undefined ? {role: opts.role} : {}),
+      ...(opts.text !== undefined ? {text: opts.text} : {}),
     });
     const extra: TraceExtra = {};
     if (opts.unit) extra.unit = opts.unit;

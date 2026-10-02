@@ -58,7 +58,7 @@ def cmd_analyze(args: argparse.Namespace) -> int:
     planned = steps or list(DEFAULT_STEPS)
     videos = list(args.video)
     outs = _outs(videos, args.out)
-    if args.detach:
+    if args.detach and not cli.flag(args, "dry_run"):  # a dry run is the plan below, never a queued job
         from slate.jobs import client  # noqa: PLC0415
 
         resources = ("whisper",) if any(s in planned for s in MODEL_STEPS) else ()
@@ -75,9 +75,12 @@ def cmd_analyze(args: argparse.Namespace) -> int:
             rows.append({"video": meta["path"], "out": where})
             lines.append(f"Would analyze {meta['name']} ({meta.get('duration_s') or 0:.1f} s) with "
                          f"{', '.join(planned)} into {where}.")
+        if args.detach:
+            lines.append("It would run as a queued job (--detach).")
         lines.append("Nothing was run.")
         payload = {**rows[0], "steps": planned, "dry_run": True} if len(rows) == 1 else \
             {"videos": rows, "steps": planned, "dry_run": True}
+        payload["queued"] = bool(args.detach)
         log.result(payload, "\n".join(lines))
         return 0
     payloads, lines = [], []

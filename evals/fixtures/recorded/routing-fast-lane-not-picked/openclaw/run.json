@@ -1,0 +1,103 @@
+{
+ "runId": "e57d5bba-ea97-4e84-b917-efd97d009bff",
+ "status": "ok",
+ "summary": "completed",
+ "result": {
+  "payloads": [
+   {
+    "text": "Do you want a full production or a quick generated clip?",
+    "mediaUrl": null
+   }
+  ],
+  "meta": {
+   "durationMs": 19626,
+   "agentMeta": {
+    "sessionId": "b4d48b4f-c8da-4329-aa9a-095d31438da7",
+    "provider": "openai",
+    "model": "gpt-5.6-sol",
+    "contextTokens": 258400,
+    "contextTokensSource": "runtime",
+    "agentHarnessId": "codex",
+    "credentialSource": {
+     "kind": "profile"
+    },
+    "usage": {
+     "input": 29205,
+     "output": 388,
+     "cacheRead": 23808,
+     "cacheWrite": 0,
+     "reasoningTokens": 198,
+     "total": 53401
+    },
+    "lastCallUsage": {
+     "input": 29205,
+     "output": 388,
+     "cacheRead": 23808,
+     "cacheWrite": 0,
+     "reasoningTokens": 198,
+     "total": 53401,
+     "contextUsage": {
+      "state": "available",
+      "promptTokens": 28996,
+      "totalTokens": 29139
+     }
+    },
+    "promptTokens": 28996,
+    "codeModeEngaged": false,
+    "terminalReceipt": {
+     "runId": "e57d5bba-ea97-4e84-b917-efd97d009bff",
+     "sessionId": "b4d48b4f-c8da-4329-aa9a-095d31438da7",
+     "turnId": "01a0f9ae-e876-79b0-97ee-18a712bf90c8",
+     "requested": {
+      "provider": "openai",
+      "model": "gpt-5.6-sol"
+     },
+     "effective": {
+      "provider": "openai",
+      "model": "gpt-5.6-sol",
+      "responseModel": "gpt-5.6-sol"
+     },
+     "successfulToolNames": [
+      "exec"
+     ],
+     "rerouted": false
+    }
+   },
+   "aborted": false,
+   "finalAssistantVisibleText": "Do you want a full production or a quick generated clip?",
+   "finalAssistantRawText": "Do you want a full production or a quick generated clip?",
+   "replayInvalid": true,
+   "livenessState": "working",
+   "stopReason": "stop",
+   "executionTrace": {
+    "winnerProvider": "openai",
+    "winnerModel": "gpt-5.6-sol",
+    "attempts": [
+     {
+      "provider": "openai",
+      "model": "gpt-5.6-sol",
+      "result": "success",
+      "stage": "assistant"
+     }
+    ],
+    "fallbackUsed": false,
+    "runner": "embedded"
+   },
+   "requestShaping": {
+    "authMode": "auth-profile",
+    "thinking": "xhigh"
+   },
+   "completion": {
+    "stopReason": "stop",
+    "finishReason": "stop"
+   },
+   "toolSummary": {
+    "calls": 1,
+    "tools": [
+     "exec"
+    ],
+    "failures": 0
+   }
+  }
+ }
+}

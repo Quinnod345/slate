@@ -40,6 +40,7 @@ def test_the_five_client_behaviours_are_recorded():
         if b["status"] == "unconfirmed":
             assert not b["slate_relies_on_it"], f"{b['id']} is unconfirmed, so Slate mustn't rely on it yet"
             assert b.get("how_slate_avoids_it", "").strip(), b["id"]
+            assert b.get("what_is_left", "").strip(), f"{b['id']}: say exactly what's left to confirm it"
         else:
             # A result is a date, a client version and what was seen.
             assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", b["checked_on"]), b["id"]
@@ -78,3 +79,16 @@ def test_the_confirmed_behaviours_are_the_ones_the_plugin_leans_on():
     assert {"plugin.json", ".claude-plugin/plugin.json"} <= set(sb.plugin_files())  # both manifests ship
     assert by["openclaw-gateway-state-dir"]["status"] == "confirmed"
     assert "~/.agents/skills" in sb.openclaw_entries([])["about"]
+
+
+def test_two_marketplace_behaviours_are_confirmed_and_nested_metadata_waits_on_skills_ref():
+    """L1 (2026-10-01) confirmed the bundle placeholders and the marketplace sources hands-on in scratch homes; nested
+    metadata needs skills-ref installed and a claude.ai upload by hand."""
+    by = _by_id()
+    for bid in ("openclaw-claude-bundle-placeholders", "codex-claude-marketplace-sources"):
+        assert by[bid]["status"] == "confirmed" and by[bid]["checked_on"] == "2026-10-01", bid
+        assert not by[bid]["slate_relies_on_it"], f"{bid}: confirmed, and Slate still doesn't need it"
+    assert "local agent turn" in by["openclaw-claude-bundle-placeholders"]["as_checked"]
+    left = by["openclaw-nested-metadata"]
+    assert left["status"] == "unconfirmed"
+    assert "skills-ref" in left["what_is_left"] and "claude.ai" in left["what_is_left"]

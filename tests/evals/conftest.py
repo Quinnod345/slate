@@ -18,6 +18,17 @@ EVALS = paths.REPO / "evals"
 FAKE_AGENT = Path(__file__).with_name("fake_agent.py")
 
 
+@pytest.fixture(autouse=True)
+def _scratch_codex_home(tmp_path, monkeypatch):
+    """The runner tidies Codex's trust list and Claude Code's project folders after their runs; in tests both are
+    scratch ones, never ~/.codex or ~/.claude."""
+    home = tmp_path / "codex-home"
+    home.mkdir()
+    monkeypatch.setenv("CODEX_HOME", str(home))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude-home"))  # and Claude Code's project folders
+    return home
+
+
 @pytest.fixture
 def real_configs():
     from slate.evals import suite
@@ -41,6 +52,7 @@ def fake_suite(tmp_path, monkeypatch):
         shutil.copytree(EVALS / "cases", root / "cases")
         shutil.copytree(EVALS / "tripwire", root / "tripwire")
         shutil.copytree(EVALS / "mcp", root / "mcp")
+        shutil.copy(EVALS / "sandbox-notice.md", root / "sandbox-notice.md")
         (root / "fixtures" / "recorded").mkdir(parents=True)
         (root / "fixtures" / "synthetic").mkdir(parents=True)
         if cases is not None:

@@ -6,7 +6,7 @@
 // imports the brand's families and registers them here (registerGoogleFont), so a bundle never pulls in the whole
 // catalogue. Installed faces need no loading: the width test proves they are there. Kit URLs (a type service's
 // stylesheet) and font files load in the page.
-import React, {useEffect, useRef, useState} from 'react';
+import React, {useEffect, useState} from 'react';
 import {cancelRender, continueRender, delayRender} from 'remotion';
 import {checkPlan, fontPlan, gateReport, reportLine, type FaceDecl, type FontGateReport, type FontPlan, type Measure} from './core/fontplan';
 
@@ -158,35 +158,73 @@ export function runFontGate(plan: FontPlan = fontPlan()): Promise<FontGateReport
 /** Forget the gate's results (a review sheet that switches brands in one page). */
 export function resetFontGate(): void {
   gates.clear();
+  holds.clear();
+}
+
+/** The page's hold on its first frame for one font plan. `done` says whether the faces passed. */
+export type FirstFrameHold = {handle: number; settled: boolean; ok: boolean | null; done: Promise<boolean>};
+
+type HoldDeps = {
+  delayRender: (label: string, opts: {timeoutInMilliseconds: number}) => number;
+  continueRender: (handle: number) => void;
+  cancelRender: (err: unknown) => void;
+  run: (plan: FontPlan) => Promise<FontGateReport>;
+};
+
+const holds = new Map<string, FirstFrameHold>();
+
+/** Three minutes, the renderer's own wait (DEFAULT_RENDER_TIMEOUT_MS in remotion/browser.mjs). */
+export const FONT_HOLD_MS = 180000;
+
+/**
+ * Hold the page's first frame until the plan's faces pass, once per page for each plan: whichever FontGate renders
+ * first takes the hold, and the gate's own result releases it (or fails the render, loudly, with the report). Nothing
+ * about a component's life can strand it. A FontGate that took its hold in a useState initializer left the
+ * 2026-10-01 stability bench waiting three minutes on a hold its gate had already passed: React may run a render it
+ * then throws away, or mount a tree twice, and a hold taken there was released by no effect.
+ */
+export function holdFirstFrame(plan: FontPlan, deps?: Partial<HoldDeps>): FirstFrameHold {
+  const key = JSON.stringify(plan.faces);
+  const have = holds.get(key);
+  if (have) return have;
+  const d: HoldDeps = {delayRender, continueRender, cancelRender, run: runFontGate, ...deps};
+  const handle = d.delayRender("Slate's font gate: loading and checking the brand's faces", {timeoutInMilliseconds: FONT_HOLD_MS});
+  const hold: FirstFrameHold = {handle, settled: false, ok: null, done: Promise.resolve(false)};
+  hold.done = d.run(plan).then(
+    (r) => {
+      hold.settled = true;
+      hold.ok = r.status === 'PASS';
+      if (hold.ok) d.continueRender(handle);
+      else d.cancelRender(new Error(`Font gate failed: ${r.summary}. The brand's fonts must render as declared (fonts by reference, never substituted). ${reportLine(r)}`));
+      return hold.ok;
+    },
+    (e) => {
+      hold.settled = true;
+      hold.ok = false;
+      d.cancelRender(e);
+      return false;
+    },
+  );
+  holds.set(key, hold);
+  return hold;
 }
 
 /**
  * Holds the first frame until every declared face has loaded and measured as itself; fails the render, loudly and
- * with the report, when one didn't.
+ * with the report, when one didn't. The hold is the page's (holdFirstFrame), so mounting twice takes it once.
  */
 export function FontGate({children, enabled = true, plan}: {children?: React.ReactNode; enabled?: boolean; plan?: FontPlan}) {
-  const [handle] = useState(() => (enabled ? delayRender("Slate's font gate: loading and checking the brand's faces", {timeoutInMilliseconds: 60000}) : null));
-  const [ready, setReady] = useState(!enabled);
-  // the handle is released once, however often the effect runs (a plan passed inline is a new object each render)
-  const released = useRef(false);
+  const hold = enabled ? holdFirstFrame(plan ?? fontPlan()) : null;
+  const [ready, setReady] = useState(() => hold === null || hold.ok === true);
   useEffect(() => {
-    if (!enabled || handle === null) return;
+    if (hold === null || ready) return;
     let live = true;
-    runFontGate(plan)
-      .then((r) => {
-        if (!live || released.current) return;
-        if (r.status === 'PASS') {
-          released.current = true;
-          setReady(true);
-          continueRender(handle);
-        } else {
-          cancelRender(new Error(`Font gate failed: ${r.summary}. The brand's fonts must render as declared (fonts by reference, never substituted). ${reportLine(r)}`));
-        }
-      })
-      .catch((e) => cancelRender(e));
+    hold.done.then((ok) => {
+      if (live && ok) setReady(true);
+    });
     return () => {
       live = false;
     };
-  }, [enabled, handle, plan]);
+  }, [hold, ready]);
   return ready ? <>{children}</> : null;
 }

@@ -2,9 +2,19 @@
  "schema": 1,
  "note": "How each agent is run non-interactively for an eval, exactly. `slate evals run --dry-run` prints these filled in; `slate evals run --live` runs them. Placeholders in braces are filled per run (see slate/evals/commands.py). Nothing here is run by tests.",
  "verified_on": "2026-09-30",
- "global_checks": ["no_browser", "slate_children_browser_none"],
+ "global_checks": ["no_browser", "slate_children_browser_none", "stays_in_sandbox", "no_foreign_access"],
  "eval_env": {
-  "note": "Every run gets replay mode, its own film, data and brand folders, a zero-cap budget, the child-process probe and the BROWSER tripwire, and none of the vendor or provider keys. The agents keep their own logins.",
+  "note": "Every run gets replay mode, its own film, data and brand folders, a zero-cap budget, the child-process probe and the BROWSER tripwire, and none of the vendor or provider keys. The agents keep their own logins, except the Higgsfield CLI's: it reads its sign-in from HIGGSFIELD_CREDENTIALS_PATH, pointed at an empty file in the sandbox, because its app credits are real money that no replay mode covers (a fast-lane attempt still shows in the transcript; it just can't generate).",
+  "notice": {
+   "template": "sandbox-notice.md",
+   "files": ["AGENTS.md", "CLAUDE.md"],
+   "message": "{notice}\n---\n\nThe request:\n\n{prompt}",
+   "note": "Every sandbox says it's a sandbox: the notice (this is an eval; every write stays in the folder; never the vault or a project status page; never Oneiro's memory or endpoints; never mac-cua's bridge or another agent's credentials; never a real app outside the case's fixtures) is written into the agent's working folder as AGENTS.md (Codex reads it from its working folder, --ignore-user-config or not) and CLAUDE.md (Claude Code's project memory). A configuration with notice_in_message gets it at the top of its message instead, for an agent that reads its instructions from a workspace of its own."
+  },
+  "shared_locks": {
+   "resources": ["render"],
+   "note": "One render slot for the whole Mac: the sandbox's SLATE_DATA/locks/render is a link to this Mac's own, and the sandbox's slate.toml carries this Mac's render slot count, so a render an eval agent starts waits behind the machine's queue (a foreground render gives up after five seconds with Busy, as it would beside any other render) instead of running beside it. Its own job queue stays in the sandbox, and anything still queued or running there is cancelled when the pair ends. A case that stops its run on purpose (cut_off) also stops at its first render, through Slate, the engine directly (which takes no lock) or a renderer of its own that only the processes under the agent show (ffmpeg, rsvg-convert, a headless Chrome), so a production case never renders on this Mac."
+  },
   "set": {
    "SLATE_FAKE_VENDORS": "1",
    "SLATE_FILMS": "{workdir}/films",
@@ -16,7 +26,10 @@
    "BROWSER": "{evals_dir}/tripwire/browser",
    "SLATE_EVAL_TRIPWIRE_LOG": "{pair_dir}/tripwire.log",
    "SLATE_EVAL_PROBE_LOG": "{pair_dir}/probe.jsonl",
-   "PYTHONPATH": "{probe_dir}"
+   "PYTHONPATH": "{probe_dir}",
+   "HIGGSFIELD_CREDENTIALS_PATH": "{pair_dir}/higgsfield/credentials.json",
+   "HIGGSFIELD_CONFIG_PATH": "{pair_dir}/higgsfield/config.json",
+   "HIGGSFIELD_NO_UPDATE_CHECK": "1"
   },
   "unset": ["SLATE_LIVE", "SLATE_RECORD", "SLATE_FILM", "SLATE_FIXTURES", "HF_KEY", "HF_API_KEY", "HF_API_SECRET", "ELEVENLABS_API_KEY", "SLATE_ONEIRO_ELEVENLABS_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_BASE_URL"],
   "budget": {
@@ -99,6 +112,7 @@
     "-c", "plugins.gmail@openai-curated.enabled=false",
     "-c", "plugins.google-calendar@openai-curated.enabled=false",
     "-c", "plugins.github@openai-curated.enabled=false",
+    "-c", "mcp_servers.oneiro-memory.enabled=false",
     "--disable", "browser_use", "--disable", "browser_use_external", "--disable", "browser_use_full_cdp_access",
     "--disable", "computer_use", "--disable", "in_app_browser",
     "{block_args}",
@@ -124,7 +138,7 @@
      "The JSONL event names (thread.started, item.started/completed, command_execution, file_change, mcp_tool_call, agent_message, turn.completed) match what Oneiro's engine parses from the same Codex (oca-cognitive/reasoning/pursuit-work.js)."
     ],
     "deviations": [
-     "Your ~/.codex/config.toml stays loaded (gpt-6-astra at xhigh, approval never, full access, your skills and MCP servers). For eval runs only, the surfaces that act outside the sandbox are switched off: mac-cua (its browser half drives Dia), the Chrome, browser and computer-use plugins, Codex's own browser features, and the Gmail, Calendar and GitHub plugins.",
+     "Your ~/.codex/config.toml stays loaded (gpt-6-astra at xhigh, approval never, full access, your skills and MCP servers). For eval runs only, the surfaces that act outside the sandbox are switched off: mac-cua (its browser half drives Dia), the Chrome, browser and computer-use plugins, Codex's own browser features, the Gmail, Calendar and GitHub plugins, and (since 2026-10-01) the oneiro-memory server, whose remember and pin tools write to Oneiro's memory.",
      "--ephemeral keeps eval sessions out of your Codex history."
     ],
     "not_exercised": ["No live run in the build session."]
@@ -213,9 +227,12 @@
    "binary": "/opt/homebrew/bin/openclaw",
    "model": "openai/gpt-5.6-sol",
    "session_key": "agent:main:slate-eval-{run_id}-{case_id}",
+   "turn_timeout_s": 600,
+   "notice_in_message": true,
+   "tools_cwd": "{home}/oneiro/runtime/workspace",
    "argv": [
     "{binary}", "agent", "--agent", "main", "--session-key", "{session_key}",
-    "--model", "{model}", "--thinking", "xhigh", "--timeout", "600", "--json",
+    "--model", "{model}", "--thinking", "xhigh", "--timeout", "{turn_timeout_s}", "--json",
     "--message", "{prompt}"
    ],
    "blocks": {
@@ -247,9 +264,11 @@
     ],
     "deviations": [
      "The Gateway runs main's tools in its own environment, so the eval's environment (replay mode, sandbox folders, the child-process probe, the BROWSER tripwire) doesn't reach them. Cases that make films are skipped here unless you pass --allow-host-env; with it, their films land in your real Slate folders and the report lists them for you to delete. The transcript checks, including the no-browser check, run as usual.",
-     "The eval's session stays in main's session list (agent:main:slate-eval-…)."
+     "The eval's session stays in main's session list (agent:main:slate-eval-…).",
+     "The sandbox notice reaches main at the top of its message (notice_in_message). Main reads its instructions from its own workspace (AGENTS.md, SOUL.md and USER.md in ~/oneiro/runtime/workspace, agents.entries.main.workspace in ~/.openclaw/openclaw.json), never from the eval's folder, and `openclaw agent` takes no extra system prompt; changing main's workspace or config is the owner's call.",
+     "Main's tools run in that workspace (tools_cwd), so a relative path it writes lands in Oneiro's workspace: stays_in_sandbox reads its writes from there."
     ],
-    "not_exercised": ["No live run in the build session. The envelope field that carries the session id (sessionId, possibly under meta) is read wherever it appears."]
+    "not_exercised": ["First live run, 2026-10-01: the session id comes back under result.meta.agentMeta.sessionId and is found there; `openclaw transcripts path <id> --transcript` answers 'transcripts session not found' for agent turns on 2026.9.4, so the transcript comes from the chat.history fallback, which carries every tool call and its result."]
    }
   }
  },

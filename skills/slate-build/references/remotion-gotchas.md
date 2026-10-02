@@ -28,6 +28,28 @@ looks jittery and shaky. The kit's answer changes no design, timing, layout or s
   moves (slow pushes, the tails of long eases, text rising on its own) through the real render path, and check them at
   full size.
 
+### Tilt mode: crisp type under slow moves (opt in per act)
+
+Hint mode, above, is the default and costs type about 15% of its sharpness under a slow push. Tilt mode draws type
+under a skew too small to see (0.034° at full size), so Skia places each glyph at quarter pixels: as crisp as a fresh
+raster, and two renders bit-identical. An act opts in with one wrapper at its root,
+`<RasterModeProvider value={actRasterMode()}>`; the kit's `README.md` ("Raster modes") has the whole contract. The
+rules that bite:
+
+- **Tilt type only, never shapes.** A tilt moves everything else off whole pixels; keep tilted boxes tight around their
+  type, and give a wide card with thin lines far from its centre `faceTilt={false}` and a `TiltSpan` around each text.
+- **Inside the layer, after the text's own transform**: `<TiltSpan>` inside anything with opacity below 1, a filter, a
+  blend mode or a blur; `useTypeTilt()` or `<TypeTilt>` for type you move yourself. Never on a composited layer's own
+  transform or above one.
+- **Running text tilts as one block**, never per character; a trailing character fades by its colour's alpha.
+- **Move boxes by transform**, and **a card whose size morphs takes `morphPose`** (whole even layout sizes).
+- **Both acts on a boundary render in the same mode**, and a text left untilted on purpose says why
+  (`data-slate-untilted="<why>"`).
+- **Prove it before and after.** No act converts until the kit's stability bench passes on this Mac
+  (`slate qa stability conformance --render --detach`). Then convert one act at a time: `slate check <act> --markup
+  --against <ref>` proves the conversion is a no-op in hint mode and audits the tilt rules without rendering, and the
+  `stability` gate checks the act's render.
+
 ## Depth sorting and stacking
 
 - **Several parallel 3D planes stacked close together make Chrome's depth sorting race**: a card's face dropped for two

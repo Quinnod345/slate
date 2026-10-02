@@ -114,7 +114,9 @@ export const MEANINGS: Record<string, MotifGesture['kind'][]> = {
  * Track entries for a meaning at a contact (film seconds): gesture('thinking', {t: …, cycles: 2}). Extra options go to
  * every gesture the meaning uses. The first step lands on the contact; each step after it starts once the one before
  * has ended and 4 still frames have passed (the rig's combination rules), so a meaning's own steps never crowd each
- * other: the hello's entrance lands, then the mark grows.
+ * other: the hello's entrance lands, then the mark grows. A meaning keyed to a word (`word`, `occ`, and its stressed
+ * syllable's `stress_start` and `stress_end` where the act has them) keys only its first step: that's the one that
+ * lands on the word.
  */
 export function gesture(meaning: string, opts: Record<string, unknown> & {t?: number; frame?: number}): MotifGesture[] {
   const brandMeanings = ((brandPack().motif as {gestures?: Record<string, string[]>} | null | undefined)?.gestures ?? {}) as Record<string, string[]>;
@@ -129,6 +131,7 @@ export function gesture(meaning: string, opts: Record<string, unknown> & {t?: nu
       const [mine] = gestureSpans([{...g, frame: 0, t: undefined} as MotifGesture]);
       const frame = p.end + STILL_FRAMES - mine.start;
       delete (g as {t?: number}).t;
+      for (const k of ['word', 'occ', 'stress_start', 'stress_end']) delete (g as Record<string, unknown>)[k];
       (g as {frame: number}).frame = frame;
     }
     out.push(g);

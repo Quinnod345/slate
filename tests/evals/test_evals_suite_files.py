@@ -140,3 +140,26 @@ def test_selecting_an_unknown_case_is_a_usage_error(real_cases):
         suite.select(real_cases, ids=["no-such-case"])
     pairs = suite.select(real_cases, groups=["negative"], configs=["codex"])
     assert pairs and all(c.group == "negative" and cid == "codex" for c, cid in pairs)
+
+
+def test_containment_is_global_and_every_rule_is_in_the_notice(real_configs):
+    assert {"stays_in_sandbox", "no_foreign_access", "no_browser"} <= set(real_configs["global_checks"])
+    notice = real_configs["eval_env"]["notice"]
+    assert notice["files"] == ["AGENTS.md", "CLAUDE.md"] and "{notice}" in notice["message"]
+    text = " ".join((EVALS / notice["template"]).read_text().split())
+    for rule in ("This is an eval", "Every write stays inside this run's folder", "{pair_dir}", "{workdir}",
+                 "Use the Slate environment you're given", "Obsidian vault",
+                 "project status page", "Oneiro's memory", "localhost:3333", "/feel", "/index-turn",
+                 "mac-cua's HTTP bridge", "credential files", "bridge-token", "auth.json",
+                 "Never run a real app outside this case's own fixtures"):
+        assert rule in text, rule
+    assert len(text) < 2500, "it rides along in every sandbox and in OpenClaw's message: keep it short"
+    assert real_configs["eval_env"]["shared_locks"]["resources"] == ["render"]
+
+
+def test_openclaw_gets_the_notice_in_its_message_and_codex_loses_oneiros_memory(real_configs):
+    claw = real_configs["configurations"]["openclaw"]
+    assert claw["notice_in_message"] is True and claw["tools_cwd"] == "{home}/oneiro/runtime/workspace"
+    for cid in ("claude-code", "codex", "pursuit-slice"):
+        assert not real_configs["configurations"][cid].get("notice_in_message"), cid
+    assert "mcp_servers.oneiro-memory.enabled=false" in real_configs["configurations"]["codex"]["argv"]

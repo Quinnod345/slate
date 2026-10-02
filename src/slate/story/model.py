@@ -158,6 +158,19 @@ def remap_text(value: Any, mapping: dict[str, str]) -> Any:
     return fix(value)
 
 
+# The motion law's transitions (slate.qa.checks.picture.TRANSITIONS sorts a shot's own words into them).
+TRANSITION_KINDS = ("carry", "portal", "mask", "whip", "ui_cut", "music_cut", "seam")
+
+
+def transition_words(value) -> str:
+    """A shot's transition as a person reads it: its own words, or "<kind>: <note>" for the {kind, note} form."""
+    if isinstance(value, dict):
+        kind = str(value.get("kind") or "").strip()
+        note = str(value.get("note") or "").strip()
+        return f"{kind}: {note}" if kind and note else (kind or note)
+    return str(value or "")
+
+
 def plan(script: dict, *, timing: dict, takes: dict | None = None, use_takes: bool = False,
          lang: str = "en", default_enter_token: str | None = None) -> Plan:
     """Ids and lengths for every shot. `takes` maps output id -> Take (or {"read_seconds", …}) when voicing exists."""

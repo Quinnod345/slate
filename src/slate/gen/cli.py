@@ -68,13 +68,16 @@ def _estimate(args: argparse.Namespace) -> int:
 
 def _run(args: argparse.Namespace) -> int:
     film = cli.film(args)
-    if args.detach:
+    dry = cli.dry_run(args)
+    if args.detach and not dry:  # a dry run is the estimate below, never a queued job
         return _detach(args, film)
     result = gen_run.run(film, args.shot, takes=args.takes, approval=args.approval, force=args.force,
-                         timeout_s=args.timeout, dry_run=bool(cli.flag(args, "dry_run", False)))
+                         timeout_s=args.timeout, dry_run=dry)
     if result.get("dry_run"):
+        result["queued"] = bool(args.detach)
         human = (f"would generate {result['new_takes']} new take(s) of {args.shot} on {result['model']} "
-                 f"({_money(result['estimate_usd_new'])}), resuming {len(result['resuming'])}")
+                 f"({_money(result['estimate_usd_new'])}), resuming {len(result['resuming'])}"
+                 + (", as a queued job" if args.detach else ""))
         return _say_json(result, human)
     lines = [f"{args.shot} on {result['model']}: {result['completed']} take(s) finished"]
     for t in result.get("takes", []):
@@ -100,6 +103,9 @@ def _detach(args: argparse.Namespace, film) -> int:
     if cli.flag(args, "live", False):
         argv.append("--live")
     mode = policy.mode(deps.load_film(film))
+    if cli.dry_stop(args, f"queue the generation of {args.shot} as a job holding the Higgsfield slot", queued=True,
+                    argv=argv):
+        return 0  # the job's argv carries no --dry-run: a dry run must never reach submit
     job_id = jobs.submit("generation", argv, film=str(film), resources=("higgsfield",),
                          priority="autonomous" if mode == "autonomous" else "supervised")
     return _say_json({"job": job_id, "shot": args.shot}, f"queued as job {job_id}: slate job status {job_id}")
@@ -107,7 +113,7 @@ def _detach(args: argparse.Namespace, film) -> int:
 
 def _takes(args: argparse.Namespace) -> int:
     film = cli.film(args)
-    rec = gen_run.takes(film, args.shot, refresh=args.refresh)
+    rec = gen_run.takes(film, args.shot, refresh=args.refresh and not cli.dry_run(args))  # a dry run polls nothing
     lines = [f"{args.shot} on {rec.get('model')} (wants {rec.get('takes_wanted')}):"]
     for t in rec.get("takes", []):
         lines.append(f"  {t['id']}  {t['status']:<10} {t.get('verdict'):<9} {t.get('request_id') or ''}  "
@@ -117,6 +123,9 @@ def _takes(args: argparse.Namespace) -> int:
 
 def _judge(args: argparse.Namespace) -> int:
     film = cli.film(args)
+    if cli.dry_stop(args, f"decode {args.shot}'s takes into a contact sheet ({args.samples} frames a take) and record "
+                          "its REVIEW gate"):
+        return 0
     result = judge.judge(film, args.shot, samples=args.samples, width=args.width)
     lines = [f"{args.shot}: contact sheet {result['sheet']} (REVIEW: a person picks)"]
     for m in result["takes"]:
@@ -131,6 +140,10 @@ def _judge(args: argparse.Namespace) -> int:
 
 def _pick(args: argparse.Namespace) -> int:
     film = cli.film(args)
+    if cli.dry_stop(args, f"record {args.by}'s verdict on {args.shot}: "
+                          + "; ".join(x for x in (f"approve {args.take} and lock it" if args.take else "",
+                                                  f"reject {', '.join(args.reject)}" if args.reject else "") if x)):
+        return 0
     result = judge.pick(film, args.shot, take_id=args.take, by=args.by, reject=args.reject, why=args.why,
                         note=args.note)
     gate = result["gate"]
@@ -141,6 +154,10 @@ def _pick(args: argparse.Namespace) -> int:
 
 def _cancel(args: argparse.Namespace) -> int:
     film = cli.film(args) if (args.shot or not args.request) else None
+    what = f"request {args.request}" if args.request else f"{args.shot}'s running takes" + (
+        f" ({args.take})" if args.take else "")
+    if cli.dry_stop(args, f"cancel {what} on Higgsfield and record it"):
+        return 0
     result = gen_run.cancel(film, shot_id=args.shot, take_id=args.take, request_id=args.request)
     lines = [f"{r.get('take', r.get('request_id'))}: "
              + ("canceled" if r.get("canceled") else r.get("summary", "not canceled"))
@@ -150,6 +167,10 @@ def _cancel(args: argparse.Namespace) -> int:
 
 def _request_approval(args: argparse.Namespace) -> int:
     film = cli.film(args)
+    if cli.dry_stop(args, f"write an approval request for {args.shot}'s generation"
+                          + (f" ({args.takes} takes)" if args.takes else "")
+                          + " and send it to the owner by iMessage and push", sends=True):
+        return 0
     req = gen_run.request_approval(film, args.shot, takes=args.takes)
     sent = req["notify"]
     human = (f"approval {req['id']} written to {req['file']}\n{req['message']}\n"
@@ -161,6 +182,8 @@ def _request_approval(args: argparse.Namespace) -> int:
 
 def _approve(args: argparse.Namespace) -> int:
     film = cli.film(args)
+    if cli.dry_stop(args, f"record {args.by}'s yes to {args.id}"):
+        return 0
     result = gen_run.approve(film, args.id, by=args.by, note=args.note)
     return _say_json(result, f"{args.id} approved by {args.by} (recorded as {result.get('yes')}): "
                              f"slate gen run --shot {result['shot']} --approval {args.id}")
@@ -196,6 +219,10 @@ def _plan(args: argparse.Namespace) -> int:
 
 def _conform(args: argparse.Namespace) -> int:
     film = cli.film(args)
+    if cli.dry_stop(args, f"conform {args.shot}'s approved take to a JPEG sequence at the film's rate ({args.method}, "
+                          f"fit {args.fit})" + ("" if args.no_audio else ", with its ambience")
+                          + (", and a ProRes copy" if args.prores else "")):
+        return 0
     result = plates.conform(film, args.shot, method=args.method, fit=args.fit, frames=args.frames,
                             audio=not args.no_audio, prores=args.prores)
     f = result["frames"]
@@ -212,6 +239,8 @@ def _matte(args: argparse.Namespace) -> int:
             params = json.loads(args.params)
         except json.JSONDecodeError as exc:
             raise UsageError(f"--params isn't JSON: {exc}") from exc
+    if cli.dry_stop(args, f"build {args.shot}'s bridge matte frames and record them"):
+        return 0
     result = matte.build(film, args.shot, base=args.base, real=args.real, duration=args.duration, params=params,
                          preview=args.preview)
     f = result["frames"]
@@ -222,6 +251,8 @@ def _track(args: argparse.Namespace) -> int:
     film = cli.film(args)
     params = {k: v for k, v in (("sat_min", args.sat), ("val_min", args.val), ("points", args.points),
                                 ("every", args.every)) if v is not None}
+    if cli.dry_stop(args, f"track {args.shot}'s edge and write its track"):
+        return 0
     result = track.run(film, args.shot, hue=args.hue, frames_dir=args.frames, params=params, until=args.until)
     lo, hi = result["y_range"]
     return _say_json(result, f"{args.shot}: {result['samples']} samples, edge between y {lo:.0f} and {hi:.0f} px "

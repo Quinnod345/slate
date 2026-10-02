@@ -104,3 +104,76 @@ describe('the gate', () => {
     expect(Object.keys(g).sort()).toEqual(['checked_at', 'details', 'engine', 'evidence', 'gate', 'inputs', 'status', 'summary']);
   });
 });
+
+describe('the hold on the first frame', () => {
+  // the kit's real module: holdFirstFrame with the Remotion calls and the gate run injected
+  const PLAN = {faces: [{family: 'Hold Sans', weights: [400], styles: ['normal']}], problems: []} as never;
+  const OTHER = {faces: [{family: 'Other Serif', weights: [700], styles: ['normal']}], problems: []} as never;
+  const PASS = {status: 'PASS', summary: '1 face rendered as declared', faces: [], failures: [], warnings: []} as never;
+  const FAIL = {status: 'FAIL', summary: 'Hold Sans was substituted', faces: [], failures: ['Hold Sans'], warnings: []} as never;
+
+  function deps(run: () => Promise<unknown>) {
+    const calls = {delay: 0, released: [] as number[], failed: [] as unknown[]};
+    return {
+      calls,
+      deps: {
+        delayRender: () => 100 + ++calls.delay,
+        continueRender: (h: number) => void calls.released.push(h),
+        cancelRender: (e: unknown) => void calls.failed.push(e),
+        run: run as never,
+      },
+    };
+  }
+
+  beforeEach(async () => (await import('@slate/kit')).resetFontGate());
+
+  it('is taken once per page for a plan, however often a gate renders, and released by the gate itself', async () => {
+    const {holdFirstFrame} = await import('@slate/kit');
+    let pass!: (r: unknown) => void;
+    const {calls, deps: d} = deps(() => new Promise((r) => (pass = r)));
+    const first = holdFirstFrame(PLAN, d);
+    // a second render, a remount, or a render React threw away: the same hold, never a second one to strand
+    expect(holdFirstFrame(PLAN, d)).toBe(first);
+    expect(holdFirstFrame(PLAN, d)).toBe(first);
+    expect(calls.delay).toBe(1);
+    expect(first.settled).toBe(false);
+    pass(PASS); // no component effect involved: the gate's own result releases the hold
+    expect(await first.done).toBe(true);
+    expect(calls.released).toEqual([first.handle]);
+    expect(calls.failed).toEqual([]);
+    expect(first.settled && first.ok).toBe(true);
+    // a gate that mounts after the faces passed starts ready, and takes nothing
+    expect(holdFirstFrame(PLAN, d).ok).toBe(true);
+    expect(calls.delay).toBe(1);
+  });
+
+  it('fails the render once, loudly, when the faces do not pass or the gate throws', async () => {
+    const {holdFirstFrame, resetFontGate} = await import('@slate/kit');
+    const bad = deps(() => Promise.resolve(FAIL));
+    const failed = holdFirstFrame(PLAN, bad.deps);
+    expect(await failed.done).toBe(false);
+    expect(bad.calls.released).toEqual([]);
+    expect(bad.calls.failed).toHaveLength(1);
+    expect(String(bad.calls.failed[0])).toMatch(/Font gate failed: Hold Sans was substituted/);
+    resetFontGate();
+    const broken = deps(() => Promise.reject(new Error('the stylesheet never loaded')));
+    const threw = holdFirstFrame(PLAN, broken.deps);
+    expect(await threw.done).toBe(false);
+    expect(broken.calls.released).toEqual([]);
+    expect(String(broken.calls.failed[0])).toMatch(/never loaded/);
+  });
+
+  it('holds once per plan, and forgets its holds on reset (a review sheet switching brands)', async () => {
+    const {holdFirstFrame, resetFontGate} = await import('@slate/kit');
+    const {calls, deps: d} = deps(() => Promise.resolve(PASS));
+    const a = holdFirstFrame(PLAN, d);
+    const b = holdFirstFrame(OTHER, d);
+    expect(b).not.toBe(a);
+    expect(calls.delay).toBe(2);
+    await Promise.all([a.done, b.done]);
+    expect(calls.released.sort()).toEqual([a.handle, b.handle].sort());
+    resetFontGate();
+    holdFirstFrame(PLAN, d);
+    expect(calls.delay).toBe(3);
+  });
+});

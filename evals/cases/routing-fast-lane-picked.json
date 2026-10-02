@@ -7,6 +7,7 @@
  "why": "The fast lane is used when someone picks it. Here the requester picks it up front, with no brand involved, so the agent should take it rather than ask again or start a film.",
  "prompt": "Quick generated clip please, not a full production: eight seconds of rain running down a window at night.",
  "configs": ["claude-code", "codex", "pursuit-slice", "openclaw"],
+ "needs_eval_env": true,
  "expect": [
   {"check": "fast_lane_used"},
   {"check": "slate_not_ran", "id": "no_production", "subs": ["new"], "why": "no film folder for a picked quick clip"},
@@ -15,5 +16,5 @@
    ["(?i)quick(?:ly)?\\b.{0,30}\\bclip", "(?i)generated (?:clip|video)", "(?i)fast lane"]
   ], "why": "the requester already answered the lane question"}
  ],
- "notes": "The fast lane can't spend during an eval: Higgsfield's app credits aren't funded, Claude Code's run denies the higgsfield CLI, and Slate's Cloud API calls stay in replay. Loading the fast-lane skill or trying the CLI is what counts as using it."
+ "notes": "The fast lane can't spend during an eval where the eval environment reaches the agent's tools: the Higgsfield CLI is signed out in the sandbox, Claude Code's run denies the higgsfield CLI, and Slate's Cloud API calls stay in replay. Loading the fast-lane skill or trying the CLI is what counts as using it. It needs the eval environment (needs_eval_env) because OpenClaw main's tools don't get it: on 2026-10-01 main ran `higgsfield generate create seedance_2_5` with the owner's own sign-in, and only the Gateway's egress proxy stopped it, so on OpenClaw it runs only with --allow-host-env."
 }

@@ -145,6 +145,10 @@ def _cap_value(text: str) -> float | None:
 
 def cmd_budget_set(args: argparse.Namespace) -> int:
     approval = None if args.approval_required is None else args.approval_required == "yes"
+    if slate_cli.dry_stop(args, f"set the {args.mode} {args.provider} monthly cap to {args.cap}"
+                                + ("" if approval is None else f" (approval required: {args.approval_required})")
+                                + f" in {paths.budget_file()}"):
+        return 0
     change = ledger.set_cap(args.mode, args.provider, _cap_value(args.cap), approval_required=approval)
     unit = ledger.UNITS.get(change["provider"], "credits")
     log.result(change, f"{change['mode']} {change['provider']}: monthly cap {_fmt(change['from'], unit)} → "
@@ -182,6 +186,9 @@ def cmd_budget_film(args: argparse.Namespace) -> int:
             provider = budgeted[0]
         else:
             raise UsageError("Which budget? Pass --provider elevenlabs or --provider higgsfield.")
+    if slate_cli.dry_stop(args, f"record {args.approved_by}'s yes to raise film {fj.get('id')}'s {provider} budget by "
+                                f"{args.raise_by:g}"):
+        return 0
     event = ledger.raise_film_budget(fj, provider, args.raise_by, approved_by=args.approved_by, note=args.note)
     after = ledger.film_limits(fj)["providers"][event["provider"]]
     out = {"raise": event, "budget": after}
@@ -231,7 +238,11 @@ def cmd_ledger_inflight(args: argparse.Namespace) -> int:
         row["abandoned"] = resume.abandoned(row)
     out: dict = {"rows": items, "count": len(items)}
     lines = [(_row_line(r) + ("  ABANDONED (its process is gone)" if r["abandoned"] else "")) for r in items]
-    if args.recover:
+    if args.recover and slate_cli.dry_run(args):  # recovering closes and re-checks rows: a dry run lists them
+        out["dry_run"] = True
+        lines.append(f"dry run: would recover {sum(1 for r in items if r['abandoned'])} abandoned row(s); nothing "
+                     "changed")
+    elif args.recover:
         outcomes = resume.recover()
         out["recovered"] = outcomes
         lines += [f"{o['row']}: {o['action']}" for o in outcomes] or ["nothing abandoned to recover"]
@@ -259,8 +270,11 @@ def cmd_ledger_snapshot(args: argparse.Namespace) -> int:
         raise UsageError("Pass --provider NAME (or --all for every provider Slate can read by itself).")
     if args.balance is not None and not args.provider:
         raise UsageError("--balance goes with one --provider.")
-    taken, skipped = [], []
     providers = [args.provider] if args.provider else list(ledger.PROVIDERS)
+    if slate_cli.dry_stop(args, f"read and record the balance of {', '.join(providers)} in the ledger"
+                                + (f" as {args.balance:g}" if args.balance is not None else "")):
+        return 0
+    taken, skipped = [], []
     for provider in providers:
         if args.balance is not None:
             taken.append(ledger.snapshot(provider, args.balance, session=args.session, source="person",

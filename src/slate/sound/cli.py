@@ -19,7 +19,7 @@ import argparse
 from pathlib import Path
 
 from slate import log
-from slate.cli import add_command, add_group, film
+from slate.cli import add_command, add_group, dry_stop, film
 from slate.errors import UsageError
 
 
@@ -77,6 +77,10 @@ def _score_assemble(args: argparse.Namespace) -> int:
             raise UsageError(f"--pick takes PART=sSEED (for example act2=s21), not {item!r}.")
         k, v = item.split("=", 1)
         picks[k.strip()] = v.strip()
+    if dry_stop(args, "place, join" + ("" if args.no_repairs else " and repair") + " the score's takes"
+                          + (f" (picks: {', '.join(f'{k}={v}' for k, v in picks.items())})" if picks else "")
+                          + " and write sound/score/score.wav and score.json"):
+        return 0
     rec = assemble.assemble(film(args), picks, out=args.out, repairs=not args.no_repairs)
     log.result(rec, assemble.describe(rec) + ("\nNext: `slate mix`." if rec["pass"] else ""))
     return 0 if rec["pass"] else 1
@@ -117,6 +121,9 @@ def _mix(args: argparse.Namespace) -> int:
     from slate.sound.film import load  # noqa: PLC0415
 
     if getattr(args, "listen", None):
+        if dry_stop(args, f"render a listening file of the {int(args.listen)} hardest-ridden accent(s), before "
+                              "their ride and now"):
+            return 0
         rec = mix.listening_file(film(args), n=int(args.listen))
         log.result(rec, f"{rec['file']}: {len(rec['excerpts'])} excerpt(s) of the {rec['rides_heard']} hardest-ridden "
                         "accent(s), each as mixed before its ride and now, over " + str(rec["picture"]))
@@ -153,6 +160,10 @@ def _verify(args: argparse.Namespace) -> int:
     from slate import gates  # noqa: PLC0415
     from slate.sound import verify  # noqa: PLC0415
 
+    if dry_stop(args, f"run the sound gates ({', '.join(args.gates) if args.gates else 'all of them'}) on the mix, "
+                          "here (not queued)" + ("" if args.no_write else ", and record them in qa/gates.json and "
+                                                                          "sound/mix/verify.json")):
+        return 0
     results = verify.run(film(args), args.gates or None, write=not args.no_write)
     log.result({"summary": gates.summarize(results), "gates": [r.to_dict() for r in results]},
                gates.format_table(results))

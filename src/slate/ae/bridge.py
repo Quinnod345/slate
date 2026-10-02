@@ -181,8 +181,35 @@ def parse_status(pkg: dict | None, *, pin: str, prefs_info: dict | None, doctor:
     }
 
 
-def status(*, run_doctor: bool = False, runner: Runner | None = None) -> dict:
-    """The bridge's status (see parse_status). Reads files only; `run_doctor` also runs the bridge's offline doctor."""
+def _ae_windows() -> dict:
+    """AE's window titles through System Events (doctor's reader): {running, windows | None, error}."""
+    from slate.doctor.env import Env  # noqa: PLC0415
+
+    return Env().ae_windows()
+
+
+def open_dialogs(windows: Callable[[], dict] | None = None) -> dict:
+    """AE's launch-time dialogs as the bridge reports them: {open_dialogs: [{kind, title}], dialogs_readable}.
+
+    The bridge can't see a dialog (its mailbox only runs when AE's main window does), so this reads AE's window
+    titles through System Events (doctor's reader: it never launches AE, and asks only when AE is already open) and
+    sorts them with doctor's classifier. With AE closed nothing is asked and nothing is open."""
+    if not procs.ae_running():
+        return {"open_dialogs": [], "dialogs_readable": True}
+    from slate.doctor import aftereffects as doctor_ae  # noqa: PLC0415 - doctor knows AE's dialogs
+
+    got = (windows or _ae_windows)()
+    titles = got.get("windows")
+    if titles is None:
+        return {"open_dialogs": [], "dialogs_readable": False}
+    found = [{"kind": k, "title": str(t)[:120]} for t in titles if (k := doctor_ae.classify_dialog(t))]
+    return {"open_dialogs": found, "dialogs_readable": True}
+
+
+def status(*, run_doctor: bool = False, runner: Runner | None = None, dialogs: bool = True) -> dict:
+    """The bridge's status (see parse_status). Reads files only, plus AE's window titles when AE is open (its launch
+    dialogs, `open_dialogs`); `run_doctor` also runs the bridge's offline doctor. Doctor passes dialogs=False: it reads
+    AE's windows itself in the same pass."""
     pkg_dir = package_dir()
     pkg = read_package(pkg_dir)
     try:
@@ -195,8 +222,15 @@ def status(*, run_doctor: bool = False, runner: Runner | None = None) -> dict:
         if node:
             proc = (runner or procs.run)([node, str(pkg_dir / "dist" / "cli.js"), "doctor"], timeout=60)
             doctor = parse_doctor(getattr(proc, "stdout", ""))
-    return parse_status(pkg, pin=pinned(), prefs_info=info, doctor=doctor, acceptance=last_acceptance(),
-                        looks_found=installed_looks(pkg_dir), where=str(pkg_dir) if pkg_dir else None)
+    out = parse_status(pkg, pin=pinned(), prefs_info=info, doctor=doctor, acceptance=last_acceptance(),
+                       looks_found=installed_looks(pkg_dir), where=str(pkg_dir) if pkg_dir else None)
+    if dialogs:
+        out.update(open_dialogs())
+        if out["open_dialogs"]:
+            first = out["open_dialogs"][0]
+            out["next"].insert(0, f"After Effects is showing a launch dialog (\u201c{first['title'][:60]}\u201d): dismiss it "
+                                  "yourself before any AE step (scripts can't)")
+    return out
 
 
 # ---------------------------------------------------------------------------------------------------------------

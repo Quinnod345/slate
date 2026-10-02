@@ -76,8 +76,14 @@ def parse_psnr_stats(text: str) -> list[float]:
     return [v for _, v in sorted(vals)]
 
 
+# Frame i of each side at i × 40 ms on a 1 ms clock: ffmpeg pairs two inputs by time, so renumbering both by their
+# frame count pairs them frame for frame, whatever timestamps their containers kept.
+INDEX_CLOCK = "settb=1/1000,setpts=N*40"
+
+
 def video_psnr(a: str | Path, b: str | Path | Sequence[str | Path], *, pix_fmt: str = "yuv422p10le",
-               timeout: float = 7200) -> list[float]:
+               timeout: float = 7200, a_frames: tuple[int, int] | None = None,
+               b_frames: tuple[int, int] | None = None) -> list[float]:
     """PSNR of every frame of `a` against `b`, frame for frame, measured by ffmpeg's psnr filter.
 
     `b` may be a list of files, joined in order (the act renders a master was built from). Both sides are converted
@@ -85,6 +91,15 @@ def video_psnr(a: str | Path, b: str | Path | Sequence[str | Path], *, pix_fmt: 
     was encoded as. The comparison stops at the shorter input (eof_action=endall: by default ffmpeg would repeat
     the shorter side's last frame, and a missing tail would read as low PSNR instead of missing frames), so compare
     the counts yourself.
+
+    Frames pair by their place in each file, not by their timestamps: both sides are renumbered on one clock
+    (`INDEX_CLOCK`) before ffmpeg pairs them. Paired by time, two containers that round the same frame times
+    differently (Matroska to the millisecond, QuickTime to 1/30000 s) matched a third of the frames with their
+    neighbours, and pairing by the nearest time lost the last frame.
+
+    `a_frames` and `b_frames` (first and last frame, inclusive, counted from 0) compare a stretch of either side, so a
+    shot is held against the same frames of a whole delivered act without cutting a file first. Each range is trimmed
+    by frame count inside the filter graph, and both sides restart their clocks at 0, so the frames pair one for one.
     """
     media.require("ffmpeg")
     parts = [b] if isinstance(b, (str, Path)) else list(b)
@@ -96,7 +111,12 @@ def video_psnr(a: str | Path, b: str | Path | Sequence[str | Path], *, pix_fmt: 
             lst.write_text("".join(f"file '{_concat_escape(Path(p).resolve())}'\n" for p in parts), encoding="utf-8")
             second = ["-f", "concat", "-safe", "0", "-i", str(lst)]
         stats = Path(tmp) / "psnr.log"
-        graph = (f"[0:v]format={pix_fmt}[a];[1:v]format={pix_fmt}[b];"
+        def side(rng: tuple[int, int] | None) -> str:
+            # trim's end_frame is the first frame it drops; the clock then numbers what's left from 0
+            trim = f"trim=start_frame={int(rng[0])}:end_frame={int(rng[1]) + 1}," if rng is not None else ""
+            return f"{trim}{INDEX_CLOCK},"
+
+        graph = (f"[0:v]{side(a_frames)}format={pix_fmt}[a];[1:v]{side(b_frames)}format={pix_fmt}[b];"
                  f"[a][b]psnr=stats_file='{_filter_escape(stats)}':eof_action=endall")
         media._run(["ffmpeg", "-v", "error", "-nostdin", "-i", str(a), *second, "-lavfi", graph, "-an", "-f", "null",
                     "-"], timeout=timeout)

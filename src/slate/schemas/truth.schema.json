@@ -29,7 +29,9 @@
     "type": "object",
     "required": ["id", "text", "source"],
     "properties": {"id": {"type": "string"}, "text": {"type": "string"}, "source": {"type": "string"},
-                   "where": {"type": "string"}, "numbers": {"type": "array"}}
+                   "where": {"type": "string", "description": "where in the source the claim stands: path:line or path:first-last"},
+                   "quote": {"type": "string", "description": "the source's exact words (product copy) at `where`; the script's quote gate checks they're still there"},
+                   "numbers": {"type": "array"}}
    }
   },
   "never_claim": {"type": "array", "items": {"oneOf": [{"type": "string"},

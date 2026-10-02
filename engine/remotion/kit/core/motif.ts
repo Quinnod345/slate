@@ -110,7 +110,17 @@ export function motifSpec(raw?: Record<string, unknown> | null, pack?: BrandPack
 }
 
 // --------------------------------------------------------------------------------------------------------- gestures
-type When = {t?: number; frame?: number};
+/**
+ * When a gesture lands: `frame`, or `t` in film seconds, on a whole frame. A gesture keyed to a word of the voice also
+ * names the word (`word`, and `occ` for a repeat) and, where the act has them, its stressed syllable's start and end in
+ * film seconds (`stress_start`, `stress_end`). The sync gate holds the gesture to landing on or before that syllable
+ * ends (else the word's end). With a syllable and no frame or t, it lands on the contact: the syllable's first frame
+ * plus 2 (contactAt).
+ */
+type When = {t?: number; frame?: number; word?: string; occ?: number; stress_start?: number; stress_end?: number};
+
+/** The frames a gesture keyed to a stressed syllable lands after that syllable starts (the films' contact rule). */
+export const CONTACT_LEAD = 2;
 export type MotifGesture =
   | (When & {kind: 'enter'; from?: number; spin?: number; dur?: number})
   | (When & {kind: 'exit'; to?: number; spin?: number; dur?: number})
@@ -130,10 +140,27 @@ export type GestureKind = MotifGesture['kind'];
 /** Every gesture the rig draws, one cell each on the gesture sheet (review.tsx GestureSheet). */
 export const GESTURE_KINDS: readonly GestureKind[] = ['enter', 'exit', 'pulse', 'grow', 'turn', 'breathe', 'wave', 'ripple', 'lean', 'hold', 'home'];
 
-/** The contact frame of a gesture (where its key pose lands): `frame`, or `t` in film seconds on a whole frame. */
+/**
+ * The contact frame of a gesture (where its key pose lands): `frame`, or `t` in film seconds on a whole frame, or for
+ * a gesture keyed to a stressed syllable with neither, that syllable's first frame plus CONTACT_LEAD.
+ */
 export function contactFrame(g: When): number {
   if (typeof g.frame === 'number') return Math.round(g.frame);
+  if (typeof g.t !== 'number' && typeof g.stress_start === 'number' && Number.isFinite(g.stress_start)) return frameOf(g.stress_start) + CONTACT_LEAD;
   return frameOf(g.t ?? 0);
+}
+
+/** What a gesture keyed to a word says about it, for its beat: {word, occ?, stress_start?, stress_end?}, or null. */
+export function wordKey(g: When): Pick<MotifBeat, 'word' | 'occ' | 'stress_start' | 'stress_end'> | null {
+  if (typeof g.word !== 'string' || !g.word.trim()) return null;
+  const out: Pick<MotifBeat, 'word' | 'occ' | 'stress_start' | 'stress_end'> = {word: g.word.trim()};
+  if (typeof g.occ === 'number' && g.occ > 1) out.occ = Math.round(g.occ);
+  const ok = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+  if (ok(g.stress_start) && ok(g.stress_end) && g.stress_end >= g.stress_start) {
+    out.stress_start = g.stress_start;
+    out.stress_end = g.stress_end;
+  } else if (ok(g.stress_end)) out.stress_end = g.stress_end;
+  return out;
 }
 
 /** Layout: the mark's centre and diameter in the layer it is drawn in (px). */
@@ -604,7 +631,19 @@ export function isCalm(spec: MotifSpec, pose: MotifPose, eps = 1e-9): boolean {
 }
 
 // -------------------------------------------------------------------------------------------------------------- sound
-export type MotifBeat = {frame: number; t: number; gesture: GestureKind; kind: 'character'; size: 's' | 'm' | 'l'; note: string};
+export type MotifBeat = {
+  frame: number;
+  t: number;
+  gesture: GestureKind;
+  kind: 'character';
+  size: 's' | 'm' | 'l';
+  note: string;
+  /** on the contact of a gesture keyed to a word: the word, its occurrence, and its stressed syllable where known */
+  word?: string;
+  occ?: number;
+  stress_start?: number;
+  stress_end?: number;
+};
 
 const PRIORITY: GestureKind[] = ['turn', 'hold', 'wave', 'pulse', 'ripple', 'breathe', 'enter', 'exit', 'grow', 'home', 'lean'];
 
@@ -617,10 +656,17 @@ const PRIORITY: GestureKind[] = ['turn', 'hold', 'wave', 'pulse', 'ripple', 'bre
 export function motifBeats(track: MotifTrack, spec?: MotifSpec, opts: Omit<PoseOptions, 'spec'> = {}): MotifBeat[] {
   const s = spec ?? motifSpec().spec;
   const rows: MotifBeat[] = [];
-  const add = (frame: number, gesture: GestureKind, size: MotifBeat['size'], note: string) => rows.push({frame, t: secOf(frame), gesture, kind: 'character', size, note});
+  // the gesture's word (and its stressed syllable) goes on its contact row only: later rows of the same gesture (a
+  // wave's steps, the second group's landing) follow it and aren't keyed to the word
+  let keyed: ReturnType<typeof wordKey> = null;
+  const add = (frame: number, gesture: GestureKind, size: MotifBeat['size'], note: string) => {
+    rows.push({frame, t: secOf(frame), gesture, kind: 'character', size, note, ...(keyed ?? {})});
+    keyed = null;
+  };
   // a gesture the combination rules switch off makes no sound: the picture doesn't show it
   for (const g of checkTrack(track, {...opts, spec: s}).allowed) {
     const C = contactFrame(g);
+    keyed = wordKey(g);
     switch (g.kind) {
       case 'turn':
         add(C, 'turn', 's', 'the mark turns and lands on itself');
@@ -661,13 +707,22 @@ export function motifBeats(track: MotifTrack, spec?: MotifSpec, opts: Omit<PoseO
         break;
     }
   }
-  // one sound per frame, by priority
+  // one sound per frame, by priority; a word another gesture was keyed to on that frame stays with the frame's sound
   const byFrame = new Map<number, MotifBeat>();
   for (const r of rows) {
     const cur = byFrame.get(r.frame);
-    if (!cur || PRIORITY.indexOf(r.gesture) < PRIORITY.indexOf(cur.gesture)) byFrame.set(r.frame, r);
+    if (!cur || PRIORITY.indexOf(r.gesture) < PRIORITY.indexOf(cur.gesture)) {
+      const word = cur && !r.word && cur.word ? wordOfBeat(cur) : {};
+      byFrame.set(r.frame, {...r, ...word});
+    } else if (!cur.word && r.word) byFrame.set(r.frame, {...cur, ...wordOfBeat(r)});
   }
   return [...byFrame.values()].sort((a, b) => a.frame - b.frame);
+}
+
+function wordOfBeat(b: MotifBeat): Pick<MotifBeat, 'word' | 'occ' | 'stress_start' | 'stress_end'> {
+  const out: Pick<MotifBeat, 'word' | 'occ' | 'stress_start' | 'stress_end'> = {};
+  for (const k of ['word', 'occ', 'stress_start', 'stress_end'] as const) if (b[k] !== undefined) (out as Record<string, unknown>)[k] = b[k];
+  return out;
 }
 
 /**

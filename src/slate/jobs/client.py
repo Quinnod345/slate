@@ -78,6 +78,19 @@ def submit(kind: str, argv: list[str], *, film=None, resources: Iterable[str] = 
     `resumable` says the command is safe to run again after a crash (Slate's own long commands resume by frame, line
     or act). `disk_gb` is what the job will write; it won't start unless that fits above the free-space floor.
     """
+    job = plan(kind, argv, film=film, resources=resources, priority=priority, disk_gb=disk_gb, cwd=cwd,
+               resumable=resumable, max_attempts=max_attempts, note=note)
+    store.create(job)
+    if start_runner:
+        ensure_runner()
+    return job["id"]
+
+
+def plan(kind: str, argv: list[str], *, film=None, resources: Iterable[str] = (), priority: str = "supervised",
+         disk_gb: float = 0.0, cwd=None, resumable: bool = True, max_attempts: int = model.DEFAULT_MAX_ATTEMPTS,
+         note: str | None = None) -> dict:
+    """The job `submit` would queue, checked exactly as `submit` checks it, without queuing anything: the record
+    `slate job submit --dry-run` prints. Nothing is written and no runner starts."""
     if isinstance(argv, (str, bytes)):
         raise UsageError("A job's command is an argv list, never a shell string.")
     argv = [str(a) for a in argv]
@@ -103,10 +116,7 @@ def submit(kind: str, argv: list[str], *, film=None, resources: Iterable[str] = 
         disk_path=film_dir or workdir, resumable=resumable, max_attempts=max_attempts, note=note,
         context=procs.agent_context(), live=_live(), env=model.captured_env(),
     )
-    store.create(job)
-    if start_runner:
-        ensure_runner()
-    return job["id"]
+    return job
 
 
 def ensure_runner() -> str:

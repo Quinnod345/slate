@@ -468,7 +468,8 @@ class Env:
     def ae_bridge_status(self) -> dict:
         from slate.ae import bridge  # noqa: PLC0415
 
-        return bridge.status()
+        # doctor reads AE's window titles itself (launch_dialogs), so the bridge doesn't read them a second time
+        return bridge.status(dialogs=False)
 
     def ae_bridge_pin(self) -> str:
         from slate.ae import bridge  # noqa: PLC0415

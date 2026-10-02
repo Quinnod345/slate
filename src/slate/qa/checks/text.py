@@ -12,7 +12,8 @@
                 motion trace says which element shows the statement (its `text`), a moment counts only while the
                 element is at least 90% opaque and moving under 8 px a frame at 1080p (scaled to the film). A shot may
                 declare exemptions in script.json (`reading`, with a reason): a voice-matched definition needs only
-                the 1.5 s floor, and a surface not meant to be read isn't timed (reading_declarations);
+                the 1.5 s floor, and a surface not meant to be read isn't timed. `labels` (the words name what the
+                picture shows) means what it means to the script gates and buys no read time (reading_declarations);
 - captions      at most 2 lines of 42 characters, at most 17 characters a second (the format and film.json may
                 tighten these, never loosen them), at least 1 s each, in order and never overlapping, and word for
                 word the booth script (timing/captions.json, the voice module's cues, first);
@@ -250,7 +251,12 @@ def banned_words(film_dir: Path) -> GateResult:
 
 # ---------------------------------------------------------------------------------------------- read time
 READING_KEY = "reading"
-READING_FLAGS = ("not_for_reading", "voice_matched")
+READING_FLAGS = ("not_for_reading", "voice_matched", "labels")
+#: Declarations that speak for the whole shot (`true`, never a list of statements), as the script gate reads them.
+#: `labels` means what it means to the script gates (slate.story.gates.reading): the shot's on-screen words name what
+#: the picture shows (a product's own UI, a Simulator label, an end card's name and address), not a second script. It
+#: answers the script's voice-share rule and nothing else, so here it exempts nothing: its words are timed in full.
+WHOLE_SHOT_FLAGS = ("labels",)
 
 
 def _statements(ctx: FilmContext) -> tuple[list[tuple[str, str]], str | None]:
@@ -268,12 +274,16 @@ def reading_declarations(ctx: FilmContext) -> tuple[dict[str, dict], list[str]]:
     """The read-time exemptions the film declares, by shot id, and what's wrong with any of them.
 
     A shot says `"reading": {"not_for_reading": true | [statements], "voice_matched": true | [statements],
-    "reason": "…"}` in script/script.json (the one hand-edited file; the storyboard's copy wins when it carries one):
+    "labels": true, "reason": "…"}` in script/script.json (the one hand-edited file; the storyboard's copy wins when it
+    carries one):
 
     - not_for_reading: a surface shown too small to read on purpose (a report at 0.6 scale as a closing object). Its
       small print isn't timed; only its large elements must read, so a list names exactly which statements are exempt;
     - voice_matched: a definition the voice reads along as it lands. It may run past the on-screen word budget, and
-      must stay complete for 1.5 s (the floor) rather than 0.4 s + 0.3 s a word.
+      must stay complete for 1.5 s (the floor) rather than 0.4 s + 0.3 s a word;
+    - labels: the on-screen words name what the picture shows (a product's UI, a Simulator label, an end card), the
+      script gates' meaning exactly. It answers their voice-share rule only, so it buys no read time: its statements
+      are timed in full, like any other. It covers the whole shot (`true`), as the script gates read it.
 
     An exemption says why (`reason`), and names statements the shot really shows: otherwise it's a problem, never a
     quiet pass. Returns ({shot: {flag: True | set of squashed statements, "reason": str}}, problems).
@@ -305,7 +315,7 @@ def reading_declarations(ctx: FilmContext) -> tuple[dict[str, dict], list[str]]:
         unknown = sorted(set(raw) - {*READING_FLAGS, "reason"})
         if unknown:
             problems.append(f"{sid}: \"{READING_KEY}\" has {', '.join(unknown)}; it takes not_for_reading, "
-                            "voice_matched and reason")
+                            "voice_matched, labels and reason")
         decl: dict = {}
         for flag in READING_FLAGS:
             v = raw.get(flag)
@@ -313,6 +323,8 @@ def reading_declarations(ctx: FilmContext) -> tuple[dict[str, dict], list[str]]:
                 continue
             if v is True:
                 decl[flag] = True
+            elif flag in WHOLE_SHOT_FLAGS:
+                problems.append(f"{sid}: {flag} is true or left out: it speaks for every on-screen word in the shot")
             elif isinstance(v, list) and v and all(isinstance(x, str) and x.strip() for x in v):
                 decl[flag] = {textmatch.squash(p) for x in v for p in (textmatch.statement_parts(x) or [x])}
             else:
@@ -422,7 +434,8 @@ def readtime(film_dir: Path) -> GateResult:
         subs.append(Sub("exempt", "PASS", f"{plural(len(exempt_rows), 'statement')} declared not for reading, so not "
                         "timed", exempt_rows))
     details = {"statements": len(items), "source": source, "exempt": exempt_rows,
-               "voice_matched": sorted({sid for sid, d in decls.items() if "voice_matched" in d})}
+               "voice_matched": sorted({sid for sid, d in decls.items() if "voice_matched" in d}),
+               "labels": sorted({sid for sid, d in decls.items() if "labels" in d})}  # declared, and timed in full
     if not items:
         subs.append(Sub("statements", "PASS", f"{source} has no on-screen statements to time"))
         return combine("readtime", subs, engine=engine, inputs=ctx.inputs(read), details=details)

@@ -1,0 +1,15 @@
+{
+ "case": "negative-email",
+ "config": "codex",
+ "synthetic": false,
+ "started_at": "2026-10-01T11:35:55-04:00",
+ "slate_version": "0.1.0",
+ "setup": [],
+ "timeout_s": 900,
+ "exit_code": 0,
+ "killed": false,
+ "duration_s": 14.4,
+ "codex_trust_pruned": "Codex marked the sandbox a trusted project in its config.toml; that entry was taken out again",
+ "artifacts": [],
+ "finished_at": "2026-10-01T11:36:09-04:00"
+}

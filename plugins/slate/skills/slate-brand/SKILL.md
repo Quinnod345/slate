@@ -1,6 +1,6 @@
 ---
 name: slate-brand
-description: Onboard a brand into Slate once, before its first film, and keep its brand pack. Covers the four approved references (truth with a named claim authority, look and motion from a moving test, voice, sound), building a pack from the brand's website, a guidelines PDF or its app, measuring a motion law from reference films and the product's own motion tokens, fonts and type by reference with their licences, logos and a motif mark, and the pack's data (palette, type, motion, voice, sound, truth, grounding). Use when a film names a brand that has no approved Slate pack, when a brand's pack needs building, fixing or re-approving, or when someone asks why a brand needs onboarding.
+description: Onboard a brand into Slate once, before its first film, and keep its brand pack. Covers the four approved references (truth with a named claim authority, look and motion from a moving test, voice, sound), building a pack from the brand's website, a guidelines PDF or its app, measuring a motion law from reference films and the product's own motion tokens, fonts and type by reference with their licences, logos, a motif mark and the pack's data. Use when a film names a brand that has no approved Slate pack, when a brand's pack needs building, fixing or re-approving, or when someone asks why a brand needs onboarding.
 ---
 
 # slate-brand

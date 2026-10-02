@@ -356,3 +356,16 @@ def test_no_literal_frame_sizes_or_rates_in_packaging_code():
         if path.suffix == ".py":
             text = path.read_text()
             assert not re.search(r"\b(1920|1080)\b|30000\s*/\s*1001", text), path
+
+
+def test_ci_names_both_validators_in_steps_of_their_own():
+    """CI runs each client's validator by name, installed, so neither is ever skipped there: Claude Code's
+    `plugin validate --strict` on the built plugin, and skills-ref's `validate` on every built skill (L-packaging-080)."""
+    steps = [step for job in _workflow()["jobs"].values() for step in job["steps"]]
+    claude = [s for s in steps if "plugin validate --strict plugins/slate" in s.get("run", "")]
+    ref = [s for s in steps if "skills-ref validate" in s.get("run", "")]
+    assert len(claude) == 1 and claude[0]["name"].startswith("claude plugin validate --strict")
+    assert len(ref) == 1 and ref[0]["name"].startswith("skills-ref validate")
+    assert "plugins/slate/skills/*/" in ref[0]["run"] and 'pip install "skills-ref==' in ref[0]["run"]
+    runs = [s.get("run", "") for s in steps]
+    assert runs.index(claude[0]["run"]) > next(i for i, r in enumerate(runs) if "slate skills build --check" in r)

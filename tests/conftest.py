@@ -66,6 +66,23 @@ def _vision_off_unless_asked(monkeypatch):
     yield
 
 
+@pytest.fixture(autouse=True)
+def _no_real_ae_dialog_check(monkeypatch):
+    """Every supervised After Effects step, and the AE bridge's status, read AE's launch dialogs from System Events
+    while AE is open (slate.ae.guard.stop_on_dialogs, slate.ae.bridge.open_dialogs). A test that pretends AE is running
+    must never reach the real System Events, so the read answers "nothing open" unless a test scripts its own
+    (tests/ae/test_ae_report_guard.py and test_ae_bridge.py do)."""
+    try:
+        from slate.ae import bridge, guard
+    except Exception:  # noqa: BLE001 - the AE module not importable: nothing to stand in for
+        yield
+        return
+    monkeypatch.setattr(guard, "launch_dialogs",
+                        lambda: {"running": True, "readable": True, "dialogs": [], "error": None})
+    monkeypatch.setattr(bridge, "_ae_windows", lambda: {"running": True, "windows": [], "error": None})
+    yield
+
+
 @pytest.fixture
 def filmroot():
     """The film project, read-only. Skips when it isn't on this machine (e.g. CI)."""

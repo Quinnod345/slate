@@ -1,9 +1,11 @@
 // The motion law bound to a brand, and the motion registry the engine samples into timing/motion/actN.json.
 import {afterEach, beforeEach, describe, expect, it} from 'vitest';
 import {
+  SPEED_LIMITS,
   clearMotions,
   defineMotion,
   dur,
+  durFit,
   durFrames,
   durRank,
   durationToken,
@@ -11,12 +13,14 @@ import {
   exitDur,
   landOn,
   law,
+  maxTravel,
   motionLawFrom,
   motionProblems,
   motions,
   roleEase,
   setBrand,
   setFilmData,
+  speedLimits,
   staggerAt,
   staggerStep,
   startFor,
@@ -99,6 +103,18 @@ describe('durations and staggers', () => {
     expect(motionProblems().join(' ')).toMatch(/"forever" isn't on the brand's scale/);
   });
 
+  it('fits a move to the room it has with the longest step of the scale that fits, never a step off the scale', () => {
+    // the scale at 25 fps: tick 5 frames, quick 8, base 13, broad 20, camera 30, signature 45
+    expect(durFit(5)).toBe(1.8); // room for every step: the longest
+    expect(durFit(0.4)).toBe(0.32); // 10 frames: quick fits, base doesn't
+    expect(durFit(0.5)).toBe(0.32); // 12.5 frames round to 12 (Python's rounding), still short of base's 13
+    expect(durFit(0.2)).toBe(0.2); // exactly a tick
+    expect(durFit(0.1)).toBe(0.2); // no room for any step: the shortest, so the move stays on the scale
+    // a step that fits comes back exactly as it went in, so an act with room draws what it drew before
+    for (let i = 0; i < 6; i++) expect(durFit(durRank(i))).toBe(durRank(i));
+    expect(motionProblems()).toEqual([]);
+  });
+
   it('caps a group at 0.6 s and at half its entrance', () => {
     // 20 characters at 2 frames (0.08 s) would spread 1.52 s: capped to 0.6 s → 0.6 / 19 each
     expect(staggerStep('char', 20)).toBeCloseTo(0.6 / 19, 12);
@@ -108,6 +124,84 @@ describe('durations and staggers', () => {
     expect(staggerStep('char', 3, 0.52)).toBeCloseTo(0.08, 12);
     expect(staggerAt(0, 5, 'word')).toBe(0);
     expect(staggerStep('word', 1)).toBe(0);
+  });
+});
+
+/** A move's peak speed and its peak change in speed (px a frame, px a frame²), measured the way `slate qa motion`
+ * measures a trace: its samples on whole frames, held at rest the frame before and the frame after. */
+function peaks(id: string): {speed: number; accel: number} {
+  const row = traceMotions().find((r) => r.id === id)!;
+  const at = [row.samples[0][1] as number, ...row.samples.map(([, v]) => v as number), row.samples.at(-1)![1] as number];
+  const steps = at.slice(1).map((v, k) => v - at[k]);
+  return {
+    speed: Math.max(...steps.map(Math.abs)),
+    accel: Math.max(...steps.slice(1).map((v, k) => Math.abs(v - steps[k]))),
+  };
+}
+
+describe('the speed limits a move keeps', () => {
+  const sized = (width: number, height: number) =>
+    setFilmData({...FILM, film: {...FILM.film, width, height}, shots: {...FILM.shots, width, height}} as never);
+
+  it("holds each class to the motion gate's limits, scaled by the frame's short side", () => {
+    // 960 x 540: half of 1080p's rig 30 and 8, UI 60 and 16, carry 170 and 45
+    expect(speedLimits('rig').speed).toBeCloseTo(15, 9);
+    expect(speedLimits('rig').accel).toBeCloseTo(4, 9);
+    expect(speedLimits().speed).toBeCloseTo(30, 9); // a move that doesn't say is a UI element
+    expect(speedLimits('ui').accel).toBeCloseTo(8, 9);
+    expect(speedLimits('carry').speed).toBeCloseTo(85, 9);
+    expect(speedLimits('page')).toEqual(speedLimits('carry')); // the gate's other names for the classes
+    expect(speedLimits('whip')).toEqual(speedLimits('carry')); // past a carry's limits, a person decides
+    sized(1920, 1080);
+    expect(speedLimits('ui').speed).toBeCloseTo(60, 9);
+    expect(speedLimits('ui').accel).toBeCloseTo(16, 9);
+    sized(1080, 1920); // a 9:16 reel keeps 1080p's numbers: its short side is 1080
+    expect(speedLimits('ui').speed).toBeCloseTo(60, 9);
+    expect(SPEED_LIMITS.carry.accel).toBeCloseTo(17 / 405, 15);
+    expect(motionProblems()).toEqual([]);
+  });
+
+  it("takes the brand's own limits where its motion data sets them, as fractions or as px on the short side it names", () => {
+    const motion = {...(FILM.brand as {motion: object}).motion, speed_limits: {ui: {speed: 40, accel: 10, short_side: 1080}, carry: {speed: 0.1}, whip: {speed: 0.5}, rig: {speed: 30}}};
+    setBrand({...(FILM.brand as object), motion});
+    expect(law().speedLimits).toEqual({ui: {speed: 40 / 1080, accel: 10 / 1080}, carry: {speed: 0.1}}); // a whip has none; px need a short side
+    expect(speedLimits('ui').speed).toBeCloseTo(20, 9); // 40 px at 1080, at 540
+    expect(speedLimits('ui').accel).toBeCloseTo(5, 9);
+    expect(speedLimits('carry').speed).toBeCloseTo(54, 9);
+    expect(speedLimits('carry').accel).toBeCloseTo(540 * (17 / 405), 9); // what the brand didn't set stays Slate's
+    expect(speedLimits('rig').speed).toBeCloseTo(15, 9);
+  });
+
+  it('records a class the gate would not know, and holds it to a UI element', () => {
+    expect(speedLimits('rocket')).toEqual(speedLimits('ui'));
+    expect(motionProblems().join(' ')).toMatch(/speed limits for class "rocket": it isn't one of rig, ui, carry, whip/);
+  });
+
+  it('gives the longest travel a move can make and keep the limits, measured as the gate measures a trace', () => {
+    for (const [token, name, cls] of [['tick', 'enter', 'ui'], ['base', 'enter', 'ui'], ['quick', 'move', 'ui'], ['tick', 'move', 'carry'], ['broad', 'state', 'rig']] as const) {
+      clearMotions();
+      const most = maxTravel(token, name, cls);
+      const {speed, accel} = speedLimits(cls);
+      defineMotion({id: 'at', shot: 'K01', prop: 'y', ease: name, frame_in: 0, frame_out: durFrames(token), from: most, to: 0, ...(cls === 'ui' ? {} : {class: cls})});
+      defineMotion({id: 'past', shot: 'K01', prop: 'y', ease: name, frame_in: 0, frame_out: durFrames(token), from: most * 1.01, to: 0});
+      const at = peaks('at');
+      const past = peaks('past');
+      expect(at.speed).toBeLessThanOrEqual(speed);
+      expect(at.accel).toBeLessThanOrEqual(accel);
+      expect(Math.max(at.speed / speed, at.accel / accel)).toBeGreaterThan(0.999); // right up against one of them
+      expect(past.speed > speed || past.accel > accel).toBe(true);
+    }
+    expect(motionProblems()).toEqual([]);
+  });
+
+  it("starts from the brand's entrance ease, grows with the move's length and the frame, and is generous to a carry", () => {
+    expect(maxTravel('tick')).toBe(maxTravel('tick', roleEase('entrance')));
+    expect(maxTravel('base')).toBeGreaterThan(maxTravel('tick'));
+    expect(maxTravel('tick', 'move', 'carry')).toBeGreaterThan(maxTravel('tick', 'move', 'ui'));
+    expect(maxTravel('tick', 'move', 'rig')).toBeLessThan(maxTravel('tick', 'move', 'ui'));
+    const small = maxTravel('tick');
+    sized(1920, 1080);
+    expect(maxTravel('tick')).toBeCloseTo(small * 2, 9);
   });
 });
 
@@ -216,5 +310,27 @@ describe('what the motion gate needs to know about a move (class, exempt, reason
     expect(rows['camera.x'].class).toBe('carry');
     expect('class' in rows.odd).toBe(false);
     expect(motionProblems().join(' ')).toMatch(/motion "odd": class "fast" isn't one of rig, ui, carry, whip/);
+  });
+});
+
+describe('type in the trace (role and text)', () => {
+  it("writes a text element's type role and words, so the hero, settled and legibility checks can see it", () => {
+    defineMotion({id: 'title.rise', shot: 'K01', prop: 'y', ease: 'enter', frame_in: 0, frame_out: 12, from: 24, to: 0, entrance: true, role: 'Hero', text: '  Every  frame\n holds  '});
+    defineMotion({id: 'card.x', shot: 'K01', prop: 'x', ease: 'move', frame_in: 0, frame_out: 12, from: 0, to: 40});
+    const rows = Object.fromEntries(traceMotions({act: 1}).map((r) => [r.id, r]));
+    expect(rows['title.rise']).toMatchObject({role: 'hero', text: 'Every frame holds', entrance: true});
+    expect('role' in rows['card.x'] || 'text' in rows['card.x']).toBe(false); // a shape says nothing about type
+    expect(motionProblems()).toEqual([]);
+  });
+
+  it('records words given without a role, and a role that is not a name, and leaves them off', () => {
+    defineMotion({id: 'label.fade', shot: 'K01', prop: 'opacity', ease: 'enter', frame_in: 0, frame_out: 8, from: 0, to: 1, text: 'Ready'});
+    defineMotion({id: 'odd.role', shot: 'K01', prop: 'y', ease: 'enter', frame_in: 0, frame_out: 8, from: 8, to: 0, role: '   '});
+    const rows = Object.fromEntries(traceMotions({act: 1}).map((r) => [r.id, r]));
+    expect(rows['label.fade'].text).toBe('Ready');
+    expect('role' in rows['odd.role']).toBe(false);
+    const p = motionProblems().join(' ');
+    expect(p).toMatch(/motion "label.fade": it names its text but not its type role/);
+    expect(p).toMatch(/motion "odd.role": role must be a type role's name/);
   });
 });

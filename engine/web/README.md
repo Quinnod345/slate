@@ -53,10 +53,12 @@ Start from the template (`template/`): `slate engine scaffold --act N` copies it
 brand's look picks the web engine (`look.engine: "web"` in the brand pack, read by the kit's `sceneEngine()`), or with
 `--engine web` for any brand; it refuses to overwrite a scene that's there unless you pass `--force`. Underneath it's
 `node engine/cli.mjs web-render --json '{"film": "…", "act": N, "scaffold": true}'`. Creating a film never needs Node,
-so `slate new` leaves this step to you. The template's moves shrink to fit an act
-shorter than the brand's durations, so its beat always lands inside the act. The film's generated tsconfig maps
-`@slate/web` to this runtime, so `tsc` from the film folder type-checks a web scene too. A scene is `index.html` plus a
-script:
+so `slate new` leaves this step to you. The template keeps the motion law in an act of any length: in one shorter
+than the brand's durations, each move takes the longest step of the scale that fits (`durFit`) and travels only as far
+as the speed limits allow at the film's size (`maxTravel`), so a fresh scaffold passes its hand-in's motion gate and its
+beat lands inside the act. In an act with room for the brand's own steps, it draws them in full. The film's generated
+tsconfig maps `@slate/web` to this runtime, so `tsc` from the film folder type-checks a web scene too. A scene is
+`index.html` plus a script:
 
 ```ts
 import * as THREE from 'three';

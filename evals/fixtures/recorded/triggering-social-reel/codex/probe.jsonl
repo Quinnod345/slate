@@ -1,0 +1,77 @@
+{"kind": "slate_process", "pid": 96290, "command": "__main__.py", "at": 1790890045.1534169}
+{"kind": "slate_process", "pid": 96329, "command": "__main__.py", "at": 1790890047.4522371}
+{"kind": "slate_process", "pid": 96335, "command": "__main__.py", "at": 1790890047.5801}
+{"kind": "slate_process", "pid": 96547, "command": "__main__.py", "at": 1790890059.916623}
+{"kind": "slate_process", "pid": 96598, "command": "__main__.py", "at": 1790890062.485311}
+{"kind": "slate_process", "pid": 96637, "command": "__main__.py", "at": 1790890064.25579}
+{"kind": "slate_process", "pid": 96668, "command": "__main__.py", "at": 1790890065.5943282}
+{"kind": "child", "pid": 97254, "argv0": "git", "browser": "none", "stdin": "devnull", "at": 1790890081.038841}
+{"kind": "child", "pid": 97254, "argv0": "git", "browser": "none", "stdin": "devnull", "at": 1790890081.07216}
+{"kind": "child", "pid": 97254, "argv0": "git", "browser": "none", "stdin": "devnull", "at": 1790890081.162334}
+{"kind": "child", "pid": 97254, "argv0": "git", "browser": "none", "stdin": "devnull", "at": 1790890081.188332}
+{"kind": "child", "pid": 97254, "argv0": "git", "browser": "none", "stdin": "devnull", "at": 1790890081.2118342}
+{"kind": "child", "pid": 97254, "argv0": "git", "browser": "none", "stdin": "devnull", "at": 1790890081.281743}
+{"kind": "child", "pid": 97254, "argv0": "git", "browser": "none", "stdin": "devnull", "at": 1790890081.33164}
+{"kind": "child", "pid": 97254, "argv0": "git", "browser": "none", "stdin": "devnull", "at": 1790890081.407339}
+{"kind": "child", "pid": 97254, "argv0": "git", "browser": "none", "stdin": "devnull", "at": 1790890081.4402869}
+{"kind": "slate_process", "pid": 97254, "command": "__main__.py", "at": 1790890081.4646668}
+{"kind": "slate_process", "pid": 97333, "command": "__main__.py", "at": 1790890083.656514}
+{"kind": "slate_process", "pid": 97353, "command": "__main__.py", "at": 1790890085.225996}
+{"kind": "child", "pid": 97327, "argv0": "sysctl", "browser": "none", "stdin": "devnull", "at": 1790890087.006469}
+{"kind": "child", "pid": 97327, "argv0": "uv", "browser": "none", "stdin": "devnull", "at": 1790890087.022203}
+{"kind": "child", "pid": 97327, "argv0": "node", "browser": "none", "stdin": "devnull", "at": 1790890087.027157}
+{"kind": "child", "pid": 97327, "argv0": "xcode-select", "browser": "none", "stdin": "devnull", "at": 1790890087.0278761}
+{"kind": "child", "pid": 97327, "argv0": "git", "browser": "none", "stdin": "devnull", "at": 1790890087.0390139}
+{"kind": "child", "pid": 97327, "argv0": "xcrun", "browser": "none", "stdin": "devnull", "at": 1790890087.039231}
+{"kind": "child", "pid": 97327, "argv0": "sysctl", "browser": "none", "stdin": "devnull", "at": 1790890087.10704}
+{"kind": "child", "pid": 97327, "argv0": "ffmpeg", "browser": "none", "stdin": "devnull", "at": 1790890087.1111438}
+{"kind": "child", "pid": 97327, "argv0": "rubberband", "browser": "none", "stdin": "devnull", "at": 1790890087.1150599}
+{"kind": "child", "pid": 97327, "argv0": "gh", "browser": "none", "stdin": "devnull", "at": 1790890087.1190798}
+{"kind": "child", "pid": 97327, "argv0": "rsvg-convert", "browser": "none", "stdin": "devnull", "at": 1790890087.1321752}
+{"kind": "child", "pid": 97327, "argv0": "node", "browser": "none", "stdin": "devnull", "at": 1790890087.1408598}
+{"kind": "child", "pid": 97327, "argv0": "npm", "browser": "none", "stdin": "devnull", "at": 1790890087.150866}
+{"kind": "child", "pid": 97327, "argv0": "ffmpeg", "browser": "none", "stdin": "devnull", "at": 1790890087.190271}
+{"kind": "child", "pid": 97327, "argv0": "ffprobe", "browser": "none", "stdin": "devnull", "at": 1790890087.332333}
+{"kind": "child", "pid": 97327, "argv0": "security", "browser": "none", "stdin": "devnull", "at": 1790890087.427176}
+{"kind": "child", "pid": 97327, "argv0": "pgrep", "browser": "none", "stdin": "devnull", "at": 1790890087.480757}
+{"kind": "child", "pid": 97327, "argv0": "security", "browser": "none", "stdin": "devnull", "at": 1790890087.4984488}
+{"kind": "child", "pid": 97327, "argv0": "pgrep", "browser": "none", "stdin": "devnull", "at": 1790890087.50836}
+{"kind": "child", "pid": 97327, "argv0": "potrace", "browser": "none", "stdin": "devnull", "at": 1790890087.532214}
+{"kind": "child", "pid": 97327, "argv0": "codex", "browser": "none", "stdin": "devnull", "at": 1790890087.584634}
+{"kind": "child", "pid": 97327, "argv0": "claude", "browser": "none", "stdin": "devnull", "at": 1790890087.585333}
+{"kind": "child", "pid": 97327, "argv0": "pgrep", "browser": "none", "stdin": "devnull", "at": 1790890087.6017559}
+{"kind": "child", "pid": 97327, "argv0": "codex", "browser": "none", "stdin": "devnull", "at": 1790890087.6365068}
+{"kind": "child", "pid": 97327, "argv0": "pgrep", "browser": "none", "stdin": "devnull", "at": 1790890087.717655}
+{"kind": "child", "pid": 97327, "argv0": "python", "browser": "none", "stdin": "pipe", "at": 1790890087.811761}
+{"kind": "child", "pid": 97327, "argv0": "launchctl", "browser": "none", "stdin": "devnull", "at": 1790890087.9486668}
+{"kind": "child", "pid": 97327, "argv0": "openclaw", "browser": "none", "stdin": "devnull", "at": 1790890088.92893}
+{"kind": "slate_process", "pid": 97445, "command": "__main__.py", "at": 1790890091.411563}
+{"kind": "child", "pid": 97327, "argv0": "claude", "browser": "none", "stdin": "devnull", "at": 1790890091.804372}
+{"kind": "child", "pid": 97327, "argv0": "ps", "browser": "none", "stdin": "devnull", "at": 1790890093.9552882}
+{"kind": "child", "pid": 97327, "argv0": "pgrep", "browser": "none", "stdin": "devnull", "at": 1790890093.964117}
+{"kind": "child", "pid": 97327, "argv0": "pgrep", "browser": "none", "stdin": "devnull", "at": 1790890093.995509}
+{"kind": "child", "pid": 97327, "argv0": "pgrep", "browser": "none", "stdin": "devnull", "at": 1790890094.027191}
+{"kind": "child", "pid": 97327, "argv0": "pgrep", "browser": "none", "stdin": "devnull", "at": 1790890094.058054}
+{"kind": "slate_process", "pid": 97327, "command": "__main__.py", "at": 1790890095.0299158}
+{"kind": "slate_process", "pid": 99809, "command": "__main__.py", "at": 1790890105.638129}
+{"kind": "slate_process", "pid": 99807, "command": "__main__.py", "at": 1790890105.6666932}
+{"kind": "slate_process", "pid": 99840, "command": "__main__.py", "at": 1790890107.673311}
+{"kind": "slate_process", "pid": 99069, "command": "__main__.py", "at": 1790890107.680618}
+{"kind": "slate_process", "pid": 99067, "command": "__main__.py", "at": 1790890109.4301949}
+{"kind": "slate_process", "pid": 1531, "command": "__main__.py", "at": 1790890128.7353559}
+{"kind": "slate_process", "pid": 1586, "command": "__main__.py", "at": 1790890130.521091}
+{"kind": "slate_process", "pid": 232, "command": "__main__.py", "at": 1790890131.747287}
+{"kind": "slate_process", "pid": 3769, "command": "__main__.py", "at": 1790890153.51509}
+{"kind": "slate_process", "pid": 3800, "command": "__main__.py", "at": 1790890155.278613}
+{"kind": "slate_process", "pid": 3821, "command": "__main__.py", "at": 1790890156.654668}
+{"kind": "slate_process", "pid": 3043, "command": "__main__.py", "at": 1790890157.6046789}
+{"kind": "slate_process", "pid": 5086, "command": "__main__.py", "at": 1790890212.6671932}
+{"kind": "child", "pid": 5633, "argv0": "ps", "browser": "none", "stdin": "devnull", "at": 1790890225.497644}
+{"kind": "slate_process", "pid": 5633, "command": "__main__.py", "at": 1790890225.787946}
+{"kind": "slate_process", "pid": 7731, "command": "__main__.py", "at": 1790890241.09311}
+{"kind": "slate_process", "pid": 9033, "command": "__main__.py", "at": 1790890253.8357482}
+{"kind": "child", "pid": 9034, "argv0": "npm", "browser": "none", "stdin": "devnull", "at": 1790890253.877888}
+{"kind": "slate_process", "pid": 9034, "command": "__main__.py", "at": 1790890264.3292859}
+{"kind": "slate_process", "pid": 10918, "command": "__main__.py", "at": 1790890272.8321111}
+{"kind": "slate_process", "pid": 13408, "command": "__main__.py", "at": 1790890288.837088}
+{"kind": "slate_process", "pid": 20730, "command": "__main__.py", "at": 1790890393.860068}

@@ -211,8 +211,8 @@ def check_render_stability(env: Env, ctx: Ctx) -> list[dict]:
     engine kit's stability bench rendered here and scanned for pops, snaps and wobbles). It stays UNCHECKED until the
     kit's bench exists, which isn't something to fix on this Mac, so that row is green and says so."""
     rid, group = "engine.render-stability", "engine"
-    run = ("Render the engine kit's stability bench (one file per variant, named after it), then run "
-           "`slate qa stability conformance RENDERS_FOLDER`.")
+    run = ("Render the engine kit's stability bench through the queue and check it (a dozen minutes on a quiet Mac): "
+           "`slate qa stability conformance --render --detach`.")
     try:
         st = env.stability_conformance()
     except Exception as exc:  # noqa: BLE001

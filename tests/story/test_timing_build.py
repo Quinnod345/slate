@@ -387,3 +387,32 @@ def test_vo_words_says_how_each_number_and_symbol_in_the_vo_is_said(make_film):
     assert set(table) == {"1987", "&"}  # the token without its full stop; plain words aren't listed
     assert table["1987"] == spoken.forms("1987") and ["nineteen", "eighty-seven"] in table["1987"]
     assert table["&"] == [["and"]]
+
+
+def test_a_shots_engine_and_transition_reach_shots_json(make_film):
+    """A shot's engine (P074) and its transition, written once in script.json, reach timing/shots.json through the
+    storyboard, so render and check read them there (by the storyboard's ids, renumbered or not)."""
+    from storyfix import SCRIPT
+
+    script = json.loads(json.dumps(SCRIPT))
+    shots = [s for a in script["acts"] for s in a["shots"]]
+    shots[1]["engine"] = "web"
+    shots[1]["transition"] = {"kind": "whip", "note": "the card races off to the left"}
+    shots[2]["transition"] = "Carry: the line keeps drawing"
+    film = make_film(script=script, takes={"S02": 3.1, "S03": 3.4, "S04": 1.0})
+    assert run_cli(["script", "build", "--from-takes", "--film", str(film)])[0] == 0
+    sb = jsonio.read(film / "script" / "storyboard.json")
+    sb_shots = {s["id"]: s for a in sb["acts"] for s in a["shots"]}
+    assert sb_shots["S02"]["engine"] == "web" and "engine" not in sb_shots["S03"]
+    assert "Transition out: whip: the card races off to the left" in (film / "script" / "SCRIPT.md").read_text()
+    code, out, _ = timing("--film", str(film))
+    assert code == 0, out
+    doc = jsonio.read(film / "timing" / "shots.json")
+    assert jsonio.validate(doc, "shots") == []
+    by_id = {s["id"]: s for s in doc["shots"]}
+    assert by_id["S02"]["engine"] == "web" and "engine" not in by_id["S01"]
+    assert by_id["S02"]["transition_out"] == {"kind": "whip", "note": "the card races off to the left"}
+    assert by_id["S03"]["transition_out"] == "Carry: the line keeps drawing"
+    from slate.render import shot_engines
+
+    assert shot_engines.declared(film, doc)["S02"] == "web"

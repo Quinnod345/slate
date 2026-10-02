@@ -212,6 +212,7 @@ describe('a web act in a film', () => {
     expect(turn).toMatchObject({shot: 'W01', prop: 'rotation.y', ease: 'move', unit: 'rad', frame_in: 0, frame_out: 45, entrance: false}); // signature: 1.8 s
     const lineIn = trace.find((row) => row.id === 'template.line-in.opacity');
     expect(lineIn).toMatchObject({ease: 'enter', entrance: true, frame_in: 5, frame_out: 18, from: 0, to: 1}); // tick 0.2 s, base 0.52 s
+    expect(lineIn).toMatchObject({role: 'h1', text: 'One clock for every frame.'}); // type says what it is
 
     const e = ok({film: f, act: 1, emit: true, brand_path: BRAND, gl: 'swangle'}, {root});
     expect(e.acts[0]).toMatchObject({act: 1, silent: false, events: 1, file: 'timing/visual_events/act1.json'});

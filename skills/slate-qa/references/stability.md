@@ -33,6 +33,7 @@ slate qa stability compare --act 3 --rest-only        # a render-only change aga
 slate qa stability selftest                           # the scan's own positive control
 slate qa stability controls <controls.json>           # real faults the scan must still catch
 slate qa stability conformance <renders folder>       # the engine kit's stability bench, checked
+slate qa stability conformance --render --detach      # render the bench's variants on the render slot, then check them
 ```
 
 - **baseline** needs the person's name and reason, and only accepts flags from a report of the act's current render: a
@@ -42,6 +43,10 @@ slate qa stability conformance <renders folder>       # the engine kit's stabili
   approved render.
 - **strip** centres on the worst flag at the frame unless `--box x,y,w,h` says where; `--count` and `--zoom` set its
   length and size.
+- **conformance** checks the kit itself, not a film: the stability bench (`engine/remotion/kit/bench`) draws one card
+  with type, a curve and a chip through slow pushes, landings, zooms, free type and morphing cards, in both raster
+  modes, at 16 samples through the real render path. Run it after any change to the kit's `paper.tsx`, `type.tsx`,
+  `camera.tsx` or the renderer, and before any act converts to tilt mode: no act converts until it passes.
 - **selftest** and **controls** prove the scan still sees: faults injected into a still land on their frames, and the
   real faults in a controls file are still caught. Run them after changing the scan or its settings.
 

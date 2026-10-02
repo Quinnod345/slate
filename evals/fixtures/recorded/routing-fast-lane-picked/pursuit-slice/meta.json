@@ -1,0 +1,32 @@
+{
+ "case": "routing-fast-lane-picked",
+ "config": "pursuit-slice",
+ "synthetic": false,
+ "started_at": "2026-10-01T18:32:49-04:00",
+ "slate_version": "0.1.0",
+ "setup": [
+  "shares this Mac's render slot (~/Library/Application Support/Slate/locks/render)"
+ ],
+ "timeout_s": 600,
+ "pair_dir": "~/Library/Application Support/Slate/evals/runs/20261001-l1b6-pursuit-slice/routing-fast-lane-picked/pursuit-slice",
+ "workdir": "~/Library/Application Support/Slate/evals/runs/20261001-l1b6-pursuit-slice/routing-fast-lane-picked/pursuit-slice/work",
+ "tools_cwd": null,
+ "notice": {
+  "files": [
+   "AGENTS.md",
+   "CLAUDE.md"
+  ],
+  "in_message": false
+ },
+ "exit_code": 0,
+ "killed": false,
+ "duration_s": 151.5,
+ "codex_trust_pruned": "Codex marked the sandbox a trusted project in its config.toml; that entry was taken out again",
+ "artifacts": [
+  "AGENTS.md",
+  "CLAUDE.md",
+  "rain-on-window-night.mp4",
+  "rain_window_clip.py"
+ ],
+ "finished_at": "2026-10-01T18:35:21-04:00"
+}

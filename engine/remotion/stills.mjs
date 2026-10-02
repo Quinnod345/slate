@@ -14,7 +14,7 @@ import path from 'node:path';
 import {renderStill, selectComposition} from '@remotion/renderer';
 import {EngineError, log, requireTool, run, sha256Buffer, sha256File, timecode, usage} from './lib/common.mjs';
 import {FILM_COMP, shotAtFrame} from './lib/film.mjs';
-import {browserExecutable, chromiumOptions} from './browser.mjs';
+import {browserExecutable, chromiumOptions, renderTimeoutMs} from './browser.mjs';
 import {useBundle} from './bundle.mjs';
 import {ensureEntry, refuseBroken} from './entry.mjs';
 import {browserLogCollector, fontGate} from './kit_bridge.mjs';
@@ -72,7 +72,7 @@ export async function renderStills(ctx, b, list, opts) {
   for (const {comp, frame, label, name} of list) {
     const inputProps = {...(opts.props ?? {}), sub: opts.sub ?? 1};
     if (!cache.has(comp)) {
-      cache.set(comp, await selectComposition({serveUrl: b.serve_url, id: comp, inputProps, chromiumOptions: chromiumOptions(opts.gl), browserExecutable: browserExecutable(), logLevel: 'warn', onBrowserLog}));
+      cache.set(comp, await selectComposition({serveUrl: b.serve_url, id: comp, inputProps, chromiumOptions: chromiumOptions(opts.gl), browserExecutable: browserExecutable(), timeoutInMilliseconds: renderTimeoutMs(), logLevel: 'warn', onBrowserLog}));
     }
     const composition = cache.get(comp);
     const lastFrame = Math.round(composition.durationInFrames / (inputProps.sub || 1)) - 1;
@@ -91,6 +91,7 @@ export async function renderStills(ctx, b, list, opts) {
       inputProps: props,
       chromiumOptions: chromiumOptions(opts.gl),
       browserExecutable: browserExecutable(),
+      timeoutInMilliseconds: renderTimeoutMs(),
       overwrite: true,
       logLevel: 'warn',
       onBrowserLog,
@@ -177,7 +178,7 @@ export async function stillsCommand(ctx, args) {
     if (args.contact_sheet) {
       const cs = args.contact_sheet;
       const comp = cs.comp ?? FILM_COMP;
-      const composition = await selectComposition({serveUrl: b.serve_url, id: comp, inputProps: {sub: 1}, chromiumOptions: chromiumOptions(gl), browserExecutable: browserExecutable(), logLevel: 'warn'});
+      const composition = await selectComposition({serveUrl: b.serve_url, id: comp, inputProps: {sub: 1}, chromiumOptions: chromiumOptions(gl), browserExecutable: browserExecutable(), timeoutInMilliseconds: renderTimeoutMs(), logLevel: 'warn'});
       const frames = sheetFrames(ctx, comp, composition.durationInFrames, cs);
       const labels = cs.labels ?? !args.entry; // the generated Root draws labels; another entry may not
       const cellDir = fs.mkdtempSync(path.join(os.tmpdir(), 'slate-cells-'));

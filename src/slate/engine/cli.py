@@ -123,6 +123,11 @@ def look_engine(film_dir: Path) -> str | None:
 def _scaffold(args: argparse.Namespace) -> int:
     film_dir = slate_cli.film(args)
     engine = args.engine or look_engine(film_dir) or "remotion"
+    if engine in ("ae", "web") and slate_cli.dry_stop(
+            args, f"start act {args.act}'s scene from the {'After Effects' if engine == 'ae' else 'web'} template"
+                  + (f" in scenes/act{args.act}/web/" if engine == "web" else "")
+                  + (", replacing the one there (--force)" if args.force else "")):
+        return 0
     if engine == "ae":
         # the AE lane starts the act from the brand's look: a starter scene written as data, resolved before it's kept
         from slate.ae import acts as ae_acts  # noqa: PLC0415
@@ -163,6 +168,11 @@ def _golden(args: argparse.Namespace) -> int:
         payload.update(film=str(film_dir), plan=True if args.plan else None)
     elif args.plan:
         raise UsageError("--plan goes with --approved: it lists the approved acts' frames without rendering them.")
+    if slate_cli.dry_stop(args, (f"render every approved act of {payload['film']} at its boundary frames and one frame "
+                                 f"per shot on {args.gl} and compare them with the approved renders (--plan lists "
+                                 "them without rendering)") if args.approved is not None else
+                                f"render the kit's golden stills on {args.gl} and compare them with their baselines"):
+        return 0
     res = bridge.call("golden", payload, timeout=GOLDEN_TIMEOUT)
     out = {k: v for k, v in res.items() if k not in ("ok", "command")}
     if args.approved is not None:
@@ -368,6 +378,60 @@ def _shot_engine_gates(film_dir: Path, shots: dict | None, acts: list[int]) -> l
     return out
 
 
+def _motion_gates(film_dir: Path, acts: list[int]) -> tuple[list, list[int]]:
+    """(handin.act<N>.motion for each act with a motion trace, the acts without one). The motion gate's trace checks,
+    no pixels (slate.qa.motion.handin_gate): a move that breaks the brand's law fails the hand-in before anything
+    renders. An act with no trace has nothing for them to read; the film's `motion` gate judges it from its render."""
+    from slate.qa import motion  # noqa: PLC0415
+
+    out, untraced = [], []
+    for act in acts:
+        try:
+            g = motion.handin_gate(film_dir, act)
+        except Exception as exc:  # noqa: BLE001 - a broken trace or law is the gate's UNCHECKED, never a lost hand-in
+            g = gates.GateResult(f"handin.act{act}.motion", "UNCHECKED", f"the motion law couldn't be checked: {exc}",
+                                 evidence=[f"next: slate qa motion --act {act} --no-pixels says more"],
+                                 details={"stage": "scenes", "act": act})
+        if g is None:
+            untraced.append(act)
+        else:
+            out.append(g)
+    return out, untraced
+
+
+def _check_plan(film_dir: Path, args: argparse.Namespace, acts: list[int], skipped: list[dict]) -> int:
+    """`slate --dry-run check`: which acts it would hand in and what it would run on them. Runs nothing (no engine, no
+    renders) and writes nothing."""
+    traced = [a for a in acts if (film_dir / "timing" / "motion" / f"act{a}.json").is_file()]
+    engine = ["types", "the module loading in Node", "word misses", "banned words", "never-claims", "literal frames",
+              "events", "margins and the rig lint", "the character (acts that draw a mark)"]
+    renders = []
+    if not args.no_contracts:
+        renders.append("the boundary contracts (stills at each boundary)")
+    if args.markup:
+        engine.append("the markup bench" + (f" against {args.against}" if args.against else ""))
+    if args.determinism:
+        renders.append("determinism (sampled frames alone and in sequence)")
+    plan = {"engine": engine, "renders": renders, "motion": traced,
+            "untraced": [a for a in acts if a not in traced], "queued": False,
+            "writes": "qa/gates.json and qa/history.jsonl (the hand-in gates)"}
+    human = [f"would hand in act{'s' if len(acts) > 1 else ''} {', '.join(map(str, acts))} here (not queued):",
+             f"  the engine's gates: {', '.join(engine)}",
+             *([f"  rendered on this Mac: {'; '.join(renders)}"] if renders else []),
+             "  the act's shot engines, when its shots name one"]
+    if traced:
+        human.append(f"  the motion law on the trace of act{'s' if len(traced) > 1 else ''} "
+                     f"{', '.join(map(str, traced))} (no pixels)")
+    if plan["untraced"]:
+        human.append(f"  no motion trace for act{'s' if len(plan['untraced']) > 1 else ''} "
+                     f"{', '.join(map(str, plan['untraced']))}: `slate qa motion` judges it from its render")
+    human += [f"act {s['act']}: not checked ({s['reason']})" for s in skipped]
+    human.append("dry run: nothing ran, nothing written")
+    log.result({"film": str(film_dir), "acts": acts, "skipped": skipped, "dry_run": True, "would_check": plan},
+               "\n".join(human))
+    return 0
+
+
 def _check(args: argparse.Namespace) -> int:
     film_dir = slate_cli.film(args)
     shots = jsonio.read(bridge.film_file(film_dir, "timing/shots.json"), default=None)
@@ -388,9 +452,11 @@ def _check(args: argparse.Namespace) -> int:
             acts = [int(args.act)]
         except ValueError as exc:
             raise UsageError(f"`slate check` takes an act number or 'all', not {args.act!r}.") from exc
-    words = banned_words(film_dir)
     if args.against and not args.markup:
         raise UsageError("--against goes with --markup: it compares the act's markup with the kit at that ref.")
+    if slate_cli.flag(args, "dry_run", False):
+        return _check_plan(film_dir, args, acts, skipped)
+    words = banned_words(film_dir)
     against = args.against or None
     if against and Path(against).expanduser().is_dir():
         against = str(Path(against).expanduser().resolve())  # a kit folder (an installed engine's): the engine needs it whole
@@ -403,11 +469,16 @@ def _check(args: argparse.Namespace) -> int:
                       timeout=CHECK_TIMEOUT * len(acts))
     results = [gates.GateResult.from_dict(g) for g in res["gates"]]
     results += _shot_engine_gates(film_dir, shots, acts)
+    motion, untraced = _motion_gates(film_dir, acts)
+    results += motion
     if results:
         gates.write_report(film_dir, results)
     summary = gates.summarize(results)
     human = gates.format_table(results)
     human += "".join(f"\nact {s['act']}: not checked ({s['reason']})" for s in skipped)
+    human += "".join(f"\nact {a}: no motion trace (emit-events writes one for an act drawn with the kit or a "
+                     "defineScene() web scene), so its motion is `slate qa motion`'s to judge from its render"
+                     for a in untraced)
     log.result({"film": str(film_dir), "acts": acts, "skipped": skipped, "gates": [r.to_dict() for r in results],
                 "summary": summary}, human)
     return gates.exit_code(results)

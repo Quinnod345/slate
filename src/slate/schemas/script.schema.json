@@ -66,7 +66,11 @@
     "vo": {"type": "string"},
     "on_screen": {"oneOf": [{"type": "string"}, {"type": "array", "items": {"type": "string"}}]},
     "picture": {"type": "string"},
-    "transition": {"type": "string"},
+    "transition": {"description": "How the shot hands to the next, in the motion law's kinds: carry, portal, mask, whip (motion-masked), ui_cut (a UI state cut with the camera locked), music_cut (a cut on a musical hit) or seam (a blend of 4 frames or less inside one generated shot). Words that name one, as the films wrote them (\"Carry: the line keeps drawing\", sorted into the kinds by slate.qa.checks.picture.transition_kind), or {kind, note}. Carried through storyboard.json into timing/shots.json (transition_out); `slate qa cuts` judges every scene change against it.",
+                   "oneOf": [{"type": "string"},
+                             {"type": "object", "required": ["kind"], "additionalProperties": false,
+                              "properties": {"kind": {"$ref": "#/$defs/transition_kind"}, "note": {"type": "string"}}}]},
+    "engine": {"enum": ["remotion", "web", "ae"], "description": "the engine that draws this shot when it isn't its act's (P074; docs/ARCHITECTURE.md §8): carried through storyboard.json into timing/shots.json, where `slate render` and `slate check` read it"},
     "build": {"type": "string"},
     "sound": {"type": "string"},
     "notes": {"type": "string"},
@@ -81,16 +85,20 @@
     "act_end": {"type": "boolean"},
     "events": {"type": "array", "items": {"$ref": "#/$defs/event"}},
     "generate": {"type": "object", "description": "a generation request for this shot (`slate gen` reads it); carried through storyboard.json into timing/shots.json"},
-    "reading": {"type": "object", "description": "how the shot's text is read, with its reason: {\"voice_matched\": true | [statements], \"not_for_reading\": true | [statements], \"reason\": \"…\"}. A voice-matched definition may pass the word budget and needs only the 1.5 s floor; a surface not for reading isn't timed. Carried into storyboard.json; the script gates and `slate qa readtime` honour it.",
+    "reading": {"type": "object", "description": "how the shot's text is read, with its reason: {\"voice_matched\": true | [statements], \"not_for_reading\": true | [statements], \"labels\": true, \"reason\": \"…\"}. A voice-matched definition may pass the word budget and needs only the 1.5 s floor; a surface not for reading isn't timed; labels (the words name what the picture shows: a product's UI, a Simulator label, an end card) may pass 40% of the voice but still count toward the cap and are timed in full. Carried into storyboard.json; the script gates and `slate qa readtime` honour it, with one meaning.",
                 "properties": {"voice_matched": {"anyOf": [{"type": "boolean"}, {"type": "array", "items": {"type": "string"}}]},
                                "not_for_reading": {"anyOf": [{"type": "boolean"}, {"type": "array", "items": {"type": "string"}}]},
+                               "labels": {"type": "boolean"},
                                "reason": {"type": "string"}}}
    }
   },
   "source_ref": {
    "oneOf": [
     {"type": "string", "minLength": 1, "description": "<source id> or <source id>:<where>, or a note"},
-    {"type": "object", "required": ["ref"], "properties": {"ref": {"type": "string"}, "numbers": {"type": "array"}}}
+    {"type": "object", "required": ["ref"],
+     "properties": {"ref": {"type": "string", "description": "<source id> or <source id>:<where>"}, "numbers": {"type": "array"},
+                    "quote": {"type": "string", "description": "the source's exact words this shot shows (product copy); the script's quote gate finds them at `where`"},
+                    "where": {"type": "string", "description": "where the quote is, as path:line or path:first-last (else the part of ref after its colon)"}}}
    ]
   },
   "claim": {
@@ -102,6 +110,8 @@
      "anyOf": [{"required": ["text"]}, {"required": ["approved"]}]}
    ]
   },
+  "transition_kind": {"enum": ["carry", "portal", "mask", "whip", "ui_cut", "music_cut", "seam"],
+                      "description": "the motion law's transitions (slate.qa.checks.picture.TRANSITIONS)"},
   "quote": {
    "type": "object",
    "required": ["text"],

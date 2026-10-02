@@ -19,6 +19,23 @@ export function chromiumOptions(gl = DEFAULT_GL) {
   return {gl};
 }
 
+/** Three minutes: the kit's font gate (kit/fonts.tsx) holds its first frame for the same time. */
+export const DEFAULT_RENDER_TIMEOUT_MS = 180000;
+
+/**
+ * How long Remotion waits for a page to be ready: the component's first render and every delayRender handle that
+ * doesn't set its own. Every selectComposition, renderFrames and renderStill passes it. Remotion's own default is 30 s,
+ * which a busy Mac blows through while the font gate loads and measures the brand's faces: `slate demo` failed exactly
+ * that way at load 600 on 2026-10-01. SLATE_RENDER_TIMEOUT_MS overrides it (whole milliseconds, at least 1,000).
+ */
+export function renderTimeoutMs(env = process.env) {
+  const raw = env.SLATE_RENDER_TIMEOUT_MS;
+  if (raw === undefined || raw === '') return DEFAULT_RENDER_TIMEOUT_MS;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 1000) throw usage(`SLATE_RENDER_TIMEOUT_MS is ${JSON.stringify(raw)}; give whole milliseconds, at least 1000.`);
+  return n;
+}
+
 /** The flags that make Chrome finish every tile and decode every image before it draws a frame (chrome-complete.sh). */
 export const COMPLETE_FLAGS = ['--run-all-compositor-stages-before-draw', '--disable-checker-imaging'];
 /** Remotion's headless shell with COMPLETE_FLAGS: Remotion's openBrowser takes no extra flags, so they ride on the executable. */

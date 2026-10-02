@@ -83,6 +83,8 @@ The one hand-edited file in the score's folder. It says where the music does som
   0.75 s late).
 - Score QA thresholds were tuned on one model's takes; re-check them when the model changes. Measure levels in stereo:
   a mono fold faked a 3.8 dB rise that wasn't there.
+- A take is written in the channels Eleven Music sent: stereo, with its record saying so (`channels`). A take about
+  twice or half its planned length is a channel misread, and `slate score compose` warns; listen before using it.
 - Plan files are immutable once composed, and seeds are fixed, so a record of what was sent stays true.
 - Concurrency is limited per plan (two music requests at once on the plan the films used); the queue's lock handles it.
 

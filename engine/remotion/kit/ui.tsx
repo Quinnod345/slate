@@ -3,11 +3,11 @@
 // tokens, so a brand's product can be shown as its own app draws it. They carry no copy: every label is a prop. Build a
 // screen from these with the product's exact words; never draw UI the product doesn't have.
 import React from 'react';
-import {mix} from './core/color';
+import {alpha, mix, parseColor} from './core/color';
 import {clamp01} from './core/spline';
 import type {ToneName} from './core/tokens';
 import {useAppPx, useTokens, useType} from './context';
-import {inMotion, motionHint} from './paper';
+import {inMotion, TypeTilt, useMotionHint, useRasterMode, useTypeTilt} from './paper';
 
 /** A surface: the brand's card colour, a hairline, its radius. Put it in a Card for paper thickness. */
 export function Surface({w, h, pad = 24, style, children}: {w: number | string; h?: number | string; pad?: number; style?: React.CSSProperties; children?: React.ReactNode}) {
@@ -164,11 +164,14 @@ export function Field({label, value, fill = 1, focus = 0, w = 320, h = 44, place
   const body = useType('body', t.color.ink);
   const f = clamp01(fill);
   const fo = clamp01(focus);
+  // tilt mode: the value's tilt goes after its own rise, and nothing is hinted (see paper.tsx, raster modes)
+  const tt = useTypeTilt();
+  const hint = useMotionHint(inMotion(f));
   return (
     <div style={{width: a(w)}}>
       {label && <div style={{...labelS, marginBottom: a(6)}}>{label}</div>}
       <div style={{...body, height: a(h), borderRadius: a(8), boxShadow: `inset 0 0 0 ${a(1 + fo * 0.5)}px ${mix(t.color.hairline, t.color.accent, fo)}`, background: t.color.surface, display: 'flex', alignItems: 'center', padding: `0 ${a(14)}px`, boxSizing: 'border-box', overflow: 'hidden', whiteSpace: 'nowrap'}}>
-        {value && f > 0 ? <span style={{opacity: f, transform: `translateY(${((1 - f) * a(7)).toFixed(3)}px)`, display: 'inline-block', ...motionHint(inMotion(f))}}>{value}</span> : <span style={{color: t.color.ink3}}>{placeholder}</span>}
+        {value && f > 0 ? <span style={{opacity: f, transform: `translateY(${((1 - f) * a(7)).toFixed(3)}px)${tt}`, display: 'inline-block', ...hint}}>{value}</span> : <span style={{color: t.color.ink3}}>{placeholder}</span>}
       </div>
     </div>
   );
@@ -302,34 +305,45 @@ export const charCount = (lines: StreamLine[]): number => lines.reduce((n, l) =>
  * A streamed answer: characters appear in reading order as `revealed` counts up (streaming is the one place text may
  * type on, because the product really streams), each settling from faint to full over a short trailing edge. Token runs
  * stay hidden until their carried element lands (`landed[token]` 0 → 1).
+ *
+ * In tilt mode the stream is one tilted block (TypeTilt) and each character fades by its colour's alpha instead of an
+ * opacity: a character with an opacity of its own may be painted apart from the block, out of reach of its tilt, and
+ * boxes per character would lose the kerning, so running text tilts whole.
  */
 export function StreamText({lines, revealed, role = 'body', color, leading = 1.5, landed = {}, edge = 7}: {lines: StreamLine[]; revealed: number; role?: string; color?: string; leading?: number; landed?: Record<string, number>; edge?: number}) {
   const s = useType(role, color);
+  const tilt = useRasterMode() === 'tilt';
+  // tilt mode: a fade as the colour's alpha (times any alpha the colour has), never an opacity
+  const faded = (c: string | undefined, op: number): React.CSSProperties => {
+    const base = c ?? String(s.color ?? '');
+    if (!tilt) return {color: c, opacity: op};
+    const own = parseColor(base)?.a ?? 1;
+    return {color: alpha(base, own * op)};
+  };
   let ci = 0;
-  return (
-    <div style={{...s, position: 'relative', lineHeight: leading, whiteSpace: 'pre'}}>
-      {lines.map((line, li) => (
-        <div key={li}>
-          {line.map((seg, si) => {
-            const start = ci;
-            ci += seg.text.length;
-            const weight = seg.bold ? 700 : s.fontWeight;
-            if (seg.token) return <span key={si} style={{fontWeight: weight, color: seg.color ?? s.color, opacity: clamp01(landed[seg.token] ?? 0)}}>{seg.text}</span>;
-            return (
-              <span key={si} style={{fontWeight: weight, color: seg.color ?? s.color}}>
-                {Array.from(seg.text).map((ch, k) => {
-                  const u = clamp01((revealed - (start + k)) / edge);
-                  return (
-                    <span key={k} style={{opacity: u <= 0 ? 0 : 0.35 + 0.65 * u}}>
-                      {ch}
-                    </span>
-                  );
-                })}
-              </span>
-            );
-          })}
-        </div>
-      ))}
+  const body = lines.map((line, li) => (
+    <div key={li}>
+      {line.map((seg, si) => {
+        const start = ci;
+        ci += seg.text.length;
+        const weight = seg.bold ? 700 : s.fontWeight;
+        if (seg.token) return <span key={si} style={{fontWeight: weight, color: seg.color ?? s.color, ...faded(seg.color ?? s.color, clamp01(landed[seg.token] ?? 0))}}>{seg.text}</span>;
+        return (
+          <span key={si} style={{fontWeight: weight, color: seg.color ?? s.color}}>
+            {Array.from(seg.text).map((ch, k) => {
+              const u = clamp01((revealed - (start + k)) / edge);
+              const op = u <= 0 ? 0 : 0.35 + 0.65 * u;
+              return (
+                <span key={k} style={tilt ? faded(seg.color ?? s.color, op) : {opacity: op}}>
+                  {ch}
+                </span>
+              );
+            })}
+          </span>
+        );
+      })}
     </div>
-  );
+  ));
+  const style: React.CSSProperties = {...s, position: 'relative', lineHeight: leading, whiteSpace: 'pre'};
+  return tilt ? <TypeTilt style={style}>{body}</TypeTilt> : <div style={style}>{body}</div>;
 }

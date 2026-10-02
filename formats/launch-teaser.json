@@ -37,5 +37,7 @@
             "rework_factor": 1.5, "note": "Generation only when it's allowed and adds something."},
  "broadcast": false,
  "generation": "rarely",
- "engines": ["remotion", "ae", "web"]
+ "engines": ["remotion", "ae", "web"],
+ "end_hold_s": 1.5,
+ "notes": ["The end hold is the date beat at the shortest teaser, a quarter of 6 s (qa's end_hold): the films' 3 s end card would be half of it."]
 }

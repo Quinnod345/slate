@@ -9,7 +9,12 @@ are checked Slate treats that as the rule:
   can run `slate master --ae --go` themselves, at their own Terminal (slate.state.autonomy.ae_finish holds that open
   for exactly its steps; an agent, a queued job or any other AE command still gets a no);
 - when a step needs AE closed (masters, preference edits), Slate stops with exit 5 and asks the person to save and
-  quit. It never quits AE itself and never discards changes.
+  quit. It never quits AE itself and never discards changes;
+- before every supervised step, once the person has said go, AE's launch-time dialogs are checked
+  (slate.doctor.aftereffects.launch_dialogs: a licence or sign-in dialog, the Home screen, crash recovery's restore,
+  missing fonts or footage). Scripts can't dismiss them, so a step started under one would hang: Slate stops with
+  exit 5, names the dialog and says what the person does about it. The check never launches AE and never touches it:
+  it reads AE's window titles through System Events, only when AE is already open.
 
 Autonomous mode is recognised four ways, strongest first: `slate.state.modes.check` when the state module provides
 it, Slate's own record of the film's mode (DATA/film_modes.jsonl: a film made autonomous stays autonomous whatever its
@@ -118,12 +123,43 @@ def require_go(go: bool, what: str) -> None:
 
 
 def person_start(go: bool, what: str, *, film_dir: Path | str | None = None, action: str = "ae") -> None:
-    """The gate in front of every AE or aerender step: never for autonomous films, and only with --go.
+    """The gate in front of every AE or aerender step: never for autonomous films, only with --go, and never while
+    After Effects is showing a launch-time dialog the step would hang on.
 
     `action` is the step's name for slate.state.modes ("ae_build", "ae_master", "ae_render", or "ae").
     """
     refuse_autonomous(film_dir, action)
     require_go(go, what)
+    stop_on_dialogs(what)
+
+
+def launch_dialogs() -> dict:
+    """AE's launch-time dialogs right now (slate.doctor.aftereffects.launch_dialogs, the same check doctor's rows run):
+    {running, readable, dialogs: [{kind, name, title, fix, from}], error}. Never launches AE."""
+    from slate.doctor import aftereffects  # noqa: PLC0415 - doctor knows AE's dialogs; imported only when needed
+
+    return aftereffects.launch_dialogs()
+
+
+def stop_on_dialogs(what: str) -> None:
+    """Raise Busy (exit 5) when After Effects is showing a launch-time dialog: a step started under one would hang,
+    because scripts can't dismiss it. Nothing is asked of AE when it isn't open (an aerender step needs it closed
+    anyway). When its windows can't be read (no Accessibility permission), the step goes ahead with a warning: the
+    person who said go is there to see a dialog."""
+    if not procs.ae_running():
+        return
+    st = launch_dialogs()
+    found = st.get("dialogs") or []
+    if found:
+        d = found[0]
+        more = f" (and {len(found) - 1} more)" if len(found) > 1 else ""
+        raise Busy(f"After Effects is showing {d['name']} (\u201c{str(d['title'])[:80]}\u201d){more}, and {what} would "
+                   "hang on it: scripts can't dismiss it.",
+                   hint=f"{d['fix']} Then run this again.",
+                   details={"dialogs": [{"kind": x["kind"], "title": str(x["title"])[:120]} for x in found]})
+    if not st.get("readable", True):
+        log.warn("Couldn't read After Effects' windows to rule out a launch dialog "
+                 f"({st.get('error') or 'no Accessibility permission'}); if AE is showing one, dismiss it first.")
 
 
 def ae_open() -> list[str]:

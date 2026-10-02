@@ -243,6 +243,8 @@ def test_a_stage_without_its_own_detach_is_checked_before_it_is_queued(studio):
     ("run", {"command": "script build", "args": ["--frobnicate"]}, 1, "Allowed here: --check, --dry-run, --from-takes"),
     ("run", {"command": "timing show", "args": ["-x"]}, 2, "long form"),
     ("run", {"command": "timing show"}, 2, "needs 1 name"),
+    ("run", {"command": "timing stress", "args": ["S02"]}, 2, "needs 2 names"),
+    ("run", {"command": "timing stress", "args": ["S02", "im proved"]}, 2, "isn't a name"),
     ("run", {"command": "qa", "args": ["triage"]}, 2, "isn't a name"),
     ("run", {"command": "qa triage", "args": ["--accept", "glitch:1"]}, 1, "person's call"),
     ("job_status", {"job_id": "../../etc"}, 2, "isn't a job id"),
@@ -443,6 +445,9 @@ def test_the_tag_loop_through_the_server(studio):
     assert store.all_jobs() == []
     measured = tools.job_submit("voice tags optimize", film="tide-pools", args=["--measure-only"])
     assert measured["ok"], measured
+    # measuring voices nothing, so it holds Whisper's slot and never the TTS one (a voicing job never waits on it)
+    assert store.load(measured["job_id"])["resources"] == ["whisper"]
+    assert "--resource elevenlabs_tts" not in measured["command"]
     voiced = tools.job_submit("voice tags optimize", film="tide-pools", spend=True, args=["--round", "r1"])
     job = store.load(voiced["job_id"])
     assert job["kind"] == "voice-tags" and job["resources"] == ["elevenlabs_tts", "whisper"]

@@ -69,7 +69,16 @@ export const Act2 = ({sub}: {sub: number}) => (
   `defineMotion` also takes what the motion gate needs to know about a move, written into the trace only when given:
   `class` (`rig`, `ui`, `carry` or `whip`: a page or card carried across the frame says `carry`; a rig part is `rig`
   and a move named for the camera is `carry` without saying so), `exempt` (`reading_sweep` or `steady`) with its
-  `reason`, `exception`, `size` and `unit`.
+  `reason`, `exception`, `size` and `unit`. A move of type says so with `role` (the type role it's set in: `hero`,
+  `h1`, `body`, `label` …) and `text` (its words): the hero-entrance, settled and legibility checks read them and stay
+  quiet without them. The web runtime's `tween()` takes the same keys.
+  Sizing a move to the law before anything renders: `durFit(seconds)` is the longest step of the brand's scale that
+  fits the room (whole frames at the film's rate; the shortest step when none does), so a move in a short act stays on
+  the scale where `Math.min(dur('base'), room)` falls off it. `speedLimits(cls)` gives a class's speed and acceleration
+  limits in px at the film's size (the gate's table, `SPEED_LIMITS`, or the brand's own `speed_limits`), and
+  `maxTravel(duration, ease?, cls?)` the longest travel a move of that length and ease can make inside them, measured
+  the way the gate measures a trace. `Math.min(want, maxTravel(…))` keeps a move's full travel whenever it has room.
+  `tests/engine_kit/test_speed_limits.py` holds the table and the measurement to `slate.qa.motion`.
 - **Events** (`core/events.ts`): `defineEvent()` next to the move that makes the sound. `t` is always the beat; a draw
   or a count gives its span (`start`, `dur`) and ends on `t` (give `start` and `dur` and `defineEvent` works `t` out),
   a whoosh or a swell peaks on `t` inside its span. `validateEvents()` holds slate.timing.beats' span rules word for
@@ -110,7 +119,10 @@ export const Act2 = ({sub}: {sub: number}) => (
   disc on a transform (`subpixel`, the default) so it sits under the parts on every frame (L-kit-S013). The rig's
   combination rules are a pure function of the track: `gestureSpans()` (the frames and channels each gesture moves),
   `checkTrack()` (what runs, what's switched off and why) and `motifLint()`; the picture, the sound (`motifBeats()`)
-  and the hand-in check all read them. `registerMotifTrace(track, {…, character: true, clip})` puts a mark's parts in
+  and the hand-in check all read them. A gesture keyed to a word names it (`word`, `occ`) and, where the act has them,
+  its stressed syllable's `stress_start` and `stress_end` (film seconds; with no `t` or `frame` it lands on the
+  syllable's first frame plus 2): `motifBeats()` puts them on the gesture's contact beat, and the sync gate holds it
+  to landing on or before the syllable ends (the word's end when no syllable is given). `registerMotifTrace(track, {…, character: true, clip})` puts a mark's parts in
   the motion trace and keeps its track for the check's character gate, which runs `characterAcceptance()`: calm at the
   act's ends and after each gesture, still between gestures, no dithering across the split point, and a clipping
   container that keeps `CLEAR_CIRCLE` of the disc clear.
@@ -127,8 +139,63 @@ export const Act2 = ({sub}: {sub: number}) => (
   check's margins, rig-lint and character gates.
 - **Font gate.** The page logs one line, `SLATE_FONT_GATE {…}`, and a failure cancels the render with the same
   report in its message. `node/stills.mjs` `findGateReport(text)` finds it; `core/fontplan.ts` `toGateResult()` turns
-  it into a gate result.
+  it into a gate result. The hold on the first frame belongs to the page, one per font plan (`holdFirstFrame`), and
+  the gate's own result releases it: a gate that renders twice, or a render React throws away, never leaves a hold
+  behind.
 - **Stills.** `node/stills.mjs` bundles and renders with @remotion/renderer; it never downloads a browser (pass one).
+
+## Raster modes: hint and tilt
+
+Headless Chrome's Skia snaps each line of text to whole device pixels while the text's matrix keeps its x axis exactly
+horizontal, and lays boxes placed by `left` and `top` on whole pixels, so under a slow move (a drift, a push, an
+ease's tail) type steps a pixel at a time while the shapes around it glide. The films saw it as "jittery". The kit
+draws in one of two raster modes; neither changes a design, a timing, a layout or a stacking order.
+
+- **Hint** (the default; every act that doesn't opt in). A moving `Card` or `Camera` carries `will-change` while it
+  moves and is rebuilt at rest (`atRest`, `motionHint`, the raster keys). It glides, but the compositor resamples what
+  it moves, so type under a slow push comes out about 15% softer.
+- **Tilt** (opt in per act). Type is drawn under a `skewY` too small to see (`tiltDeg()`: 0.034° at full size, a
+  quarter pixel across a 900 px card), inside the layer that holds it, and nothing is hinted or kept between frames.
+  Skia places each glyph at quarter pixels: within about 0.13 px of its true path, as crisp as a fresh raster, and two
+  renders bit-identical. At rest, type sits at its true place to a quarter pixel instead of a whole one.
+
+Converting an act is one wrapper at its root, `<RasterModeProvider value={actRasterMode()}>`. A render can still ask
+for the act as it was with the input prop `raster: "hint"`, which is its reference, as long as every change the
+conversion makes is a no-op in hint mode (`TiltPlane`, `TiltSpan` and `TypeTilt` are; `slate check --markup --against
+<ref>` proves it, and its tilt coverage audit holds the act to the rules below). Both acts on a boundary render in the
+same mode. In tilt mode the kit tilts the type in a `Card`'s face (`faceTilt`), an `At`, and type moved by `PerChar`,
+`PerWord`, `Arrive`, `KineticWords` and `Field`; cameras, `Place` and `FadeCard` pass their on-screen scale down
+(`RasterScaleProvider`) so each tilt is sized for it. Everything else is the act's:
+
+- **Tilt type only, never shapes.** A tilt moves anything else off whole pixels, by 0.0006 × its distance from the
+  tilt's centre, and softens its edges. Keep every tilted box tight around its type; give a wide card with thin lines
+  or bars far from its centre `faceTilt={false}` and a `TiltSpan` around each text where it sits.
+- **Inside the layer, after the text's own transform.** Directly around text inside anything with an opacity below
+  1, a filter or a blend mode, and inside a blurred box: `<TiltSpan>`. Type you move yourself: append
+  `useTypeTilt()` to its transform, or draw it as `<TypeTilt style={{…, transform}}>`. Never on a composited layer's
+  own transform or above one: the compositor would rotate the raster and soften it.
+- **Planes for free type only.** Type in no card, over a camera's layers: `<TypeTilt plane>`. No tilted plane in a
+  camera's 3D world, under a clip-path, or around absolutely placed type (it skews about its empty box's origin): a
+  `TiltSpan` around each text instead.
+- **Running text tilts as one block**, never per character (per-character boxes lose the kerning); a trailing
+  character fades by its colour's alpha, not an opacity.
+- **Move boxes by transform.** Chrome rounds a box's fractional layout offset under any transform that isn't a pure
+  translation, so a box that moves under a tilt lays out at 0 and moves by transform, and a line's top sits on a whole
+  pixel with its fraction in its transform.
+- **A card whose size morphs takes `morphPose`.** It lays itself out at whole even sizes and scales the face, the
+  layers and the pages to its true size, with the content scaled back: every edge to Skia's quarter pixel, the content
+  to a few hundredths. At even sizes nothing changes. (Moving only the pose by its offset's rounding left the far edges
+  sawtoothing a pixel: don't.)
+- **A text left untilted on purpose** says why: `data-slate-untilted="<why>"` on its element, which the audit lists.
+
+**The stability bench** (`bench/stability.tsx`, its spec `bench/stability_bench.json`) tests the kit itself: one paper
+card with type, a curve and a chip, drifting under a slow push, landing, arriving, zooming, growing, free type over the
+camera and three morphing cards, each drawn in both modes and rendered through the real pipeline at 16 samples.
+`slate qa stability conformance --render` (add `--detach` to queue it on the render slot) renders every variant and
+checks it: the scan still fails the pre-fix drawing; slow motion in tilt mode has no snap, no parts disagreeing, no
+shaking and no flicker; push-ins and moving type stay at least 99% as crisp as a fresh raster; rest matches the pre-fix
+drawing's structure and crispness; two renders are identical; the scan's own positive control; and morphing edges
+stay true. Run it after any change to `paper.tsx`, `type.tsx`, `camera.tsx` or the renderer, before an act converts.
 
 ## Review sheets and golden stills
 
@@ -161,6 +228,7 @@ Exact 0 and 1 at the ends of every ease · lookups that never throw · no Catmul
 0.6 s and half the entrance · nothing scales from zero (kinetic words start at 85%) · a count-up holds each figure for
 three frames, one value per frame, over a box that never re-centres · markers grow in as their line arrives · one
 accent-line weight per look · a logo build fitted by everything it draws · a fading card fades as one sheet · clips
-on untransformed wrappers · raster hints only while moving · a world layer untransformed at rest · a motif moves as a
+on untransformed wrappers · raster hints only while moving (hint mode), none at all and type tilted inside its layer
+(tilt mode) · a morphing card at whole even sizes · a world layer untransformed at rest · a motif moves as a
 whole below its size threshold, never loops but to breathe, overshoots only where the brand allows, and runs one
 gesture per channel with four still frames between momentary ones.

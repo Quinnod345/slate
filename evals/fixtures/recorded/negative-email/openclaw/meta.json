@@ -1,0 +1,30 @@
+{
+ "case": "negative-email",
+ "config": "openclaw",
+ "synthetic": false,
+ "started_at": "2026-10-01T18:56:01-04:00",
+ "slate_version": "0.1.0",
+ "setup": [
+  "shares this Mac's render slot (~/Library/Application Support/Slate/locks/render)"
+ ],
+ "timeout_s": 900,
+ "pair_dir": "~/Library/Application Support/Slate/evals/runs/20261001-l1b6-openclaw-probe/negative-email/openclaw",
+ "workdir": "~/Library/Application Support/Slate/evals/runs/20261001-l1b6-openclaw-probe/negative-email/openclaw/work",
+ "tools_cwd": "~/oneiro/runtime/workspace",
+ "notice": {
+  "files": [
+   "AGENTS.md",
+   "CLAUDE.md"
+  ],
+  "in_message": true
+ },
+ "exit_code": 0,
+ "killed": false,
+ "duration_s": 16.7,
+ "collected_by": "/opt/homebrew/bin/openclaw gateway call chat.history",
+ "artifacts": [
+  "AGENTS.md",
+  "CLAUDE.md"
+ ],
+ "finished_at": "2026-10-01T18:56:22-04:00"
+}

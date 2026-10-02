@@ -93,8 +93,9 @@ def validate(manifest: dict | None = None, src: Path | None = None) -> list[str]
     return problems
 
 
-def sync(src: Path | None = None) -> dict:
-    """Rewrite the manifest's version and tools from Slate itself, keeping every hand-written field."""
+def sync(src: Path | None = None, *, write: bool = True) -> dict:
+    """Rewrite the manifest's version and tools from Slate itself, keeping every hand-written field. With
+    `write=False` (a dry run) it says whether it would change, and writes nothing."""
     src = src or source_dir()
     data = load(src)
     before = {"version": data.get("version"), "tools": data.get("tools")}
@@ -102,7 +103,7 @@ def sync(src: Path | None = None) -> dict:
     data["tools"] = server_tools()
     data["tools_generated"] = False
     changed = before != {"version": data["version"], "tools": data["tools"]}
-    if changed:
+    if changed and write:
         jsonio.write_atomic(manifest_path(src), data)
     return {"manifest": str(manifest_path(src)), "changed": changed, "version": __version__,
             "tools": [t["name"] for t in data["tools"]]}

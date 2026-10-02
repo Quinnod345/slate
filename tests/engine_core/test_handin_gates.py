@@ -277,6 +277,71 @@ def test_the_markup_bench_compares_with_the_kit_at_a_git_ref(act_film):
     assert code == 2 and "--against goes with --markup" in json.dumps(out) + err
 
 
+TILT_INDEX = """import React from 'react';
+import {ActRoot, Camera, Card, P, RasterModeProvider, Text, TiltSpan, actRasterMode} from '@slate/kit';
+import type {SceneProps} from '@film/data';
+export {silent} from './beats';
+
+export default function Act1({sub, act}: SceneProps) {
+  return (
+    <ActRoot act={act} sub={sub}>
+      <RasterModeProvider value={actRasterMode()}>
+        <Camera>
+          <Card w={200} h={100} pose={P(0, 0)}>
+            <Text role="h2">ON_SCREEN</Text>
+          </Card>
+        </Camera>
+        EXTRA
+      </RasterModeProvider>
+    </ActRoot>
+  );
+}
+"""
+
+
+@pytest.mark.parametrize("extra, status, expect", [
+    ("", "PASS", "in tilt mode every text is tilted inside its layer"),
+    ("<span style={{position: 'absolute', opacity: 0.5}}>Faded label</span>", "FAIL",
+     "\"Faded label\" isn't tilted inside its layer (an opacity below 1 on <span>)"),
+    ("<span style={{position: 'absolute', opacity: 0.5}}><TiltSpan>Faded label</TiltSpan></span>", "PASS",
+     "in tilt mode every text is tilted inside its layer"),
+    ("<span data-slate-untilted='a sample-data tag, read at rest' style={{opacity: 0.5}}>Sample</span>", "PASS",
+     "1 left untilted on purpose"),
+    ("<TiltSpan><i style={{display: 'inline-block', width: 20, height: 2, background: 'currentColor'}} />Key</TiltSpan>",
+     "FAIL", "holds a fill on <i>"),
+])
+def test_the_markup_bench_audits_an_act_in_tilt_mode(act_film, extra, status, expect):
+    """An act in tilt mode is held to the mode's placement rules on every sample, without rendering a pixel: every text
+    tilted inside the innermost layer that holds it, no tilt holding a shape outside a Card's face (L-kit-S002, S003,
+    S010). Its hint-mode drawing is what `--against` compares."""
+    write_act(act_film, index=TILT_INDEX.replace("EXTRA", extra))
+    code, out = check(act_film, "--markup")
+    g = gate(out, "markup")
+    assert g["status"] == status and expect in g["summary"] + json.dumps(g["evidence"]), g
+    assert g["details"]["tilt_audit"]["run"] is True and g["details"]["tilt_audit"]["tilted_samples"] == 480
+
+
+def test_the_markup_bench_compares_through_a_symlinked_data_folder(act_film, tmp_path, monkeypatch):
+    """The earlier kit is unpacked under Slate's temp folder; reached through a symlink (macOS's /var is /private/var),
+    its font gate must still be the bench's pass-through, or the earlier kit draws nothing and every sample 'differs'."""
+    real = tmp_path / "real-data"
+    real.mkdir()
+    (tmp_path / "linked-data").symlink_to(real)
+    monkeypatch.setenv("SLATE_DATA", str(tmp_path / "linked-data"))
+    write_act(act_film)
+    code, out = check(act_film, "--markup", "--against", "HEAD")
+    g = gate(out, "markup")
+    assert g["status"] == "PASS" and "identical to the act drawn by the kit at HEAD" in g["summary"], g
+
+
+def test_the_markup_bench_says_when_an_act_draws_nothing_in_tilt_mode(act_film):
+    write_act(act_film)
+    code, out = check(act_film, "--markup")
+    audit = gate(out, "markup")["details"]["tilt_audit"]
+    assert audit == {"run": False, "why": "the act draws nothing in tilt mode (no RasterModeProvider): there is nothing "
+                                          "to audit"}
+
+
 def _engine_copy(root: Path, edit) -> Path:
     """A copy of this engine (its sources; node_modules linked) with its kit edited by `edit(kit_dir)`."""
     dest = root / "engine"

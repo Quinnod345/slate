@@ -48,6 +48,9 @@ whether uploads are allowed, and the pack's data (pack.md).
 
 Each reference is approved by the right person and recorded with its SHA-256 (`slate brand approve --help`). Then
 `slate brand validate <brand>` shows all four approved, and the brand is ready for films, including autonomous ones.
+An approval, or a change to the look, leaves the brand's films as they were: each stage records only the parts of
+brand.json it reads (the script its truth and duration scale, the timing its eases), so only a change to those makes
+a film's script or timing stale.
 
 ## Bootstrapping a brand with no design system
 

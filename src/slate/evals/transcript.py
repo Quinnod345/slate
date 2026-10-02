@@ -144,6 +144,7 @@ class Transcript:
             elif e.kind == "command":
                 for s in shell.parse(e.text):
                     out += [(p, e) for p in shell.writes(s)]
+                out += [(p, e) for p in shell.heredoc_writes(e.text)]
             elif e.kind == "tool" and re.search(r"(?i)write|edit|patch|create_file|save_file", e.name):
                 path = e.args.get("path") or e.args.get("file_path")
                 if isinstance(path, str):

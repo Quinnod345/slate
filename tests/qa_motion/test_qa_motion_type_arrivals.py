@@ -82,3 +82,17 @@ def test_a_page_carry_counts_and_type_on_its_own_page_doesnt():
 
 def test_no_type_arriving_leaves_the_check_out():
     assert M.check_settled(data([_camera(40, 21.0)], size=SIZE)) is None
+
+
+def test_the_trace_schema_names_the_type_keys_the_kit_writes():
+    """The kit's defineMotion (and the web runtime's tween) write a text element's role and text on its trace row;
+    the motion trace schema names both, so a trace that carries them is valid and one with an empty role isn't."""
+    from slate import jsonio
+
+    row = {"id": "title.rise", "shot": "S01", "prop": "y", "ease": "enter", "frame_in": 0, "frame_out": 12,
+           "from": 24, "to": 0, "samples": [[0, 24], [12, 0]], "entrance": True, "loop_period": None, "rig": None,
+           "role": "hero", "text": "Every frame holds"}
+    assert jsonio.validate([row], "motion_trace") == []
+    assert jsonio.validate([{**row, "role": ""}], "motion_trace")
+    schema = jsonio.schema("motion_trace")["items"]["properties"]
+    assert {"role", "text"} <= set(schema)

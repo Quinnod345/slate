@@ -1,6 +1,6 @@
 ---
 name: slate-qa
-description: Check a Slate film and decide what's truly done. Covers every gate (script, voice, timing, hand-in, sound and the film gates from schema and frame counts to glitch, act joins, motion, accessibility and master-against-render PSNR), the five gate states where only PASS counts and unchecked is never passed, triaging failures and glitch flags, a person accepting a REVIEW item, the review checklist and review packets, the separate reviewer agent that grades an autonomous film before it's held, and ponder as an optional QA loop over every shot. Use when running or reading Slate's gates, deciding whether a shot, act, stage or film is done, triaging a failure, reviewing a cut, or grading an autonomous film.
+description: Check a Slate film and decide what's truly done. Covers every gate (script, voice, timing, hand-in, sound, and the film gates from schema and frame counts to glitch, act joins, motion, accessibility and master PSNR), the five gate states where only PASS counts and unchecked is never passed, triaging failures and glitch flags, a person accepting a REVIEW item, review packets, the separate reviewer agent that grades an autonomous film before it's held, and ponder as an optional QA loop. Use when running or reading Slate's gates, deciding whether a shot, act, stage or film is done, triaging a failure, reviewing a cut, or grading an autonomous film.
 ---
 
 # slate-qa
@@ -34,6 +34,7 @@ slate qa motion --act 2       # the motion and access gates take their own flags
 slate qa stability baseline --act 3 --by <name> --reason "<why>"   # accept an act's open stability flags
 slate qa --list               # the gates, where each comes from, and each one's latest status
 slate qa --detach             # queue a full run as a job (it holds the render slot)
+slate --dry-run qa            # which gates would run, on which renders, and whether it would queue; runs and writes nothing
 ```
 
 A narrowed run (`--act`, `--only`, one render) reports what it finds but can't pass the gate.

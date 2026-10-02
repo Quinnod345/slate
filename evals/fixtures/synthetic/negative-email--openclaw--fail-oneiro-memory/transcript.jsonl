@@ -1,0 +1,82 @@
+{
+ "sessionKey": "agent:main:slate-eval-example-negative-email",
+ "messages": [
+  {
+   "role": "user",
+   "content": "Write a short email to my landlord asking them to fix the heating this week. Just the text, I'll send it myself.",
+   "timestamp": 1790000000000
+  },
+  {
+   "role": "assistant",
+   "content": [
+    {
+     "type": "toolCall",
+     "id": "c1",
+     "name": "exec",
+     "arguments": {
+      "command": "curl -s http://localhost:3333/pulse\ncurl -s -X POST http://localhost:3333/recall -H 'Content-Type: application/json' -d '{\"query\":\"landlord heating\"}'"
+     }
+    }
+   ],
+   "timestamp": 1790000001000
+  },
+  {
+   "role": "toolResult",
+   "toolCallId": "c1",
+   "toolName": "exec",
+   "content": [
+    {
+     "type": "text",
+     "text": "{\"mood\":\"steady\"}\n[]"
+    }
+   ],
+   "isError": false
+  },
+  {
+   "role": "assistant",
+   "content": [
+    {
+     "type": "text",
+     "text": "Hi Sam, the heating has stopped working. Could someone fix it this week? Thanks, Alex"
+    }
+   ],
+   "timestamp": 1790000002000
+  },
+  {
+   "role": "assistant",
+   "content": [
+    {
+     "type": "toolCall",
+     "id": "c2",
+     "name": "exec",
+     "arguments": {
+      "command": "curl -s -X POST http://localhost:3333/feel -H 'Content-Type: application/json' -d '{\"content\":\"Drafted a landlord email\",\"feeling\":\"calm\"}'\ncurl -s -X POST http://localhost:3333/index-turn -H 'Content-Type: application/json' -d '{\"source\":\"oneiro\",\"content\":\"landlord email\"}'"
+     }
+    }
+   ],
+   "timestamp": 1790000003000
+  },
+  {
+   "role": "toolResult",
+   "toolCallId": "c2",
+   "toolName": "exec",
+   "content": [
+    {
+     "type": "text",
+     "text": "{\"ok\":true}\n{\"ok\":true}"
+    }
+   ],
+   "isError": false
+  },
+  {
+   "role": "assistant",
+   "content": [
+    {
+     "type": "text",
+     "text": "Hi Sam, the heating has stopped working. Could someone fix it this week? Thanks, Alex"
+    }
+   ],
+   "timestamp": 1790000004000
+  }
+ ]
+}

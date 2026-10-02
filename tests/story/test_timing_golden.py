@@ -136,8 +136,9 @@ def test_shots_match_the_delivered_shots(filmroot, film):
         assert len(revoiced) == 4 and mine["storyboard_version"] != delivered["storyboard_version"]
     else:
         assert not revoiced and mine["storyboard_version"] == delivered["storyboard_version"]
-    if film == "C":  # C's shots.json was written before its vo_words.json existed
-        assert not any("vo_words" in s for s in delivered["shots"]) and all("vo_words" in s for s in mine["shots"])
+    if film == "C":  # C's shots.json predated its vo_words.json until the film session rebuilt it (2026-10-01, 20:01,
+        # now with the words in, compared above like A's and B's); either way the rerun embeds every shot's words
+        assert all("vo_words" in s for s in mine["shots"])
 
 
 # --- vo_cues.json ---------------------------------------------------------------------------------------------------------

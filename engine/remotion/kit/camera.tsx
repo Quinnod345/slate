@@ -5,12 +5,14 @@
 //   eases; project() finds where a world point lands on screen.
 // - Cam2D and WorldLayer: a 2D camera over poses with zoom in log space (a huge translateZ rasterises badly), and a
 //   layer that follows it with no transform at all at rest, so what it holds is bit-identical to screen space.
+// Each passes its on-screen scale down (RasterScaleProvider), so type inside sizes its tilt in tilt mode; in tilt mode
+// Camera also drops its raster hint and keys (it's drawn afresh every frame) and At tilts its type.
 import React from 'react';
 import {AbsoluteFill} from 'remotion';
 import {easeNamed, roleEase} from './core/motion';
 import {lerp, monoSpline} from './core/spline';
 import {useFrameSize, useLook} from './context';
-import {depthScale, motionHint, rasterKey, tiltKey, type Pose} from './paper';
+import {depthScale, motionHint, rasterKey, RasterScaleProvider, tiltKey, TypeTilt, useRasterMode, useRasterScale, type Pose} from './paper';
 
 /** The look's perspective in px for this frame. */
 export function usePerspective(): number {
@@ -24,32 +26,51 @@ export function Camera({x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0, persp, atRe
   const {cx, cy} = useFrameSize();
   const p = persp ?? usePerspective();
   const rest = atRest ?? true;
+  const tilt = useRasterMode() === 'tilt';
+  const outer = useRasterScale();
   return (
     <AbsoluteFill style={{perspective: `${p}px`, perspectiveOrigin: '50% 50%', overflow: 'hidden'}}>
       <div
-        key={rasterKey(depthScale(z, p), 'cam') + tiltKey(rx, ry) + (rest ? '' : 'm')}
+        // hint mode: the world moves as one smooth layer while the camera moves, rebuilt each ~3% of a push and as it
+        // tilts; tilt mode: drawn afresh every frame
+        key={tilt ? undefined : rasterKey(depthScale(z, p), 'cam') + tiltKey(rx, ry) + (rest ? '' : 'm')}
         style={{
           position: 'absolute',
           left: cx,
           top: cy,
           transformStyle: 'preserve-3d',
           transform: `translate3d(${-x}px, ${-y}px, ${z}px) rotateX(${rx}deg) rotateY(${ry}deg) rotateZ(${rz}deg)`,
-          ...motionHint(!rest),
+          ...(tilt ? {} : motionHint(!rest)),
         }}
       >
-        {children}
+        <RasterScaleProvider value={outer * depthScale(z, p)}>{children}</RasterScaleProvider>
       </div>
     </AbsoluteFill>
   );
 }
 
-/** A flat placement inside a camera (a label or overlay at a world position). */
+/** A flat placement inside a camera (a label or overlay at a world position). In tilt mode its type is tilted. */
 export function At({x, y, z = 0, children, style}: {x: number; y: number; z?: number; children?: React.ReactNode; style?: React.CSSProperties}) {
-  return <div style={{position: 'absolute', left: 0, top: 0, transform: `translate3d(${x}px, ${y}px, ${z}px)`, ...style}}>{children}</div>;
+  const tilt = useRasterMode() === 'tilt';
+  const outer = useRasterScale();
+  const p = usePerspective();
+  return (
+    <div style={{position: 'absolute', left: 0, top: 0, transform: `translate3d(${x}px, ${y}px, ${z}px)`, ...style}}>
+      {tilt ? (
+        <RasterScaleProvider value={outer * depthScale(z, p)}>
+          <TypeTilt>{children}</TypeTilt>
+        </RasterScaleProvider>
+      ) : (
+        children
+      )}
+    </div>
+  );
 }
 
 /** A flat group placed in world space (x, y its top-left), optionally lifted in z and tilted. */
 export function Place({x, y, z = 0, rx = 0, ry = 0, rz = 0, s = 1, origin = '0 0', style, children}: {x: number; y: number; z?: number; rx?: number; ry?: number; rz?: number; s?: number; origin?: string; style?: React.CSSProperties; children?: React.ReactNode}) {
+  const outer = useRasterScale();
+  const p = usePerspective();
   return (
     <div
       style={{
@@ -62,7 +83,7 @@ export function Place({x, y, z = 0, rx = 0, ry = 0, rz = 0, s = 1, origin = '0 0
         ...style,
       }}
     >
-      {children}
+      <RasterScaleProvider value={outer * Math.abs(s) * depthScale(z, p)}>{children}</RasterScaleProvider>
     </div>
   );
 }
@@ -104,6 +125,7 @@ export function project(c: Cam, x: number, y: number, z: number, P: number, widt
 export function LookAtCamera({c, persp, style, children}: {c: Cam; persp?: number; style?: React.CSSProperties; children?: React.ReactNode}) {
   const {cx, cy} = useFrameSize();
   const P = persp ?? usePerspective();
+  const outer = useRasterScale();
   return (
     <AbsoluteFill style={{perspective: `${P}px`, perspectiveOrigin: `${cx}px ${cy}px`, overflow: 'hidden', ...style}}>
       <div
@@ -117,7 +139,7 @@ export function LookAtCamera({c, persp, style, children}: {c: Cam; persp?: numbe
           transform: `translateZ(${zOf(c.s, P).toFixed(3)}px) rotateX(${c.rx}deg) rotateY(${c.ry}deg) rotateZ(${c.rz}deg) translate3d(${(-c.x).toFixed(3)}px, ${(-c.y).toFixed(3)}px, 0px)`,
         }}
       >
-        {children}
+        <RasterScaleProvider value={outer * c.s}>{children}</RasterScaleProvider>
       </div>
     </AbsoluteFill>
   );
@@ -177,6 +199,7 @@ export const worldAtRest = (c: WorldCam): boolean => Math.abs(c.x) < 1e-9 && Mat
 export function WorldLayer({cam: c, persp, children}: {cam: WorldCam; persp?: number; children?: React.ReactNode}) {
   const {cx, cy} = useFrameSize();
   const P = persp ?? usePerspective();
+  const outer = useRasterScale();
   const rest = worldAtRest(c);
   const k = P / (P - c.z);
   return (
@@ -192,7 +215,7 @@ export function WorldLayer({cam: c, persp, children}: {cam: WorldCam; persp?: nu
           transform: rest ? undefined : `scale(${k.toFixed(6)}) translate(${(-c.x).toFixed(4)}px, ${(-c.y).toFixed(4)}px)`,
         }}
       >
-        {children}
+        <RasterScaleProvider value={outer * (rest ? 1 : k)}>{children}</RasterScaleProvider>
       </div>
     </AbsoluteFill>
   );

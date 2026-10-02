@@ -317,8 +317,14 @@ done
 if [ -z "$LINK_PROBLEMS" ]; then record PASS "skill links" "$(printf '%s' "$SKILLS" | wc -w | tr -d ' ') skills linked into ~/.claude/skills and ~/.agents/skills${PROBE:+ (probe skill: the checkout has none yet)}"
 else record FAIL "skill links" "wrong or missing:$LINK_PROBLEMS"; fi
 
+# Codex keeps its own bundled skills in ~/.codex/skills/.system, made the first time it runs (doctor asks it what it
+# shows of Slate's skills); only anything else there would be Slate's doing.
 if [ ! -e "$FRESH/.codex/skills" ]; then record PASS "never ~/.codex/skills" "nothing was created there"
-else record FAIL "never ~/.codex/skills" "$(ls -A "$FRESH/.codex/skills" | tr '\n' ' ')"; fi
+else
+  others=$(ls -A "$FRESH/.codex/skills" | { grep -v -x -e '.system' -e '.DS_Store' || true; } | tr '\n' ' ')
+  if [ -z "$others" ]; then record PASS "never ~/.codex/skills" "only Codex's own .system folder is there"
+  else record FAIL "never ~/.codex/skills" "$others"; fi
+fi
 
 BACKED="$(find "$FRESH/Library/Application Support/Slate/backups" -path "*agents-skills/$FIRST_SKILL/SKILL.md" 2>/dev/null | head -1 || true)"
 if [ -n "$BACKED" ] && grep -q 'old copy' "$BACKED"; then record PASS "stale copy moved aside" "$BACKED"

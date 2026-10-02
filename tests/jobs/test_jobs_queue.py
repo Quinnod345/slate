@@ -56,6 +56,19 @@ def test_submit_writes_a_valid_job_file_without_secrets(queue_home, monkeypatch)
     assert model.JOB_ID.match(job_id)
 
 
+def test_a_job_renders_with_the_engine_its_caller_chose(queue_home, monkeypatch, tmp_path):
+    """SLATE_ENGINE_DIR travels with the job, so a queued render uses the engine the caller pointed at (a checkout's
+    engine, proved through the queue before the installed one is updated), never quietly the installed one."""
+    monkeypatch.setenv("SLATE_ENGINE_DIR", str(tmp_path / "engine"))
+    job_id = client.submit("qa", ["slate", "qa", "stability", "conformance", "--render"], resources=("render",),
+                           start_runner=False)
+    job = jsonio.read(queue_home["data"] / "jobs" / f"{job_id}.json")
+    assert job["env"]["SLATE_ENGINE_DIR"] == str(tmp_path / "engine")
+    monkeypatch.delenv("SLATE_ENGINE_DIR")
+    other = jsonio.read(queue_home["data"] / "jobs" / f"{client.submit('qa', ['slate', 'qa'], start_runner=False)}.json")
+    assert "SLATE_ENGINE_DIR" not in other["env"]
+
+
 def test_submit_refuses_bad_input(queue_home):
     with pytest.raises(UsageError):
         client.submit("render", "slate render --act 2", start_runner=False)  # a shell string

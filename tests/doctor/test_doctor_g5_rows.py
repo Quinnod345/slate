@@ -271,7 +271,7 @@ def test_without_the_kits_bench_render_stability_is_unchecked_and_green(denv):
 def test_the_render_stability_row_shows_the_last_conformance(denv):
     denv.stability = {"record": None, "bench": True, "spec_sha256": "aaa"}
     row = stability_row(denv)
-    assert row["status"] == "yellow" and "slate qa stability conformance" in row["fix"]
+    assert row["status"] == "yellow" and "slate qa stability conformance --render --detach" in row["fix"]
     denv.stability = {"record": _record("PASS", "13 of 13 steps pass"), "bench": True, "spec_sha256": "aaa"}
     row = stability_row(denv)
     assert row["status"] == "green" and "13 of 13 steps pass" in row["summary"]

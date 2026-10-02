@@ -6,7 +6,7 @@ import {norm, word as wordAt} from './core/film';
 import {durRank, easeNamed, exitDur, roleEase, t90Of} from './core/motion';
 import {clamp01} from './core/spline';
 import {useFilmTime, useFrameSize, useTokens, useType} from './context';
-import {inMotion, motionHint} from './paper';
+import {inMotion, motionHint, TiltSpan, useRasterMode} from './paper';
 
 /** Film seconds each word of `text` is said in a shot's read (repeats counted), or the given times. */
 export function wordLandings(shotId: string, text: string, times?: number[]): number[] {
@@ -40,9 +40,10 @@ export type KineticWordsProps = {
   style?: React.CSSProperties;
 };
 
-/** A block of words, each landing on its VO word. */
+/** A block of words, each landing on its VO word. In tilt mode each word's tilt sits inside its own fading box. */
 export function KineticWords({shot: shotId, text, times, role = 'hero', highlight = [], align = 'center', width = 0.8, out, t: tOverride, style}: KineticWordsProps) {
   const clock = useFilmTime();
+  const tilt = useRasterMode() === 'tilt';
   const {width: W, short} = useFrameSize();
   const tk = useTokens();
   const s = useType(role);
@@ -67,10 +68,10 @@ export function KineticWords({shot: shotId, text, times, role = 'hero', highligh
               opacity: clamp01(u * 1.4),
               transform: `translateY(${((1 - u) * 0.03 * short).toFixed(3)}px) scale(${(0.85 + 0.15 * u).toFixed(5)})`,
               transformOrigin: '50% 80%',
-              ...motionHint(inMotion(u)),
+              ...(tilt ? {} : motionHint(inMotion(u))),
             }}
           >
-            {w}
+            <TiltSpan>{w}</TiltSpan>
           </span>
         );
       })}

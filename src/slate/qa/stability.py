@@ -1788,7 +1788,9 @@ def conformance(spec: dict, renders: dict[str, Any]) -> GateResult:
                    blur) and the same crispness as the pre-fix drawing
       identical    {a, b, count, min_db}: the same variant rendered twice is identical (nothing carried between frames)
       selftest     {render, frame, regions}: the scan's own positive control on a still of the bench
-      morph        {render, cards}: the morph check
+      morph        {render, cards}: the morph check; with from_scene, each card's true rect on every frame comes from
+                   the spec's scene.morph (cards shrinking about their centres) and `content` is a box inside each card
+                   on frame 0, [left, top, right, bottom] from its top-left
       controls     {items}: real faults the scan must still catch
     Coordinates in the spec are the bench's own (it is one fixed composition); nothing here assumes a frame size."""
     from slate.qa.checks import Sub, combine  # noqa: PLC0415
@@ -1858,7 +1860,8 @@ def conformance(spec: dict, renders: dict[str, Any]) -> GateResult:
                 r = selftest(frame(st["render"], int(st.get("frame", 0))), st.get("regions"))
                 subs.append(Sub(label, r.status, f"selftest on {st['render']}: {r.summary}", r.evidence))
             elif kind == "morph":
-                r = morph_check(source(st["render"]), st["cards"], st.get("rules"))
+                cards = morph_cards(spec, st) if st.get("from_scene") else st["cards"]
+                r = morph_check(source(st["render"]), cards, st.get("rules"))
                 subs.append(Sub(label, r.status, f"morph on {st['render']}: {r.summary}", r.evidence))
             elif kind == "controls":
                 r = controls(st.get("items") or [])
@@ -1872,10 +1875,111 @@ def conformance(spec: dict, renders: dict[str, Any]) -> GateResult:
                    details={"bench": spec.get("bench"), "steps": len(spec.get("steps") or [])})
 
 
-def run_conformance(renders_dir: str | Path | None = None, spec_path: str | Path | None = None) -> GateResult:
+def morph_cards(spec: dict, step: dict) -> list[dict]:
+    """The morph step's cards with their true geometry on every frame, from the bench spec's scene: still cards at
+    scene.morph.x (camera px around the frame's centre) and y, w × h shrinking by `shrink` over the bench's frames
+    about their centres. Rendered with motion blur centred on each frame, a frame's edges average to the frame's own
+    size (the size changes linearly), so frame f's rect is the size at f."""
+    film, m = spec["film"], spec["scene"]["morph"]
+    n = int(film["frames"])
+    cx0, cy0 = film["width"] / 2, film["height"] / 2
+    (w0, h0), (dw, dh) = m["size"], m["shrink"]
+    box = step.get("content")
+    out = []
+    for c, x in zip(step["cards"], m["x"]):
+        cx, cy = cx0 + float(x), cy0 + float(m["y"])
+        rects = []
+        for f in range(n):
+            w, h = w0 - dw * f / n, h0 - dh * f / n
+            rects.append([cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2])
+        card = {**c, "rects": rects}
+        if box:
+            left, top = int(rects[0][0]), int(rects[0][1])
+            card["content"] = [left + int(box[0]), top + int(box[1]), left + int(box[2]), top + int(box[3])]
+        out.append(card)
+    return out
+
+
+BENCH_DIR = "qa/stability_bench"  # under Slate's data folder: the scratch film and the renders, until they're checked
+BENCH_RENDER_TIMEOUT_S = 1800  # one variant: 60 frames at 16 samples, with room for a busy Mac
+BENCH_SCENE_IMPORT = "@slate/kit/bench/stability"
+
+
+def bench_film(folder: Path, spec: dict) -> Path:
+    """The scratch film the bench renders in: the spec's size, rate, brand and length, and one act whose scene is the
+    kit's bench (engine/remotion/kit/bench/stability.tsx). Rewritten each time, so it always matches the spec."""
+    film = spec["film"]
+    num, den, n = int(film["fps_num"]), int(film["fps_den"]), int(film["frames"])
+    folder = Path(folder)
+    (folder / "scenes" / "act1").mkdir(parents=True, exist_ok=True)
+    (folder / "timing").mkdir(parents=True, exist_ok=True)
+    note = "do not edit by hand: slate qa stability conformance --render (the kit's stability bench, not a film)"
+    jsonio.write_atomic(folder / "film.json", {
+        "id": film.get("id", "stability-bench"), "title": film.get("title", "The kit's stability bench"),
+        "format": "bench", "language": "en", "fps_num": num, "fps_den": den, "width": int(film["width"]),
+        "height": int(film["height"]), "brand": film.get("brand", "demo"), "mode": "draft", "generated": note})
+    sec_out = round(n * den / num, 6)
+    jsonio.write_atomic(folder / "timing" / "shots.json", {
+        "generated": note, "fps_num": num, "fps_den": den, "width": int(film["width"]), "height": int(film["height"]),
+        "total_frames": n, "total_seconds": sec_out,
+        "acts": [{"index": 1, "name": "Bench", "shots": ["B01"], "frame_in": 0, "frame_out": n, "frames": n}],
+        "shots": [{"id": "B01", "act": 1, "act_name": "Bench", "frame_in": 0, "frame_out": n, "frames": n,
+                   "sec_in": 0.0, "sec_out": sec_out, "vo": "", "on_screen": ""}]})
+    scene = folder / "scenes" / "act1" / "index.tsx"
+    body = (f"// {note}\n// The act is the engine kit's stability bench; the render's input props pick its scene and "
+            f"raster mode.\nexport {{StabilityBench as default}} from '{BENCH_SCENE_IMPORT}';\n")
+    if not scene.is_file() or scene.read_text(encoding="utf-8") != body:
+        scene.write_text(body, encoding="utf-8")
+    return folder
+
+
+def render_bench(out_dir: str | Path, spec: dict, *, variants: Iterable[str] | None = None,
+                 samples: int | None = None) -> dict[str, Path]:
+    """Render the bench's variants through the real pipeline (the engine's render_mb, every tile finished, at the
+    spec's samples) into out_dir, one file per variant named after it, from one bundle. Returns {variant: file}."""
+    from slate import paths  # noqa: PLC0415
+    from slate.engine import bridge  # noqa: PLC0415
+
+    engine = bridge.engine_dir()
+    if not (engine / "remotion" / "kit" / "bench" / "stability.tsx").is_file():
+        raise MissingPrerequisite(f"The engine at {engine} has no stability bench (it predates the kit's tilt mode).",
+                                  hint="Run `slate engine install` so the installed engine matches this checkout, or "
+                                       "point SLATE_ENGINE_DIR at an engine folder that has it.")
+    film_dir = bench_film(paths.data() / BENCH_DIR / "film", spec)
+    out = Path(out_dir).expanduser()
+    out.mkdir(parents=True, exist_ok=True)
+    wanted = list(variants or spec.get("variants") or {})
+    sub = int(samples or spec["film"].get("samples", 16))
+    made = bridge.call("bundle", {"film": str(film_dir)}, timeout=900)
+    bundle = next((str(made[k]) for k in ("serve_url", "bundle", "bundle_dir", "dir") if made.get(k)), None)
+    renders: dict[str, Path] = {}
+    try:
+        for i, name in enumerate(wanted, 1):
+            v = spec["variants"][name]
+            file = out / f"{name}.mov"
+            log.info(f"bench {i}/{len(wanted)}: {name} ({v.get('scene')}, {v.get('raster')} mode, {sub} samples)")
+            args = {"film": str(film_dir), "act": 1, "sub": sub, "out": str(file),
+                    "props": {k: v[k] for k in ("scene", "raster") if k in v}}
+            if bundle:
+                args["serve_url"] = bundle
+            bridge.call("render", args, timeout=BENCH_RENDER_TIMEOUT_S)
+            renders[name] = file
+    finally:
+        if bundle:
+            try:
+                bridge.call("bundle", {"film": str(film_dir), "serve_url": bundle, "release": True}, timeout=120)
+            except SlateError as exc:
+                log.warn(f"the engine couldn't release the bench's bundle ({exc.message})")
+    return renders
+
+
+def run_conformance(renders_dir: str | Path | None = None, spec_path: str | Path | None = None, *,
+                    render: bool = False, keep: bool = False) -> GateResult:
     """The procedure on this Mac: the engine kit's bench spec, the bench renders (one file per variant, named after
-    it), the checks, and the result recorded under Slate's data folder. Refuses with the next step when the engine
-    kit has no stability bench yet, or the bench hasn't been rendered."""
+    it), the checks, and the result recorded under Slate's data folder. With `render`, the bench is rendered through
+    the engine first (into renders_dir, or a fresh folder under Slate's data folder, removed after the check unless
+    `keep`). Refuses with the next step when the engine kit has no stability bench, or the bench hasn't been
+    rendered."""
     from slate import paths  # noqa: PLC0415
 
     sp = Path(spec_path).expanduser() if spec_path else bench_spec_path()
@@ -1886,10 +1990,25 @@ def run_conformance(renders_dir: str | Path | None = None, spec_path: str | Path
                  "pipeline, the steps in slate.qa.stability.conformance). Until then run `slate qa stability selftest` "
                  "for the scan's own control.")
     spec = jsonio.read(sp)
+    made_here = False
+    rendered: dict | None = None
+    if render:
+        if renders_dir is None:
+            import datetime  # noqa: PLC0415
+
+            renders_dir = paths.data() / BENCH_DIR / "renders" / datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+            made_here = True
+        t0 = _time()
+        render_bench(renders_dir, spec)
+        from slate.engine import bridge  # noqa: PLC0415
+
+        rendered = {"seconds": round(_time() - t0, 1), "engine": str(bridge.engine_dir()),
+                    "samples": int(spec["film"].get("samples", 16))}
     if renders_dir is None:
         raise MissingPrerequisite("The conformance procedure checks the bench as the real pipeline renders it.",
-                                  hint="Render every variant in the spec through the engine (one file per variant, "
-                                       "named after it), then: slate qa stability conformance <folder of renders>.")
+                                  hint="Render it through the engine and check it in one go (a long job: add --detach "
+                                       "to queue it on the render slot): slate qa stability conformance --render. Or "
+                                       "check renders you already have: slate qa stability conformance <folder>.")
     from slate.qa.film import VIDEO_EXT  # noqa: PLC0415
 
     folder = Path(renders_dir).expanduser()
@@ -1905,10 +2024,21 @@ def run_conformance(renders_dir: str | Path | None = None, spec_path: str | Path
     result = conformance(spec, renders)
     record = {"generated": "do not edit by hand: slate qa stability conformance", "spec": str(sp),
               "spec_sha256": jsonio.sha256(sp), "renders": {k: str(v) for k, v in renders.items()},
-              "result": result.to_dict()}
+              "render_sha256": {k: jsonio.sha256(v) for k, v in renders.items()},
+              "rendered": rendered, "kept": not made_here or keep, "result": result.to_dict()}
     out = paths.data() / CONFORMANCE_RECORD
     jsonio.write_atomic(out, record)
+    if made_here and not keep:
+        import shutil  # noqa: PLC0415
+
+        shutil.rmtree(folder, ignore_errors=True)
     return result
+
+
+def _time() -> float:
+    import time  # noqa: PLC0415
+
+    return time.monotonic()
 
 
 def last_conformance() -> GateResult | None:
@@ -1944,6 +2074,10 @@ DESCRIPTION = """Render stability on every act's render, triaged so what's left 
     slate qa stability selftest [--still IMAGE]          the scan's own positive control
     slate qa stability controls CONTROLS.json            real faults the scan must still catch
     slate qa stability conformance RENDERS_FOLDER        the engine kit's stability bench, checked
+    slate qa stability conformance --render [--detach] [--keep]
+                                                         render the bench through the engine (16 samples, about a
+                                                         dozen minutes on a quiet Mac) and check it; --detach queues it
+                                                         on the render slot
 
 Flags within ±3 frames of a planned beat (pops only), shared with a reference render (same class, within 2 frames
 and one tile) or in the act's baseline don't count. A whole-pixel reversal always fails. Strips for the open flags
@@ -1986,7 +2120,12 @@ def register(sub) -> None:
     p.add_argument("--quick", action="store_true",
                    help="run: reuse the scans already made, never start one (an act not scanned yet is UNCHECKED)")
     p.add_argument("--detach", action="store_true",
-                   help="run: queue the scan as a job (it holds the render slot) and return the job id at once")
+                   help="run, or conformance --render: queue it as a job (it holds the render slot) and return the job "
+                        "id at once")
+    p.add_argument("--render", action="store_true",
+                   help="conformance: render the engine kit's bench through the engine first, then check it")
+    p.add_argument("--keep", action="store_true",
+                   help="conformance --render: keep the bench renders (removed after the check by default)")
 
 
 def _film_dir(args: argparse.Namespace) -> Path:
@@ -2002,8 +2141,55 @@ def _show(r: GateResult) -> str:
     return "\n".join(lines)
 
 
-def _cmd(args: argparse.Namespace) -> int:
+def _plan(args: argparse.Namespace) -> int:
+    """`slate --dry-run qa stability …`: what the action would do, on what, and whether it would be queued. Runs
+    nothing (no scan, no strip, no comparison, no render) and writes nothing."""
+    from slate import cli  # noqa: PLC0415
+
     action = args.action or "run"
+    acts = [int(a) for a in args.act or []]
+    film_dir = None if action in ("selftest", "controls", "conformance") else cli.film(args)
+    on: dict = {"acts": acts or "every act", "paths": list(args.paths or [])}
+    if film_dir is not None:
+        from slate.qa.film import context  # noqa: PLC0415
+
+        ctx = context(film_dir)
+        on["film_dir"] = str(film_dir)
+        on["renders"] = {str(a): ctx.rel(e["path"]) for a, e in ctx.current_renders().items()
+                         if not acts or a in acts}
+    queued = bool(args.detach) and action in ("run", "conformance")
+    acts_text = f"act{'s' if len(acts) > 1 else ''} {', '.join(map(str, acts))}" if acts else "every act"
+    what = {
+        "run": f"scan {acts_text}'s render at full resolution"
+               + (" (reusing the scans already made, starting none)" if args.quick else "")
+               + ", triage the flags" + (", write strips for the open ones in qa/stability/strips/" if args.strips else "")
+               + " and record the gate in qa/gates.json",
+        "baseline": (f"take the accepted flags at film frames {args.drop} out of {acts_text}'s baseline" if args.drop
+                     else f"accept {acts_text}'s open flags into its baseline (qa/stability/)")
+                    + f", by {args.by or '(no --by given)'}",
+        "reference": f"compare {acts_text} with {', '.join(args.paths) or '(no render given)'} from now on",
+        "strip": f"write a before-and-after strip of {acts_text} around film frame {args.frame}"
+                 + (f" to {args.out}" if args.out else " in qa/stability/strips/"),
+        "compare": f"compare {acts_text}'s render with {', '.join(args.paths) or 'its reference'}",
+        "selftest": "run the scan's positive control on " + (args.still or "a made-up still"),
+        "controls": f"run the controls in {', '.join(args.paths) or '(no file given)'}",
+        "conformance": ("render the engine kit's stability bench through the engine (about a dozen minutes) and "
+                        "check it" if args.render else f"check the bench renders in {', '.join(args.paths) or '(no folder given)'}"),
+    }[action]
+    where = ("as a queued job that holds the render slot" if queued else
+             "here, in this process (not queued" + ("; --detach would queue it)" if action in ("run", "conformance")
+                                                    else ")"))
+    log.result({"dry_run": True, "action": action, "would": what, "on": on, "queued": queued, "where": where},
+               f"dry run: slate qa stability {action} would {what}, {where}\nnothing ran, nothing written")
+    return 0
+
+
+def _cmd(args: argparse.Namespace) -> int:
+    from slate import cli  # noqa: PLC0415
+
+    action = args.action or "run"
+    if cli.flag(args, "dry_run", False):
+        return _plan(args)
     if action == "run":
         return _run(args)
     if action == "baseline":
@@ -2043,32 +2229,30 @@ def _detach(film_dir: Path, args: argparse.Namespace) -> int:
 
 
 def _run(args: argparse.Namespace) -> int:
-    from slate import cli, qa  # noqa: PLC0415
+    from slate import qa  # noqa: PLC0415
     from slate.qa import park  # noqa: PLC0415
     from slate.qa.film import session  # noqa: PLC0415
 
     film_dir = _film_dir(args)
-    dry = bool(cli.flag(args, "dry_run", False))
-    if args.detach and not dry:
+    if args.detach:
         return _detach(film_dir, args)
-    with run_options(acts=args.act, jobs=args.jobs, strips=args.strips):
-        if dry or GATE not in qa.GATES:
+    with run_options(acts=args.act, jobs=args.jobs, strips=args.strips):  # a dry run never gets here (_plan)
+        if GATE not in qa.GATES:
             with session(film_dir) as ctx:
                 ctx.quick = bool(args.quick)
                 results = [gate(film_dir)]
-            if not dry:
-                gates.write_report(film_dir, results)
+            gates.write_report(film_dir, results)
         else:
             results = qa.run(film_dir, [GATE], quick=bool(args.quick))
     human = ["\n".join(_show(r) for r in results)]
-    human.append("(dry run: qa/gates.json not updated)" if dry else f"recorded in {Path(film_dir) / 'qa' / 'gates.json'}")
-    parked = None if dry else park.status(Path(film_dir))
+    human.append(f"recorded in {Path(film_dir) / 'qa' / 'gates.json'}")
+    parked = park.status(Path(film_dir))
     if parked:
         human.append(f"PARKED: {parked.get('why')} Release: {parked.get('release')}")
     if gates.overall(results) != "PASS":
         human.append("next: look at the strips in qa/stability/strips/, then fix the act or accept what's by design: "
                      "slate qa stability baseline --act N --by NAME --reason TEXT")
-    log.result({"gates": [r.to_dict() for r in results], "summary": gates.summarize(results), "dry_run": dry,
+    log.result({"gates": [r.to_dict() for r in results], "summary": gates.summarize(results), "dry_run": False,
                 "parked": parked}, "\n".join(human))
     return gates.exit_code(results)
 
@@ -2218,6 +2402,23 @@ def _controls(args: argparse.Namespace) -> int:
 
 def _conformance(args: argparse.Namespace) -> int:
     renders = args.paths[0] if args.paths else None
-    r = run_conformance(renders, args.spec)
+    if args.detach:
+        if not args.render:
+            raise UsageError("--detach queues the bench's renders: give it with --render.",
+                             hint="slate qa stability conformance --render --detach")
+        import sys  # noqa: PLC0415
+
+        from slate.jobs import client  # noqa: PLC0415
+
+        argv = [sys.executable, "-m", "slate", "qa", GATE, "conformance", "--render"]
+        argv += ([renders] if renders else []) + (["--spec", args.spec] if args.spec else [])
+        argv += ["--keep"] if args.keep else []
+        job_id = client.submit("qa", argv, resources=("render",), resumable=True, disk_gb=2.0,
+                               note="slate qa stability conformance --render (the kit's stability bench)")
+        log.result({"job": job_id, "argv": argv, "next": f"slate job status {job_id}"},
+                   f"queued as job {job_id}\nnext: slate job status {job_id}   (then slate qa stability conformance "
+                   "records its result for doctor)")
+        return 0
+    r = run_conformance(renders, args.spec, render=args.render, keep=args.keep)
     log.result({"result": r.to_dict()}, _show(r))
     return gates.exit_code([r])

@@ -81,7 +81,7 @@ def test_a_declaration_that_cant_be_honoured_fails(film_builder):
         ({"not_for_reading": True}, "without a reason"),
         ({"not_for_reading": ["A statement the shot never shows"], "reason": "x"}, "doesn't show"),
         ({"not_for_reading": "yes", "reason": "x"}, "should be true or a list"),
-        ({"skip": True, "reason": "x"}, "it takes not_for_reading, voice_matched and reason"),
+        ({"skip": True, "reason": "x"}, "it takes not_for_reading, voice_matched, labels and reason"),
         ("not for reading", "should be an object"),
     ]
     for reading, why in cases:
@@ -90,6 +90,67 @@ def test_a_declaration_that_cant_be_honoured_fails(film_builder):
             r = text.readtime(fb.path)
         assert r.status == "FAIL" and why in " ".join(_sub(r, "declarations")["summary"].split()) + " ".join(r.evidence), \
             (reading, r.evidence)
+
+
+# `labels` means one thing to both gates: the shot's on-screen words name what the picture shows (a product's own UI,
+# a Simulator label) rather than a second script. It answers the script's voice-share rule and nothing else, so it
+# buys no read time in either gate. (A live look test's L02 passed the script gates with labels and failed
+# `slate qa readtime` for saying it.)
+LABEL_LINE = "Durability is how long a team holds its course"  # 9 words: 3.1 s to read, voice-matched 1.5 s
+
+
+def _script_gates(reading, *, dur: float = 4.0) -> dict:
+    from slate.story import gates as script_gates
+
+    shot = {"id": "S01", "vo": "Read it slowly.", "on_screen": LABEL_LINE, "picture": "The app on a phone.",
+            "dur": dur, **({"reading": reading} if reading is not None else {})}
+    return {r.gate: r for r in script_gates.check_script({"title": "t", "acts": [{"name": "One", "shots": [shot]}]},
+                                                         brand={}, fmt={})}
+
+
+@needs_ffmpeg
+def test_labels_is_a_declaration_both_gates_honour(film_builder):
+    reading = {"labels": True, "reason": "the app's own screen title, shown in the Simulator"}
+    assert _script_gates(None)["script.on_screen"].status == "FAIL"  # 9 words on screen against 3 said
+    script = _script_gates(reading)
+    assert script["script.on_screen"].status == "PASS" and script["script.read_time"].status == "PASS"
+    fb = _board_film(film_builder, LABEL_LINE, reading, frames_shown=120)
+    with ocr.use_backend(ScriptedOCR({1: [LABEL_LINE]})):
+        r = text.readtime(fb.path)
+    assert r.status == "PASS", r.evidence
+    assert not any(c["check"] == "declarations" for c in r.details["checks"])
+    assert r.details["labels"] == ["S01"] and "needs 3.10 s" in r.details["rows"][0]  # timed in full
+
+
+@needs_ffmpeg
+def test_labels_buys_no_read_time_in_either_gate(film_builder):
+    reading = {"labels": True, "reason": "the app's own screen title, shown in the Simulator"}
+    script = _script_gates(reading, dur=3.0)  # 2.1 s settled: enough for a voice-matched floor, not for 9 words
+    assert script["script.on_screen"].status == "PASS" and script["script.read_time"].status == "FAIL"
+    assert _script_gates({"voice_matched": True, "reason": "read along"}, dur=3.0)["script.read_time"].status == "PASS"
+    fb = _board_film(film_builder, LABEL_LINE, reading, frames_shown=54)  # 1.8 s on screen
+    with ocr.use_backend(ScriptedOCR({1: [LABEL_LINE]})):
+        r = text.readtime(fb.path)
+    assert r.status == "FAIL" and "needs 3.10 s" in r.details["short"][0]
+    assert not any(c["check"] == "declarations" for c in r.details["checks"])
+
+
+@needs_ffmpeg
+@pytest.mark.parametrize("reading, script_gate, script_says, qa_says", [
+    ({"labels": True}, "script.on_screen", "declares labels without a reason", "without a reason"),
+    # a list isn't labels: the script's schema refuses it before any gate runs, and readtime says what it takes
+    ({"labels": ["Durability"], "reason": "the app's title"}, "script.schema", "labels", "labels is true or left out"),
+])
+def test_a_labels_declaration_one_gate_refuses_the_other_refuses_too(film_builder, reading, script_gate, script_says,
+                                                                      qa_says):
+    script = _script_gates(reading)
+    assert script[script_gate].status == "FAIL"
+    assert script_says in script[script_gate].summary + " ".join(script[script_gate].evidence)
+    fb = _board_film(film_builder, LABEL_LINE, reading, frames_shown=120)
+    with ocr.use_backend(ScriptedOCR({1: [LABEL_LINE]})):
+        r = text.readtime(fb.path)
+    assert r.status == "FAIL" and qa_says in " ".join(_sub(r, "declarations")["summary"].split() + r.evidence), \
+        r.evidence
 
 
 @needs_ffmpeg

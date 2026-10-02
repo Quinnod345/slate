@@ -96,9 +96,11 @@ def cmd_mcpb_build(args: argparse.Namespace) -> int:
     from slate.mcp import mcpb  # noqa: PLC0415
 
     if args.sync:
-        report = mcpb.sync()
-        log.result(report, (f"Updated {report['manifest']}: version {report['version']}, "
-                            f"{len(report['tools'])} tools." if report["changed"] else
+        dry = bool(cli.flag(args, "dry_run", False))
+        report = mcpb.sync(write=not dry)
+        report["dry_run"] = dry
+        log.result(report, (f"{'Would update' if dry else 'Updated'} {report['manifest']}: version "
+                            f"{report['version']}, {len(report['tools'])} tools." if report["changed"] else
                             f"{report['manifest']} already matches Slate {report['version']}."))
         return 0
     if args.check:

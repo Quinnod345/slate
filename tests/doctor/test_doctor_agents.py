@@ -6,8 +6,9 @@ import json
 import shutil
 
 from slate.doctor import agents, core
+from slate.doctor.env import Ran
 
-from doctor_helpers import by_id
+from doctor_helpers import by_id, codex_prompt_input
 
 
 def ctx(denv):
@@ -360,3 +361,52 @@ def test_doctor_agrees_with_skills_build_installed(denv):
     assert theirs[("slate-story", "codex")] == "once"
     assert theirs[("slate", "claude-code")] == "once" and ours["agents.skills.claude-code"]["status"] == "green"
     assert theirs[("slate", "openclaw")] == "once" and ours["agents.skills.openclaw"]["status"] == "green"
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# What Codex really shows of each skill (codex debug prompt-input)
+
+FRONT = ("Use for any request to make, edit, plan or review a video. Open asks get one question (full production or a "
+         "quick generated clip?). Not for screen-recording an app (video-verifier).")
+OLD_FRONT = ("Slate's front door for any video work. Use for any request to make, edit, plan or review a video or film, "
+             "including explainers, ads, social reels, promos, launch and product videos, brand films, teasers, logo "
+             "stings, kinetic type, character-led pieces, cut-downs. An open request gets one question first (a full "
+             "production or a quick generated clip?). Not for screen-recording an app (use video-verifier).")
+
+
+def _front(denv, description: str, shown: str | None = None) -> dict:
+    (denv.repo_dir / "skills" / "slate" / "SKILL.md").write_text(f"---\nname: slate\ndescription: {description}\n---\n")
+    denv.responses[("codex", "debug", "prompt-input")] = Ran(0, codex_prompt_input(
+        {"slate": description[:220] if shown is None else shown, "slate-story": "test skill"}))
+    return by_id(agents.check_codex_visible(denv, ctx(denv)))["agents.codex-visible"]
+
+
+def test_codex_visible_is_green_when_the_front_doors_routing_fits_what_codex_shows(denv):
+    row = _front(denv, FRONT)
+    assert row["status"] == "green" and "front door's routing is inside" in row["summary"]
+    assert row["details"]["skills"]["slate"]["visible"] == FRONT[:220]
+    assert ["codex", "debug", "prompt-input"] == [denv.calls[-1][0].rsplit("/", 1)[-1], *denv.calls[-1][1:]]
+
+
+def test_codex_visible_is_yellow_when_the_cut_drops_the_question_and_the_negatives(denv):
+    row = _front(denv, OLD_FRONT)
+    assert row["status"] == "yellow"
+    assert "the open-request question" in row["summary"] and "Not-for lines" in row["summary"]
+    assert "skills/slate/SKILL.md" in row["fix"] and row["details"]["skills"]["slate"]["cut"] is True
+
+
+def test_codex_visible_names_missing_skills_and_a_failed_read(denv):
+    denv.responses[("codex", "debug", "prompt-input")] = Ran(0, codex_prompt_input({"slate": "test skill"}))
+    row = by_id(agents.check_codex_visible(denv, ctx(denv)))["agents.codex-visible"]
+    assert row["status"] == "yellow" and row["details"]["missing"] == ["slate-story"]
+    denv.responses[("codex", "debug", "prompt-input")] = Ran(2, "", "error: unrecognized subcommand 'debug'")
+    row = by_id(agents.check_codex_visible(denv, ctx(denv)))["agents.codex-visible"]
+    assert row["status"] == "yellow" and "exited 2" in row["summary"]
+    denv.tools["codex"] = None
+    row = by_id(agents.check_codex_visible(denv, ctx(denv)))["agents.codex-visible"]
+    assert row["status"] == "green" and "isn't on this Mac" in row["summary"]
+
+
+def test_codex_visible_reads_the_skill_list_out_of_the_prompt_input():
+    text = codex_prompt_input({"slate": "Use for any request.", "other": "x"})
+    assert agents.codex_visible(text) == {"slate": "Use for any request.", "other": "x"}

@@ -32,6 +32,7 @@ NUMBER = r"-?[0-9]{1,3}(?:\.[0-9]{1,3})?"
 ID = r"[A-Za-z0-9][A-Za-z0-9_.-]{0,31}"
 IDS = ID + r"(?:," + ID + r"){0,199}"
 SHOT = r"[A-Za-z][A-Za-z0-9_.-]{0,31}"
+SHOT_OR_WORD = r"[A-Za-z0-9][A-Za-z0-9_.'’-]{0,39}"  # a shot id, or a word as the line says it (don't, re-voice)
 GATE = r"[a-z][a-z0-9_.:-]{0,63}"
 PART = r"[A-Za-z0-9][A-Za-z0-9_.-]{0,39}"
 APPROVAL = r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}"
@@ -45,6 +46,8 @@ JOB_ID = re.compile(r"^j-[0-9]{8}-[0-9]{6}-[0-9a-f]{4}$")
 MONTH = re.compile(r"^[0-9]{4}-(?:0[1-9]|1[0-2])$")
 MAX_ARGS = 64
 MAX_ARG_LEN = 400
+# The job queue's slots that stand for a paid vendor call: a stage run that spends nothing never holds one.
+PAID_RESOURCES = frozenset({"elevenlabs_tts", "elevenlabs_music", "higgsfield"})
 
 
 @dataclass(frozen=True)
@@ -89,6 +92,13 @@ class Stage:
             return True
         return any(f"{opt}={value}" in argv for opt, value in self.paid_when)
 
+    def resources_for(self, argv: list[str]) -> tuple[str, ...]:
+        """The slots a run with these arguments holds. A free run of a paid stage (measuring a round voices nothing)
+        never holds a paid vendor's slot, so it doesn't keep a voicing job waiting behind it."""
+        if self.paid and any(flag in argv for flag in self.free_when):
+            return tuple(r for r in self.resources if r not in PAID_RESOURCES)
+        return self.resources
+
 
 _QA = Stage("qa", ("qa",), "detach", "every quality gate (or only the named ones), run as a background job",
             "slate.qa.cli", flags=("--quick",), positional=GATE, max_positional=40,
@@ -119,6 +129,10 @@ RUN: dict[str, Stage] = {s.name: s for s in (
           "slate.timing.cli"),
     Stage("timing show", ("timing", "show"), "inline", "one shot on the clock: frames, read, words, events",
           "slate.timing.cli", positional=SHOT, min_positional=1, max_positional=1),
+    Stage("timing stress", ("timing", "stress"), "inline",
+          "where a key word's stressed syllable starts (S) and its contact frame (C = S + 2), measured from the take; "
+          "writes nothing", "slate.timing.cli", positional=SHOT_OR_WORD, min_positional=2, max_positional=2,
+          options=(("--occ", SMALL_INT), ("--gap", SMALL_INT))),
     _QA,
     Stage("qa list", ("qa",), "inline", "the gates, where each comes from, and its latest status", "slate.qa.cli",
           extra=("--list",)),

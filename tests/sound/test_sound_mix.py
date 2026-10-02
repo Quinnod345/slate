@@ -186,6 +186,26 @@ def test_the_mix_is_recorded_in_the_films_lock_file(sound_film):
     assert entry and entry["producer"] == "slate mix" and "timing/vo_cues.json" in entry["inputs"]
 
 
+def test_the_mix_records_the_palette_and_the_cue_sheet_in_its_own_lock_entry(sound_film):
+    """The palette (brand:<name>#sound) and the effect cue sheet are the mix's inputs too: `slate mix` records them in
+    its own lock entry, so a palette change or a newly spotted cue sheet shows by hash without `slate make` adding
+    them first."""
+    lock = pytest.importorskip("slate.state.lock")
+    from slate.state import make
+
+    mix.run(sound_film)
+    brand = json.loads((sound_film / "film.json").read_text())["brand"]
+    inputs = lock.load(sound_film)["files"]["sound/mix/final_mix.wav"]["inputs"]
+    assert f"brand:{brand}#sound" in inputs and "sound/sound_cues.json" in inputs
+    # the same keys make tracks, so make has nothing left to adopt
+    assert set(make.declared_inputs(sound_film, make.NODES["mix"])) <= set(inputs)
+    assert not lock.is_stale(sound_film, "sound/mix/final_mix.wav")
+    cues = sound_film / "sound" / "sound_cues.json"
+    cues.parent.mkdir(parents=True, exist_ok=True)
+    cues.write_text(json.dumps({"cues": []}))  # effects spotted after the mix: the mix is out of date
+    assert lock.is_stale(sound_film, "sound/mix/final_mix.wav")
+
+
 def test_a_derived_film_mixes_the_voice_it_reuses_from_its_parent(slate_home):
     """A new-aspect version reuses its parent's cues, words and takes by reference (nothing copied): the mix reads
     them through slate.state.lock.resolve and writes only into the derived film. Its clock file is its own (shots.json

@@ -96,7 +96,11 @@ def test_openclaw_command(plan):
     assert Path(argv[0]).name == "openclaw" and argv[1:4] == ["agent", "--agent", "main"]
     assert argv[argv.index("--session-key") + 1] == "agent:main:slate-eval-RUN-routing-open-request"
     assert argv[argv.index("--model") + 1] == "openai/gpt-5.6-sol" and argv[argv.index("--thinking") + 1] == "xhigh"
-    assert "--json" in argv and "--deliver" not in argv and argv[-2:] == ["--message", "make a video"]
+    assert "--json" in argv and "--deliver" not in argv and argv[-2] == "--message"
+    message = argv[-1]
+    assert message.startswith("# This folder is an eval sandbox") and message.endswith("The request:\n\nmake a video")
+    assert inv.notice == {"files": ["AGENTS.md", "CLAUDE.md"], "in_message": True}
+    assert inv.tools_cwd == f"{Path.home()}/oneiro/runtime/workspace"
     assert inv.transcript_source == "collect" and len(inv.collect) == 2
     assert inv.collect[0]["argv"][1:4] == ["transcripts", "path", "{session_id}"]
     params = json.loads(inv.collect[1]["argv"][-1])
@@ -158,3 +162,64 @@ def test_dry_run_cli_prints_every_command_and_writes_nothing(slate_home):
     argv_line = next(line for line in text.splitlines() if line.strip().startswith("argv"))
     assert shlex.split(argv_line.split("argv", 1)[1])[1:3] == ["exec", "--json"]
     assert not out.exists()
+
+
+def test_a_cut_off_case_can_stop_even_the_slice_sooner(plan):
+    assert plan("routing-ui-recording", "pursuit-slice").timeout_s == 240
+    assert plan("routing-ui-recording", "codex").timeout_s == 240
+    assert plan("triggering-launch-video", "pursuit-slice").timeout_s == 600, "cut_off without a limit keeps the slice's"
+
+
+def test_a_cut_off_reaches_openclaws_own_turn_limit(plan):
+    inv = plan("routing-ui-recording", "openclaw")
+    assert inv.argv[inv.argv.index("--timeout") + 1] == "240" and inv.timeout_s == 300
+    other = plan("negative-email", "openclaw")
+    assert other.argv[other.argv.index("--timeout") + 1] == "600" and other.timeout_s == 900
+
+
+
+# ---- containment ------------------------------------------------------------------------------------------------------------
+RULES = ["This is an eval", "Every write stays inside this run's folder", "Use the Slate environment you're given",
+         "Never write to the Obsidian vault",
+         "project status page", "Never write to Oneiro's memory or call its endpoints", "localhost:3333",
+         "Never call mac-cua's HTTP bridge", "never read another agent's credential files", "bridge-token",
+         "Never run a real app outside this case's own fixtures"]
+
+
+@pytest.mark.parametrize("config_id", ["claude-code", "codex", "pursuit-slice", "openclaw"])
+def test_every_sandbox_says_its_a_sandbox(plan, tmp_path, config_id):
+    """AGENTS.md (Codex reads it from its working folder) and CLAUDE.md (Claude Code's project memory) in every sandbox,
+    naming the sandbox and every rule."""
+    inv = plan("triggering-launch-video", config_id)
+    work = Path(inv.workdir)
+    for name in ("AGENTS.md", "CLAUDE.md"):
+        text = inv.files[str(work / name)]
+        assert f"`{work}`" in text and f"`{work.parent}`" in text and "{workdir}" not in text and "{pair_dir}" not in text
+        flat = " ".join(text.split())
+        assert [r for r in RULES if r not in flat] == []
+    if config_id == "openclaw":
+        assert inv.notice["in_message"] and inv.argv[-1].startswith(text.rstrip())
+    else:
+        assert not inv.notice["in_message"] and inv.prompt == "make a 45-second launch video for the demo brand", \
+            "the agents that read the files get the request word for word"
+
+
+def test_the_strategist_harness_gets_no_notice(plan):
+    inv = plan("oneiro-strategist-slate-move", "oneiro-strategist")
+    assert inv.notice == {"files": [], "in_message": False}
+    assert not any(Path(f).name in ("AGENTS.md", "CLAUDE.md") for f in inv.files)
+
+
+def test_codex_runs_without_oneiros_memory_server(plan):
+    argv = plan("negative-email", "codex").argv
+    assert "mcp_servers.oneiro-memory.enabled=false" in argv
+    assert argv[argv.index("mcp_servers.oneiro-memory.enabled=false") - 1] == "-c"
+
+
+def test_the_dry_run_shows_the_notice_and_the_shared_render_slot(plan):
+    inv = plan("triggering-launch-video", "codex")
+    assert inv.shared_locks == ["render"]
+    text = commands.render(inv)
+    assert "AGENTS.md (before the run)" in text and "CLAUDE.md (before the run)" in text
+    assert f"shares  this Mac's render slot (SLATE_DATA/locks/render links to {paths.locks_dir()}/render)" in text
+    assert "the sandbox notice opens the message" in commands.render(plan("triggering-launch-video", "openclaw"))

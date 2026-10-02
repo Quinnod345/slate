@@ -90,7 +90,10 @@ def test_without_json_usage_errors_stay_plain_text():
 
 # ---------------------------------------------------------------------------------------------- SIGTERM
 CHILD = r"""
-import json, os, subprocess, sys, time, types
+import json, os, signal, subprocess, sys, time, types
+# a terminal's own state, whatever started the tests: under nohup SIGHUP arrives ignored, and Slate keeps it ignored
+signal.signal(signal.SIGHUP, signal.SIG_DFL)
+signal.signal(signal.SIGTERM, signal.SIG_DFL)
 sys.path.insert(0, {src!r})
 from slate import cli, procs
 
@@ -186,6 +189,43 @@ def test_a_read_retries_then_says_try_later(monkeypatch):
     with pytest.raises(http.RateLimited) as exc:
         http.request("GET", "https://api.example.com/v1/x", retries=2)
     assert calls == ["GET"] * 3 and exc.value.retry_after_s is None
+
+
+def test_a_proxys_tunnel_refusal_fails_a_read_at_once(monkeypatch):
+    """A proxy that turns the tunnel away (the OpenClaw gateway's egress proxy for a host it doesn't list) answers the
+    same on every try, so a read isn't retried with backoff: one attempt, no sleep, and the proxy's words kept for
+    slate.vendors.egress to read."""
+    calls, slept = [], []
+    monkeypatch.setattr(http, "_sleep", lambda attempt, retry_after: slept.append(attempt))
+
+    def urlopen(req, timeout=60, **kw):
+        calls.append(req.get_method())
+        raise urllib.error.URLError(OSError("Tunnel connection failed: 403 Forbidden"))
+
+    monkeypatch.setattr(urllib.request, "urlopen", urlopen)
+    with pytest.raises(SlateError) as exc:
+        http.request("GET", "https://api.example.com/v1/x", retries=3)
+    assert calls == ["GET"] and slept == []
+    assert "Tunnel connection failed: 403" in exc.value.message and exc.value.details == {"tunnel_refused": True}
+    assert "proxy" in exc.value.hint
+
+    from slate.vendors import egress
+
+    assert egress.tunnel_refusal(exc.value) == 403  # the egress module still recognises it
+
+
+def test_a_plain_connection_error_on_a_read_is_still_retried(monkeypatch):
+    calls = []
+    monkeypatch.setattr(http, "_sleep", lambda attempt, retry_after: None)
+
+    def urlopen(req, timeout=60, **kw):
+        calls.append(req.get_method())
+        raise urllib.error.URLError(ConnectionRefusedError(61, "Connection refused"))
+
+    monkeypatch.setattr(urllib.request, "urlopen", urlopen)
+    with pytest.raises(SlateError) as exc:
+        http.request("GET", "https://api.example.com/v1/x", retries=2)
+    assert calls == ["GET"] * 3 and "tunnel_refused" not in exc.value.details
 
 
 def test_other_errors_stay_plain_http_errors(monkeypatch):
