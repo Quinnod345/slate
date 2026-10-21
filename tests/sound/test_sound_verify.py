@@ -615,3 +615,142 @@ def test_mix_words_reads_numbers_percent_and_the_brands_spellings_as_a_listener_
     assert res["errors"] == [] and res["per_shot"]["S01"]["wer"] == 0.0
     res = hear.compare(lines, heard, lambda t: True)  # without the brand's spelling, it's a misheard word
     assert [e["what"] for e in res["errors"]] == ["misheard"]
+
+
+def test_a_first_word_stretched_across_the_pause_belongs_to_its_line():
+    """Whisper stamps a segment's first word from the end of the word before, so "For" can run 50.24-51.40 s into a
+    line that starts at 51.27 s. It belongs to that line (and is checked there), not between the lines."""
+    from slate.sound import hear
+
+    lines = [{"shot": "L08", "line": "a score between 400 and 900.", "start": 46.0, "end": 50.16},
+             {"shot": "L09", "line": "For teams, that means more.", "start": 51.27, "end": 53.0}]
+    said = [("a", 46.0, 46.2), ("score", 46.3, 46.8), ("between", 46.9, 47.4), ("400", 47.5, 48.6), ("and", 49.36, 49.8),
+            ("900.", 49.8, 50.24), ("For", 50.24, 51.4), ("teams,", 51.4, 51.78), ("that", 52.04, 52.36),
+            ("means", 52.4, 52.7), ("more.", 52.7, 53.0)]
+    heard = [{"word": w, "start": s, "end": e, "probability": 0.95} for w, s, e in said]
+    res = hear.compare(lines, heard, lambda t: True)
+    assert res["errors"] == [], res["errors"]
+    assert res["per_shot"]["L09"]["heard"].startswith("For teams")
+    # a stray word inside the pause that reaches no line's words is still between the lines, and still counts
+    stray = heard[:6] + [{"word": "so", "start": 50.6, "end": 50.8, "probability": 0.9}] + heard[6:]
+    stray[7] = {**stray[7], "start": 51.2}
+    res = hear.compare(lines, stray, lambda t: True)
+    assert [(e["word"], e["where"]) for e in res["errors"]] == [("so", "between lines")]
+
+
+def test_the_mix_is_heard_without_whispers_running_context(monkeypatch, tmp_path):
+    """Over a whole mix, Whisper's previous-text conditioning can loop (a film's mix came back with a line said twice
+    and three section names as the brand). The mix is heard window by window; a take's hearing is unchanged."""
+    from slate import procs
+    from slate.voice import align as voice_align
+
+    seen = []
+    monkeypatch.setattr(voice_align, "whisper_info", lambda: {"path": "/fake/whisper", "version": "test"})
+    monkeypatch.setattr(voice_align, "_hold", lambda resource, fn: fn())
+    monkeypatch.setattr(procs, "run", lambda argv, **kw: seen.append(list(argv)))
+    wav = tmp_path / "mix.wav"
+    wav.write_bytes(b"")
+    voice_align.run_whisper([wav], tmp_path / "out", context=False)
+    voice_align.run_whisper([wav], tmp_path / "out")
+    assert seen[0][-2:] == ["--condition_on_previous_text", "False"]
+    assert "--condition_on_previous_text" not in seen[1]
+
+    from slate.sound import hear
+
+    calls = []
+    monkeypatch.setattr(hear.replay, "fake_vendors", lambda: False)
+    monkeypatch.setattr(hear.audio, "duration_s", lambda p: 10.0)
+    monkeypatch.setattr(voice_align, "transcribe", lambda path, **kw: calls.append(kw) or {"segments": []})
+    _result, how = hear.hear(None, wav)
+    assert calls[0]["context"] is False and how["previous_text"] is False
+
+
+def test_a_voice_only_film_has_nothing_to_hold_against_the_reference(slate_home):
+    """A film mixed from the voice alone (the score and effects still to come) has no balance that could be off the
+    brand's reference: it passes, as the gap, cue and level gates pass a film with none of theirs. A film with a stem
+    the reference doesn't have stays unchecked."""
+    H.brand(slate_home["brands"])
+    fd = H.film(slate_home["films"], "vonly-ref", score=False)
+    mix.run(fd)
+    _approve_reference(slate_home["brands"], {"accents": -9.0, "score": -18.0})
+    r = _by_name(verify.run(fd, ["sound.reference"]))["sound.reference"]
+    assert r.status == "PASS" and "nothing but the voice" in r.summary and r.details["voice_only"] is True
+    scored = H.film(slate_home["films"], "scored-ref")
+    mix.run(scored)
+    r = _by_name(verify.run(scored, ["sound.reference"]))["sound.reference"]
+    assert r.status == "UNCHECKED" and "share no stem" in r.summary  # this mix wrote no family stems to compare
+
+
+def test_a_family_keyed_reference_is_compared_on_the_family_stems(slate_home):
+    """A brand reference measured by family (accents, score, swells, textures) is held against the mix's family stems
+    (sound/mix/family_stems/), each against the voice; the starting palette's stem targets give way to it."""
+    H.brand(slate_home["brands"])
+    fd = H.film(slate_home["films"], "fam-ref")
+    mix.run(fd)
+    d = fd / "sound/mix/family_stems"
+    d.mkdir(parents=True, exist_ok=True)
+    rng = np.random.default_rng(1)
+    voice = rng.standard_normal((SR * 6, 2)) * 0.1
+    audio.write_wav(d / "voice.wav", voice, SR)
+    audio.write_wav(d / "score.wav", voice * 10 ** (-21 / 20), SR)       # 21 LU under the voice
+    audio.write_wav(d / "textures.wav", voice * 10 ** (-21 / 20), SR)    # 21 LU under: louder than the reference
+    _approve_reference(slate_home["brands"], {"score": -21.4, "textures": -25.3})
+    r = _by_name(verify.run(fd, ["sound.reference"]))["sound.reference"]
+    assert r.status == "FAIL" and "textures" in r.details["off"] and "score" not in r.details["off"]
+    audio.write_wav(d / "textures.wav", voice * 10 ** (-26 / 20), SR)
+    r = _by_name(verify.run(fd, ["sound.reference"]))["sound.reference"]
+    assert r.status in ("PASS", "REVIEW"), r.summary
+    lv = _by_name(verify.run(fd, ["sound.levels"]))["sound.levels"]
+    assert lv.status == "PASS" and lv.details["deferred_to"] == "sound.reference"
+
+
+def test_a_line_the_long_pass_skips_is_heard_on_a_second_listen(sound_film, monkeypatch, tmp_path):
+    """Over a whole mix Whisper can jump past half a line while its take sits at its cue. The line is heard again on
+    its own span of the mix and judged on that; a line the second listen misses too still fails."""
+    monkeypatch.setenv("SLATE_FIXTURES", str(tmp_path / "fixtures"))
+    from slate.sound import hear
+    from slate.sound.film import load as load_film, words_for
+
+    mix.run(sound_film)
+    placed = [(w, round(s, 3), round(e, 3), 0.9) for w, s, e in words_for(load_film(sound_film))]
+    _heard_fixture(sound_film, placed[:2] + placed[5:])  # the long pass skips three words
+    lines = hear.script_lines(load_film(sound_film))
+    skipped = {ln["shot"] for ln in lines if ln["start"] - 0.35 <= placed[2][1] <= ln["end"] + 0.35}
+    first_pass = hear.hear
+    monkeypatch.setattr(hear, "hear", lambda *a, **k: (lambda r: (r[0], {**r[1], "replay": False}))(first_pass(*a, **k)))
+
+    def second(film, mix_path, lines, shots, *, language="en"):
+        assert set(shots) == skipped
+        return [{"word": w, "start": s, "end": e, "probability": p, "relistened": next(iter(skipped))}
+                for w, s, e, p in placed if any(ln["shot"] in skipped and ln["start"] - 0.35 <= (s + e) / 2 <= ln["end"] + 0.35
+                                                for ln in lines)]
+    monkeypatch.setattr(hear, "relisten", second)
+    r = _by_name(verify.run(sound_film, ["sound.mix_words"]))["sound.mix_words"]
+    assert r.status == "PASS" and "second listen" in r.summary, r.summary
+    assert all(v["settled"] for v in r.details["relistened"].values())
+    monkeypatch.setattr(hear, "relisten", lambda *a, **k: [])  # the second listen hears nothing either: it fails
+    r = _by_name(verify.run(sound_film, ["sound.mix_words"]))["sound.mix_words"]
+    assert r.status == "FAIL" and "not heard" in r.summary
+
+
+def test_textures_held_under_the_reference_pass_but_louder_ones_fail(slate_home):
+    """Textures and swells are held under the voice on purpose, further in a film that talks more than its reference:
+    quieter than the reference passes (and says so); louder fails. Accents are held both ways."""
+    H.brand(slate_home["brands"])
+    fd = H.film(slate_home["films"], "guarded")
+    mix.run(fd)
+    d = fd / "sound/mix/family_stems"
+    d.mkdir(parents=True, exist_ok=True)
+    voice = np.random.default_rng(2).standard_normal((SR * 6, 2)) * 0.1
+    audio.write_wav(d / "voice.wav", voice, SR)
+    for fam, lu in (("textures", -30.0), ("accents", -19.0)):
+        audio.write_wav(d / f"{fam}.wav", voice * 10 ** (lu / 20), SR)
+    _approve_reference(slate_home["brands"], {"textures": -25.3, "accents": -18.8})
+    r = _by_name(verify.run(fd, ["sound.reference"]))["sound.reference"]
+    assert r.status == "PASS" and "held further under" in r.summary and "textures" in r.details["held_under"]
+    audio.write_wav(d / "textures.wav", voice * 10 ** (-21.0 / 20), SR)     # louder than the reference: off it
+    assert _by_name(verify.run(fd, ["sound.reference"]))["sound.reference"].status == "FAIL"
+    audio.write_wav(d / "textures.wav", voice * 10 ** (-26.0 / 20), SR)
+    audio.write_wav(d / "accents.wav", voice * 10 ** (-24.0 / 20), SR)      # accents buried: off it
+    r = _by_name(verify.run(fd, ["sound.reference"]))["sound.reference"]
+    assert r.status == "FAIL" and "accents" in r.details["off"]

@@ -68,8 +68,13 @@ def whisper_info() -> dict:
 
 
 def run_whisper(files: list[Path], out_dir: Path, *, model: str | None = None, language: str = "en",
-                timeout: float = 3600) -> dict[Path, dict]:
-    """Transcribe files in one Whisper run (the model loads once). Returns {file: whisper JSON}."""
+                timeout: float = 3600, context: bool = True) -> dict[Path, dict]:
+    """Transcribe files in one Whisper run (the model loads once). Returns {file: whisper JSON}.
+
+    context=False hears each 30 s window without the text Whisper decoded before it (its own
+    --condition_on_previous_text False). A take is one window, so it changes nothing there; over a whole mix, the
+    running context can loop (one film's mix came back with a line said twice and three section names heard as the
+    brand)."""
     info = whisper_info()
     if not info["path"]:
         if info.get("override"):
@@ -91,7 +96,7 @@ def run_whisper(files: list[Path], out_dir: Path, *, model: str | None = None, l
             links[link] = Path(f)
         argv = [info["path"], *[str(p) for p in links], "--model", name, "--language", language,
                 "--word_timestamps", "True", "--output_format", "json", "--output_dir", tmp, "--verbose", "False",
-                "--fp16", "False"]
+                "--fp16", "False", *([] if context else ["--condition_on_previous_text", "False"])]
         _hold("whisper", lambda: procs.run(argv, check=True, timeout=timeout))
         for link, original in links.items():
             produced = Path(tmp) / f"{link.stem}.json"
@@ -100,14 +105,15 @@ def run_whisper(files: list[Path], out_dir: Path, *, model: str | None = None, l
     return results
 
 
-def transcribe(path: str | Path, *, model: str | None = None, language: str = "en", timeout: float = 900) -> dict:
+def transcribe(path: str | Path, *, model: str | None = None, language: str = "en", timeout: float = 900,
+               context: bool = True) -> dict:
     """One file through Whisper, the way every Slate module should run it: SLATE_WHISPER (or slate.toml's [voice]
     whisper) names the CLI, the job queue's whisper lock keeps it to one at a time, and the result is Whisper's own
     JSON (segments with word timestamps). For other modules' Whisper runs (timing, analyze), so a stand-in or a
     particular build named once is the one every stage hears with."""
     path = Path(path)
     with tempfile.TemporaryDirectory(prefix="slate-whisper-out-") as out:
-        results = run_whisper([path], Path(out), model=model, language=language, timeout=timeout)
+        results = run_whisper([path], Path(out), model=model, language=language, timeout=timeout, context=context)
     if path not in results:
         raise MissingPrerequisite(f"Whisper ran on {path.name} but wrote no transcript.",
                                   hint="Run the same Whisper command by hand to see its own error.")

@@ -137,3 +137,7 @@ def kind_info(pal: dict, kind: str) -> dict:
 
 def anchor_rule(pal: dict, kind: str, default: str = "onset") -> str:
     return kind_info(pal, kind).get("anchor", default)
+
+
+# The starting palette's level table as shipped (sound.levels tells a brand's own targets from these).
+STARTING_LEVELS = copy.deepcopy(STARTING_PALETTE["levels"])

@@ -473,6 +473,19 @@ def gate_levels(c: _Ctx) -> gates.GateResult:
     film = c.film
     lv = film.palette["levels"]
     targets = {k: float(v) for k, v in (lv.get("lu_vs_voice") or {}).items()}
+    from slate.sound.effects import palette as palettes  # noqa: PLC0415
+
+    starting = (palettes.STARTING_LEVELS if hasattr(palettes, "STARTING_LEVELS") else {}).get("lu_vs_voice")
+    ref_levels, _why, _ref = reference_levels(film)
+    if _family_keyed(ref_levels) and (starting is None or targets == {k: float(v) for k, v in starting.items()}):
+        # The starting palette's stem targets were measured on proof 2's stems; a brand with its own approved,
+        # measured reference is held to that, family by family, in sound.reference (and its balance families).
+        measured, used = _levels_vs_voice(c)
+        return gates.GateResult.pass_(
+            "sound.levels", "the brand's measured sound reference sets this film's levels, family by family "
+            "(sound.reference), in place of the starting palette's stem targets", engine=_engine(),
+            inputs=c.inputs(*used), details={"lu_vs_voice": measured, "deferred_to": "sound.reference",
+                                            "starting_targets": targets})
     tol = float(lv.get("tolerance_lu", 2.0))
     measured, used = _levels_vs_voice(c)
     checked = {r: t for r, t in targets.items() if measured.get(r) is not None}
@@ -532,26 +545,73 @@ def reference_levels(film: Film) -> tuple[dict | None, str, dict | None]:
     return None, "the sound reference has no measured levels (reference_levels in brand.json, or stems beside it)", ref
 
 
+FAMILIES = ("accents", "impacts", "score", "swells", "textures", "plate")
+
+
+def _family_levels_vs_voice(c: _Ctx) -> tuple[dict, list[Path]]:
+    """Each balance family against the voice (integrated LU), from the mix's family stems (sound/mix/family_stems/),
+    the measure a brand's family-keyed reference (accents, score, swells, textures) was taken in."""
+    d = c.film.path(f"{MIX_DIR}/family_stems")
+    voice = d / "voice.wav"
+    if not voice.is_file():
+        return {}, []
+    vo_x = c.read(voice)
+    if not np.any(vo_x):
+        return {}, []
+    vo_l = measure.integrated(vo_x, c.film.sr)
+    out, used = {}, [voice]
+    for fam in FAMILIES:
+        p = d / f"{fam}.wav"
+        if p.is_file():
+            x = c.read(p)
+            if np.any(x):
+                out[fam] = measure.lu_vs(vo_l, measure.integrated(x, c.film.sr))
+                used.append(p)
+    return out, used
+
+
+def _family_keyed(levels: dict | None) -> bool:
+    """A reference measured by balance family: its keys are families (a stem name like music alone isn't one)."""
+    return bool(levels) and bool(set(levels) & set(FAMILIES)) and set(levels) <= set(FAMILIES) | {"music"}
+
+
 def gate_reference(c: _Ctx) -> gates.GateResult:
     film = c.film
     ref_levels, why, ref = reference_levels(film)
     if ref_levels is None:
         return gates.GateResult.unchecked("sound.reference", why, engine=_engine(), details={"reference": ref})
     tol = float(film.palette["levels"].get("tolerance_lu", 2.0))
-    measured, used = _levels_vs_voice(c)
+    # a reference measured by family is compared family by family; one measured by stem, stem by stem
+    measured, used = _family_levels_vs_voice(c) if _family_keyed(ref_levels) else _levels_vs_voice(c)
     common = {r: v for r, v in ref_levels.items() if measured.get(r) is not None and v is not None}
     details = {"reference": ref, "reference_lu_vs_voice": ref_levels, "film_lu_vs_voice": measured, "tolerance_lu": tol,
                "source": why}
     inputs = c.inputs(*used)
+    dlg = c.stem("dialogue")
+    any_stem, _u = _levels_vs_voice(c) if _family_keyed(ref_levels) else (measured, used)
+    if not any_stem and dlg is not None and np.any(dlg):
+        # nothing but the voice: no score or effect stem whose balance could be off the reference (as sound.gap,
+        # sound.cue_sync and sound.levels pass a film with none of theirs); one stem added, and it's compared
+        return gates.GateResult.pass_("sound.reference", "nothing but the voice in this film: no score or effect stem "
+                                      f"to hold against the reference (it has {', '.join(ref_levels) or 'none'})",
+                                      engine=_engine(), inputs=inputs, details={**details, "voice_only": True})
     if not common:
         return gates.GateResult.unchecked("sound.reference", "the reference and the film share no stem to compare "
                                           f"(reference has {', '.join(ref_levels) or 'none'}; film has "
                                           f"{', '.join(measured) or 'none'})", engine=_engine(), inputs=inputs,
                                           details=details)
-    off = {r: round(measured[r] - v, 2) for r, v in common.items() if abs(measured[r] - v) > tol}
+    # Textures and swells are held under the voice on purpose (the balance hierarchy: felt more than heard, ducking
+    # under every word, never over the air guard); how far under depends on how much the film talks, so a film denser
+    # with narration than its 10-20 s reference measures them quieter. For those two, only louder than the reference
+    # is off it; quieter is the hierarchy at work. Accents, impacts and the score are held both ways (buried effects
+    # were a failure too).
+    guarded = {"textures", "swells"} if _family_keyed(ref_levels) else set()
+    off = {r: round(measured[r] - v, 2) for r, v in common.items()
+           if (measured[r] - v > tol) or (r not in guarded and v - measured[r] > tol)}
+    under = {r: round(measured[r] - v, 2) for r, v in common.items() if r in guarded and v - measured[r] > tol}
     summary = ", ".join(f"{r} {measured[r]:+.1f} LU vs reference {v:+.1f}" for r, v in common.items())
     bright = _brightness_vs_reference(c, ref)
-    details.update({"off": off, "brightness": bright})
+    details.update({"off": off, "brightness": bright, "held_under": under})
     evidence = [film.rel(p) for p in used]
     if off:
         return gates.GateResult.fail("sound.reference", "off the brand's sound reference: " + summary, evidence=evidence,
@@ -561,6 +621,9 @@ def gate_reference(c: _Ctx) -> gates.GateResult:
                                        f"but the effects are brighter than it: {bright['summary']}; a person listens",
                                        evidence=evidence, engine=_engine(), inputs=inputs, details=details)
     note = f"; {bright['summary']}" if bright.get("summary") else ""
+    if under:
+        note += "; held further under the voice than the reference: " + ", ".join(
+            f"{r} {d:+.1f} LU" for r, d in under.items()) + " (the balance hierarchy, a film denser with narration)"
     return gates.GateResult.pass_("sound.reference", "matches the brand's sound reference: " + summary + note,
                                   evidence=evidence, engine=_engine(), inputs=inputs, details=details)
 
@@ -840,8 +903,28 @@ def gate_mix_words(c: _Ctx) -> gates.GateResult:
     dlg = c.stem("dialogue")
     sounding = hear.sounding_at(dlg if dlg is not None else np.zeros((film.n, 2)), film.sr)
     res = hear.compare(lines, heard, sounding, language=lang_code, names=hear.heard_as(film))
+    relistened: dict = {}
+    off = sorted({e["shot"] for e in res["errors"] if e.get("shot")})
+    if off and not how.get("replay"):
+        # a second listen: each line the long pass got wrong, heard on its own span of the mix; the line is judged
+        # on that hearing (it still fails if this one misses too)
+        again = hear.relisten(film, c.mix_path, lines, off, language=whisper_lang)
+        if again:
+            owned = {ln["shot"]: (ln["start"] - hear.SPAN_PAD_S, ln["end"] + hear.SPAN_PAD_S) for ln in lines}
+            def in_line(w: dict, shot: str) -> bool:
+                a, b = owned[shot]
+                return a <= (float(w["start"]) + float(w["end"])) / 2 <= b
+            heard_shots = {w["relistened"] for w in again}
+            kept = [w for w in heard if not any(in_line(w, s) for s in heard_shots)]
+            merged = sorted(kept + again, key=lambda w: float(w["start"]))
+            res2 = hear.compare(lines, merged, sounding, language=lang_code, names=hear.heard_as(film))
+            for s in off:
+                first, second = res["per_shot"].get(s, {}), res2["per_shot"].get(s, {})
+                relistened[s] = {"first": first.get("heard"), "second": second.get("heard"),
+                                 "settled": not second.get("problems")}
+            res = res2
     details = {"heard": how, "words_heard": len(heard), "per_shot": res["per_shot"], "errors": res["errors"],
-               "over_music": res["over_music"], "probability_min": hear.PROBABILITY_MIN}
+               "over_music": res["over_music"], "probability_min": hear.PROBABILITY_MIN, "relistened": relistened}
     stood_in = " (a replayed stand-in: nothing real was heard)" if how.get("replay") and not how.get("recorded") else ""
     music = (f"; {len(res['over_music'])} word(s) heard over the music, set aside: "
              + ", ".join(f"{w['word']!r} at {w['t']} s" for w in res["over_music"][:3])) if res["over_music"] else ""
@@ -853,8 +936,9 @@ def gate_mix_words(c: _Ctx) -> gates.GateResult:
                                      f"at {e['t']} s{music}{stood_in}", evidence=[film.rel(c.mix_path)],
                                      engine=engine, inputs=inputs, details=details)
     words = sum(len(hear.tokens(ln["line"])) for ln in lines)
+    again = (f" ({len(relistened)} line(s) on a second listen: {', '.join(relistened)})") if relistened else ""
     return gates.GateResult.pass_("sound.mix_words", f"Whisper heard every one of the {words} script words in the mix"
-                                  f"{music}{stood_in}", evidence=[film.rel(c.mix_path)], engine=engine, inputs=inputs,
+                                  f"{again}{music}{stood_in}", evidence=[film.rel(c.mix_path)], engine=engine, inputs=inputs,
                                   details=details)
 
 

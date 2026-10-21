@@ -179,9 +179,18 @@ def compare(lines: list[dict], heard: list[dict], sounding, *, language: str = "
     names = names or {}
     owner: list[int | None] = []
     for w in heard:
-        mid = (float(w["start"]) + float(w["end"])) / 2
+        w0, w1 = float(w["start"]), float(w["end"])
+        mid = (w0 + w1) / 2
         inside = [i for i, ln in enumerate(lines) if ln["start"] - SPAN_PAD_S <= mid <= ln["end"] + SPAN_PAD_S]
-        owner.append(min(inside, key=lambda i: abs(mid - (lines[i]["start"] + lines[i]["end"]) / 2)) if inside else None)
+        if inside:
+            owner.append(min(inside, key=lambda i: abs(mid - (lines[i]["start"] + lines[i]["end"]) / 2)))
+            continue
+        # Whisper stamps a segment's first word from the end of the word before, so it can stretch across the pause
+        # ("For" 50.24-51.40 s before a line that starts at 51.27). Such a word belongs to the line its span reaches
+        # into most; the alignment below still says whether it's the right word.
+        reach = {i: min(w1, ln["end"] + SPAN_PAD_S) - max(w0, ln["start"] - SPAN_PAD_S) for i, ln in enumerate(lines)}
+        best = max(reach, key=reach.get) if reach else None
+        owner.append(best if best is not None and reach[best] > 0 else None)
     errors, over_music, per_shot = [], [], {}
 
     def extra(w: dict, where: str) -> None:
@@ -243,9 +252,51 @@ def hear(film: Film, mix_path: Path, *, language: str = "en") -> tuple[dict, dic
                                                                  "recorded": recorded, "key": key}
     info = voice_align.whisper_info()
     duration = audio.duration_s(mix_path)
-    result = voice_align.transcribe(mix_path, model=model, language=language, timeout=max(900.0, 8.0 * duration))
+    # Each window heard on its own (no previous-text conditioning): a listener doesn't carry Whisper's running guess.
+    result = voice_align.transcribe(mix_path, model=model, language=language, timeout=max(900.0, 8.0 * duration),
+                                    context=False)
     return result, {"engine": "openai-whisper", "model": model, "version": info.get("version"), "replay": False,
-                    "recorded": False, "key": key}
+                    "recorded": False, "key": key, "previous_text": False}
+
+
+RELISTEN_PAD_S = 0.6  # a second listen hears a line's own span of the mix with this much either side
+
+
+def relisten(film: Film, mix_path: Path, lines: list[dict], shots: list[str], *, language: str = "en") -> list[dict]:
+    """A second listen: each named line's own span of the mix (its words, RELISTEN_PAD_S either side) heard on its
+    own, in one Whisper run. Returns the heard words in film seconds, only those inside the line's span (so a
+    neighbour caught in the pad isn't counted twice). Over a whole mix Whisper can jump past half a line (one film's
+    "Because two businesses can look very similar financially" went unheard while its take sat at its cue); a listener
+    hearing that line hears it."""
+    import tempfile  # noqa: PLC0415
+
+    from slate.voice import align as voice_align  # noqa: PLC0415
+    from slate.voice import measure as voice_measure  # noqa: PLC0415
+
+    want = [ln for ln in lines if ln["shot"] in set(shots)]
+    if not want or replay.fake_vendors():
+        return []
+    model = voice_align.whisper_model(None)
+    out: list[dict] = []
+    whole = audio.load(mix_path, film.sr, None)
+    with tempfile.TemporaryDirectory(prefix="slate-relisten-") as tmp:
+        clips = {}
+        for ln in want:
+            a = max(0.0, float(ln["start"]) - RELISTEN_PAD_S)
+            b = float(ln["end"]) + RELISTEN_PAD_S
+            x = whole[int(a * film.sr):int(b * film.sr)]
+            clip = Path(tmp) / f"{ln['shot']}.wav"
+            audio.write_wav(clip, x, film.sr)
+            clips[clip] = (ln, a)
+        heard = voice_align.run_whisper(list(clips), Path(tmp) / "out", model=model, language=language,
+                                        context=False)
+        for clip, (ln, a) in clips.items():
+            for w in voice_measure.whisper_words(heard.get(clip)):
+                w0, w1 = float(w["start"]) + a, float(w["end"]) + a
+                mid = (w0 + w1) / 2
+                if ln["start"] - SPAN_PAD_S <= mid <= ln["end"] + SPAN_PAD_S:
+                    out.append({**w, "start": round(w0, 3), "end": round(w1, 3), "relistened": ln["shot"]})
+    return out
 
 
 def sounding_at(voice: np.ndarray, sr: int):
