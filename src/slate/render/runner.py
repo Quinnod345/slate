@@ -291,10 +291,34 @@ def _persist_gates(film_dir: Path, t: Target, result: dict) -> None:
             g.inputs = {**(g.inputs or {}), **inputs}
             g.details = {**(g.details or {}), "stage": (g.details or {}).get("stage", "render")}
             keep.append(g)
+        if t.kind == "act" and rendered.is_file():
+            keep += supersede_splice(film_dir, rendered, t.act.index)
         gates.write_report(film_dir, keep)
     except (OSError, ValueError, TypeError, SlateError) as exc:
         log.warn(f"act {t.act.index} is rendered, but its gates couldn't be written to qa/gates.json: "
                  f"{getattr(exc, 'message', exc)}")
+
+
+def supersede_splice(film_dir: Path, rendered: Path, act: int) -> list:
+    """The splice record a whole-act render makes moot. `render.splice` keeps the latest splice's proof, bound to the
+    file it was spliced into; once that act is rendered whole, the file it proved is gone and the record would sit
+    STALE and block delivery for good. When it names this act's file, it's replaced by a record that says so, bound to
+    the new file (whose own render.act<N>.frames proves it). A splice of another act's file is left as it is."""
+    try:  # the record as stored: load_report would wrap a stale one's summary in its staleness note
+        raw = ((jsonio.read(Path(film_dir) / "qa" / "gates.json", default={}) or {}).get("gates") or {}).get("render.splice")
+        old = gates.GateResult.from_dict(raw) if raw else None
+    except (OSError, ValueError, TypeError, SlateError):
+        return []
+    rel = Path(rendered).resolve().relative_to(Path(film_dir).resolve()).as_posix()
+    if old is None or (rel not in (old.evidence or []) and rel not in (old.inputs or {})):
+        return []
+    from slate import __version__  # noqa: PLC0415
+
+    return [gates.GateResult("render.splice", "PASS", f"superseded: {rel} was rendered whole after its last splice; "
+                             f"render.act{act}.frames proves the new file", evidence=[rel],
+                             engine=gates.engine("slate render (whole-act supersede)", __version__),
+                             inputs=gates.inputs_for(film_dir, [rendered]),
+                             details={"stage": "render", "superseded": old.summary, "act": act})]
 
 
 def _put_in_place_and_register(film_dir: Path, joined: Path, final: Path, entry: dict,
