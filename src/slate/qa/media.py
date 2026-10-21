@@ -23,6 +23,10 @@ from slate import gates, procs
 from slate.errors import MissingPrerequisite, SlateError
 
 CHUNK_BYTES = 192 << 20  # decode at most this much raw video per ffmpeg call
+#: Runs per select expression. ffmpeg's expression parser nests every "+", so a select of a few hundred eq() terms
+#: fails to allocate ("Cannot allocate memory"); runs of consecutive frames are one between() each, and a span
+#: with more runs than this is read in more than one call.
+MAX_SELECT_RUNS = 48
 PIX = {"gray": (1, np.uint8), "rgb24": (3, np.uint8), "gray16le": (1, np.dtype("<u2"))}
 
 
@@ -173,6 +177,38 @@ def iter_frames(path: str | Path, *, start: int = 0, count: int | None = None, s
             return
 
 
+def frame_runs(frames: Iterable[int]) -> list[tuple[int, int]]:
+    """Sorted frame indices as (first, last) runs of consecutive frames."""
+    runs: list[list[int]] = []
+    for i in sorted({int(f) for f in frames}):
+        if runs and i == runs[-1][1] + 1:
+            runs[-1][1] = i
+        else:
+            runs.append([i, i])
+    return [(a, b) for a, b in runs]
+
+
+def select_expr(frames: Iterable[int], base: int = 0) -> str:
+    """An ffmpeg select expression for these frames (numbered from `base`): each run of consecutive frames is one
+    between(), so even hundreds of wanted frames stay an expression ffmpeg can parse."""
+    return "+".join(f"eq(n\\,{a - base})" if a == b else f"between(n\\,{a - base}\\,{b - base})"
+                    for a, b in frame_runs(frames))
+
+
+def frame_groups(wanted: list[int], *, span: int, frame_bytes: int) -> list[list[int]]:
+    """Wanted frames (sorted) grouped for one ffmpeg call each: within `span` frames of the group's first, within
+    CHUNK_BYTES of decoded video, and at most MAX_SELECT_RUNS runs."""
+    groups: list[list[int]] = []
+    for i in wanted:
+        g = groups[-1] if groups else None
+        if g and i - g[0] < span and len(g) * frame_bytes < CHUNK_BYTES and \
+                (i == g[-1] + 1 or len(frame_runs(g)) < MAX_SELECT_RUNS):
+            g.append(i)
+        else:
+            groups.append([i])
+    return groups
+
+
 def read_frames(path: str | Path, indices: Iterable[int], *, size: tuple[int, int] | None = None,
                 pix_fmt: str = "rgb24", info: dict | None = None, span: int = 240) -> dict[int, np.ndarray]:
     """Specific frames (by index in the file) as arrays, decoding only the spans that hold them.
@@ -189,15 +225,9 @@ def read_frames(path: str | Path, indices: Iterable[int], *, size: tuple[int, in
     w, h, ch, dtype = _frame_shape(size or (info["width"], info["height"]), pix_fmt)
     frame_bytes = w * h * ch * dtype.itemsize
     out: dict[int, np.ndarray] = {}
-    groups: list[list[int]] = []
-    for i in wanted:
-        if groups and i - groups[-1][0] < span and len(groups[-1]) * frame_bytes < CHUNK_BYTES:
-            groups[-1].append(i)
-        else:
-            groups.append([i])
-    for group in groups:
+    for group in frame_groups(wanted, span=span, frame_bytes=frame_bytes):
         base = group[0]
-        expr = "+".join(f"eq(n\\,{i - base})" for i in group)
+        expr = select_expr(group, base)
         argv = ["ffmpeg", "-v", "error", "-nostdin", "-ss", f"{_seek_seconds(base, fps):.6f}", "-i", str(path),
                 "-map", "0:v:0", "-an", "-sn", "-fps_mode", "passthrough",
                 *_vf(size, f"select='{expr}'"), "-frames:v", str(len(group)), "-pix_fmt", pix_fmt,

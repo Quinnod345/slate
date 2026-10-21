@@ -309,3 +309,21 @@ def test_detach_queues_the_scan_as_a_job_and_quick_never_starts_one(stab_film, h
         assert out["gates"][0]["status"] == "UNCHECKED" and "haven't been scanned" in out["gates"][0]["summary"]
     finally:
         log.set_json(False)
+
+
+def test_a_settled_act_rejudges_its_install_record(stab_film, helpers):
+    # a render's install check left act 1's new pop for a person (REVIEW); the person accepts it into the baseline
+    f = _film(stab_film, helpers)
+    gates.write_report(f.path, [gates.GateResult("render.act1.install.stability", "REVIEW", "new stability flags over "
+                                                 "the limits (pop 1)", details={"stage": "render"}),
+                                gates.GateResult("render.act2.install.stability", "REVIEW", "new stability flags over "
+                                                 "the limits (snap 2)", details={"stage": "render"})])
+    _gate(f)
+    S.accept_baseline(f.path, 1, by="Quinn", reason="the card lands by design")
+    _gate(f)
+    report = gates.load_report(f.path)
+    one = report["render.act1.install.stability"]
+    assert one.status == "PASS" and "accepted baseline" in one.summary, one.to_dict()
+    assert (one.details or {}).get("rejudged_by") == S.GATE
+    # act 2 still has its reversal: its record is left as the install check wrote it
+    assert report["render.act2.install.stability"].status == "REVIEW"

@@ -200,3 +200,59 @@ def test_no_master_is_unchecked(film_builder):
     fb = film_builder(size=SIZE, shots=[(1, 30)])
     r = picture.end_hold(fb.path)
     assert r.status == "UNCHECKED" and "slate master" in " ".join(r.evidence)
+
+
+# An After Effects master carries AE's output dither: a new pattern of a few levels every frame, so its still frames never
+# compare exactly. The hold is then proven on the last act's render (exactly still) and on the master's frames
+# differing from the last only by dither.
+def _dithered(frames: np.ndarray, levels: int = 3, share: float = 0.08) -> np.ndarray:
+    """A sparse dither like AE's (measured on a master: a few levels on a small share of pixels, a mean near 0.19)."""
+    rng = np.random.default_rng(7)
+    noise = rng.integers(-levels, levels + 1, size=frames.shape) * (rng.random(frames.shape) < share)
+    return np.clip(frames.astype(np.int16) + noise, 0, 255).astype(np.uint8)
+
+
+def _ae_record(fb) -> None:
+    write_json(fb.path / "masters" / "master.json", {"method": "ae", "masters": [{"file": "masters/master.mkv",
+                                                                                  "codec": "ffv1"}]})
+
+
+@needs_ffmpeg
+def test_an_ae_master_holds_within_its_dither_when_the_render_holds_exactly(film_builder):
+    fb = film_builder(size=SIZE, shots=[(1, 150)])
+    still = _ending(150, still_from=50)
+    fb.render(1, still)
+    fb.master(_dithered(still))
+    _ae_record(fb)
+    r = picture.end_hold(fb.path)
+    assert r.status == "PASS", r.summary
+    assert "dither" in r.summary and r.details["hold_frames"] >= 90 and r.details["exact_frames"] < 90
+
+
+@needs_ffmpeg
+def test_an_ae_master_still_fails_when_the_render_moves(film_builder):
+    fb = film_builder(size=SIZE, shots=[(1, 150)])
+    moving = _ending(150, still_from=110)
+    fb.render(1, moving)
+    fb.master(_dithered(_ending(150, still_from=50)))
+    _ae_record(fb)
+    assert picture.end_hold(fb.path).status == "FAIL"
+
+
+@needs_ffmpeg
+def test_a_move_is_never_taken_for_dither(film_builder):
+    fb = film_builder(size=SIZE, shots=[(1, 150)])
+    fb.render(1, _ending(150, still_from=50))
+    fb.master(_dithered(_ending(150, still_from=110)))  # the master's mark still travels: edges change by 190 levels
+    _ae_record(fb)
+    r = picture.end_hold(fb.path)
+    assert r.status == "FAIL" and "dither" not in r.summary
+
+
+@needs_ffmpeg
+def test_dither_is_allowed_only_on_an_ae_master(film_builder):
+    fb = film_builder(size=SIZE, shots=[(1, 150)])
+    still = _ending(150, still_from=50)
+    fb.render(1, still)
+    fb.master(_dithered(still))  # no master record saying "ae": compared exactly, as always
+    assert picture.end_hold(fb.path).status == "FAIL"

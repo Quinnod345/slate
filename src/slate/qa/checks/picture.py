@@ -617,6 +617,40 @@ def cuts(film_dir: Path) -> GateResult:
 
 
 # ---------------------------------------------------------------------------------------------------------- end hold
+#: After Effects dithers a 16-bpc project into the 10-bit master with a new pattern every frame (measured on the films'
+#: masters: at most 5 to 7 levels of 255, a mean near 0.19), so an AE master's still frames never compare exactly. Any
+#: real move (a one-pixel drift of type) changes edges by tens to hundreds of levels.
+DITHER_MAX = 8
+DITHER_MEAN = 0.5
+
+
+def _exact_hold(frames: list) -> int:
+    """How many of the frames, counted back from the last, are identical to the last."""
+    hold = 0
+    for f in reversed(frames):
+        if not np.array_equal(f, frames[-1]):
+            break
+        hold += 1
+    return hold
+
+
+def _dither_hold(frames: list) -> int:
+    """How many frames, counted back from the last, differ from it only by an output dither."""
+    last, hold = frames[-1].astype(np.int16), 0
+    for f in reversed(frames):
+        d = np.abs(f.astype(np.int16) - last)
+        if int(d.max()) > DITHER_MAX or float(d.mean()) > DITHER_MEAN:
+            break
+        hold += 1
+    return hold
+
+
+def _master_method(ctx) -> str:
+    """How the master was made (masters/master.json's "method": "ae" for an After Effects finish)."""
+    rec = ctx.read_json("masters/master.json", default={})
+    return str(rec.get("method") or "") if isinstance(rec, dict) else ""
+
+
 def end_hold(film_dir: Path) -> GateResult:
     """The end card holds perfectly still: every frame of the master's last seconds (3 by default; the format or
     film.json may say otherwise, and a seamless loop has none) identical to the last, compared exactly on the
@@ -668,12 +702,38 @@ def end_hold(film_dir: Path) -> GateResult:
     except SlateError as exc:
         return GateResult.unchecked("end_hold", f"the end of {ctx.rel(target)} couldn't be decoded: {exc}",
                                     engine=engine, inputs=ctx.inputs(read), details={"stage": "master"})
-    last_frame = frames[-1]
-    hold = 0
-    for f in reversed(frames):
-        if not np.array_equal(f, last_frame):
-            break
-        hold += 1
+    hold = _exact_hold(frames)
+    last = (ctx.current_renders() or {}).get(ctx.acts[-1]["index"]) if ctx.acts else None
+    on_master = last is None or target != last["path"]
+    if hold < n_need and on_master and _master_method(ctx) == "ae":
+        # An After Effects master: its frames carry AE's output dither, so the end is proven on two counts. The last
+        # act's render (the picture AE was given) holds exactly still, and the master differs from its last frame
+        # only by that dither, never by a move.
+        dither = _dither_hold(frames)
+        render_ok = False
+        if last is not None and last["path"].is_file() and int(last["frame_out"]) == int(ctx.total_frames or -1):
+            try:
+                rinfo = media.video_info(last["path"])
+                rtotal = int(rinfo.get("frames") or 0)
+                rwin = min(rtotal, n_need + int(round(float(fps))))
+                rframes = list(media.iter_frames(last["path"], start=rtotal - rwin, count=rwin, pix_fmt="rgb24",
+                                                 info=rinfo))
+                render_ok = _exact_hold(rframes) >= n_need
+                read.append(last["path"])
+            except SlateError:
+                render_ok = False
+        if dither >= n_need and render_ok:
+            held = dither / float(fps)
+            line = (f"{ctx.rel(target)}: the last {held:.2f} s ({dither} frames) differ from the last frame only by "
+                    f"After Effects' output dither (at most {DITHER_MAX} levels, mean under {DITHER_MEAN}); "
+                    f"{ctx.rel(last['path'])} holds pixel-identical; {need:g} s needed ({source})")
+            return combine("end_hold", [Sub("hold", "PASS", f"the end holds still for {held:.2f} s ({need:g} s needed; "
+                                            "the AE master within its dither, the render exactly)", [line])],
+                           engine=engine, inputs=ctx.inputs(read),
+                           details={"stage": "master", "file": ctx.rel(target), "hold_frames": dither,
+                                    "hold_s": round(held, 3), "needed_s": need, "exact_frames": hold,
+                                    "dither_max": DITHER_MAX, "dither_mean": DITHER_MEAN,
+                                    "render": ctx.rel(last["path"])})
     first_still = total - hold
     held_s = hold / float(fps)
     whole = hold == len(frames)

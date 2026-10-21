@@ -1264,6 +1264,7 @@ def gate(film_dir: Path) -> GateResult:
     items: list[dict] = []
     hard: list[str] = []
     per_act: dict[str, dict] = {}
+    rejudged: list[GateResult] = []  # install records this scan settles (see below)
     strips_left = STRIP_LIMIT if opts.get("strips", True) else 0
     for a in acts:
         act = a["index"]
@@ -1336,12 +1337,29 @@ def gate(film_dir: Path) -> GateResult:
                "shared_with_reference": tri["shared_with_reference"],
                "accepted_by_baseline": tri["accepted_by_baseline"]}
         jsonio.write_atomic(ctx.path(report_rel(act)), rep)
+        # A render's install check leaves new flags over the limits for a person (REVIEW, "look at them with
+        # `slate qa stability --act N`"). Once the person has accepted them into the act's baseline, this scan of the
+        # same registered render finds nothing open, and the install record says so, bound to that render file.
+        # Without it the record could only clear by rendering the act again.
+        if not over and not any(f["class"] in HARD for f in open_gated):
+            rejudged.append(GateResult(
+                f"render.act{act}.install.stability", "PASS",
+                f"re-judged on the registered render against the act's accepted baseline: nothing new over the limits "
+                f"({len(tri['accepted_by_baseline'])} in the baseline, {len(tri['near_beats'])} near planned beats)",
+                engine=gates.engine("slate qa stability (install record)", __version__),
+                inputs=gates.inputs_for(ctx.dir, [e["path"]]),
+                details={"stage": "render", "counts": cnt, "rejudged_by": GATE, "report": report_rel(act)}))
         per_act[str(act)] = {"report": report_rel(act), "counts": cnt, "over": over, "glitch": raw["glitch"],
                              "near_beats": len(tri["near_beats"]),
                              "shared_with_reference": len(tri["shared_with_reference"]),
                              "accepted_by_baseline": len(tri["accepted_by_baseline"]),
                              "reference": rep["reference"]}
     open_items, accepted = review_items(ctx, GATE, items)
+    if rejudged:
+        try:
+            gates.write_report(ctx.dir, rejudged)
+        except (OSError, ValueError, TypeError, SlateError) as exc:
+            notes.append(f"the re-judged install records couldn't be written ({getattr(exc, 'message', exc)})")
     subs = []
     if problems:
         subs.append(Sub("unreadable", "UNCHECKED", problems[0], problems))

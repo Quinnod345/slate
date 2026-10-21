@@ -143,7 +143,9 @@ class FFmpegMedia:
             raise SlateError(f"Frame numbers start at 0 (asked for {wanted[0]}).")
         info = self.probe(path)
         samples = _plane_samples(info["width"], info["height"])
-        select = "+".join(f"eq(n\\,{i})" for i in wanted)
+        from slate.qa.media import select_expr  # noqa: PLC0415 - runs as between(), so long selects still parse
+
+        select = select_expr(wanted)
         proc = procs.run([self._ffmpeg(), "-v", "error", "-i", str(path), "-map", "0:v:0", "-vf", f"select='{select}'",
                           "-fps_mode", "passthrough", "-f", "rawvideo", "-pix_fmt", PIX_FMT, "-"],
                          timeout=None, text=False, check=True)
