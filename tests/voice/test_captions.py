@@ -98,6 +98,54 @@ def test_reading_speed_is_held_to_17_characters_a_second():
     assert cues[0]["end"] - cues[0]["start"] < len(fast) / 17.0
 
 
+def _timed(spec: list[tuple[str, float]], start: float = 0.0) -> list[dict]:
+    """Words at a pace per stretch: [(text, seconds per word)], each word running into the next."""
+    out, t = [], start
+    for text, per in spec:
+        for w in text.split():
+            out.append({"w": w, "start": round(t, 3), "end": round(t + per, 3)})
+            t += per
+    return out
+
+
+FAST_THEN_SLOW = [("Then you bring it into the evaluation you're already doing,", 0.27),
+                  ("alongside the other information you use.", 0.55)]
+
+
+def test_fit_pace_shares_reading_time_without_rewriting_a_word():
+    line = " ".join(text for text, _per in FAST_THEN_SLOW)
+    later = "A later line."
+    spec = {"A": (0, line, _timed(FAST_THEN_SLOW)), "B": (150, later, words_for(later))}
+    # clause chunks alone: the quick clause runs into the next cue, so it reads too fast
+    _cues, problems = _gen(spec)
+    assert any("characters a second" in p for p in problems)
+    # fit_pace: a 0.3 s lead and lag share the slow clause's time, word for word
+    cues, problems = _gen(spec, fit_pace=True, lead_s=0.3, lag_s=0.3)
+    assert problems == []
+    assert " ".join(c["text"] for c in cues).split() == (line + " " + later).split()
+    assert all(c["cps"] <= 17.0 + 1e-6 for c in cues)
+    for a, b in zip(cues, cues[1:]):
+        assert a["end"] <= b["start"] - 0.04 + 1e-9
+    firsts = {c["text"].split()[0]: c["start"] for c in cues}
+    heard = {w["w"]: w["start"] for w in _timed(FAST_THEN_SLOW)}
+    for word, at in firsts.items():
+        if word in heard:
+            assert heard[word] - 0.3 - 1e-9 <= at <= heard[word] + 0.3 + 1e-9  # within the lead and lag
+
+
+def test_fit_pace_is_off_by_default_and_reports_what_it_cannot_hold():
+    line = " ".join(text for text, _per in FAST_THEN_SLOW)
+    spec = {"A": (0, line, _timed(FAST_THEN_SLOW)), "B": (150, "A later line.", words_for("A later line."))}
+    assert _gen(spec) == _gen(spec, lead_s=0.3, lag_s=0.3)  # the bounds do nothing without fit_pace
+    # far too fast for any breaks: still reported, never hidden
+    rush = "Every single word here arrives at once and leaves no room at all to read it."
+    cues, problems = _gen({"A": (0, rush, words_for(rush, per_word=0.08, gap=0.0)),
+                           "B": (30, "Right after.", words_for("Right after."))},
+                          fit_pace=True, lead_s=0.3, lag_s=0.3)
+    assert any("characters a second" in p for p in problems)
+    assert " ".join(c["text"] for c in cues).split() == (rush + " Right after.").split()
+
+
 def test_script_mismatch_is_a_problem():
     shots = {"A": {"frame_in": 0}}
     words = {"A": {"line": "Hello there.", "words": words_for("Hello there.")}}

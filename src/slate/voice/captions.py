@@ -11,6 +11,12 @@ and timing/shots.json. Each cue is a sentence or clause that fits the reading ru
 - one- or two-word flashes fold into a neighbour (merge_short);
 - the captions reproduce the script word for word.
 
+Fast narration (a read near 20 characters a second) can't be held to 17 by holding alone: a quick clause needs
+time from a slower neighbour. With `fit_pace` on (film.json "captions"), a line the clause chunks can't hold is
+re-broken where the reading pace balances (still preferring sentence, then clause, then joining-word breaks), and
+every cue may appear up to `lead_s` before its first word or `lag_s` after it, so the reading time is shared
+without rewriting a word. Off by default; a cue still too fast is reported, never hidden.
+
 Language rules (sentence and clause punctuation, joining words) come from `slate/voice/languages/<code>.json`;
 the frame rate comes from the film's timing; formats and film.json can override the reading limits ("captions").
 With `parity=True` the films' own rules apply unchanged (no reading-speed hold; short cues flagged under 0.8 s),
@@ -29,8 +35,11 @@ from slate.errors import MissingPrerequisite
 from slate.voice import lang
 
 DEFAULTS = {"max_chars": 42, "max_lines": 2, "max_cps": 17.0, "min_s": 1.0, "warn_s": 1.0, "hold_s": 0.35,
-            "gap_s": 0.04, "merge_short": True, "short_words": 2}
+            "gap_s": 0.04, "merge_short": True, "short_words": 2, "fit_pace": False, "lead_s": 0.0, "lag_s": 0.0}
 PARITY = {"max_cps": None, "warn_s": 0.8}  # the films' own rules: no reading-speed hold, short cues flagged under 0.8 s
+#: SRT and WebVTT keep milliseconds, so a cue held to exactly its reading time can round a hair under it (17.02 cps
+#: against a 17 limit); the hold carries this much over to stay inside the limit once written.
+ROUND_S = 0.002
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -103,6 +112,13 @@ def _long_clause(out: list[str], st: dict, table: dict) -> list[str]:
         if cands:
             _, a, b = min(cands)
             fixed += [a, b]
+        elif len(ws) >= 4:
+            # Too long for two chunks (a clause longer than two full cues, with no comma to break on): split near the
+            # middle, preferring a joining word, and split each half again until every chunk fits its lines.
+            mid = len(ws) // 2
+            ks = sorted(range(2, len(ws) - 1), key=lambda k: abs(k - mid) - (2 if ws[k].casefold() in joins else 0))
+            k = ks[0]
+            fixed += _long_clause([" ".join(ws[:k]), " ".join(ws[k:])], st, table)
         else:
             fixed.append(c)
     return fixed
@@ -157,6 +173,133 @@ def chunks_for(line: str, st: dict, table: dict) -> list[str]:
     return out
 
 
+# ---------------------------------------------------------------------------------------------------------------
+# fit_pace: sharing reading time between neighbouring cues
+
+
+def _need(text: str, st: dict) -> float:
+    """The time a cue needs on screen: its characters at max_cps, never under min_s."""
+    return max(len(text) / float(st["max_cps"]) + ROUND_S, float(st["min_s"]))
+
+
+def _schedule(firsts: list[float], needs: list[float], st: dict, start_at: float = -math.inf,
+              end_by: float = math.inf) -> tuple[list[float], list[int], float]:
+    """Cue starts as near each cue's first word as the reading time allows.
+
+    Each cue may start up to lead_s before its first word or lag_s after it, never before `start_at`, and runs at
+    least its need (gap_s before the next cue); the last one is read by `end_by`. A cue that has to move comes in
+    early rather than late: it lags its word only when leading can't make the room. Returns the starts, the cues
+    that can't be held (they still keep to their lead and lag, so the post-pass reports the one left short), and when
+    the earliest schedule has finished reading."""
+    lead, lag, gap = float(st["lead_s"]), float(st["lag_s"]), float(st["gap_s"])
+    n = len(firsts)
+    early, pull, up = [0.0] * n, [0.0] * n, [0.0] * n
+    for k in range(n):
+        lo = firsts[k] - lead if k else max(firsts[0] - lead, start_at)
+        early[k] = lo if k == 0 else max(lo, early[k - 1] + needs[k - 1] + gap)
+    nxt_up = nxt_pull = end_by + gap
+    for k in range(n - 1, -1, -1):
+        up[k] = min(firsts[k] + lag, nxt_up - needs[k] - gap)
+        pull[k] = min(firsts[k], nxt_pull - needs[k] - gap)
+        nxt_up, nxt_pull = up[k], pull[k]
+    bad = [k for k in range(n) if early[k] > up[k] + 1e-9]
+    # Where the room can't be made, every cue still keeps to its lead and lag: the one left short reads too fast,
+    # and the post-pass reports it.
+    starts = [max(min(max(pull[k], early[k]), up[k]), firsts[k] - lead) for k in range(n)]
+    done = early[-1] + needs[-1] if n else start_at
+    return starts, bad, done
+
+
+def _break_cost(toks: list[str], i: int, j: int, st: dict, table: dict) -> int:
+    """How badly the chunk toks[i:j] reads: where it breaks (after a sentence 0, a clause 1, before a joining word 3,
+    anywhere else 6), each sentence it runs across (8), and a one- or two-word flash (4)."""
+    sentence, clause = table.get("sentence_end") or [], table.get("clause_end") or []
+    joins = {w.casefold() for w in table.get("join_words") or []}
+    cost = 0
+    if j < len(toks):
+        prev = toks[j - 1]
+        cost += (0 if lang.ends_with(prev, sentence) else 1 if lang.ends_with(prev, clause)
+                 else 3 if toks[j].casefold() in joins else 6)
+    cost += 8 * sum(1 for k in range(i, j - 1) if lang.ends_with(toks[k], sentence))
+    short = int(st.get("short_words", 2))
+    if st.get("merge_short") and j - i <= short < len(toks):
+        cost += 4
+    return cost
+
+
+def _fit_line(toks: list[str], s: list[float], start_at: float, end_by: float, st: dict,
+              table: dict) -> list[tuple[int, int]] | None:
+    """Word spans for a line whose clause chunks can't be held to max_cps: the best-reading breaks (_break_cost)
+    among those that leave every cue its reading time inside the line's window, or None when no breaks can."""
+    lead, lag, gap = float(st["lead_s"]), float(st["lag_s"]), float(st["gap_s"])
+    n = len(toks)
+    if not n or start_at > s[0] + lag + 1e-9:
+        return None
+    # states[j]: the Pareto front of (earliest start of the cue at word j, cost so far, back-pointer)
+    states: dict[int, list[tuple[float, int, tuple | None]]] = {0: [(start_at, 0, None)]}
+    for j in range(1, n + 1):
+        cands = []
+        for i in range(j):
+            text = " ".join(toks[i:j])
+            if i not in states or not wrap(text, st):
+                continue
+            for si, (t, cost, _back) in enumerate(states[i]):
+                done = t + _need(text, st)
+                c = cost + _break_cost(toks, i, j, st, table)
+                if j < n:
+                    nt = max(s[j] - lead, done + gap)
+                    if nt <= s[j] + lag + 1e-9:
+                        cands.append((nt, c, (i, si)))
+                elif done <= end_by + 1e-9:
+                    cands.append((done, c, (i, si)))
+        cands.sort(key=lambda x: (x[0], x[1]))
+        front, best = [], math.inf
+        for x in cands:
+            if x[1] < best:
+                front.append(x)
+                best = x[1]
+        if front:
+            states[j] = front
+    if n not in states:
+        return None
+    spans, j, node = [], n, min(states[n], key=lambda x: (x[1], x[0]))
+    while node[2] is not None:
+        i, si = node[2]
+        spans.append((i, j))
+        j, node = i, states[i][si]
+    return spans[::-1]
+
+
+def _fit_pace(rows: list, st: dict, table: dict) -> list[list[float]]:
+    """fit_pace for every line in order: a line whose clause chunks can't be held inside its window (from when the
+    line before has been read to just before the next line's first word) is re-broken (_fit_line), then every cue
+    is placed (_schedule). Replaces rows' spans in place; returns each row's cue starts."""
+    gap = float(st["gap_s"])
+    done = -math.inf
+    for r, (sid, toks, s, e, spans) in enumerate(rows):
+        start_at = max(s[0] - float(st["lead_s"]), done + gap)
+        end_by = rows[r + 1][2][0] - gap if r + 1 < len(rows) else math.inf
+        needs = [_need(" ".join(toks[i:j]), st) for i, j in spans]
+        _starts, bad, done = _schedule([s[i] for i, _j in spans], needs, st, start_at, end_by)
+        if bad:
+            better = _fit_line(toks, s, start_at, end_by, st, table)
+            if better:
+                rows[r] = (sid, toks, s, e, better)
+                needs = [_need(" ".join(toks[i:j]), st) for i, j in better]
+                _starts, _bad, done = _schedule([s[i] for i, _j in better], needs, st, start_at, end_by)
+    firsts, needs, owner = [], [], []
+    for r, (_sid, toks, s, _e, spans) in enumerate(rows):
+        for i, j in spans:
+            firsts.append(s[i])
+            needs.append(_need(" ".join(toks[i:j]), st))
+            owner.append(r)
+    starts, _bad, _done = _schedule(firsts, needs, st)
+    out: list[list[float]] = [[] for _ in rows]
+    for k, r in enumerate(owner):
+        out[r].append(starts[k])
+    return out
+
+
 def generate(shots: dict, words: dict, cue_at: dict, fps: float, st: dict, table: dict,
              default_lead: float = 0.4) -> tuple[list[dict], list[str]]:
     """Cues and problems from the film's shots {id: {frame_in}}, words {id: {line, words[{w, start, end}]}}, and
@@ -164,6 +307,7 @@ def generate(shots: dict, words: dict, cue_at: dict, fps: float, st: dict, table
     order = sorted(words, key=lambda k: shots[k]["frame_in"])
     cues: list[dict] = []
     problems: list[str] = []
+    rows = []  # per line: (shot, tokens, each token's start and end in film time, word spans [(i, j)])
     for sid in order:
         rec = words[sid]
         line, ws = rec["line"], rec["words"]
@@ -171,18 +315,28 @@ def generate(shots: dict, words: dict, cue_at: dict, fps: float, st: dict, table
             problems.append(f"{sid}: no word timings")
             continue
         base = shots[sid]["frame_in"] / fps + cue_at.get(sid, default_lead)
-        idx = align_map(line.split(), [w["w"] for w in ws])
-        i = 0
+        toks = line.split()
+        idx = align_map(toks, [w["w"] for w in ws])
+        s = [base + ws[idx[k]]["start"] for k in range(len(toks))]
+        e = [base + ws[idx[k]]["end"] for k in range(len(toks))]
+        spans, i = [], 0
         for ch in chunks_for(line, st, table):
             n = len(ch.split())
-            j0, j1 = idx[i], idx[i + n - 1]
+            spans.append((i, i + n))
             i += n
-            cues.append({"shot": sid, "text": ch, "lines": wrap(ch, st), "start": base + ws[j0]["start"],
-                         "end": base + ws[j1]["end"] + float(st["hold_s"])})
+        rows.append((sid, toks, s, e, spans))
     max_cps = st.get("max_cps")
+    starts = None
+    if st.get("fit_pace") and max_cps:
+        starts = _fit_pace(rows, st, table)
+    for r, (sid, toks, s, e, spans) in enumerate(rows):
+        for q, (i, j) in enumerate(spans):
+            ch = " ".join(toks[i:j])
+            cues.append({"shot": sid, "text": ch, "lines": wrap(ch, st), "start": starts[r][q] if starts else s[i],
+                         "end": e[j - 1] + float(st["hold_s"])})
     for k, c in enumerate(cues):
         nxt = cues[k + 1]["start"] if k + 1 < len(cues) else c["end"] + 5
-        need = len(c["text"]) / float(max_cps) if max_cps else 0.0
+        need = len(c["text"]) / float(max_cps) + ROUND_S if max_cps else 0.0
         c["end"] = min(max(c["end"], c["start"] + float(st["min_s"]), c["start"] + need), nxt - float(st["gap_s"]))
         dur = c["end"] - c["start"]
         c["cps"] = round(len(c["text"]) / dur, 2) if dur > 0 else None

@@ -215,6 +215,23 @@ def test_a_read_is_stitched_to_its_neighbours_recent_live_takes(voice_film):
     assert tts.neighbour_request_ids(vf, "S02")[0] == []
 
 
+def test_a_line_read_to_its_own_end_drops_the_next_line_from_its_context(voice_film):
+    """A question the next line carries on from ("…a score that could?" then "A score that…") is read straight on into
+    it while the next line is in context. Its direction can drop that side: neither the words nor the request ids are
+    sent, and the other side stays."""
+    vf = VoiceFilm(voice_film)
+    _live_take(vf, "S01", "req_before", 30)
+    _live_take(vf, "S04", "req_after", 45)
+    prev, nxt = vf.neighbours("S02")
+    assert prev and nxt
+    doc = jsonio.read(vf.direction_path, default={}) or {}
+    doc["context"] = {"S02": {"next": False, "why": "a question that stops"}}
+    jsonio.write_atomic(vf.direction_path, doc)
+    assert vf.neighbours("S02") == (prev, None)
+    assert tts.neighbour_request_ids(vf, "S02") == (["req_before"], [])
+    assert vf.neighbours("S04")[0] is not None  # only the line it names
+
+
 def test_request_ids_go_out_once_the_client_sends_them(voice_film):
     class Sends:
         def tts(self, *, voice_id, text, previous_request_ids=None, next_request_ids=None, **kw):

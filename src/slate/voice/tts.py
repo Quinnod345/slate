@@ -146,8 +146,9 @@ def neighbour_request_ids(vf: VoiceFilm, shot: str, *, at: _dt.datetime | None =
             return None
         return str(data["request_id"]) if age is not None and 0 <= age < STITCH_MAX_AGE_S else None
 
-    before = [ok(x.shot) for x in vf.lines[max(0, ln.index - STITCH_MAX):ln.index]]
-    after = [ok(x.shot) for x in vf.lines[ln.index + 1:ln.index + 1 + STITCH_MAX]]
+    ctx = vf.context_for(shot)  # a side the line's direction drops is stitched to as little as it's read with
+    before = [ok(x.shot) for x in vf.lines[max(0, ln.index - STITCH_MAX):ln.index]] if ctx.get("previous", True) else []
+    after = [ok(x.shot) for x in vf.lines[ln.index + 1:ln.index + 1 + STITCH_MAX]] if ctx.get("next", True) else []
     return [r for r in before if r], [r for r in after if r]
 
 

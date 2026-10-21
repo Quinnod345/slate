@@ -278,11 +278,22 @@ class VoiceFilm:
         return [ln for ln in self.lines if ln.shot in wanted]
 
     def neighbours(self, shot: str) -> tuple[str | None, str | None]:
-        """The previous and next lines' plain words (context never carries tags: a tag belongs to its own line)."""
+        """The previous and next lines' plain words (context never carries tags: a tag belongs to its own line). A line
+        whose direction drops a side (`context_for`) is read without it."""
         ln = self.line(shot)
-        prev = self.lines[ln.index - 1].text if ln.index > 0 else None
-        nxt = self.lines[ln.index + 1].text if ln.index + 1 < len(self.lines) else None
+        ctx = self.context_for(shot)
+        prev = self.lines[ln.index - 1].text if ln.index > 0 and ctx.get("previous", True) else None
+        nxt = self.lines[ln.index + 1].text if ln.index + 1 < len(self.lines) and ctx.get("next", True) else None
         return prev, nxt
+
+    def context_for(self, shot: str) -> dict:
+        """A line's reading context, from voice/direction.json's "context": {"S03": {"next": false, "why": "…"}}.
+        A neighbour set to false isn't sent: neither its words nor its takes' request ids. For a line the next one
+        carries on from in the script, but which has to be read to its own end (a question that stops): with the next
+        line in context the model reads straight on into it."""
+        data = jsonio.read(self.direction_path, default={}) or {}
+        ctx = (data.get("context") or {}).get(shot) or {}
+        return {k: bool(ctx[k]) for k in ("previous", "next") if k in ctx}
 
     # -- direction ----------------------------------------------------------------------------------------------
 

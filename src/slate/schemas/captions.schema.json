@@ -25,7 +25,10 @@
     "hold_s": {"type": "number", "minimum": 0},
     "gap_s": {"type": "number", "minimum": 0},
     "merge_short": {"type": "boolean"},
-    "short_words": {"type": "integer", "minimum": 0}
+    "short_words": {"type": "integer", "minimum": 0},
+    "fit_pace": {"type": "boolean"},
+    "lead_s": {"type": "number", "minimum": 0},
+    "lag_s": {"type": "number", "minimum": 0}
    }
   },
   "cues": {
