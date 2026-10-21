@@ -527,3 +527,16 @@ def test_a_brand_that_leaves_its_ending_to_the_plan_keeps_the_music_to_the_last_
     assemble.assemble(fd)
     score = H.read(fd / "sound/score/score.wav")
     assert _level(score, 13.0, 13.5) > _level(score, 2.0, 6.0) - 12.0 and np.max(np.abs(score[-10:])) < 0.01
+
+
+def test_a_landing_names_its_shot_when_two_events_share_an_id(sound_film):
+    """A film's two keystones share the id: "S04:keystone" lands on the later one; a bare id is still the first."""
+    jsonio.write_atomic(sound_film / "timing/visual_events/act2.json",
+                        [{"shot": "S03", "id": "keystone", "t": 9.2, "kind": "impact", "size": "l", "note": "lands"},
+                         {"shot": "S04", "id": "keystone", "t": 13.1, "kind": "impact", "size": "l", "note": "again"}])
+    jsonio.write_atomic(sound_film / "sound/score/directions.json",
+                        {"parts": {"act2": {"join": "bloom", "landing_event": "keystone"}},
+                         "moments": [{"event": "S04:keystone", "why": "the second keystone"}]})
+    p = plan.build(sound_film)
+    assert p["parts"][1]["landing_s"] == 9.2
+    assert p["moments"][0]["t"] == 13.1

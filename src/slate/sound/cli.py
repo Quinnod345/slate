@@ -81,7 +81,8 @@ def _score_assemble(args: argparse.Namespace) -> int:
                           + (f" (picks: {', '.join(f'{k}={v}' for k, v in picks.items())})" if picks else "")
                           + " and write sound/score/score.wav and score.json"):
         return 0
-    rec = assemble.assemble(film(args), picks, out=args.out, repairs=not args.no_repairs)
+    rec = assemble.assemble(film(args), picks, out=args.out, repairs=not args.no_repairs,
+                            partial=bool(getattr(args, "partial", False)))
     log.result(rec, assemble.describe(rec) + ("\nNext: `slate mix`." if rec["pass"] else ""))
     return 0 if rec["pass"] else 1
 
@@ -260,6 +261,8 @@ def register(sub) -> None:
                     description="Writes sound/score/score.wav and score.json. Exits 1 when the gap check, the take "
                                 "QA or a landing fails (the score is still written, for listening).")
     p.add_argument("--pick", action="append", metavar="PART=sSEED", help="force a take, e.g. --pick act2=s21")
+    p.add_argument("--partial", action="store_true",
+                   help="assemble only the parts that have takes, silent elsewhere (a proof; needs --out)")
     p.add_argument("--out", default=None, help="write the score elsewhere (for comparisons)")
     p.add_argument("--no-repairs", dest="no_repairs", action="store_true",
                    help="no freeze repairs or late-entry carries (to hear what the takes do on their own)")

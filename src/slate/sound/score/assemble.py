@@ -208,8 +208,14 @@ def _choose(film: Film, part: dict, is_last: bool, pick: str | None) -> Choice:
 
 
 def assemble(film_dir: Path, picks: dict[str, str] | None = None, *, out: str | Path | None = None,
-             repairs: bool = True) -> dict:
-    """Assemble the score. Returns the assembly record (also written to sound/score/score.json)."""
+             repairs: bool = True, partial: bool = False) -> dict:
+    """Assemble the score. Returns the assembly record (also written to sound/score/score.json).
+
+    partial=True (only with `out`) assembles the parts that have takes and leaves the rest silent: a proof of one act
+    before the others are composed. Each part still hands over where the plan says, so the proof ends the way the
+    whole score will there. It never writes the film's own score."""
+    if partial and not out:
+        raise UsageError("A partial score is a proof: give it an --out file, never the film's own score.")
     film = load(film_dir)
     plan = load_plan(film)
     sr, n, end = film.sr, film.n, film.duration_s
@@ -219,7 +225,17 @@ def assemble(film_dir: Path, picks: dict[str, str] | None = None, *, out: str | 
         raise UsageError(f"--pick names parts that aren't in the plan: {', '.join(unknown)}.")
     with _lock(film):
         parts = plan["parts"]
-        chosen = [_choose(film, p, i == len(parts) - 1, picks.get(p["id"])) for i, p in enumerate(parts)]
+        chosen = []
+        for i, p in enumerate(parts):
+            try:
+                chosen.append(_choose(film, p, i == len(parts) - 1, picks.get(p["id"])))
+            except MissingPrerequisite:
+                if not partial:
+                    raise
+        if not chosen:
+            raise MissingPrerequisite("No score part has takes yet.", hint="Run `slate score compose`.")
+        by_id = {c.part["id"]: c for c in chosen}
+        index = {p["id"]: i for i, p in enumerate(parts)}
         level = float(plan.get("level_lufs", -16.0))
         for c in chosen:
             body = take_slice(c.y, float(c.part["landing_s"]) - c.offset, float(c.part["hand_over_s"]) - c.offset, sr)
@@ -232,22 +248,27 @@ def assemble(film_dir: Path, picks: dict[str, str] | None = None, *, out: str | 
             # a start is on frame one, or later when the film opens out of silence (directions land it there)
             c.win_in = (land, land + b) if c.part["join"] == "start" else (land + a, land + b)
         for i, c in enumerate(chosen):
-            if i + 1 == len(chosen):
+            k = index[c.part["id"]]
+            if k + 1 == len(parts):
                 c.win_out = (end, end)
                 continue
-            nx = chosen[i + 1]
-            nland = float(nx.part["landing_s"])
+            nxt = parts[k + 1]  # the plan's next part; in a partial proof it may have no takes
+            nx = by_id.get(nxt["id"])
+            nland = float(nxt["landing_s"])
             if c.part["end"] == "stop":
                 cut = nland - float(c.part["stop_before_s"])
                 c.win_out = (cut - STOP_FADE_S, cut)
                 # after a held breath the next part comes in on its landing, never into the silence
-                nx.win_in = (nland, nland + (JOIN_IN["bloom"][1] if nx.part["join"] == "bloom" else AFTER_STOP_IN_S))
+                if nx is not None:
+                    nx.win_in = (nland, nland + (JOIN_IN["bloom"][1] if nxt["join"] == "bloom" else AFTER_STOP_IN_S))
                 continue
-            a, b = JOIN_OUT_PREVIOUS[nx.part["join"]]
+            a, b = JOIN_OUT_PREVIOUS[nxt["join"]]
             c.win_out = (nland + a, nland + b)
-            if nx.part.get("together"):  # the music holds its breath before the hit: an 80 ms fade into silence
-                breath = float(nx.part.get("breath_s", 0.35))
+            if nxt.get("together"):  # the music holds its breath before the hit: an 80 ms fade into silence
+                breath = float(nxt.get("breath_s", 0.35))
                 c.win_out = (nland - breath - TOGETHER_FADE_S, nland - breath)
+            if nx is None:
+                continue
             n_on = nx.offset + dsp.entry_s(nx.env)
             if repairs and nx.part["join"] == "act" and n_on > nx.win_in[1] + 0.05:
                 # the next take enters late: carry this part's music until it's in, handing over equal power
@@ -266,7 +287,7 @@ def assemble(film_dir: Path, picks: dict[str, str] | None = None, *, out: str | 
                 mix[max(s, 0):max(s, 0) + m] += sig[a0:a0 + m]
 
         for i, c in enumerate(chosen):
-            last = i + 1 == len(chosen)
+            last = index[c.part["id"]] + 1 == len(parts)
             f0, f1 = c.win_in[0], (end if last else c.win_out[1])
             seg = take_slice(c.y, f0 - c.offset, f1 - c.offset, sr) * dsp.db(c.gain_db)
             g = dsp.ramp(len(seg), f0, c.win_in[0], c.win_in[1], True, sr)

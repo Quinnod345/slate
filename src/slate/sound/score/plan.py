@@ -90,6 +90,9 @@ def _sec(s: dict, film: Film, key: str) -> float:
 
 
 def _event_time(film: Film, event_id: str) -> float | None:
+    # "S39:keystone" names the event in one shot, for an id two shots share (a film's two keystones); a bare id is the
+    # first in order.
+    shot, _, bare = event_id.rpartition(":") if ":" in event_id else ("", "", event_id)
     folder = film.path("timing/visual_events")
     for p in sorted(folder.glob("act*.json")) if folder.exists() else []:
         try:
@@ -98,7 +101,7 @@ def _event_time(film: Film, event_id: str) -> float | None:
             continue
         rows = data if isinstance(data, list) else (data.get("events") or data.get("beats") or [])
         for e in rows:
-            if isinstance(e, dict) and e.get("id") == event_id and "t" in e:
+            if isinstance(e, dict) and e.get("id") == bare and "t" in e and (not shot or e.get("shot") == shot):
                 return float(e["t"])
     return None
 
