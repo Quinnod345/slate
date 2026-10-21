@@ -13,7 +13,8 @@ loudnorm that rides the gain, so its stems could never sum to its mix; that's wh
 4. Everything under 25 Hz comes out first (a zero-phase high-pass on every part, as the films' masters did, so no hit
    moves and the stems still sum): subsonic energy would otherwise spend headroom nobody hears.
 5. One linear gain takes the sum to the target loudness (-14 LUFS by default). If the true peak (4x oversampled)
-   would go over the ceiling (-1 dBTP), the voice alone is peak-limited (plosives carry the peaks), then, if needed,
+   would go over the ceiling (-1 dBTP), the voice alone is peak-limited (plosives carry the peaks: 0.9 dB under the
+   ceiling, or 0.4 when nothing else sounds and nothing can sum on its peaks), then, if needed,
    one linked gain curve comes off every stem alike (so the stems still sum), then whatever's left comes off the
    whole mix inside the loudness tolerance. If that still can't meet both targets, the mix refuses and says so
    rather than hiding it. The share of the voice's speech the voice limiter touched goes in the report
@@ -45,6 +46,11 @@ ROLES = EFFECTS_ROLES + MUSIC_ROLES + AMBIENCE_ROLES
 DELIVERY = ("dialogue", "effects", "ambience", "music")
 HIGHPASS_HZ = 25.0  # every part, zero-phase, before the loudness gain (the films' masters)
 VOICE_LIMITER_MAX = 0.05  # the voice limiter may touch under 5% of the speech (sound.voice_limiter)
+#: The voice is limited this far under the true-peak ceiling (before the loudness gain), so the other stems summing
+#: on its peaks keep the mix under it. A voice heard alone needs only the final check's 0.1 dB and the loudness gain's
+#: drift after limiting: 0.4 dB. On one voice-only film, 0.9 had the limiter on 6.1% of the speech, 0.4 on 3.0%.
+VOICE_MARGIN_DB = 0.9
+VOICE_ALONE_MARGIN_DB = 0.4
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -136,7 +142,8 @@ def mix_arrays(vo_stem: np.ndarray, stems: dict[str, np.ndarray], score: np.ndar
                music_release_s: float = 0.65, stem_trim_db: dict | None = None,
                effects_ceiling_dbtp: float | None = None, linked_limit: bool = True, limiter: str = "slate",
                duck_depths: dict | None = None, ducked_roles: tuple = (), words: list | None = None,
-               score_guard: dict | None = None, highpass_hz: float | None = HIGHPASS_HZ) -> dict:
+               score_guard: dict | None = None, highpass_hz: float | None = HIGHPASS_HZ,
+               voice_margin_db: float | None = None) -> dict:
     """Mix arrays of equal length. Returns {"final": {delivery stems}, "mix": the mix, "engine": EngineStems,
     "report": {...}}. Raises Refused when the targets can't be met with a gain and the limiters. highpass_hz=None
     leaves the sub-bass in (how the films' own final_mix.py ran, for parity checks against their records).
@@ -225,15 +232,19 @@ def mix_arrays(vo_stem: np.ndarray, stems: dict[str, np.ndarray], score: np.ndar
                       hint="Voice the script (`slate voice tts`), assemble a score (`slate score assemble`), or add stems.")
     mix_tp = measure.true_peak(mix, sr)
     g_db = lufs_t - mix_l
+    alone = not (np.any(effects) or np.any(ambience) or np.any(music))
+    # the palette may set the shared margin (levels.voice_margin_db) where the linked limiter keeps the sum under the
+    # ceiling transparently; the voice heard alone keeps its own
+    margin = VOICE_ALONE_MARGIN_DB if alone else float(VOICE_MARGIN_DB if voice_margin_db is None else voice_margin_db)
     for _ in range(4):
         if mix_tp + g_db <= tp_t - 0.1:
             break
         if has_voice:
-            # the voice carries the peaks: limit it so that, after the loudness gain, it sits 0.9 dB under the ceiling
+            # the voice carries the peaks: limit it so that, after the loudness gain, it sits `margin` under the ceiling
             if limiter == "ffmpeg":
-                dialogue, voice_gain = lim(raw_dialogue, tp_t - 0.9 - g_db, sr), None
+                dialogue, voice_gain = lim(raw_dialogue, tp_t - margin - g_db, sr), None
             else:  # Slate's limiter, its gain curve kept for the report (the same call dsp.limit makes)
-                voice_gain = dsp.gain_curve(raw_dialogue, tp_t - 0.9 - g_db, sr, look_ms=5.0, release_ms=60.0)
+                voice_gain = dsp.gain_curve(raw_dialogue, tp_t - margin - g_db, sr, look_ms=5.0, release_ms=60.0)
                 dialogue = raw_dialogue * voice_gain[:, None]
             dialogue_owned = True
             limited = True
@@ -248,7 +259,8 @@ def mix_arrays(vo_stem: np.ndarray, stems: dict[str, np.ndarray], score: np.ndar
         g_db = lufs_t - mix_l
     del raw_effects
     if has_voice:
-        report["voice_limiter"] = _voice_limiter(raw_dialogue, dialogue if limited else None, voice_gain, sr)
+        report["voice_limiter"] = {**_voice_limiter(raw_dialogue, dialogue if limited else None, voice_gain, sr),
+                                   "margin_db": margin, "voice_alone": bool(alone)}
     linked = None
     total_curve = None
     if linked_limit and mix_tp + g_db > tp_t - 0.1:
@@ -407,7 +419,8 @@ def run(film_dir: Path, *, score: str | Path | None = None, no_score: bool = Fal
             linked_limit=bool(levels.get("linked_limit", True)), limiter=str(levels.get("limiter", "slate")),
             duck_depths=levels.get("duck_db") or {}, ducked_roles=ducked,
             words=words_for(film) if score_arr is not None else None,
-            score_guard=guard.settings_of(balance.palette_balance(film.palette)))
+            score_guard=guard.settings_of(balance.palette_balance(film.palette)),
+            voice_margin_db=levels.get("voice_margin_db"))
         report = result["report"]
         final, mix_arr, eng = result["final"], result["mix"], result["engine"]
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -484,10 +497,13 @@ def empty_by_design(placed: list, score: Path | None, stems: dict) -> dict[str, 
     """The delivery stems this film has nothing for, and why. A score-and-voice film has no effects or ambience: those
     stems are still written (silent), so every delivery keeps its four stems, and this record is how a check tells a
     stem that's empty on purpose from one that came out silent by mistake."""
+    def has(roles) -> bool:  # the effects engine writes every role's stem; a silent one feeds nothing
+        return any(r in stems and np.any(stems[r]) for r in roles)
+
     fed = {"dialogue": (bool(placed), "no voice cues in this film"),
-           "effects": (any(r in stems for r in EFFECTS_ROLES), "no effect stems in this film"),
-           "ambience": (any(r in stems for r in AMBIENCE_ROLES), "no ambience stems in this film"),
-           "music": (score is not None or any(r in stems for r in MUSIC_ROLES), "no score and no tonal stems in this film")}
+           "effects": (has(EFFECTS_ROLES), "no effect stems in this film"),
+           "ambience": (has(AMBIENCE_ROLES), "no ambience stems in this film"),
+           "music": (score is not None or has(MUSIC_ROLES), "no score and no tonal stems in this film")}
     return {k: why for k, (has, why) in fed.items() if not has}
 
 

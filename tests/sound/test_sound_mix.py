@@ -276,3 +276,43 @@ def test_the_mix_records_how_much_speech_the_voice_limiter_touched(slate_home):
     assert hot["dialogue_limited"] and hot["voice_limiter"]["share"] >= 0.05
     assert hot["voice_limiter"]["touched_ms"] <= hot["voice_limiter"]["speech_ms"]
     assert calm["voice_limiter"] == {**calm["voice_limiter"], "share": 0.0, "touched_ms": 0, "limited": False}
+
+
+def test_a_voice_heard_alone_is_limited_closer_to_the_ceiling(slate_home, monkeypatch):
+    """The voice limiter leaves 0.9 dB under the ceiling for other stems to sum on its peaks. With nothing else in the
+    mix it needs only 0.4, so it touches less of the speech, and the mix still meets the ceiling."""
+    H.brand(slate_home["brands"])
+    fd = H.film(slate_home["films"], "alone", plosives=True, score=False)
+    alone = jsonio.read(mix.run(fd).with_name("final_mix.json"))
+    assert alone["pass"] and alone["voice_limiter"]["voice_alone"] is True
+    assert alone["voice_limiter"]["margin_db"] == mix.VOICE_ALONE_MARGIN_DB
+    assert measure.loudness(fd / "sound/mix/final_mix.wav")["true_peak_dbtp"] <= -1.0 + 1e-6
+    monkeypatch.setattr(mix, "VOICE_ALONE_MARGIN_DB", mix.VOICE_MARGIN_DB)
+    shared = jsonio.read(mix.run(fd).with_name("final_mix.json"))
+    assert alone["voice_limiter"]["share"] < shared["voice_limiter"]["share"]
+    scored = jsonio.read(mix.run(H.film(slate_home["films"], "scored", plosives=True)).with_name("final_mix.json"))
+    assert scored["voice_limiter"]["voice_alone"] is False and scored["voice_limiter"]["margin_db"] == mix.VOICE_MARGIN_DB
+
+
+def test_a_palette_can_set_the_voice_margin_under_other_stems(slate_home):
+    """levels.voice_margin_db sets the margin the voice is limited under when other stems sound (0.9 by default):
+    a smaller one shapes less of the read, and the linked limiter still keeps the mix under the ceiling."""
+    H.brand(slate_home["brands"])
+    fd = H.film(slate_home["films"], "margin", plosives=True)
+    base = jsonio.read(mix.run(fd).with_name("final_mix.json"))
+    film = json.loads((fd / "film.json").read_text())
+    film.setdefault("sound", {}).setdefault("palette", {}).setdefault("levels", {})["voice_margin_db"] = 0.5
+    (fd / "film.json").write_text(json.dumps(film))
+    set_ = jsonio.read(mix.run(fd).with_name("final_mix.json"))
+    assert base["voice_limiter"]["margin_db"] == mix.VOICE_MARGIN_DB and set_["voice_limiter"]["margin_db"] == 0.5
+    assert set_["voice_limiter"]["share"] <= base["voice_limiter"]["share"]
+    assert measure.loudness(fd / "sound/mix/final_mix.wav")["true_peak_dbtp"] <= -1.0 + 1e-6
+
+
+def test_a_silent_engine_stem_is_empty_on_purpose():
+    """The effects engine writes every role's stem; one with nothing in it (no ambience in the film) feeds nothing."""
+    import numpy as np
+
+    stems = {"ui": np.ones((10, 2)), "amb": np.zeros((10, 2))}
+    empty = mix.empty_by_design([{"shot": "S01"}], None, stems)
+    assert "ambience" in empty and "effects" not in empty and "music" in empty

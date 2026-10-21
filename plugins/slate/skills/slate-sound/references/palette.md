@@ -26,6 +26,10 @@ starting palette (the approved proof's), and each brand's pack overrides it key 
 about 11 LU under, within about 2 LU. The voice is levelled by the loudness of its voiced part; every other cue by its
 peak.
 
+**The voice limiter's margin:** the voice is limited 0.9 dB under the true-peak ceiling when other stems sound, so
+they can sum on its peaks, and 0.4 dB when it's heard alone. `levels.voice_margin_db` sets the first for a film whose
+linked limiter keeps the sum under the ceiling transparently (one film's limiter touched 6.2% of the speech at 0.9).
+
 **Ducking under speech:** tonal and ambience about 6 dB, effects about 3 dB, reverb about 4 dB; the UI clicks stay crisp.
 
 **Rules the palette carries:** no glides, no slide-ups, no drone, one sound per kind, no sound shared between kinds, no
