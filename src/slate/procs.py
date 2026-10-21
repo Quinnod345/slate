@@ -167,7 +167,10 @@ def ae_running() -> bool:
 
 
 def aerender_running() -> bool:
-    return bool(pgrep("aerender", full=True))
+    """aerender, or the aerendercore it launches, is running. Matched by process name, never by command line: Adobe's
+    IPC broker outlives every render with aerendercore's path in its arguments, so a command-line match kept saying
+    aerender was running after it had finished (and the master's disk-cache restore was refused every time)."""
+    return bool(pgrep("aerender") or pgrep("aerendercore"))
 
 
 def pid_alive(pid: int) -> bool:

@@ -29,7 +29,7 @@
 
 SL.main(function () {
     var args = SL.args(), spec, film, P, R = [], comps = {}, byId = {}, i, j, k, it, sh, c, frames, probs, bad, ph;
-    var rendered, native, lay, src, expect, r, missing, badRender, actProbs, act, ac, want, M, aud, mf, exErr, mbOff;
+    var rendered, nativeComps, lay, src, expect, r, missing, badRender, actProbs, act, ac, want, M, aud, mf, exErr, mbOff;
     var cn, cc, L, stack, pr, q, fps, tol, rq, items, kept;
 
     function check(name, ok, evidence) { R.push({ check: name, status: ok ? "PASS" : "FAIL", evidence: evidence || "" }); }
@@ -67,7 +67,7 @@ SL.main(function () {
     }
 
     // shots
-    bad = []; ph = []; rendered = 0; native = 0;
+    bad = []; ph = []; rendered = 0; nativeComps = 0;
     for (i = 0; i < spec.acts.length; i++) {
         if (spec.acts[i].engine === "ae") { continue; }
         for (j = 0; j < spec.acts[i].shots.length; j++) {
@@ -92,14 +92,14 @@ SL.main(function () {
                                (expect === null ? "?" : expect.toFixed(5)) + ")");
                 }
                 if (src && (src.duration + lay.startTime) < c.duration - 0.5 / fps) { probs.push("render ends early"); }
-            } else if (c.numLayers > 0) { native++; }
+            } else if (c.numLayers > 0) { nativeComps++; }
             if (probs.length) { bad.push(sh.id + ": " + probs.join(", ")); }
         }
     }
     check("shots.comps", bad.length === 0, bad.length ? bad.join("; ") :
           "every shot comp at " + film.w + "x" + film.h + " and the film's rate, frames match shots.json");
     check("shots.picture", ph.length === 0, ph.length ? "placeholders: " + ph.join(",") :
-          rendered + " from code renders, " + native + " native");
+          rendered + " from code renders, " + nativeComps + " native");
 
     // acts
     actProbs = [];
