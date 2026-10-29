@@ -17,3 +17,6 @@ engine/**/build/
 *.aep
 *.prproj
 dist/
+
+# Agents' build reports are working logs: they stay on the machine that made them.
+docs/build_reports/

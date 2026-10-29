@@ -10,21 +10,18 @@ one gets its own look, motion, voice and sound during onboarding.
 > **Status:** 0.1.0 passes local verification: 4,878 Python tests, 435 engine tests, TypeScript, all 23 pipeline
 > demo stages and all 17 fresh-home installation checks. The approved effects renderer and physical-page kit are
 > implemented and verified. The demo uses replayed vendors and delivers a draft; real brand approvals, live AE
-> acceptance, remaining agent evaluations and private release distribution are still open. See
-> `docs/build_reports/codex-completion.md` for evidence and limits, and `CHANGELOG.md` for the changes.
+> acceptance and remaining agent evaluations are still open. See `CHANGELOG.md` for the changes.
 
 ## Download
 
-The release download is not verified yet: this checkout has no configured remote, and the intended private
-repository could not be resolved during the 2026-10-04 check. Once the private repository is available to your
-account, one command clones Slate and runs its installer:
+One command clones Slate and runs its installer:
 
 ```sh
 git clone https://github.com/Quinnod345/slate.git ~/code/slate && ~/code/slate/install.sh
 ```
 
-Your git credentials need access to the private repository (`gh auth setup-git` once, if git asks). From an existing
-local checkout, run `./install.sh`. The installer asks before it installs anything.
+Installing from a private fork instead? Your git credentials need access to it (`gh auth setup-git` once, if git
+asks). From an existing local checkout, run `./install.sh`. The installer asks before it installs anything.
 
 Already installed? `slate update` fast-forwards the configured upstream, re-links every agent, refreshes changed
 installed engine sources and dependencies, and runs doctor. Engine replacement waits until the render and After
@@ -196,4 +193,4 @@ decisions behind it.
 
 ## Licence
 
-Proprietary for now; see `LICENSE`. Slate is Quinn O'Donnell's, meant to be shared more widely later.
+The source is public to read, but not yet licensed for reuse: see `LICENSE`. Slate is Quinn O'Donnell's.

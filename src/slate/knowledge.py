@@ -754,7 +754,7 @@ def film_project(repo: Repo) -> Path | None:
     """The film project Slate was harvested from, as knowledge/components.json records it, when it's on this Mac."""
     doc = jsonio.read(repo.path(COMPONENTS), default=None) if repo.exists(COMPONENTS) else None
     root = ((doc or {}).get("source") or {}).get("filmroot") if isinstance(doc, dict) else None
-    p = Path(root) if root else None
+    p = Path(root).expanduser() if root else None  # recorded from the home folder as ~/…
     return p if p and p.is_dir() else None
 
 

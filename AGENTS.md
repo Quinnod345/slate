@@ -10,7 +10,8 @@ becomes a finished, gated film, and every stage is a `slate` command. Read the c
    Node engine boundary (§8), jobs (§9), testing (§10), style (§11) and the cross-module interfaces (§12).
 2. `docs/PLAN.md`: the plan Slate is built to; `docs/PLAN_TRACKER.md` tracks every point in it.
 3. `docs/DECISIONS.md`: the decisions behind the plan. Don't reverse one quietly; a change gets a new record.
-4. The module you're changing, and its report in `docs/build_reports/` if it has one.
+4. The module you're changing, and its report in `docs/build_reports/` if your checkout has one (build reports are
+   agents' working logs: they stay on the machine that made them and are kept out of the repository).
 
 ## The rules
 

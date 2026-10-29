@@ -21,7 +21,8 @@ os.environ["SLATE_FAKE_VENDORS"] = "1"
 os.environ.pop("SLATE_LIVE", None)
 os.environ["BROWSER"] = "none"
 
-FILMROOT = Path("~/Documents/TrueSpace/website-build-2026-09-28")
+# The source films' project, on the machine that has it (SLATE_GOLDEN_FILMROOT moves it); golden tests skip without it.
+FILMROOT = Path(os.environ.get("SLATE_GOLDEN_FILMROOT") or Path.home() / "Documents/TrueSpace/website-build-2026-09-28")
 
 
 @pytest.fixture

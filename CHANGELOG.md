@@ -16,8 +16,8 @@ tags`, `voice ab` and `voice cast`, all of which share the profile's policy and 
 these voices as someone else's clone; Quinn's rule (2026-10-12) is about clones of people he works with, not voices
 their owners share in the vendor's library. The approval names the exact voice id, who approved it, when and the
 ruling. It never covers an instant clone, a famous voice or a clone of a named person, and autonomous films need
-`autonomous: true` in the approval. The policy tests cover each case; `voice-policy.md` documents the field. The Vixa
-brand pack records its narrator, Adam, this way, so its films no longer need a film-local wrapper.
+`autonomous: true` in the approval. The policy tests cover each case; `voice-policy.md` documents the field. A brand
+pack can record its narrator this way, so its films no longer need a film-local wrapper.
 
 Also fixed: the `voice_fit` gate now measures a trimmed take by its play length (`slate voice trim`), the same
 length timing places it by; before, it measured the whole file and disagreed with timing.
