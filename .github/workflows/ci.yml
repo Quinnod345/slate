@@ -41,6 +41,18 @@ jobs:
           .venv/bin/python -m pip install --upgrade pip
           .venv/bin/python -m pip install -e ".[dev]"
 
+      # The hand-in gates load each act module in Node from engine/node_modules, so the Python tests need the engine
+      # installed too (headless Chrome isn't: the tests that need it skip without it).
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: engine/package-lock.json
+
+      - name: Install the engine's pinned packages
+        working-directory: engine
+        run: npm ci
+
       - name: pytest (replay mode, temporary Slate folders)
         run: .venv/bin/python -m pytest tests -q -p no:cacheprovider
 
