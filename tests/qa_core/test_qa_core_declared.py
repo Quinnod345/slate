@@ -277,27 +277,26 @@ def test_without_vision_no_ocr_gate_passes_and_neither_does_the_film(film_builde
 
 
 # ---------------------------------------------------------------------------------------------- Vision's noise
-def test_visions_own_prints_never_reach_stdout(monkeypatch, capfd):
-    """Vision prints "Unable to find a valid E5" to file descriptor 1 from native code; a --json run must not."""
-    import os
-    import types
+def test_visions_own_prints_never_reach_stdout(monkeypatch, capfd, tmp_path, slate_home):
+    """Vision prints "Unable to find a valid E5" to file descriptor 1 from native code; a --json run must not. Vision
+    runs in the reader process, so the fake ocrmac goes on its PYTHONPATH."""
+    from PIL import Image
 
-    class OCR:
-        def __init__(self, image, framework=None, recognition_level=None):
-            self.level = recognition_level
-
-        def recognize(self):
-            os.write(1, b"Unable to find a valid E5 (native noise)\n")
-            return [("SLATE 42", 0.98, [0.1, 0.2, 0.5, 0.1])]
-
-    fake = types.ModuleType("ocrmac.ocrmac")
-    fake.OCR = OCR
-    package = types.ModuleType("ocrmac")
-    package.ocrmac = fake
-    monkeypatch.setitem(sys.modules, "ocrmac", package)
-    monkeypatch.setitem(sys.modules, "ocrmac.ocrmac", fake)
+    pkg = tmp_path / "fake" / "ocrmac"
+    pkg.mkdir(parents=True)
+    (pkg / "__init__.py").write_text("")
+    (pkg / "ocrmac.py").write_text(
+        "import os\n"
+        "class OCR:\n"
+        "    def __init__(self, image, framework=None, recognition_level=None):\n"
+        "        self.level = recognition_level\n"
+        "    def recognize(self):\n"
+        "        os.write(1, b'Unable to find a valid E5 (native noise)\\n')\n"
+        "        return [('SLATE 42', 0.98, [0.1, 0.2, 0.5, 0.1])]\n")
+    monkeypatch.setenv("PYTHONPATH", str(tmp_path / "fake"))
     backend = ocr.VisionBackend("accurate", {"name": ocr.ENGINE_NAME, "version": "test"})
-    lines = backend.recognize(object())
+    lines = backend.recognize(Image.new("RGB", (64, 36), "white"))
+    backend.reader.stop()
     print("the command's own output")
     out, err = capfd.readouterr()
     assert lines == [{"text": "SLATE 42", "conf": 0.98, "box": [0.1, 0.2, 0.5, 0.1]}]

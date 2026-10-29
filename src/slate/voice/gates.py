@@ -12,7 +12,8 @@
                    that rises like a question, no read that stops mid-word
 - voice_polish     every polished take verified by measurement: length identical, loudness back within 0.5 LU,
                    sibilance and edge reduced within the chain's reach, not over-processed, made with the film's
-                   pinned polish (a film that doesn't use the polish passes with that said)
+                   pinned polish (a film that doesn't use the polish passes with that said); an edge that rose is
+                   harsh only if the take ends brighter than the film's median polished line
 
 Only PASS counts as passed. A replayed take (SLATE_FAKE_VENDORS=1) is never heard, so the gates that judge the
 audio report it as UNCHECKED, however good its stand-in looks. So is a take whose alignment is older than the
@@ -21,6 +22,7 @@ take, and a take aligned only by forced alignment (which places every word it's 
 
 from __future__ import annotations
 
+import statistics
 from pathlib import Path
 from typing import Callable
 
@@ -473,6 +475,30 @@ def inflection_gate(vf: VoiceFilm) -> GateResult:
 # ---------------------------------------------------------------------------------------------------------------
 # The studio polish, verified by measurement
 
+EDGE_RISE = "the 2-5 kHz peaks rose"  # how polish.verify words an edge that came up
+EDGE_CONTEXT_LINES = 8  # polished lines it takes for the film's median edge to mean something
+
+
+def _edge_rises_in_context(after: dict[str, float | None], rises: dict[str, str]) -> tuple[dict, dict]:
+    """Split the takes whose 2-5 kHz peaks rose into ({shot: why it's excused}, {shot: problem kept}).
+
+    A rise is harshness only when the polished take ends brighter than the film's own median polished line. A dark
+    read is different: the compressor and the loudness match lift its consonants under every strength. The CEO film's
+    C09 (2026-10-28) rose 1.4 dB at strengths from 0.2 to A and still ended 1.4 dB under the film's median."""
+    levels = [v for v in after.values() if v is not None]
+    if len(levels) < EDGE_CONTEXT_LINES:
+        return {}, dict(rises)
+    median = statistics.median(levels)
+    excused, kept = {}, {}
+    for shot, problem in rises.items():
+        level = after.get(shot)
+        if level is not None and level <= median:
+            excused[shot] = (f"{problem.split(':')[0]}, but ends {median - level:.1f} dB under the film's median "
+                             f"polished line ({median:.1f} dB): a dark read brought toward the film, not harsher")
+        else:
+            kept[shot] = problem
+    return excused, kept
+
 
 def polish_gate(vf: VoiceFilm) -> GateResult:
     from slate.voice import polish as polish_mod  # noqa: PLC0415
@@ -487,6 +513,8 @@ def polish_gate(vf: VoiceFilm) -> GateResult:
                                 "pinned, and the voice doesn't require it)", engine=engine,
                                 inputs=gates_mod.inputs_for(vf.dir, [f"film:pins.{polish_mod.PIN_KEY}"]))
     fails, unchecked, files, per_line = [], [], [], {}
+    rises: dict[str, str] = {}
+    after_edge: dict[str, float | None] = {}
     checked = 0
     for ln in vf.lines:
         sel = vf.selected(ln.shot)
@@ -527,12 +555,22 @@ def polish_gate(vf: VoiceFilm) -> GateResult:
             continue
         v = polish_mod.verify(report["stages"], report["effect"], report.get("chain"), tuning.get("verify"))
         per_line[ln.shot] = {"strength": report.get("strength"), "checks": v["checks"], "problems": v["problems"]}
-        fails += [f"{ln.shot}: {p}" for p in v["problems"]]
+        rise = next((p for p in v["problems"] if p.startswith(EDGE_RISE)), None)
+        if rise:
+            rises[ln.shot] = rise
+        fails += [f"{ln.shot}: {p}" for p in v["problems"] if p != rise]
+        after_edge[ln.shot] = ((report.get("effect") or {}).get("after") or {}).get("edge_peaks_db")
         checked += 1
+    excused, kept = _edge_rises_in_context(after_edge, rises)
+    fails += [f"{shot}: {p}" for shot, p in kept.items()]
+    for shot, why in excused.items():
+        per_line[shot]["in_context"] = why
     strength = (pinned or {}).get("strength")
     return _result("voice_polish", fails=fails, unchecked=unchecked, checked=checked, total=len(vf.lines),
                    passed=f"{checked} polished take(s) verified by measurement (strength {strength}): same length, "
-                          "loudness held, S and edge down within the chain's reach",
+                          "loudness held, S and edge down within the chain's reach"
+                          + (f"; {len(excused)} dark read(s) lifted toward the film" if excused else ""),
+                   evidence=[f"{shot}: {why}" for shot, why in excused.items()],
                    engine=engine, inputs=_inputs(vf, files + [f"film:pins.{polish_mod.PIN_KEY}"]),
                    details={"shots": per_line, "pinned": pinned and {k: pinned.get(k) for k in ("strength",
                                                                                               "chain_sha256")}})

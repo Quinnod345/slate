@@ -11,22 +11,36 @@ ever the engine and level its evidence names.
 
 The sweep reads the picture at full width (at 1280 px, letter-spaced caps read as "DURA81LITY") every 0.25 s of
 film time and keeps only the text, cached in qa/ocr/ against the hashes of the files it read.
+
+Vision runs in a reader process of its own, never in Slate's. In a long-lived process Vision sometimes never returns
+from a frame (0% CPU, forever), though a fresh process reads the same frame in about two seconds; on 2026-10-28 that
+froze two films' QA for hours. So a frame gets SLATE_OCR_TIMEOUT seconds (default 45). If it takes longer, the reader
+is killed and a fresh one reads the frame again, up to RETRIES times before the run stops with OcrStalled (exit 75).
+A reader can also go blind, answering every frame with nothing: a frame read as empty is only trusted when the same
+reader still reads a test image ("SLATE 42"); otherwise the reader is replaced and the frame read again. A reader is
+also replaced after RECYCLE frames, and only one Slate process reads with Vision at a time.
 """
 
 from __future__ import annotations
 
+import atexit
 import contextlib
+import fcntl
 import importlib
+import json
 import os
 import platform
+import select
+import subprocess
 import sys
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, field
 from importlib import metadata
 from pathlib import Path
 from typing import Callable, Iterator, Protocol
 
-from slate import jsonio
-from slate.errors import MissingPrerequisite
+from slate import jsonio, paths
+from slate.errors import MissingPrerequisite, TryLater
 from slate.qa import media
 
 ENGINE_NAME = "Apple Vision (ocrmac)"
@@ -35,12 +49,21 @@ BATCH = 24  # frames decoded at once during a sweep
 INSTALL_HINT = ("Install Slate's OCR extra in its environment (`uv pip install 'slate[ocr]'`, which adds ocrmac), "
                 "then run `slate qa ocr` again.")
 LEVELS = ("accurate", "fast")
+TIMEOUT = 45.0  # seconds one frame may take before its reader is replaced (SLATE_OCR_TIMEOUT overrides)
+RETRIES = 2  # fresh readers tried on a frame that stalls, before the run stops
+RECYCLE = 300  # frames one reader reads before a fresh one takes over
 
 
 class OcrUnavailable(MissingPrerequisite):
     """Vision OCR can't run here. `details["engine"]` names the engine and why."""
 
     kind = "ocr_unavailable"
+
+
+class OcrStalled(TryLater):
+    """Vision never answered on one frame, in RETRIES + 1 fresh readers in a row. Nothing is wrong with the film."""
+
+    kind = "ocr_stalled"
 
 
 class Backend(Protocol):
@@ -108,23 +131,191 @@ def stdout_to_stderr() -> Iterator[None]:
         os.close(saved)
 
 
+def timeout() -> float:
+    try:
+        value = float(os.environ.get("SLATE_OCR_TIMEOUT") or TIMEOUT)
+    except ValueError:
+        return TIMEOUT
+    return value if value > 0 else TIMEOUT
+
+
+@contextlib.contextmanager
+def _one_at_a_time() -> Iterator[None]:
+    """Hold Slate's OCR lock for one frame: two processes reading with Vision at once is when it froze most."""
+    lock = paths.ensure_dir(paths.cache_dir()) / "ocr.lock"
+    with open(lock, "a") as fh:
+        fcntl.flock(fh, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(fh, fcntl.LOCK_UN)
+
+
+def _serve() -> None:
+    """The reader process: answer one JSON line per frame. Each frame arrives as a JSON header line ({w, h}) followed
+    by w × h × 3 bytes of RGB. Answers go out on a copy of fd 1; fd 1 itself then points at stderr, so whatever Vision
+    prints from native code can never land in an answer."""
+    lvl = sys.argv[1] if len(sys.argv) > 1 else level()
+    answers = os.fdopen(os.dup(1), "w", encoding="utf-8")
+    os.dup2(2, 1)
+    from ocrmac import ocrmac  # noqa: PLC0415 - optional extra, imported only when OCR actually runs
+    from PIL import Image  # noqa: PLC0415
+
+    src = sys.stdin.buffer
+    while True:
+        head = src.readline()
+        if not head:
+            return
+        spec = json.loads(head)
+        size = (int(spec["w"]), int(spec["h"]))
+        image = Image.frombytes("RGB", size, src.read(size[0] * size[1] * 3))
+        try:
+            rows = ocrmac.OCR(image, framework="vision", recognition_level=lvl).recognize()
+            msg = {"rows": [[str(r[0]), float(r[1]), [float(v) for v in (r[2] if len(r) > 2 else None) or []]]
+                            for r in rows]}
+        except Exception as exc:  # noqa: BLE001 - reported to Slate, which raises it there
+            msg = {"error": f"{type(exc).__name__}: {exc}"}
+        answers.write(json.dumps(msg) + "\n")
+        answers.flush()
+
+
+@dataclass
+class _Reader:
+    """One reader process, started when a frame needs it. read() returns the rows, or None when the reader stalled
+    or died (it's gone by then, and the next read starts a fresh one)."""
+
+    recognition_level: str
+    proc: subprocess.Popen | None = None
+    frames: int = 0
+    started: int = 0
+
+    def _start(self) -> subprocess.Popen:
+        cmd = [sys.executable, "-P", "-c", "from slate.qa.ocr import _serve; _serve()", self.recognition_level]
+        self.proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+        os.set_blocking(self.proc.stdin.fileno(), False)
+        self.frames = 0
+        self.started += 1
+        return self.proc
+
+    def stop(self) -> None:
+        proc, self.proc = self.proc, None
+        if proc is None:
+            return
+        with contextlib.suppress(OSError):
+            proc.stdin.close()
+        try:
+            proc.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+        with contextlib.suppress(OSError):
+            proc.stdout.close()
+
+    def read(self, payload: bytes, seconds: float) -> list | None:
+        if self.proc is not None and (self.proc.poll() is not None or self.frames >= RECYCLE):
+            self.stop()
+        proc = self.proc or self._start()
+        deadline = time.monotonic() + seconds
+        if not self._send(proc, payload, deadline):
+            self.stop()
+            return None
+        answer = self._answer(proc, deadline)
+        if answer is None:
+            self.stop()
+            return None
+        self.frames += 1
+        if "error" in answer:
+            raise RuntimeError(f"Vision couldn't read the frame: {answer['error']}")
+        return answer["rows"]
+
+    @staticmethod
+    def _send(proc: subprocess.Popen, payload: bytes, deadline: float) -> bool:
+        fd, view = proc.stdin.fileno(), memoryview(payload)
+        while view:
+            left = deadline - time.monotonic()
+            if left <= 0 or not select.select([], [fd], [], left)[1]:
+                return False
+            try:
+                view = view[os.write(fd, view):]
+            except BlockingIOError:
+                continue
+            except OSError:  # the reader died
+                return False
+        return True
+
+    @staticmethod
+    def _answer(proc: subprocess.Popen, deadline: float) -> dict | None:
+        fd, buf = proc.stdout.fileno(), b""
+        while b"\n" not in buf:
+            left = deadline - time.monotonic()
+            if left <= 0 or not select.select([fd], [], [], left)[0]:
+                return None
+            chunk = os.read(fd, 1 << 16)
+            if not chunk:  # the reader died
+                return None
+            buf += chunk
+        return json.loads(buf.split(b"\n", 1)[0])
+
+
 @dataclass
 class VisionBackend:
-    """Apple Vision's text recognizer through ocrmac."""
+    """Apple Vision's text recognizer through ocrmac, in a reader process (see the module's docstring)."""
 
     recognition_level: str
     engine: dict
+    reader: _Reader | None = field(default=None, repr=False)
 
     def recognize(self, image) -> list[dict]:
-        from ocrmac import ocrmac  # noqa: PLC0415 - optional extra, imported only when OCR actually runs
+        from PIL import Image  # noqa: PLC0415
 
-        with stdout_to_stderr():  # Vision's own diagnostics must never reach a --json stdout
-            rows = ocrmac.OCR(image, framework="vision", recognition_level=self.recognition_level).recognize()
+        if not isinstance(image, Image.Image):
+            image = Image.open(image)
+        image = image if image.mode == "RGB" else image.convert("RGB")
+        payload = json.dumps({"w": image.width, "h": image.height}).encode() + b"\n" + image.tobytes()
+        if self.reader is None:
+            self.reader = _Reader(self.recognition_level)
+            atexit.register(self.reader.stop)
+        seconds = timeout()
+        for _attempt in range(RETRIES + 1):
+            with _one_at_a_time():
+                rows = self.reader.read(payload, seconds)
+                if rows == [] and not self._sees_canary(seconds):
+                    # It answers, but reads nothing, not even the canary: a blind reader (2026-10-28, the CEO film's
+                    # master sweep: one reader returned nothing for its first 300 frames). Replace it, read again.
+                    self.reader.stop()
+                    rows = None
+            if rows is not None:
+                break
+        else:
+            raise OcrStalled(f"Apple Vision never read one {image.width}×{image.height} frame: {RETRIES + 1} fresh "
+                             f"readers each stalled for {seconds:g} s or read nothing, not even a test image.",
+                             details={"engine": self.engine, "timeout_s": seconds, "readers": RETRIES + 1})
         out = []
-        for row in rows:
-            text, conf, box = row[0], float(row[1]), list(row[2]) if len(row) > 2 else None
-            out.append({"text": str(text), "conf": round(conf, 3), "box": [round(float(v), 4) for v in box or []]})
+        for text, conf, box in rows:
+            out.append({"text": str(text), "conf": round(float(conf), 3),
+                        "box": [round(float(v), 4) for v in box or []]})
         return out
+
+    def _sees_canary(self, seconds: float) -> bool:
+        """Whether this reader still reads the probe's test word: an empty frame is only trusted when it does."""
+        rows = self.reader.read(_canary(), seconds)
+        return bool(rows) and any(CANARY_MARK in str(r[0]) for r in rows)
+
+
+CANARY_MARK = "42"
+_CANARY: list[bytes] = []
+
+
+def _canary() -> bytes:
+    """The probe's own test image ("SLATE 42" at 720 × 180), as a reader payload, built once."""
+    if not _CANARY:
+        from PIL import Image, ImageDraw  # noqa: PLC0415
+
+        img = Image.new("RGB", (240, 60), "white")
+        ImageDraw.Draw(img).text((12, 20), "SLATE 42", fill="black")
+        img = img.resize((720, 180))
+        _CANARY.append(json.dumps({"w": img.width, "h": img.height}).encode() + b"\n" + img.tobytes())
+    return _CANARY[0]
 
 
 _STATE: dict = {}

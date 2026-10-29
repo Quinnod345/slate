@@ -318,3 +318,18 @@ def test_the_command_line(voice_film):
     assert "strength B" in out and "S peaks" in out and "verified" in out
     code, out, err = run_cli(["voice", "polish", "--film", str(voice_film), "--strength", "loud", "--json"])
     assert code == 2
+
+
+def test_an_edge_rise_is_harsh_only_when_the_take_ends_brighter_than_the_film():
+    from slate.voice.gates import EDGE_CONTEXT_LINES, _edge_rises_in_context
+
+    after = {f"S{i:02d}": -27.0 - 0.1 * i for i in range(10)}  # the film's polished lines, median about -27.45 dB
+    after.update({"DARK": -29.2, "BRIGHT": -25.0})
+    rises = {"DARK": "the 2-5 kHz peaks rose +1.43 dB: harsher, not smoother",
+             "BRIGHT": "the 2-5 kHz peaks rose +1.20 dB: harsher, not smoother"}
+    excused, kept = _edge_rises_in_context(after, rises)
+    assert set(excused) == {"DARK"} and "under the film's median" in excused["DARK"]
+    assert kept == {"BRIGHT": rises["BRIGHT"]}
+    few = {k: after[k] for k in list(after)[:EDGE_CONTEXT_LINES - 1]} | {"DARK": -29.2}
+    assert _edge_rises_in_context({k: v for k, v in list(few.items())[:EDGE_CONTEXT_LINES - 1]},
+                                  {"DARK": rises["DARK"]}) == ({}, {"DARK": rises["DARK"]})

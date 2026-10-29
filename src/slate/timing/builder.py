@@ -231,8 +231,41 @@ def check_reads(storyboard: dict, shots_doc: dict, takes: dict[str, Take], clock
                             engine=eng)
 
 
-def check_words(storyboard: dict, words_doc: dict, takes: dict[str, Take]) -> GateResult:
-    """Every voiced shot has word timings, and every script word is accounted for in what the aligner heard."""
+def _unheard_items(unheard_by_shot: dict[str, list[str]], takes: dict[str, Take]) -> list[dict]:
+    """One REVIEW item per unheard script word (shot/word/occurrence), bound to the take's file: a person who listens
+    and hears the word as written accepts it with `slate qa triage --accept timing.words:<key>`, and a new take
+    reopens it."""
+    items = []
+    for sid, words in unheard_by_shot.items():
+        take = takes.get(sid)
+        basis = {take.rel: jsonio.sha256(take.path)} if take is not None and take.path.is_file() else {}
+        seen: dict[str, int] = {}
+        for word in words:
+            seen[word] = seen.get(word, 0) + 1
+            items.append({"key": f"{sid}/{word}/{seen[word]}", "shot": sid, "word": word, "basis": basis,
+                          "what": f"{sid}: {word!r} isn't heard as written in {take.rel if take else 'its take'}"})
+    return items
+
+
+def _accepted_words(film_dir: Path | None, items: list[dict]) -> tuple[list[dict], list[dict]]:
+    """(still open, accepted by a person on this exact take)."""
+    if film_dir is None:
+        return items, []
+    from slate.qa import accept  # noqa: PLC0415 - timing builds without the QA package's other imports
+
+    open_items, accepted = [], []
+    for item in items:
+        a = accept.match(film_dir, "timing.words", item["key"], item["basis"])
+        if a:
+            accepted.append({**item, "accepted_by": a.get("by"), "accepted_at": a.get("at"), "reason": a.get("reason")})
+        else:
+            open_items.append(item)
+    return open_items, accepted
+
+
+def check_words(storyboard: dict, words_doc: dict, takes: dict[str, Take], film_dir: Path | None = None) -> GateResult:
+    """Every voiced shot has word timings, and every script word is accounted for in what the aligner heard, or a
+    person listened and accepted it as spoken."""
     shots = words_doc.get("shots") or {}
     voiced = [sh["id"] for _i, _a, sh in iter_shots(storyboard) if (sh.get("vo") or "").strip()]
     without = [sid for sid in voiced if sid in takes and sid not in shots]
@@ -250,14 +283,22 @@ def check_words(storyboard: dict, words_doc: dict, takes: dict[str, Take]) -> Ga
     if without:
         return GateResult.fail("timing.words", f"{len(without)} voiced take(s) have no word timings: "
                                f"{', '.join(without[:12])}", evidence=evidence + ["run `slate timing words`"], engine=eng)
+    accepted: list[dict] = []
     if unheard_by_shot:
-        listed = [f"{sid}: {', '.join(v)}" for sid, v in unheard_by_shot.items()]
-        return GateResult.review("timing.words", f"{sum(len(v) for v in unheard_by_shot.values())} script word(s) aren't "
-                                 "heard as written; listen to these takes", evidence=evidence + listed, engine=eng,
-                                 details={"unheard": unheard_by_shot})
+        open_items, accepted = _accepted_words(film_dir, _unheard_items(unheard_by_shot, takes))
+        evidence += [f"{sid}: {', '.join(v)}" for sid, v in unheard_by_shot.items()]
+        if open_items:
+            return GateResult.review("timing.words", f"{len(open_items)} script word(s) aren't heard as written; "
+                                     "listen to these takes", evidence=evidence, engine=eng,
+                                     details={"unheard": unheard_by_shot, "review_items": open_items,
+                                              "accepted": accepted})
     if unvoiced:
         return GateResult.unchecked("timing.words", f"{len(unvoiced)} line(s) aren't voiced yet", evidence=evidence,
                                     engine=eng, details={"unvoiced": unvoiced})
+    if accepted:
+        return GateResult.pass_("timing.words", f"every word of {len(shots)} take(s) is timed; {len(accepted)} a person "
+                                "listened to and accepted as spoken", evidence=evidence, engine=eng,
+                                details={"unheard": unheard_by_shot, "accepted": accepted})
     return GateResult.pass_("timing.words", f"every word of {len(shots)} take(s) is heard and timed" if shots else
                             "no voice in this film", evidence=evidence, engine=eng)
 
@@ -368,7 +409,7 @@ def run(film_dir: Path, *, force: bool = False, engine: str = "whisper", realign
     out = TimingBuild(results=[frames_gate])
     eases = brand_eases(film_dir, film)
     timeline_doc, problems, misses = resolve(events, shots_doc, words_doc, eases, clock=clock, lang=lang)
-    out.results += [check_reads(storyboard, shots_doc, takes, clock), check_words(storyboard, words_doc, takes),
+    out.results += [check_reads(storyboard, shots_doc, takes, clock), check_words(storyboard, words_doc, takes, film_dir),
                     check_events(problems, words_doc, events)]
     out.docs = {"shots": shots_doc, "vo_cues": cues, "vo_words": words_doc, "timeline": timeline_doc,
                 "events": events}

@@ -622,6 +622,12 @@ def cuts(film_dir: Path) -> GateResult:
 #: real move (a one-pixel drift of type) changes edges by tens to hundreds of levels.
 DITHER_MAX = 8
 DITHER_MEAN = 0.5
+#: At sharp, saturated edges (white type on a teal button) ProRes's compression turns that dither into more: on the
+#: investor film's still end card (2026-10-28, its render pixel-identical for 81 frames) up to 17 levels on at most 131
+#: pixels a frame, 0.006% of it, with the mean at 0.18. So a speck of pixels, no more than DITHER_SPECKS of the frame,
+#: may reach DITHER_EDGE_MAX; a move still changes edges by far more than that.
+DITHER_EDGE_MAX = 24
+DITHER_SPECKS = 0.0005
 
 
 def _exact_hold(frames: list) -> int:
@@ -635,11 +641,15 @@ def _exact_hold(frames: list) -> int:
 
 
 def _dither_hold(frames: list) -> int:
-    """How many frames, counted back from the last, differ from it only by an output dither."""
+    """How many frames, counted back from the last, differ from it only by an output dither: at most DITHER_MAX
+    levels, or DITHER_EDGE_MAX on a speck of edge pixels, with the mean under DITHER_MEAN."""
     last, hold = frames[-1].astype(np.int16), 0
+    specks = DITHER_SPECKS * last.shape[0] * last.shape[1]
     for f in reversed(frames):
         d = np.abs(f.astype(np.int16) - last)
-        if int(d.max()) > DITHER_MAX or float(d.mean()) > DITHER_MEAN:
+        peak = d.max(axis=-1) if d.ndim == 3 else d
+        over = int(np.count_nonzero(peak > DITHER_MAX))
+        if float(d.mean()) > DITHER_MEAN or int(peak.max()) > DITHER_EDGE_MAX or over > specks:
             break
         hold += 1
     return hold
@@ -725,7 +735,8 @@ def end_hold(film_dir: Path) -> GateResult:
         if dither >= n_need and render_ok:
             held = dither / float(fps)
             line = (f"{ctx.rel(target)}: the last {held:.2f} s ({dither} frames) differ from the last frame only by "
-                    f"After Effects' output dither (at most {DITHER_MAX} levels, mean under {DITHER_MEAN}); "
+                    f"After Effects' output dither (at most {DITHER_MAX} levels, or {DITHER_EDGE_MAX} on a speck of "
+                    f"edge pixels, mean under {DITHER_MEAN}); "
                     f"{ctx.rel(last['path'])} holds pixel-identical; {need:g} s needed ({source})")
             return combine("end_hold", [Sub("hold", "PASS", f"the end holds still for {held:.2f} s ({need:g} s needed; "
                                             "the AE master within its dither, the render exactly)", [line])],
@@ -733,6 +744,7 @@ def end_hold(film_dir: Path) -> GateResult:
                            details={"stage": "master", "file": ctx.rel(target), "hold_frames": dither,
                                     "hold_s": round(held, 3), "needed_s": need, "exact_frames": hold,
                                     "dither_max": DITHER_MAX, "dither_mean": DITHER_MEAN,
+                                    "dither_edge_max": DITHER_EDGE_MAX, "dither_specks": DITHER_SPECKS,
                                     "render": ctx.rel(last["path"])})
     first_still = total - hold
     held_s = hold / float(fps)

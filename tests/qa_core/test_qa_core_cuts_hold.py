@@ -249,6 +249,41 @@ def test_a_move_is_never_taken_for_dither(film_builder):
     assert r.status == "FAIL" and "dither" not in r.summary
 
 
+def _edge_specks(frames: np.ndarray, count: int, levels: int = 17) -> np.ndarray:
+    """ProRes's answer to dither at a saturated edge: `count` pixels on the mark's edge, up to `levels` off the last
+    frame (as measured against it on the investor's master)."""
+    rng = np.random.default_rng(11)
+    out = frames.astype(np.int16).copy()
+    edge = [(y, 60) for y in range(40, 60)] + [(y, 79) for y in range(40, 60)]  # the settled mark's sides
+    for f in out[:-1]:
+        for i in rng.choice(len(edge), size=count, replace=False):
+            y, x = edge[i]
+            f[y, x] += rng.choice([-levels, levels])
+    return np.clip(out, 0, 255).astype(np.uint8)
+
+
+@needs_ffmpeg
+def test_a_speck_of_edge_dither_on_saturated_type_still_holds(film_builder):
+    fb = film_builder(size=SIZE, shots=[(1, 150)])
+    still = _ending(150, still_from=50)
+    fb.render(1, still)
+    fb.master(_edge_specks(_dithered(still), count=6))  # 6 of 20,736 pixels at 17 levels, as on the investor's card
+    _ae_record(fb)
+    r = picture.end_hold(fb.path)
+    assert r.status == "PASS", r.summary
+    assert r.details["dither_edge_max"] == picture.DITHER_EDGE_MAX
+
+
+@needs_ffmpeg
+def test_edge_dither_past_a_speck_is_not_taken_for_dither(film_builder):
+    fb = film_builder(size=SIZE, shots=[(1, 150)])
+    still = _ending(150, still_from=50)
+    fb.render(1, still)
+    fb.master(_edge_specks(_dithered(still), count=30))  # 30 pixels: past DITHER_SPECKS of this frame
+    _ae_record(fb)
+    assert picture.end_hold(fb.path).status == "FAIL"
+
+
 @needs_ffmpeg
 def test_dither_is_allowed_only_on_an_ae_master(film_builder):
     fb = film_builder(size=SIZE, shots=[(1, 150)])
