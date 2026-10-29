@@ -237,9 +237,16 @@ def prepare(ctx: FilmContext, decls: dict[str, dict], displays: list[tuple[str, 
             counters = [{"id": e.get("id"), "start": _finite(e.get("start")), "t": _finite(e.get("t")),
                          "from": _finite(e.get("from")), "to": _finite(e.get("to"))} for e in counts]
             starts = [c["start"] for c in counters if c["id"] in ids and c["start"] is not None]
+            # every count in the act too: a hold that runs on past its own shot is read against all of them (measure)
+            act_counters = [{"id": e.get("id"), "start": _finite(e.get("start")), "t": _finite(e.get("t")),
+                             "from": _finite(e.get("from")), "to": _finite(e.get("to"))}
+                            for e in events if isinstance(e, dict) and e.get("kind") == "count"]
             plan.anchors[(sid, text)] = {"shot": sid, "text": text, "events": list(ids), "event_landings": landings,
                                          "source": rel, "act": act["index"], "landing_seconds": max(landings.values()),
-                                         "counters": counters, "count_start_seconds": min(starts) if starts else None}
+                                         "counters": counters, "count_start_seconds": min(starts) if starts else None,
+                                         "act_counters": act_counters,
+                                         "act_seconds": [ctx.secs_of(int(act["frame_in"])),
+                                                         ctx.secs_of(int(act["frame_out"]))]}
     return plan
 
 
@@ -269,6 +276,42 @@ def _own_display(text: str, at: float, anchor: dict, shown_before: bool) -> bool
             if lo <= value <= hi:
                 return False
     return True
+
+
+def _carried(ctx: FilmContext, sweep, anchor: dict, text: str, hits: list[float], every: float, shot_end: float,
+             lang: str, test, shown_before: bool) -> list[float]:
+    """Samples past the shot's end that carry the same display on, for a count that lands late in its shot.
+
+    A count landing 1.4 s before its shot ends can still hold 2 s on screen as the next shot begins. Only a run
+    that reaches the shot's last sample carries on, sample after sample with no gap, inside the owning act, as the
+    exact display; a bare value among other numbers counts only when no count anywhere in the act could be passing
+    through it at that moment. The first miss ends it."""
+    if not hits:
+        return []
+    in_shot = sorted(_finite(s.get("t")) for s in sweep.samples
+                     if _finite(s.get("t")) is not None and _finite(s.get("t")) < shot_end)
+    if not in_shot or abs(hits[-1] - in_shot[-1]) > 1e-6:
+        return []
+    act_end = (anchor.get("act_seconds") or [None, shot_end])[1]
+    wide = {**anchor, "counters": anchor.get("act_counters") or anchor["counters"]}
+    out, last = [], hits[-1]
+    for sample in sorted((s for s in sweep.samples if _finite(s.get("t")) is not None),
+                         key=lambda s: _finite(s.get("t"))):
+        at = _finite(sample.get("t"))
+        if at < shot_end:
+            continue
+        if at >= act_end or abs(at - last - every) >= 1e-6:
+            break
+        if test is not None and not test(ctx.frame_of(at)):
+            break
+        present, problem = textmatch.count_present(text, sample.get("lines"), lang=lang)
+        if problem == AMBIGUOUS and _own_display(text, at, wide, shown_before):
+            present, problem = True, None
+        if problem or not present:
+            break
+        out.append(at)
+        last = at
+    return out
 
 
 def _first_run(times: list[float], every: float, landing: float) -> tuple[float, float] | None:
@@ -320,6 +363,7 @@ def measure(ctx: FilmContext, plan: Plan, sweep, legible: dict, exemptions: set[
                 uncertain.append((at, problem))
             elif present:
                 hits.append(at)
+        hits += _carried(ctx, sweep, anchor, text, hits, every, hi, lang, legible.get(key), shown_before)
         landing = anchor["landing_seconds"]
         run = _first_run(hits, every, landing)
         start, end = run if run else (None, None)
