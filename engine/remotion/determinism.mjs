@@ -11,6 +11,8 @@ import os from 'node:os';
 import path from 'node:path';
 import {renderFrames, selectComposition} from '@remotion/renderer';
 import {actOf} from './lib/film.mjs';
+import {usage} from './lib/common.mjs';
+import {mixedScenesForAct} from './lib/shot_scenes.mjs';
 import {browserExecutable, chromiumOptions, renderTimeoutMs} from './browser.mjs';
 import {useBundle} from './bundle.mjs';
 import {pixelHash, renderStills} from './stills.mjs';
@@ -40,15 +42,21 @@ export function determinismPicks(n) {
 export async function determinismGate(ctx, act, args, name, inputs, bundles = null) {
   const engine = {name: 'remotion renderFrames (in sequence) and renderStill (alone), swangle', version: 'swangle'};
   const a = actOf(ctx, act);
-  const n = Math.max(1, Math.min(a.frames, Number(args.determinism_frames ?? SEQUENCE_FRAMES)));
-  const picks = determinismPicks(n);
+  const scene = args.shot === undefined ? null : mixedScenesForAct(ctx, act).find((sc) => sc.shot === String(args.shot) && sc.engine === 'remotion');
+  if (args.shot !== undefined && !scene) throw usage('No Remotion replacement for the determinism shot.');
+  const first = scene ? scene.frames[0] : 0;
+  const length = scene ? scene.frames[1] - scene.frames[0] + 1 : a.frames;
+  const n = Math.max(1, Math.min(length, Number(args.determinism_frames ?? SEQUENCE_FRAMES)));
+  const last = first + n - 1;
+  const picks = determinismPicks(n).map((frame) => first + frame);
+  const comp = scene?.comp ?? `Act${act}`;
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), `slate-determinism-act${act}-`));
   const own = bundles ? null : await useBundle(ctx, {brand_path: args.brand_path ?? null});
   const b = bundles ? await bundles.get() : own;
   try {
     const gl = 'swangle';
     const inputProps = {sub: 1};
-    const composition = await selectComposition({serveUrl: b.serve_url, id: `Act${act}`, inputProps, chromiumOptions: chromiumOptions(gl), browserExecutable: browserExecutable(), timeoutInMilliseconds: renderTimeoutMs(), logLevel: 'error'});
+    const composition = await selectComposition({serveUrl: b.serve_url, id: comp, inputProps, chromiumOptions: chromiumOptions(gl), browserExecutable: browserExecutable(), timeoutInMilliseconds: renderTimeoutMs(), logLevel: 'error'});
     // in sequence: one page draws frames 0…n−1 in order, so anything a frame leaves behind reaches the next
     const seq = new Map();
     await renderFrames({
@@ -57,7 +65,7 @@ export async function determinismGate(ctx, act, args, name, inputs, bundles = nu
       inputProps,
       outputDir: null,
       imageFormat: 'png',
-      frameRange: [0, n - 1],
+      frameRange: [first, last],
       concurrency: 1,
       chromiumOptions: chromiumOptions(gl),
       browserExecutable: browserExecutable(),
@@ -73,7 +81,7 @@ export async function determinismGate(ctx, act, args, name, inputs, bundles = nu
       },
     });
     // alone: each picked frame in a page of its own
-    const alone = await renderStills(ctx, b, picks.map((f) => ({comp: `Act${act}`, frame: f, name: `alone_f${String(f).padStart(5, '0')}.png`})), {outDir: tmp, gl, scale: 1, sub: 1, pixels: true});
+    const alone = await renderStills(ctx, b, picks.map((f) => ({comp, frame: f, name: `alone_f${String(f).padStart(5, '0')}.png`})), {outDir: tmp, gl, scale: 1, sub: 1, pixels: true});
     const differ = [];
     const same = [];
     for (const s of alone) {
@@ -83,13 +91,13 @@ export async function determinismGate(ctx, act, args, name, inputs, bundles = nu
         continue;
       }
       if ((await pixelHash(file)) === s.pixels) same.push(s.frame);
-      else differ.push(`frame ${s.frame}: drawn alone it differs from the same frame drawn in sequence (frames 0–${n - 1} in one page)`);
+      else differ.push(`frame ${s.frame}: drawn alone it differs from the same frame drawn in sequence (frames ${first}–${last} in one page)`);
     }
-    const details = {sequence: [0, n - 1], frames: picks, gl};
+    const details = {sequence: [first, last], frames: picks, gl, ...(scene ? {shot: scene.shot, comp} : {})};
     if (differ.length) {
       return gate(name, 'FAIL', `${differ[0]}: the act carries state from frame to frame, so a chunk, a patch or a still draws it differently`, {engine, evidence: [...differ, 'make every frame a pure function of film time: no state kept between frames (module-level counters, refs that accumulate, random numbers drawn as it goes)'], inputs, details});
     }
-    return gate(name, 'PASS', `frames ${picks.join(', ')} drawn alone match the same frames drawn in sequence (0–${n - 1}), bit for bit on ${gl}`, {engine, inputs, details});
+    return gate(name, 'PASS', `frames ${picks.join(', ')} drawn alone match the same frames drawn in sequence (${first}–${last}), bit for bit on ${gl}`, {engine, inputs, details});
   } finally {
     if (own) own.release();
     fs.rmSync(tmp, {recursive: true, force: true});

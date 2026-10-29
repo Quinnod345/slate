@@ -254,11 +254,55 @@ def new_film(film_id: str, brand: str, format: str, *, request: str | None = Non
     return call(argv)
 
 
-def _stage_argv(st: policy.Stage, film_path: Path, args: list[str] | None) -> list[str]:
+def _stage_argv(st: policy.Stage, film_path: Path | None, args: list[str] | None) -> list[str]:
     checked = policy.check_args(st, args)
     options = [a for a in checked if a.startswith("--")]
     names = [a for a in checked if not a.startswith("--")]
-    return [*st.words, "--film", str(film_path), *st.extra, *options, *st.action, *names]
+    film_args = ["--film", str(film_path)] if film_path is not None else []
+    return [*st.words, *film_args, *st.extra, *options, *st.action, *names]
+
+
+def _history_option(argv: list[str], name: str, value: str | int) -> list[str]:
+    """Replace one canonical stage option; the resulting command remains directly reproducible."""
+    return [a for a in argv if not a.startswith(f"{name}=")] + [f"{name}={value}"]
+
+
+def _history_call(argv: list[str]) -> dict:
+    """Request complete pages that fit the same full-envelope budget used by the MCP serializer.
+
+    Reducing a page never cuts a field. If one planning row is too large, an explicit index points to exact detail
+    fragments. Each retry is bound to the first source hash, and the returned command names the actual CLI read.
+    Other stages retain their existing long-output behavior.
+    """
+    if not any(a.startswith("--view=") for a in argv):
+        argv = _history_option(argv, "--view", "planning")
+    while True:
+        payload = call(argv)
+        if len(json.dumps(payload, indent=1, ensure_ascii=False, default=str)) <= MAX_TEXT:
+            return payload
+        if not payload.get("ok") or not isinstance(payload.get("result"), dict):
+            break
+        result = payload["result"]
+        digest = result.get("sha256")
+        if digest and not any(a.startswith("--expect-sha256=") for a in argv):
+            argv = _history_option(argv, "--expect-sha256", digest)
+        if result.get("view") == "detail":
+            count = result["detail"]["returned_chars"]
+            if count <= 1:
+                break
+            argv = _history_option(argv, "--text-chars", max(1, count // 2))
+        else:
+            count = len(result.get("patterns", []))
+            if count > 1:
+                argv = _history_option(argv, "--limit", max(1, count // 2))
+            elif count == 1 and result.get("view") == "planning":
+                argv = _history_option(argv, "--view", "index")
+                argv = _history_option(argv, "--limit", 1)
+            else:
+                break
+    return failure(UsageError("History page metadata cannot fit this MCP result budget.",
+                              hint="Read the selected source through the command line; no source text was changed."),
+                   "slate history context")
 
 
 def _queue(st: policy.Stage, argv: list[str], film_path: Path) -> dict:
@@ -284,13 +328,15 @@ def _run_stage(table: dict[str, policy.Stage], tool: str, command: str, film: st
     shown = f"slate {command}"
     try:
         st = policy.stage(command, table, tool=tool)
-        film_path = film_dir(film)
+        film_path = film_dir(film) if st.requires_film or film is not None else None
         argv = _stage_argv(st, film_path, args)
         shown = display(argv)
         policy.require_spend(st, argv, spend)
         require_built(st)
         if st.how == "queue" and "--dry-run" not in argv:
             return _queue(st, argv, film_path)
+        if st.name == "history context":
+            return _history_call(argv)
         return call(argv)  # inline stages, detach stages (they queue themselves) and dry runs
     except SlateError as exc:
         return failure(exc, shown)
@@ -310,10 +356,13 @@ def job_submit(stage: str, film: str | None = None, args: list[str] | None = Non
 
 @guarded("read script/script.json")
 def script_get(film: str | None = None) -> dict:
+    from slate.state import lock  # noqa: PLC0415
+
     path = film_dir(film)
-    data = jsonio.read(path / SCRIPT)
-    return envelope([], 0, result={"film_dir": str(path), "path": str(path / SCRIPT), "script": data},
-                    shown=f"cat {shlex.quote(str(path / SCRIPT))}")
+    source = lock.resolve(path, SCRIPT)
+    data = jsonio.read(source)
+    return envelope([], 0, result={"film_dir": str(path), "path": str(source), "script": data},
+                    shown=f"cat {shlex.quote(str(source))}")
 
 
 def _approved(path: Path) -> bool:
@@ -321,7 +370,9 @@ def _approved(path: Path) -> bool:
         from slate.state import approvals  # noqa: PLC0415
     except ImportError:
         return False
-    return bool(approvals.is_approved(path, "script", SCRIPT))
+    # The normal sitting approves the built storyboard; older films may approve the source instead. Both protect
+    # the editable script, including inherited approvals, while a record whose bytes changed no longer stands.
+    return bool(approvals.kind_state(path, "script")["approved"])
 
 
 def _locked(path: Path) -> bool:
@@ -350,7 +401,7 @@ def script_put(script: dict, film: str | None = None) -> dict:
     if _locked(path):
         raise Refused("script/script.json is locked, so it isn't rewritten here.",
                       hint="A person unlocks or revises it with the command line.")
-    if (path / SCRIPT).exists() and _approved(path):
+    if _approved(path):
         raise Refused("The script is approved, so it isn't rewritten here: approved work changes only through the "
                       "person's notes.",
                       hint='The person starts a revision (slate revise start script/script.json --notes "..." '

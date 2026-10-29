@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
 from slate import cli as slate_cli
@@ -208,14 +209,18 @@ def _golden(args: argparse.Namespace) -> int:
 
 # --- slate emit-events ----------------------------------------------------------------------------------------------
 
-def _record_lock(film_dir: Path, rel: str, sources: list[str]) -> None:
+def _record_lock(film_dir: Path, rel: str, sources: list[str], source_hashes: dict | None = None) -> None:
     """Record what made the file in film.lock.json, when the state module is there (it turns the file stale)."""
     try:
         from slate.state import lock  # noqa: PLC0415
     except Exception:  # noqa: BLE001 - the state module is optional here
         return
     try:
-        lock.record(film_dir, rel, producer="slate emit-events", inputs=sorted(set(sources + ["timing/shots.json"])))
+        sources = sorted(set(sources + ["timing/shots.json"]))
+        inputs = {name: None for name in sources} if source_hashes else sources
+        if source_hashes:
+            inputs.update(source_hashes)
+        lock.record(film_dir, rel, producer="slate emit-events", inputs=inputs)
     except Exception as exc:  # noqa: BLE001 - a lock-file problem must not undo the events just written
         log.warn(f"couldn't record {rel} in film.lock.json: {exc}")
 
@@ -231,9 +236,9 @@ def _emit(args: argparse.Namespace) -> int:
         motion = a.get("motion", {})
         if not dry:
             sources = a.get("sources", []) + list((a.get("captures") or {}).get("files", []))
-            _record_lock(film_dir, a["file"], sources)
+            _record_lock(film_dir, a["file"], sources, a.get("source_hashes"))
             if motion.get("written"):
-                _record_lock(film_dir, motion["file"], sources)
+                _record_lock(film_dir, motion["file"], sources, a.get("source_hashes"))
         what = f"silent ({a['reason']})" if a["silent"] else f"{a['events']} beats"
         if a.get("capture_beats"):
             what += f", {a['capture_beats']} from captures"
@@ -360,11 +365,23 @@ def _shot_engine_gates(film_dir: Path, shots: dict | None, acts: list[int]) -> l
         ids = [str(s["id"]) for s in shots.get("shots") or [] if int(s.get("act", -1)) == int(act)]
         mine = {sid: decl[sid] for sid in ids if sid in decl}
         mine_scenes = {sid: e for sid, e in scenes.items() if sid in ids}
-        if not mine and not mine_scenes:
-            continue
         probs = [p for p in found if any(f"shot {sid} " in p or f"/{sid}/" in p for sid in ids)]
-        engine = gates.engine("slate.render.shot_engines", "1")
-        inputs = gates.inputs_for(film_dir, [film_dir / "timing" / "shots.json"]) if (film_dir / "timing" / "shots.json").is_file() else {}
+        if not mine and not mine_scenes and not probs:
+            continue
+        engine = gates.engine("slate.render.shot_engines", "1",
+                              rule_revision=gates.rule_revision(f"handin.act{act}.shots"))
+        routing = [Path("timing") / "shots.json", Path("script") / "script.json",
+                   Path("scenes") / "ae" / f"act{act}.json",
+                   Path("scenes") / f"act{act}" / "web" / "index.html"]
+        routing.extend(Path("scenes") / f"act{act}" / f"index{ext}"
+                       for ext in shot_engines.SCENE_EXTENSIONS)
+        for sid in ids:
+            folder = shot_engines.SHOT_SCENES / sid
+            routing.append(folder / "web" / "index.html")
+            routing.extend(folder / "remotion" / f"index{ext}" for ext in shot_engines.SCENE_EXTENSIONS)
+        # Missing candidates remain explicit inputs, so a newly added entry or
+        # script fallback cannot reuse an older routing result.
+        inputs = gates.inputs_for(film_dir, routing)
         if probs:
             out.append(gates.GateResult(f"handin.act{act}.shots", "FAIL", f"{len(probs)} problem"
                                         f"{'s' if len(probs) > 1 else ''} with the act's shot engines; the first: "
@@ -432,6 +449,40 @@ def _check_plan(film_dir: Path, args: argparse.Namespace, acts: list[int], skipp
     return 0
 
 
+def _handin_result(film_dir: Path, raw: dict) -> gates.GateResult:
+    """Keep the engine's raw snapshot guard, then persist semantic film freshness.
+
+    Node verifies every raw source it consumed. Its own film.json must still match that captured generation here,
+    but later pins, versions and budgets are bookkeeping rather than a reason to repeat valid boundary checks.
+    """
+    from slate.state.lock import FILM_BOOKKEEPING  # noqa: PLC0415 - one shared definition of film bookkeeping
+
+    result = gates.GateResult.from_dict(raw)
+    own = (film_dir / "film.json").resolve()
+    aliases = [key for key in result.inputs
+               if not gates.is_named(key, film_dir)
+               and (Path(key) if Path(key).is_absolute() else film_dir / key).resolve() == own]
+    if not aliases:
+        return result
+    try:
+        captured = own.read_bytes()
+    except OSError as exc:
+        raise Refused("film.json changed after the engine checked this hand-in.",
+                      hint="Run `slate check` again against the current film.") from exc
+    digest = jsonio.sha256_bytes(captured)
+    if any(result.inputs[key] != digest for key in aliases):
+        raise Refused("film.json changed after the engine checked this hand-in.",
+                      hint="Run `slate check` again against the current film.")
+    film = json.loads(captured)
+    semantic = jsonio.sha256_obj({key: value for key, value in film.items() if key not in FILM_BOOKKEEPING})
+    if gates.FILM_SETTINGS in result.inputs and result.inputs[gates.FILM_SETTINGS] != semantic:
+        raise Refused("The engine's semantic film input changed or conflicts with its captured film.json.",
+                      hint="Run `slate check` again against the current film.")
+    result.inputs = {key: value for key, value in result.inputs.items() if key not in aliases}
+    result.inputs[gates.FILM_SETTINGS] = semantic
+    return result
+
+
 def _check(args: argparse.Namespace) -> int:
     film_dir = slate_cli.film(args)
     shots = jsonio.read(bridge.film_file(film_dir, "timing/shots.json"), default=None)
@@ -467,7 +518,7 @@ def _check(args: argparse.Namespace) -> int:
                                 "against": against,
                                 "determinism": True if args.determinism else None},
                       timeout=CHECK_TIMEOUT * len(acts))
-    results = [gates.GateResult.from_dict(g) for g in res["gates"]]
+    results = [_handin_result(film_dir, g) for g in res["gates"]]
     results += _shot_engine_gates(film_dir, shots, acts)
     motion, untraced = _motion_gates(film_dir, acts)
     results += motion

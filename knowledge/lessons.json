@@ -192,10 +192,10 @@
    "lessons": 1600,
    "merged": 216,
    "by_type": {
-    "code_default": 563,
+    "code_default": 581,
     "dropped": 81,
-    "gate": 234,
-    "pending": 19,
+    "gate": 235,
+    "pending": 0,
     "skill_rule": 703
    },
    "gate_type": 233
@@ -731,10 +731,12 @@
     "type": "skill_rule",
     "terms": [
      "The visionary bar.",
-     "could make someone cry"
+     "enough force to make someone cry",
+     "not a universal quota"
     ],
-    "line": 31,
-    "target": "skills/slate-story/references/treatment.md"
+    "line": 33,
+    "target": "skills/slate-story/references/treatment.md",
+    "note": "The historical one-per-act and effects restrictions are a product-film recipe. ADR-015 preserves the visionary bar while the current treatment chooses its memorable moments and visual language."
    }
   },
   {
@@ -1943,10 +1945,12 @@
     {
      "type": "skill_rule",
      "terms": [
-      "about 40% of what the voice says"
+      "the starter uses at most 12 on-screen words per shot",
+      "about 40% of the VO word count",
+      "configured policy"
      ],
-     "line": 60,
-     "note": "Stated as a rule, and gated: script.on_screen caps the ratio at 40%.",
+     "line": 71,
+     "note": "The historical 40% density cap is the starting policy. Format and script rules can choose the limit; script.on_screen still checks the effective policy.",
      "target": "skills/slate-story/SKILL.md"
     },
     {
@@ -2049,10 +2053,11 @@
      "type": "skill_rule",
      "terms": [
       "Hero lines",
-      "6 words or fewer, at most two per act"
+      "6-word, two-per-act script preset",
+      "Script reading settings can change the hero limits"
      ],
-     "line": 60,
-     "note": "Stated as a rule, and gated: script.hero_lines.",
+     "line": 64,
+     "note": "The six-word and two-per-act limits remain the script preset. Supported reading settings can choose different hero limits; script.hero_lines checks the chosen values.",
      "target": "skills/slate-motion/references/durations-and-staggers.md"
     },
     {
@@ -2146,11 +2151,14 @@
     {
      "type": "skill_rule",
      "terms": [
-      "morph techniques",
-      "motion-blur settings"
+      "named eases",
+      "persistent container can change size with a damped settle",
+      "Motion blur",
+      "After Effects values"
      ],
-     "line": 4,
-     "target": "skills/slate-motion/references/motion-law.md"
+     "line": 3,
+     "target": "skills/slate-motion/references/motion-law.md",
+     "note": "The law reference retains named curves, container-settle craft, measured blur and AE values. Recipes are contextual under ADR-015; onboarding data and revision history retain the source of each choice."
     }
    ]
   },
@@ -3453,10 +3461,13 @@
     {
      "type": "skill_rule",
      "terms": [
-      "Big moves run long: a page scroll at the signature length"
+      "Earlier large carries ran long to reduce screen speed",
+      "requested fast carry can stay fast",
+      "applicable speed policy"
      ],
-     "line": 24,
-     "target": "skills/slate-motion/references/durations-and-staggers.md"
+     "line": 26,
+     "target": "skills/slate-motion/references/durations-and-staggers.md",
+     "note": "The slow large-carry recipe explains the historical failure repair. Duration and speed checks apply to the chosen treatment; fast carries are not universally prohibited."
     }
    ]
   },
@@ -3601,10 +3612,13 @@
     {
      "type": "skill_rule",
      "terms": [
-      "Hero text must move at least 16 px or unmask"
+      "Current motion QA requires hero text to move at least 16 px",
+      "or unmask",
+      "Opacity-only remains supported for secondary labels"
      ],
-     "line": 62,
-     "target": "skills/slate-motion/references/durations-and-staggers.md"
+     "line": 66,
+     "target": "skills/slate-motion/references/durations-and-staggers.md",
+     "note": "This destination preserves the fixed hero-text entrance check. The 85% scale floor and configured overshoot policy remain in the other destinations; this reference does not impose a universal bounce ban."
     }
    ]
   },
@@ -3622,10 +3636,13 @@
    "destination": {
     "type": "skill_rule",
     "terms": [
-     "**Crossfades** only for atmosphere inside one shot, a seam blend of at most 4 frames"
+     "Crossfades",
+     "deliberate transition",
+     "generated-shot seam blends of at most 4 frames"
     ],
-    "line": 67,
-    "target": "skills/slate-motion/references/motion-law.md"
+    "line": 82,
+    "target": "skills/slate-motion/references/motion-law.md",
+    "note": "The four-frame seam and atmosphere allowances document the earlier product-film recipe. ADR-015 permits a different transition grammar; legibility and render evidence still matter."
    }
   },
   {
@@ -3726,10 +3743,13 @@
    "destination": {
     "type": "skill_rule",
     "terms": [
-     "**entrance**: everything that enters (type, cards, UI arriving, count-ups, draw-ons)."
+     "The jobs and their starting shapes",
+     "type, cards, UI arriving, count-ups and draw-ons",
+     "calm starter"
     ],
-    "line": 43,
-    "target": "skills/slate-motion/references/motion-law.md"
+    "line": 55,
+    "target": "skills/slate-motion/references/motion-law.md",
+    "note": "Named motion jobs remain; their historical shapes and values are starting recipes. The selected brand law supplies the supported curves, durations and exit factor."
    }
   },
   {
@@ -3766,10 +3786,13 @@
    "destination": {
     "type": "skill_rule",
     "terms": [
-     "**Banned by default**: glows, light leaks, flares and glitch presets"
+     "Graphic reveals and effects",
+     "scale, light, particles or streamed type",
+     "serve the brief"
     ],
-    "line": 72,
-    "target": "skills/slate-motion/references/motion-law.md"
+    "line": 86,
+    "target": "skills/slate-motion/references/motion-law.md",
+    "note": "The historical effects and typewriter bans are restrained-preset context, superseded as universal creative policy by ADR-015. Literal product claims and motion gates remain binding."
    }
   },
   {
@@ -3932,10 +3955,13 @@
    "destination": {
     "type": "skill_rule",
     "terms": [
-     "**No idle wobble** unless asked."
+     "Add motion purposefully.",
+     "Stillness, flutter, sustained movement and sharp travel",
+     "controlled amplitude and endpoint"
     ],
-    "line": 63,
-    "target": "skills/slate-motion/references/motion-law.md"
+    "line": 76,
+    "target": "skills/slate-motion/references/motion-law.md",
+    "note": "The historical wobble concern becomes guidance about purpose, physical logic and unintended flicker. It does not prohibit requested idle gestures or sustained movement."
    }
   },
   {
@@ -4206,10 +4232,12 @@
     {
      "type": "skill_rule",
      "terms": [
-      "at most one overshoot per gesture"
+      "The earlier gesture recipe used only a breath loop and one overshoot",
+      "not a universal creative ban on loops"
      ],
-     "line": 19,
-     "target": "skills/slate-motion/references/character-motion.md"
+     "line": 23,
+     "target": "skills/slate-motion/references/character-motion.md",
+     "note": "The one-overshoot limit describes the earlier gesture recipe. Current rig speed, loop, symmetry and hand-in checks remain explicit rather than being waived by a creative choice."
     }
    ]
   },
@@ -7869,11 +7897,13 @@
     "type": "code_default",
     "file": "src/slate/voice/align.py",
     "symbol": "compare",
-    "line": 267,
+    "line": 326,
     "terms": [
-     "Forced Alignment"
+     "Evaluation data only",
+     "Whisper stays the default aligner",
+     "forced-alignment words"
     ],
-    "note": "tests/voice/test_align.py::test_forced_alignment_is_evaluation_only."
+    "note": "Forced Alignment remains an evaluation against current selected audio and exact source text. The comparison reports equal-word timing disagreement, not timing accuracy or listening approval; Whisper stays the default."
    },
    "also": [
     {
@@ -9028,11 +9058,13 @@
     "type": "code_default",
     "file": "src/slate/sound/effects/palette.py",
     "symbol": "from_brand",
-    "line": 118,
+    "line": 163,
     "terms": [
-     "the brand's own `sound.materials`"
+     "starting point, then brand.json",
+     "sound.palette",
+     "material or banned-timbre list replaces the starter list"
     ],
-    "note": "The key, tempo, motif and materials are the brand pack's sound block; nothing is hard-coded for one character."
+    "note": "The palette is the starter merged with brand sound.palette. Explicit top-level material and banned-timbre lists replace starter lists unless palette lists take priority. Key, motif and renderer settings remain data."
    },
    "also": [
     {
@@ -9285,10 +9317,13 @@
    "destination": {
     "type": "skill_rule",
     "terms": [
-     "At most **one impact per act**"
+     "The starting recipe uses",
+     "one impact per act",
+     "brief can choose several impacts"
     ],
-    "line": 33,
-    "target": "skills/slate-sound/references/families.md"
+    "line": 34,
+    "target": "skills/slate-sound/references/families.md",
+    "note": "The one-impact and spacing prescription is a warm product-film recipe, not a universal gate. The current palette repeat policy and measured cue timing still apply."
    }
   },
   {
@@ -9327,10 +9362,12 @@
    "destination": {
     "type": "skill_rule",
     "terms": [
-     "the same variation never plays twice in a row"
+     "starter avoids consecutive identical variations",
+     "configured repeat policy can permit intentional repetition"
     ],
-    "line": 21,
-    "target": "skills/slate-sound/references/families.md"
+    "line": 22,
+    "target": "skills/slate-sound/references/families.md",
+    "note": "Designed variation remains craft guidance. The starter rejects accidental identical repeats; a scoped palette may permit intentional repetition. This skill mapping does not claim a shuffle-bag implementation."
    }
   },
   {
@@ -9484,13 +9521,26 @@
     "research/video-package-inventory-2026-09-30/inventory_result.json:1063"
    ],
    "destination": {
-    "type": "pending",
-    "file": "src/slate/sound/effects/engine.py",
-    "symbol": "shared_hall",
-    "module": "sound (effects engine, after proof 3)",
-    "what": "render(): one shared synthetic hall for every effect (2.4 s of decorrelated noise, 20 ms predelay, low-passed at 6.5 kHz), split into effects and tonal returns; a test that two effects share the hall's impulse response",
-    "note": "waits for proof 3 (`slate approve proof3 <file> --by NAME`): the effects engine port"
-   }
+    "type": "code_default",
+    "file": "src/slate/sound/effects/rendering.py",
+    "symbol": "make_ir",
+    "line": 97,
+    "tests": [
+     "tests/sound/test_sound_effects_rendering.py::test_returns_are_split_and_silences_stop_dry_and_wet_together",
+     "tests/sound/test_effects_balance_mix.py::test_frozen_source_numeric_reference"
+    ]
+   },
+   "also": [
+    {
+     "type": "code_default",
+     "file": "src/slate/sound/effects/rendering.py",
+     "symbol": "render_parts",
+     "line": 134,
+     "tests": [
+      "tests/sound/test_sound_effects_rendering.py::test_processing_order_is_trim_then_hit_then_send_then_bus_once"
+     ]
+    }
+   ]
   },
   {
    "id": "L-sound-043",
@@ -9706,10 +9756,13 @@
    "destination": {
     "type": "skill_rule",
     "terms": [
-     "Touch is wood, paper is paper, marks are graphite and ink, moves are air, chapter swells"
+     "warm starting recipe maps touch to wood",
+     "paper to paper",
+     "current palette and authorized feedback can choose other materials"
     ],
     "line": 5,
-    "target": "skills/slate-sound/references/families.md"
+    "target": "skills/slate-sound/references/families.md",
+    "note": "The family-to-material mapping is the warm starter. ADR-015 preserves it as comparison context while the current brand or film chooses its sound language."
    }
   },
   {
@@ -9843,12 +9896,14 @@
     "research/video-package-inventory-2026-09-30/inventory_result.json:5134"
    ],
    "destination": {
-    "type": "pending",
-    "file": "src/slate/sound/effects/engine.py",
-    "symbol": "write_cues",
-    "module": "sound (effects engine, after proof 3)",
-    "what": "spot() and render(): every placed cue written to sound/sound_cues.json (schema sound_cues), which the repeats and sync gates already read; a test that the repeats gate reads a spotted film's cues",
-    "note": "waits for proof 3 (`slate approve proof3 <file> --by NAME`): the effects engine port"
+    "type": "gate",
+    "file": "src/slate/sound/verify.py",
+    "symbol": "gate_repeats",
+    "gate": "sound.repeats",
+    "note": "Every applied cue records its family, size, voice parameters, pan/gain, duck, routing and visual identity. Repetition checks require the current mix and cue hashes, complete applied identities and matching rendered waveform fingerprints. Missing, stale or changed render evidence is UNCHECKED.",
+    "tests": [
+     "tests/sound/test_sound_effects_pipeline.py::test_events_to_balanced_stems_to_additive_master"
+    ]
    }
   },
   {
@@ -10439,14 +10494,16 @@
     "gate": "sound.timbre",
     "file": "src/slate/sound/verify.py",
     "symbol": "gate_timbre",
-    "line": 769,
+    "line": 929,
     "terms": [
-     "L-sound-078"
+     "1.5 kHz ceiling",
+     "timbre.centroid_max_hz",
+     "detector flags remain in the measurements"
     ],
     "tests": [
      "tests/sound/test_sound_verify.py::test_the_timbre_gate_fails_a_bell_and_passes_a_wood_click"
     ],
-    "note": "Each effect family's median centroid at or under 1.5 kHz, no chime tails, nothing metallic or glassy (src/slate/sound/checks.py:timbre_check)."
+    "note": "sound.timbre still measures and enforces the chosen limits. The warm default is 1500 Hz with chimes and metallic rings forbidden; explicit palette controls can permit them without erasing detector evidence."
    },
    "also": [
     {
@@ -15228,12 +15285,15 @@
     "gate": "script.read_time",
     "file": "src/slate/story/gates.py",
     "symbol": "check_read_time",
-    "line": 108,
+    "line": 115,
     "tests": [
      "tests/story/test_story_gates.py::test_a_number_on_screen_needs_two_seconds",
-     "tests/story/test_story_gates.py::test_read_time_fails_when_the_settled_hold_is_too_short"
+     "tests/story/test_story_gates.py::test_read_time_fails_when_the_settled_hold_is_too_short",
+     "tests/qa/test_readtime_short_labels_039.py::test_script_short_labels_keep_the_word_formula_with_a_lower_default_floor",
+     "tests/qa/test_readtime_short_labels_039.py::test_explicit_format_floor_still_governs_declared_labels",
+     "tests/qa/test_readtime_short_labels_039.py::test_script_floor_takes_precedence_over_the_format_floor"
     ],
-    "note": "The script gate plans the 2 s number hold; the label and voice-matched rules are skill rules, and the master's readtime gate adds neither (see the GAPS.md appendix)."
+    "note": "The script gate plans the 2 s number hold and resolves declared short labels through the shared reading policy. Short labels retain base + per_word and any explicit floor; a label also declared voice_matched retains at least max(1.5 s, the effective floor). The rendered readtime gate checks complete readable exposure, the matching measured phrase end, and exact declared count landings. A counted final display holds continuously for 2 s after the later landing or legible onset. Unknown event, clock, picture or consumed format-policy evidence stays UNCHECKED and does not erase an independent failure. Static displays keep their existing check; a number alone does not declare a count."
    },
    "also": [
     {
@@ -15245,6 +15305,39 @@
      ],
      "line": 9,
      "target": "skills/slate-motion/references/read-time.md"
+    },
+    {
+     "type": "gate",
+     "gate": "readtime",
+     "file": "src/slate/qa/checks/text.py",
+     "symbol": "readtime",
+     "line": 554,
+     "tests": [
+      "tests/qa/test_readtime_voice_matched_timing.py::test_voice_matched_text_cannot_leave_before_last_matching_word",
+      "tests/qa/test_readtime_voice_matched_timing.py::test_voice_matched_text_without_measured_timing_is_unchecked",
+      "tests/qa/test_readtime_voice_matched_timing.py::test_voice_matched_statement_does_not_wait_for_unrelated_later_narration",
+      "tests/qa/test_readtime_short_labels_039.py::test_master_short_labels_keep_the_word_formula_with_a_lower_default_floor",
+      "tests/qa/test_readtime_short_labels_039.py::test_numeric_labels_retain_the_two_second_requirement",
+      "tests/qa/test_readtime_label_policy_source_039.py::test_unreadable_declared_format_policy_is_not_assumed",
+      "tests/qa/test_readtime_label_voice_policy_039.py::test_voice_matched_labels_keep_the_stronger_policy_floor",
+      "tests/qa/test_readtime_count_holds_039.py::test_count_hold_starts_at_landing_not_first_appearance_or_shot_start",
+      "tests/qa/test_readtime_count_holds_039.py::test_all_declared_counts_resolve_before_using_latest_landing",
+      "tests/qa/test_readtime_count_holds_039.py::test_same_id_in_another_shot_cannot_supply_the_claimed_landing",
+      "tests/qa/test_readtime_count_holds_039.py::test_count_landing_uses_film_seconds_on_a_rational_shifted_clock",
+      "tests/qa/test_readtime_count_holds_039.py::test_later_reappearance_cannot_erase_an_early_short_final_count_exposure",
+      "tests/qa/test_readtime_count_holds_039.py::test_late_settle_does_not_borrow_elapsed_time_since_count_landing",
+      "tests/qa/test_readtime_count_holds_039.py::test_wrong_or_intermediate_final_values_never_gain_count_credit",
+      "tests/qa/test_readtime_count_holds_039.py::test_malformed_or_stray_count_declarations_fail",
+      "tests/qa/test_readtime_count_holds_039.py::test_static_numbers_without_authored_or_exported_counts_keep_existing_outcome",
+      "tests/qa/test_readtime_count_holds_039.py::test_changed_count_landing_stales_its_prior_pass",
+      "tests/qa/test_readtime_nonreading_count_scope_039.py::test_whole_nonreading_count_does_not_need_a_readable_count_binding",
+      "tests/qa/test_readtime_count_act_bounds_039.py::test_count_landing_uses_the_renderer_act_boundary",
+      "tests/qa/test_readtime_count_numeric_tokens_039.py::test_separate_ocr_digit_tokens_cannot_prove_the_final_count",
+      "tests/qa/test_readtime_count_numeric_tokens_039.py::test_ordinary_unit_and_word_spacing_still_proves_the_exact_count",
+      "tests/qa/test_readtime_rule_revision_039.py::test_revision_one_readtime_results_are_stale_under_the_new_contract"
+     ],
+     "registry": "slate.qa.GATES",
+     "note": "Explicit labels retain the authored word formula and effective policy; labels also declared voice_matched retain the stronger complete-text floor and measured phrase coverage. Exact count_events metadata binds literal final displays to same-shot canonical visual events and the film clock; the first continuous legible final-value run holds 2 s after landing/settle. Missing evidence is UNCHECKED, while malformed declarations and independently proved short holds fail. A valid whole-shot not_for_reading exemption excludes audience-reading count obligations without bypassing declaration validation."
     }
    ]
   },
@@ -15323,12 +15416,12 @@
     {
      "type": "skill_rule",
      "terms": [
-      "Every scene change is a **carry**",
-      "a **portal**",
-      "a **mask**"
+      "carried-pieces grammar",
+      "current brief and authorized feedback can choose hard cuts, crossfades",
+      "act contracts exact"
      ],
      "line": 3,
-     "note": "Stated as the law; the cuts gate checks every act render's scene changes and joins against the declared transitions.",
+     "note": "The carried-pieces grammar is a contextual preset. The cuts implementation still checks declared transition boundaries and actual scene changes; this skill destination does not waive the gate.",
      "target": "skills/slate-motion/references/transitions.md"
     },
     {
@@ -15344,10 +15437,13 @@
     {
      "type": "skill_rule",
      "terms": [
-      "Every scene change is a carry, a portal, a mask, a whip or an allowed exception"
+      "Hard cuts",
+      "contrast, land a musical hit or show an instant state change",
+      "chosen transition grammar"
      ],
-     "line": 99,
-     "target": "skills/slate-motion/references/motion-law.md"
+     "line": 84,
+     "target": "skills/slate-motion/references/motion-law.md",
+     "note": "ADR-015 supersedes the universal no-cut prescription. Motion and cuts evidence still assess the current declared grammar and required handoffs."
     },
     {
      "type": "skill_rule",
@@ -21722,10 +21818,12 @@
    "destination": {
     "type": "skill_rule",
     "terms": [
-     "Status colours are the brand's tokens"
+     "Literal status colours are the product",
+     "Interpretive graphics can choose a meaningful colour scale"
     ],
-    "line": 50,
-    "target": "skills/slate-motion/references/look-development.md"
+    "line": 62,
+    "target": "skills/slate-motion/references/look-development.md",
+    "note": "Literal product evidence preserves real status tokens. A clearly interpretive graphic may choose another meaningful scale without inventing a product state or capability."
    }
   },
   {
@@ -21880,10 +21978,12 @@
    "destination": {
     "type": "skill_rule",
     "terms": [
-     "Container morphs (one container changing size) use a gentle damped settle, not a"
+     "earlier product-film recipe used a gentle damped settle for container morphs",
+     "Bounce and overshoot can serve"
     ],
-    "line": 35,
-    "target": "skills/slate-motion/references/eases.md"
+    "line": 36,
+    "target": "skills/slate-motion/references/eases.md",
+    "note": "The historical no-bounce container recipe is contextual. The chosen curve and overshoot peak must be supported by the brand policy and measured motion."
    }
   },
   {
@@ -21899,11 +21999,13 @@
    "destination": {
     "type": "skill_rule",
     "terms": [
-     "After Effects' default Easy Ease",
-     "Measured reference moves were nowher"
+     "After Effects",
+     "default Easy Ease",
+     "including a preset when it earns its place"
     ],
-    "line": 8,
-    "target": "skills/slate-motion/references/banned-moves.md"
+    "line": 10,
+    "target": "skills/slate-motion/references/banned-moves.md",
+    "note": "Historical reference measurements remain in the lesson text; they do not establish a universal Easy Ease ban. The destination explains deliberate curve choice and the risk of applying one preset everywhere."
    }
   },
   {
@@ -22325,10 +22427,13 @@
     {
      "type": "skill_rule",
      "terms": [
-      "Nothing moves in under 0.2 s except state flips"
+      "a 0.2 s floor outside state flips",
+      "duration scale",
+      "actual values for this film"
      ],
-     "line": 21,
-     "target": "skills/slate-motion/references/durations-and-staggers.md"
+     "line": 20,
+     "target": "skills/slate-motion/references/durations-and-staggers.md",
+     "note": "The historical 0.2 s floor is a product-film duration recipe. Named duration checks use the selected brand scale and exit factor."
     }
    ]
   },
@@ -22968,10 +23073,13 @@
     {
      "type": "skill_rule",
      "terms": [
-      "Hero text must move at least 16 px or unmask"
+      "Current motion QA requires hero text to move at least 16 px",
+      "or unmask",
+      "Opacity-only remains supported for secondary labels"
      ],
-     "line": 62,
-     "target": "skills/slate-motion/references/durations-and-staggers.md"
+     "line": 66,
+     "target": "skills/slate-motion/references/durations-and-staggers.md",
+     "note": "The fixed hero-text entrance requirement remains technical evidence; the secondary-label allowance remains explicit."
     },
     {
      "type": "code_default",
@@ -23026,10 +23134,13 @@
    "destination": {
     "type": "skill_rule",
     "terms": [
-     "Where the product really streams text that way (an assistant's streaming answer)."
+     "Typewriter text",
+     "Streaming product text or an explicitly authored graphic text treatment",
+     "truthful claims and measured reading time"
     ],
-    "line": 19,
-    "target": "skills/slate-motion/references/banned-moves.md"
+    "line": 21,
+    "target": "skills/slate-motion/references/banned-moves.md",
+    "note": "The typewriter restriction guarded product fidelity. ADR-015 permits a deliberate graphic treatment while source truth and reading-time checks remain binding."
    }
   },
   {
@@ -23083,10 +23194,12 @@
    "destination": {
     "type": "skill_rule",
     "terms": [
-     "**The bar:** playful and fluttery is compatible with perfectly synchronized, as long"
+     "playful and fluttery is compatible with perfectly synchronized",
+     "did not ask every character to become quiet"
     ],
     "line": 8,
-    "target": "skills/slate-motion/references/character-and-motif-motion.md"
+    "target": "skills/slate-motion/references/character-and-motif-motion.md",
+    "note": "Preserve the original playful direction and its jitter, clipping and overlap feedback. The repaired method distinguishes that intent from current radial-kit constraints."
    }
   },
   {
@@ -23532,10 +23645,12 @@
     {
      "type": "skill_rule",
      "terms": [
-      "at most one overshoot per gesture"
+      "The earlier gesture recipe used only a breath loop and one overshoot",
+      "not a universal creative ban on loops"
      ],
-     "line": 19,
-     "target": "skills/slate-motion/references/character-motion.md"
+     "line": 23,
+     "target": "skills/slate-motion/references/character-motion.md",
+     "note": "The one-overshoot character vocabulary is a scoped recipe. It does not universally prohibit expressive peaks; current kit and motion checks still apply."
     }
    ]
   },
@@ -23576,10 +23691,13 @@
     {
      "type": "skill_rule",
      "terms": [
-      "**Nothing loops except a breath**"
+      "Earlier loop recipe",
+      "cycle of at least 44 frames and no other idle loop",
+      "Sustained motion may serve another brief"
      ],
-     "line": 84,
-     "target": "skills/slate-motion/references/character-and-motif-motion.md"
+     "line": 91,
+     "target": "skills/slate-motion/references/character-and-motif-motion.md",
+     "note": "The 44-frame breath and no-idle prescription records the earlier choreography. Current loop-floor, rig symmetry, determinism and hand-in constraints remain explicit."
     }
    ]
   },
@@ -23634,10 +23752,13 @@
    "destination": {
     "type": "skill_rule",
     "terms": [
-     "**Add motion purposefully**, aim for brevity and precision, and avoid anything that"
+     "Add motion purposefully.",
+     "Stillness, flutter, sustained movement and sharp travel",
+     "unintended flicker, aliasing and loss of meaning"
     ],
-    "line": 62,
-    "target": "skills/slate-motion/references/motion-law.md"
+    "line": 76,
+    "target": "skills/slate-motion/references/motion-law.md",
+    "note": "The historical HIG restraint advice is craft guidance. The current brief can request sustained motion; measured defects still need repair."
    }
   },
   {
@@ -24059,10 +24180,13 @@
     {
      "type": "skill_rule",
      "terms": [
-      "Between gestures it doesn't move: consecutive frames are identical"
+      "earlier recipe holds between gestures",
+      "current kit",
+      "stillness between its gestures and calm after them"
      ],
-     "line": 140,
-     "target": "skills/slate-motion/references/character-and-motif-motion.md"
+     "line": 149,
+     "target": "skills/slate-motion/references/character-and-motif-motion.md",
+     "note": "Stillness is the earlier recipe and a current hand-in constraint of this radial kit, not a universal character preference. A requested grammar that fails applicable checks cannot be reported as passed."
     }
    ]
   },
@@ -24442,11 +24566,13 @@
     {
      "type": "skill_rule",
      "terms": [
-      "Still between gestures",
-      "calm (the exact brand mark) at both ends of every act."
+      "current kit hand-in checks require stillness",
+      "calm (the exact brand mark) at both act",
+      "those applicable checks still fail"
      ],
-     "line": 40,
-     "target": "skills/slate-motion/references/character-motion.md"
+     "line": 44,
+     "target": "skills/slate-motion/references/character-motion.md",
+     "note": "The checklist retains this kit's calm and stillness checks; creative intent does not waive deterministic endpoints or applicable hand-in evidence."
     }
    ]
   },
@@ -24702,11 +24828,13 @@
    "destination": {
     "type": "skill_rule",
     "terms": [
-     "A repeating state sounds once",
-     "sounds on its first cycle only; later cycles are silent"
+     "starting recipe sounds a repeating state once",
+     "requested recurring sound can repeat",
+     "chosen palette"
     ],
-    "line": 17,
-    "target": "skills/slate-sound/references/spotting.md"
+    "line": 25,
+    "target": "skills/slate-sound/references/spotting.md",
+    "note": "The first-cycle-only pattern is a sound recipe. Intentional recurrence follows the chosen palette repeat rules and measured narration balance."
    }
   },
   {
@@ -25151,10 +25279,12 @@
    "destination": {
     "type": "skill_rule",
     "terms": [
-     "**Anything off-brand on a character**"
+     "Character effects",
+     "current character direction and applicable brand restrictions"
     ],
-    "line": 23,
-    "target": "skills/slate-motion/references/banned-moves.md"
+    "line": 25,
+    "target": "skills/slate-motion/references/banned-moves.md",
+    "note": "Off-brand effects remain a concern relative to the chosen palette and character direction. Glows, particles and lens effects are not universally banned."
    }
   },
   {
@@ -25311,7 +25441,7 @@
    "destination": {
     "type": "skill_rule",
     "terms": [
-     "Never fake the engine with a synthesized stand-in for the tonal roles: tonal roles play"
+     "The engine never downloads, copies or substitutes them with synthesis."
     ],
     "line": 36,
     "target": "skills/slate-sound/references/effects-engine.md"
@@ -25349,10 +25479,12 @@
    "destination": {
     "type": "skill_rule",
     "terms": [
-     "**No room-tone drone** under the effects."
+     "starter avoids sustained pitch glides and room-tone drone",
+     "rules.no_drone"
     ],
-    "line": 21,
-    "target": "skills/slate-sound/SKILL.md"
+    "line": 28,
+    "target": "skills/slate-sound/SKILL.md",
+    "note": "The drone ban is the warm starter. A brand or film palette may permit a bed with rules.no_drone false; narration clarity and source approval remain separate."
    },
    "also": [
     {
@@ -25454,10 +25586,14 @@
    "destination": {
     "type": "skill_rule",
     "terms": [
-     "**Pads, small soft felt notes, and hollow wood** (woodblock, temple block, clave, knock"
+     "The warm starter",
+     "pads, small soft felt notes",
+     "No chimes",
+     "another palette can use them"
     ],
-    "line": 17,
-    "target": "skills/slate-sound/SKILL.md"
+    "line": 22,
+    "target": "skills/slate-sound/SKILL.md",
+    "note": "The original warm palette remains a starting direction. An explicit palette may choose other timbres and measured limits under ADR-015."
    }
   },
   {
@@ -25794,7 +25930,7 @@
    "destination": {
     "type": "skill_rule",
     "terms": [
-     "Every sound's attack sits on its beat's frame"
+     "Every sound's measured anchor sits on its beat's frame"
     ],
     "line": 14,
     "note": "Every cue is spotted from the beats on the film's own clock (timing/visual_events), so a retimed shot moves its sound with it; the spotter itself is the effects engine's port.",
@@ -26148,10 +26284,13 @@
    "destination": {
     "type": "skill_rule",
     "terms": [
-     "**Designed, not generated**: generated sound-effect and music models only ever fill a"
+     "Design the source choice",
+     "generated audio for specific gaps",
+     "Another requested approach can use generated or stock sources"
     ],
-    "line": 40,
-    "target": "skills/slate-sound/references/palette.md"
+    "line": 46,
+    "target": "skills/slate-sound/references/palette.md",
+    "note": "The generated-audio-for-gaps-only recipe is contextual. Authorized source choices still need provenance, spend controls and the renderer's declared samples."
    }
   },
   {
@@ -26490,12 +26629,18 @@
     "gate": "voice_direction",
     "file": "src/slate/voice/gates.py",
     "symbol": "direction_gate",
-    "line": 77,
+    "line": 76,
     "tests": [
-     "tests/voice/test_tags.py::test_banned_tags_are_refused_in_every_variant",
+     "tests/voice/test_tags.py::test_explicit_full_voice_policy_refuses_low_effort_variants",
      "tests/voice/test_tags.py::test_cli_refuses_a_banned_tag_before_any_request",
-     "tests/voice/test_tags.py::test_brand_policy_adds_bans_and_vocabulary_but_cannot_unban"
-    ]
+     "tests/voice/test_tags.py::test_brand_policy_enforces_its_explicit_bans_and_vocabulary",
+     "tests/voice/test_tags.py::test_quiet_delivery_is_available_without_a_scoped_restriction"
+    ],
+    "terms": [
+     "tag_policy",
+     "policy=policy"
+    ],
+    "note": "ADR-015 scopes the historical full-voice ban to tag_policy.avoid_low_effort=true. Direction still strips to the exact script and enforces explicit policy before requests; quiet delivery is available without that restriction."
    },
    "also": [
     {
@@ -26549,12 +26694,19 @@
     "gate": "voice_inflection",
     "file": "src/slate/voice/gates.py",
     "symbol": "inflection_gate",
-    "line": 373,
+    "line": 372,
     "tests": [
-     "tests/voice/test_voice_quality_gates.py::test_a_whisper_like_read_fails",
-     "tests/voice/test_voice_tagloop.py::test_real_reads_are_gated_and_a_whisper_like_take_is_out"
+     "tests/voice/test_voice_quality_gates.py::test_a_whisper_like_read_fails_when_this_voice_requires_full_delivery",
+     "tests/voice/test_voice_tagloop.py::test_real_reads_are_gated_and_a_whisper_like_take_is_out",
+     "tests/voice/test_voice_quality_gates.py::test_a_quiet_read_is_measured_without_a_universal_delivery_failure",
+     "tests/voice/test_voice_tagloop.py::test_breathy_delivery_stays_a_measurement_without_a_full_voice_policy"
     ],
-    "note": "Tag rounds apply both tests on every span (tagloop.pick_round, full_voice); the film's inflection gate fails a take its round measured breathier, and a whisper-like read against the film's other lines."
+    "note": "Breathiness rejection remains enforced for an explicit full-voice policy. Without it, measurements remain evidence; exact words, complete endings and edit fit still apply. Tests cover scoped rejection and default-policy availability.",
+    "terms": [
+     "avoid_low_effort",
+     "full_voice_required and same_words.get",
+     "full_voice_required and verdict"
+    ]
    },
    "also": [
     {
@@ -26578,10 +26730,13 @@
     {
      "type": "skill_rule",
      "terms": [
-      "two tests, both required, on every span"
+      "Full voice, when",
+      "two tests on every span",
+      "Without this scoped preference"
      ],
      "line": 70,
-     "target": "skills/slate-voice/references/tag-loop.md"
+     "target": "skills/slate-voice/references/tag-loop.md",
+     "note": "Both full-voice comparisons remain required when tag_policy.avoid_low_effort is true. Otherwise the measurements stay in the report without disqualifying a permitted quiet take."
     }
    ]
   },
@@ -27276,10 +27431,12 @@
    "destination": {
     "type": "skill_rule",
     "terms": [
-     "These checks were validated against the owner's ear"
+     "breath and whisper",
+     "voiced fraction of speech",
+     "breathiness is evidence for listening"
     ],
-    "line": 89,
-    "note": "The whispered word's numbers (8% voiced against 29 to 35%, CPPS 0.8 dB against 4.2 to 5.3) are the evidence; tests/voice/test_measure_rank.py::test_breathiness_flags_a_whisper_against_full_voice holds the rule.",
+    "line": 82,
+    "note": "The whispered-word measurements remain unchanged in the lesson text. The reference retains the features and distinguishes scoped full-voice rejection from listening evidence; the cited breathiness unit test remains relevant.",
     "target": "skills/slate-voice/references/v4-tags.md"
    }
   },
@@ -27704,10 +27861,12 @@
    "destination": {
     "type": "skill_rule",
     "terms": [
-     "**A whip so fast it doubles an element in the blur** is a defect"
+     "Unexpected doubled edges during a whip",
+     "Repair sampling, path or timing while preserving the intended gesture"
     ],
-    "line": 17,
-    "target": "skills/slate-motion/references/anti-glitch.md"
+    "line": 22,
+    "target": "skills/slate-motion/references/anti-glitch.md",
+    "note": "The historical doubled-whip failure remains evidence. Guidance repairs unintended blur defects without automatically replacing requested fast travel with a glide."
    }
   },
   {
@@ -29230,10 +29389,13 @@
     {
      "type": "skill_rule",
      "terms": [
-      "only for brands whose own language is papery",
-      "never a glow"
+      "chosen film language is papery",
+      "paper preset gets depth from a soft cast shadow",
+      "another selected look can use light or glow"
      ],
-     "target": "skills/slate-motion/references/look-development.md"
+     "target": "skills/slate-motion/references/look-development.md",
+     "note": "The paper 2.5D recipe remains a material treatment. ADR-015 does not ban lit, dimensional or expressive looks for other briefs.",
+     "line": 32
     }
    ]
   },
@@ -29420,10 +29582,12 @@
     {
      "type": "skill_rule",
      "terms": [
-      "Work the owner approved is not rebuilt"
+      "Preserve the approved baseline, exact feedback and revised version.",
+      "Follow requested redesigns within their scope"
      ],
      "line": 125,
-     "target": "skills/slate-build/SKILL.md"
+     "target": "skills/slate-build/SKILL.md",
+     "note": "The historical keep-approved-work lesson preserves the baseline and continuity. The current brief can request a redesign without repeating approval of that creative choice."
     }
    ]
   },
@@ -29601,10 +29765,13 @@
    "destination": {
     "type": "skill_rule",
     "terms": [
-     "Work the owner approved is not rebuilt"
+     "Keep the approved baseline.",
+     "When the owner asks for a change",
+     "keep unrelated geometry and timing stable"
     ],
     "line": 66,
-    "target": "skills/slate/references/approvals.md"
+    "target": "skills/slate/references/approvals.md",
+    "note": "Preserve approved work as the baseline and apply requested changes within scope. ADR-015 supersedes the blanket no-rebuild interpretation; it does not approve changed bytes."
    }
   },
   {
@@ -30317,7 +30484,9 @@
    "destination": {
     "type": "skill_rule",
     "terms": [
-     "**Show interactions as the product behaves.** A chat never types the user's question"
+     "**Show interactions as the product behaves.**",
+     "comes from the actual screen and the requested staging.",
+     "Stream an answer only when the product does."
     ],
     "line": 29,
     "target": "skills/slate-build/references/app-ui.md"
@@ -31777,7 +31946,10 @@
    "destination": {
     "type": "skill_rule",
     "terms": [
-     "On a fidelity pass, fix anything retired or wrong on the product's core surfaces to"
+     "On a fidelity pass, correct the surfaces shown in the film against the selected source.",
+     "Keep the requested scope",
+     "a local correction can preserve the rest of a scene.",
+     "remaining mismatch instead of treating a secondary surface as automatically accurate."
     ],
     "line": 49,
     "target": "skills/slate-build/references/app-ui.md"
@@ -32200,11 +32372,13 @@
    "destination": {
     "type": "skill_rule",
     "terms": [
-     "Perfect, don't replace.",
-     "exact artifact"
+     "Follow the feedback.",
+     "Notes can request a refinement or a redesign",
+     "do not turn a request for a new approach into another question"
     ],
     "line": 68,
-    "target": "skills/slate/references/approvals.md"
+    "target": "skills/slate/references/approvals.md",
+    "note": "The historical perfecting note applies to that request and artifact. New feedback can request redesign; preserve the baseline, exact words and revision rather than imposing the old approach."
    }
   },
   {
@@ -32242,8 +32416,11 @@
     "symbol": "start",
     "line": 135,
     "terms": [
-     "new approach"
-    ]
+     "notes (--notes), quoted exactly",
+     "snapshot",
+     "history.record"
+    ],
+    "note": "Revision start preserves the approved baseline, snapshots it and records exact requested notes as history. An authorized new approach does not trigger invented repeat approval; open questions and resulting artifact approvals remain separate."
    }
   },
   {
@@ -32258,11 +32435,15 @@
    ],
    "destination": {
     "type": "skill_rule",
-    "terms": [
-     "Research fixes a specific, named flaw"
-    ],
+    "target": "skills/slate/references/research.md",
     "line": 35,
-    "target": "skills/slate/references/research.md"
+    "terms": [
+     "Research answers a specific question or supports a requested change",
+     "Preserve the approved baseline",
+     "A requested new approach authorizes work within its scope",
+     "Keep unrelated work stable"
+    ],
+    "note": "The harvested lesson records a regression caused by replacing an approved sound design beyond the requested notes. ADR-015 supersedes its blanket ban on redesign: research must answer the current request, preserve the approved baseline and keep unrelated work stable. An explicitly requested new approach does not require the owner to repeat that decision."
    }
   },
   {
@@ -32912,8 +33093,12 @@
     "symbol": "add_direction",
     "line": 138,
     "terms": [
-     "latest approval governs"
-    ]
+     "Log a direction change verbatim and numbered, recording what it supersedes",
+     "\"source\": source, \"at\": _util.now(), \"supersedes\": supersedes",
+     "save_brief(film_dir, data)",
+     "render(film_dir)"
+    ],
+    "note": "The production brief records each direction verbatim with its sequence number, source, date and superseded scope, then persists the brief and refreshes its tracker. This logging contract does not decide approval precedence or grant an approval. New authorized direction governs only within its scope; delivered-file approval remains separate."
    }
   },
   {
@@ -33161,10 +33346,13 @@
    "destination": {
     "type": "skill_rule",
     "terms": [
-     "**Reveal footage by parting the page** along a line, like paper"
+     "For a paper look, reveal footage by parting the page",
+     "two sheets slide apart",
+     "different requested look may reveal the footage with a crossfade"
     ],
-    "line": 32,
-    "target": "skills/slate-motion/references/transitions.md"
+    "line": 35,
+    "target": "skills/slate-motion/references/transitions.md",
+    "note": "The parting-page reveal is the paper-look recipe. Another requested look can use a crossfade or another device while preserving required handoffs and legibility."
    }
   },
   {
@@ -33378,10 +33566,12 @@
    "destination": {
     "type": "skill_rule",
     "terms": [
-     "**Depth comes from a soft cast shadow that follows an element's height**, never a"
+     "paper preset gets depth from a soft cast shadow",
+     "another selected look can use light or glow"
     ],
-    "line": 51,
-    "target": "skills/slate-motion/references/look-development.md"
+    "line": 63,
+    "target": "skills/slate-motion/references/look-development.md",
+    "note": "The shadow-only treatment belongs to the paper preset, not a universal glow ban. The chosen material and truthful product state govern the current look."
    }
   },
   {
@@ -33397,10 +33587,13 @@
    "destination": {
     "type": "skill_rule",
     "terms": [
-     "**A signature move uses the act's one signature duration** and carries follow-through"
+     "A signature move can use the signature duration",
+     "follow-through",
+     "max_per_act"
     ],
-    "line": 28,
-    "target": "skills/slate-motion/references/signature-moments.md"
+    "line": 29,
+    "target": "skills/slate-motion/references/signature-moments.md",
+    "note": "The one-signature-duration recipe becomes a chosen structure. An explicit token max_per_act is still enforced; an assumed universal quota is not."
    }
   },
   {
@@ -33673,7 +33866,7 @@
     "terms": [
      "**Carry by the product's own structure**"
     ],
-    "line": 12,
+    "line": 13,
     "target": "skills/slate-motion/references/morphs-and-shared-elements.md"
    }
   },
@@ -33904,10 +34097,13 @@
     {
      "type": "skill_rule",
      "terms": [
-      "A group's total spread is at most 0.6 s"
+      "neutral law caps a group",
+      "0.6 s and half of its entrance duration",
+      "gate checks the declared law"
      ],
-     "line": 38,
-     "target": "skills/slate-motion/references/durations-and-staggers.md"
+     "line": 41,
+     "target": "skills/slate-motion/references/durations-and-staggers.md",
+     "note": "The kit still caps helper spreads. The neutral 0.6 s and half-duration caps are defaults; a brand can choose supported caps, which remain measured requirements."
     }
    ]
   },
@@ -33969,10 +34165,11 @@
    "destination": {
     "type": "skill_rule",
     "terms": [
-     "When an act is handed in, the builder cleans its scratch folder",
-     "keeps only the final preview and its contact sheet"
+     "Preserve reviewed comparisons before cleaning scratch.",
+     "After that handoff, remove disposable",
+     "scratch and keep the final preview and its contact sheet."
     ],
-    "line": 36,
+    "line": 40,
     "target": "skills/slate-build/references/builder-briefs.md"
    }
   },
@@ -33989,10 +34186,13 @@
    "destination": {
     "type": "skill_rule",
     "terms": [
-     "**Never crossfade one version of a card into another**, and never let two headings"
+     "Inspect overlapping cards and headings during crossfades",
+     "earlier muddy overlap",
+     "text is readable and its continuity is intentional"
     ],
-    "line": 39,
-    "target": "skills/slate-motion/references/anti-glitch.md"
+    "line": 45,
+    "target": "skills/slate-motion/references/anti-glitch.md",
+    "note": "The heading overlap was a defect in that film. A deliberate readable crossfade is available under the current transition grammar."
    }
   },
   {
@@ -34303,9 +34503,10 @@
    "destination": {
     "type": "skill_rule",
     "terms": [
-     "**Carries follow the product's own navigation order** (scroll down to the next"
+     "Carries that demonstrate app navigation follow the product's actual order",
+     "Editorial carries can connect truthful states through an in-place transform or a shared camera"
     ],
-    "line": 15,
+    "line": 16,
     "target": "skills/slate-motion/references/morphs-and-shared-elements.md"
    }
   },
@@ -35804,10 +36005,13 @@
     {
      "type": "skill_rule",
      "terms": [
-      "**Land detailed content only once the camera has all but stopped.**"
+      "Give detailed content a readable interval.",
+      "letting the camera rest",
+      "actual text stays readable"
      ],
-     "line": 26,
-     "target": "skills/slate-motion/references/camera.md"
+     "line": 27,
+     "target": "skills/slate-motion/references/camera.md",
+     "note": "The camera-rest repair remains craft evidence. The motion gate still checks type arrivals against other fast carries; this reference does not universally prohibit moving text."
     }
    ]
   },
@@ -35843,10 +36047,13 @@
    "destination": {
     "type": "skill_rule",
     "terms": [
-     "**Never a giant fast pull-back as a transition**"
+     "Inspect large fast pull-backs carefully.",
+     "267 px a frame",
+     "does not ban every fast pull-back"
     ],
     "line": 29,
-    "target": "skills/slate-motion/references/camera.md"
+    "target": "skills/slate-motion/references/camera.md",
+    "note": "The pull-back measurements and unreadable landing are preserved. Declared fast travel still needs speed and blur evidence; a whip beyond carry limits goes to review."
    }
   },
   {
@@ -36351,12 +36558,18 @@
     "gate": "readtime",
     "file": "src/slate/qa/checks/text.py",
     "symbol": "readtime",
-    "line": 395,
+    "line": 554,
     "tests": [
-     "tests/qa_core/test_qa_core_declared.py::test_a_voice_matched_definition_needs_its_floor_not_its_word_count"
+     "tests/qa_core/test_qa_core_declared.py::test_a_voice_matched_definition_needs_its_floor_not_its_word_count",
+     "tests/qa/test_readtime_voice_matched_timing.py::test_voice_matched_text_keeps_the_existing_complete_text_floor",
+     "tests/qa/test_readtime_voice_matched_timing.py::test_voice_matched_progressive_build_keeps_one_sample_of_onset_uncertainty",
+     "tests/qa/test_readtime_label_voice_policy_039.py::test_voice_matched_labels_keep_the_stronger_policy_floor",
+     "tests/qa/test_readtime_short_labels_039.py::test_voice_matched_labels_keep_the_complete_text_floor_and_phrase_end",
+     "tests/qa/test_readtime_voice_matched_timing.py::test_voice_matched_complete_text_first_appearing_after_phrase_end_fails",
+     "tests/qa/test_readtime_voice_matched_timing.py::test_voice_matched_reappearance_does_not_erase_early_disappearance"
     ],
     "registry": "slate.qa.GATES",
-    "note": "Declared per shot as voice_matched; the script's own density rule can raise the word cap."
+    "note": "Explicitly declared voice_matched text keeps the first qualifying complete readable run at least 1.5 s and through the matching measured phrase end, without requiring complete text throughout a progressive build. A statement also declared labels uses max(1.5 s, the effective read_time.floor), so neither the short-label default nor a weaker explicit floor can shorten a spoken definition. Missing or invalid measured timing is UNCHECKED; a later reappearance cannot excuse early disappearance. The existing script density declaration remains intact."
    }
   },
   {
@@ -36509,10 +36722,13 @@
    "destination": {
     "type": "skill_rule",
     "terms": [
-     "**Never land a line of type while the layout around it is still moving**"
+     "Current motion QA rejects type entrances",
+     "another same-act carry moving above 2 px per frame",
+     "same carried element"
     ],
-    "line": 64,
-    "target": "skills/slate-motion/references/anti-glitch.md"
+    "line": 70,
+    "target": "skills/slate-motion/references/anti-glitch.md",
+    "note": "The historical collision remains the reason to protect type arrivals. QA applies its measured fast-carry threshold and same-element exemption; this is not an unrestricted creative override."
    }
   },
   {
@@ -37207,10 +37423,12 @@
    "destination": {
     "type": "skill_rule",
     "terms": [
-     "Depth comes from a soft cast shadow that follows an element's height"
+     "paper preset gets depth from a soft cast shadow",
+     "following height"
     ],
-    "line": 51,
-    "target": "skills/slate-motion/references/look-development.md"
+    "line": 63,
+    "target": "skills/slate-motion/references/look-development.md",
+    "note": "Paper elevation continues to use a height-dependent cast shadow. The shadow-only choice is a paper material recipe, not a restriction on another selected look."
    }
   },
   {
@@ -37253,10 +37471,13 @@
     {
      "type": "skill_rule",
      "terms": [
-      "Every point at most 30 px a frame and 8 px a frame squared"
+      "Every point meets the applicable rig speed policy",
+      "30 px a frame and 8 px a frame squared",
+      "Supported brand speed overrides"
      ],
-     "line": 18,
-     "target": "skills/slate-motion/references/character-motion.md"
+     "line": 20,
+     "target": "skills/slate-motion/references/character-motion.md",
+     "note": "The path kink remains source evidence. The checklist retains bounded rig speed and acceleration under the chosen law; it does not waive continuity or current rig checks."
     }
    ]
   },
@@ -37751,10 +37972,13 @@
    "destination": {
     "type": "skill_rule",
     "terms": [
-     "**Nothing vanishes in one frame.** Every element leaves on the exit ease, including"
+     "Unplanned one-frame disappearances",
+     "carried-object recipe uses exits",
+     "deliberate cut or state change can be instantaneous"
     ],
-    "line": 27,
-    "target": "skills/slate-motion/references/anti-glitch.md"
+    "line": 33,
+    "target": "skills/slate-motion/references/anti-glitch.md",
+    "note": "The carried-object exit recipe prevents unplanned pops. A chosen instantaneous cut or state change is distinct from a discontinuity and follows the current grammar."
    }
   },
   {
@@ -37790,10 +38014,13 @@
    "destination": {
     "type": "skill_rule",
     "terms": [
-     "**Land detailed content only once the camera has all but stopped.** Small type"
+     "Give detailed content a readable interval.",
+     "small type strobed during travel",
+     "actual text stays readable"
     ],
-    "line": 26,
-    "target": "skills/slate-motion/references/camera.md"
+    "line": 27,
+    "target": "skills/slate-motion/references/camera.md",
+    "note": "The small-type strobe remains craft evidence. The brief can retain motion when actual readability and applicable type-arrival checks pass."
    }
   },
   {
@@ -38120,10 +38347,13 @@
    "destination": {
     "type": "skill_rule",
     "terms": [
-     "**Anything that travels a long way travels soft and slow**, and comes into focus as"
+     "Long travel can also use a supported even curve",
+     "deliberate continuous drift or a faster named treatment",
+     "applicable speed policy and blur"
     ],
     "line": 25,
-    "target": "skills/slate-motion/references/camera.md"
+    "target": "skills/slate-motion/references/camera.md",
+    "note": "The soft long-travel recipe is contextual. Supported curves and applicable speed checks assess the chosen camera treatment."
    }
   },
   {
@@ -38454,7 +38684,9 @@
    "destination": {
     "type": "skill_rule",
     "terms": [
-     "**Keep a whole conversation in view**"
+     "**Keep conversation continuity readable**",
+     "a follow-up occupies its actual place in the thread.",
+     "scrolling behavior when the shot needs it, with enough context to understand what changed."
     ],
     "line": 32,
     "target": "skills/slate-build/references/app-ui.md"
@@ -38621,10 +38853,13 @@
    "destination": {
     "type": "skill_rule",
     "terms": [
-     "**One camera move per act** is plenty."
+     "One camera move per act",
+     "restrained starting recipe",
+     "several camera moves or continuous travel"
     ],
-    "line": 12,
-    "target": "skills/slate-motion/references/camera.md"
+    "line": 13,
+    "target": "skills/slate-motion/references/camera.md",
+    "note": "The one-camera-move preference is a restrained recipe. The brief can choose several moves without erasing the rationale or waiving motion evidence."
    }
   },
   {
@@ -38659,10 +38894,11 @@
    "destination": {
     "type": "skill_rule",
     "terms": [
-     "Container morphs (one container changing size) use a gentle damped settle, not a bounce"
+     "exactly 1 after",
+     "gentle damped settle for container morphs"
     ],
-    "line": 35,
-    "note": "The kit's spring is the zero-bounce kind (monotone, exactly 1 at its end), so a container closing on it never passes closed and reopens.",
+    "line": 7,
+    "note": "The closing sliver maps to exact endpoints and the earlier zero-bounce container-settle recipe. This skill advice does not claim arbitrary allowed overshoot curves clamp a container at its first closure.",
     "target": "skills/slate-motion/references/eases.md"
    },
    "also": [
@@ -38864,10 +39100,13 @@
    "destination": {
     "type": "skill_rule",
     "terms": [
-     "**Never use a gesture outside its meaning.** When a treatment asks for a feeling the"
+     "Keep a gesture",
+     "meaning clear.",
+     "author its vocabulary in the brand"
     ],
-    "line": 168,
-    "target": "skills/slate-motion/references/character-and-motif-motion.md"
+    "line": 182,
+    "target": "skills/slate-motion/references/character-and-motif-motion.md",
+    "note": "The fixed vocabulary is this radial character's recipe. A requested feeling can author a supported vocabulary or use staging; default meanings do not veto the brief."
    }
   },
   {
@@ -39765,13 +40004,14 @@
   },
   {
    "id": "L-voice-S031",
-   "text": "Keep the unpolished clean takes as the measurement source: the polish is the last step on the film-stage take, a polished baseline would make new takes look harsh against the voice, and re-pacing from the clean take needs the polish again.",
+   "text": "Keep the unpolished clean takes as the measurement source: the polish is the last step on the film-stage take, a polished baseline would make new takes look harsh against the voice, and re-pacing from the clean take needs the polish again. Picture timing also measures the verified pre-polish source: room processing can move recognised word timestamps despite equal sample counts; playback keeps the polished take.",
    "kind": "rule",
    "area": "voice",
    "gate_type": false,
    "harvest": "2026-10-01",
    "sources": [
-    "FILMROOT/sound/trudy_voice/V4_TAGS.md:599-604; FILMROOT/sound/trudy_voice/tools/vo_polish.py (polish_set)"
+    "FILMROOT/sound/trudy_voice/V4_TAGS.md:599-604; FILMROOT/sound/trudy_voice/tools/vo_polish.py (polish_set)",
+    "FILMROOT/sound/trudy_voice/V4_TAGS.md:759-773 (picture timing source refinement, reviewed 2026-10-04)"
    ],
    "destination": {
     "type": "code_default",
@@ -39785,7 +40025,7 @@
      "tests/story/test_timing_build.py::test_the_studio_polish_reaches_the_cue_sheet",
      "tests/story/test_story_build.py::test_a_polished_take_comes_before_the_stage_it_was_polished_from"
     ],
-    "note": "Timing resolves a shot's take in the voice module's own order (polished, paced, clean, raw), so the cue sheets and the mix play the polished take, while breath, pitch and tag measures still read the take before its polish (VoiceFilm.unpolished_audio). Closed 2026-10-01; `slate demo` fails if the cue sheet or the mix doesn't play the polished takes."
+    "note": "Timing resolves a shot's take in the voice module's own order (polished, paced, clean, raw), so the cue sheets and the mix play the polished take, while breath, pitch and tag measures still read the take before its polish (VoiceFilm.unpolished_audio). Closed 2026-10-01; `slate demo` fails if the cue sheet or the mix doesn't play the polished takes. Refined 2026-10-04: picture transcription and onset snapping now use for_alignment, with exact sample-clock and explicit source/output hash checks. Source bytes and voice:<shot>#timing invalidate stale caches and gates while approvals remain bookkeeping."
    },
    "also": [
     {
@@ -39802,6 +40042,17 @@
      ],
      "line": 113,
      "target": "skills/slate-voice/references/polish.md"
+    },
+    {
+     "type": "code_default",
+     "file": "src/slate/timing/takes.py",
+     "symbol": "for_alignment",
+     "tests": [
+      "tests/story/test_timing_polish_source.py::test_whisper_and_onsets_read_the_source_but_cues_play_the_polish",
+      "tests/story/test_timing_polish_source.py::test_timing_freshness_tracks_source_and_provenance_not_approval",
+      "tests/story/test_timing_polish_source.py::test_derived_timing_gates_compare_the_resolved_parent_files"
+     ],
+     "note": "Picture timing measures the pre-polish source; playback retains the polished file. Refinement only; final source-film harvest approval remains open."
     }
    ]
   },
@@ -40155,13 +40406,33 @@
     "FILMROOT/sound/p3/BALANCE.md:85-100; FILMROOT/sound/p3/tools/p3balance.py (docstring)"
    ],
    "destination": {
-    "type": "pending",
-    "file": "src/slate/sound/mix.py",
-    "symbol": "family_buses",
-    "module": "sound (mix families, after proof 3)",
-    "what": "mix by family: each cue to its family's bus with one clip gain per hit from the speech key, and sound/mix/family_stems/<family>.wav summing to the mix; tests: a duck doesn't move a hit's anchor, and the family stems sum to the mix",
-    "note": "waits for proof 3 (`slate approve proof3 <file> --by NAME`): the effects engine port; family stems come from its per-cue renders (NEEDS 213)"
-   }
+    "type": "code_default",
+    "file": "src/slate/sound/effects/balance_mix.py",
+    "symbol": "FamilyMixer.cue_mix",
+    "line": 308,
+    "tests": [
+     "tests/sound/test_effects_balance_mix.py::test_keyed_hit_uses_constant_gain_but_return_follows_speech",
+     "tests/sound/test_effects_balance_mix.py::test_spectral_treatment_keeps_anchor_when_spectrum_moves_peak"
+    ]
+   },
+   "also": [
+    {
+     "type": "code_default",
+     "file": "src/slate/sound/effects/balance_mix.py",
+     "symbol": "FamilyMixer.bus_mix",
+     "line": 337,
+     "tests": []
+    },
+    {
+     "type": "code_default",
+     "file": "src/slate/sound/mix.py",
+     "symbol": "_write_effect_evidence",
+     "line": 575,
+     "tests": [
+      "tests/sound/test_sound_effects_pipeline.py::test_events_to_balanced_stems_to_additive_master"
+     ]
+    }
+   ]
   },
   {
    "id": "L-sound-S008",
@@ -40174,12 +40445,15 @@
     "FILMROOT/sound/p3/BALANCE.md:92-95; FILMROOT/sound/p3/tools/p3balance.py (speech_key)"
    ],
    "destination": {
-    "type": "pending",
-    "file": "src/slate/sound/mix.py",
-    "symbol": "speech_key",
-    "module": "sound (mix families, after proof 3)",
-    "what": "the speech key: a 20 ms RMS follower on the voice against its loud level (0 at 40 dB under, 1 at 25 dB under), held 150 ms, read 40 ms ahead, 8 ms attack and 250 ms release; one clip gain per hit from its maximum over the hit's audible part",
-    "note": "waits for proof 3 (`slate approve proof3 <file> --by NAME`): the effects engine port; family stems come from its per-cue renders (NEEDS 213)"
+    "type": "code_default",
+    "file": "src/slate/sound/effects/balance_mix.py",
+    "symbol": "FamilyMixer.speech_key",
+    "line": 111,
+    "tests": [
+     "tests/sound/test_effects_balance_mix.py::test_speech_key_looks_ahead_holds_and_releases",
+     "tests/sound/test_effects_balance_mix.py::test_44100_key_uses_real_millisecond_control_clock",
+     "tests/sound/test_effects_balance_mix.py::test_frozen_source_numeric_reference"
+    ]
    },
    "also": [
     {
@@ -40231,13 +40505,28 @@
     "FILMROOT/sound/p3/BALANCE.md:111-119, 300-307"
    ],
    "destination": {
-    "type": "pending",
-    "file": "src/slate/sound/mix.py",
-    "symbol": "solve_guards",
-    "module": "sound (mix guards, after proof 3)",
-    "what": "the clarity, air and never-over guards solved together, the voice-as-delivered loop, approved spans frozen, anchors re-measured, and sound/mix/rides.json written (the balance gates, sound.balance.approved_spans and the listening file already read it)",
-    "note": "waits for proof 3 (`slate approve proof3 <file> --by NAME`): the effects engine port; the guards ride hits the effects engine renders one by one"
-   }
+    "type": "code_default",
+    "file": "src/slate/sound/effects/balance_mix.py",
+    "symbol": "FamilyMixer.guard_rides",
+    "line": 430,
+    "tests": [
+     "tests/sound/test_effects_balance_mix.py::test_joint_solver_only_rides_hits_covering_a_word",
+     "tests/sound/test_effects_balance_mix.py::test_guard_counts_own_return_and_solo_matches_family",
+     "tests/sound/test_effects_balance_mix.py::test_frozen_source_numeric_reference"
+    ]
+   },
+   "also": [
+    {
+     "type": "code_default",
+     "file": "src/slate/sound/effects/balance_mix.py",
+     "symbol": "FamilyMixer.run",
+     "line": 953,
+     "tests": [
+      "tests/sound/test_effects_balance_mix.py::test_half_depth_keeps_actual_top_and_whole_split",
+      "tests/sound/test_effects_balance_mix.py::test_half_depth_floor_deepens_only_covering_hits"
+     ]
+    }
+   ]
   },
   {
    "id": "L-sound-S011",
@@ -40250,13 +40539,33 @@
     "FILMROOT/sound/p3/BALANCE.md:120-126"
    ],
    "destination": {
-    "type": "pending",
-    "file": "src/slate/sound/mix.py",
-    "symbol": "solve_guards",
-    "module": "sound (mix guards, after proof 3)",
-    "what": "an accent landing on a word is ridden at most half the guard's depth and listed, never failed (the owner's 'in between')",
-    "note": "waits for proof 3 (`slate approve proof3 <file> --by NAME`): the effects engine port; the guards ride hits the effects engine renders one by one"
-   }
+    "type": "code_default",
+    "file": "src/slate/sound/effects/balance_mix.py",
+    "symbol": "FamilyMixer.mix_balanced",
+    "line": 554,
+    "tests": [
+     "tests/sound/test_effects_balance_mix.py::test_delivered_voice_feedback_changes_rides"
+    ],
+    "note": "The delivered-voice callback uses the same final master as the delivery mix; provisional renders report that feedback is absent."
+   },
+   "also": [
+    {
+     "type": "code_default",
+     "file": "src/slate/sound/effects/engine.py",
+     "symbol": "balanced",
+     "line": 182,
+     "tests": [
+      "tests/sound/test_sound_effects_pipeline.py::test_events_to_balanced_stems_to_additive_master"
+     ]
+    },
+    {
+     "type": "code_default",
+     "file": "src/slate/sound/mix.py",
+     "symbol": "_write_effect_evidence",
+     "line": 575,
+     "tests": []
+    }
+   ]
   },
   {
    "id": "L-sound-S012",
@@ -40316,12 +40625,15 @@
     "FILMROOT/sound/p3/BALANCE.md:679-704; FILMROOT/sound/p3/tools/render_v2.py (never_over_guard)"
    ],
    "destination": {
-    "type": "pending",
-    "file": "src/slate/sound/mix.py",
-    "symbol": "solve_guards",
-    "module": "sound (mix guards, after proof 3)",
-    "what": "the never-over guard runs last, 0.5 dB to spare against the voice as delivered, the hits making it loud ridden down whole (at most 12 dB more), an impact keeping its first 80 ms",
-    "note": "waits for proof 3 (`slate approve proof3 <file> --by NAME`): the effects engine port; the guards ride hits the effects engine renders one by one"
+    "type": "code_default",
+    "file": "src/slate/sound/effects/balance_mix.py",
+    "symbol": "FamilyMixer.never_over_guard",
+    "line": 705,
+    "tests": [
+     "tests/sound/test_effects_balance_mix.py::test_never_over_caps_extra_ride_and_reports_unresolved",
+     "tests/sound/test_effects_balance_mix.py::test_impact_body_ride_preserves_first_eighty_ms"
+    ],
+    "note": "Runs after clarity, air and half-depth/floor passes. Later score-only attenuation cannot make a voice-margin violation worse."
    },
    "also": [
     {
@@ -40382,12 +40694,16 @@
     "FILMROOT/sound/p3/BALANCE.md:590-610; FILMROOT/build/B/audio_p3_score/span_vs_act6_clip_v3.md; FILMROOT/sound/p3/tools/spot_v2.py (substitute_approved); FILMROOT/sound/p3/tools/render_v2.py (pinned_rides, score_match)"
    ],
    "destination": {
-    "type": "pending",
-    "file": "src/slate/sound/mix.py",
-    "symbol": "solve_guards",
-    "module": "sound (mix guards, after proof 3)",
-    "what": "close the loop against the voice as the master delivers it: raise a short word's target by its shortfall, at most two more passes",
-    "note": "waits for proof 3 (`slate approve proof3 <file> --by NAME`): the effects engine port; the guards ride hits the effects engine renders one by one"
+    "type": "code_default",
+    "file": "src/slate/sound/effects/balance_mix.py",
+    "symbol": "resolve_approved",
+    "line": 1133,
+    "tests": [
+     "tests/sound/test_effects_balance_mix.py::test_approved_reference_requires_resolver_and_freezes_exact_rides",
+     "tests/sound/test_effects_balance_mix.py::test_pin_cues_is_full_depth_and_not_frozen",
+     "tests/sound/test_effects_balance_mix.py::test_approved_marker_does_not_authorize_changed_gain_or_take",
+     "tests/sound/test_effects_balance_mix.py::test_frozen_hit_keeps_exact_ride_even_when_word_cannot_clear"
+    ]
    },
    "also": [
     {
@@ -40397,6 +40713,33 @@
      "line": 94,
      "terms": [
       "\"approved_spans\": []"
+     ]
+    },
+    {
+     "type": "code_default",
+     "file": "src/slate/sound/effects/balance_mix.py",
+     "symbol": "score_match",
+     "line": 1218,
+     "tests": [
+      "tests/sound/test_effects_balance_mix.py::test_score_match_uses_core_and_preserves_other_spans"
+     ]
+    },
+    {
+     "type": "code_default",
+     "file": "src/slate/sound/effects/engine.py",
+     "symbol": "reference_loader",
+     "line": 46,
+     "tests": [
+      "tests/sound/test_sound_effects_pipeline.py::test_approved_reference_bundle_binds_rides_and_audio"
+     ]
+    },
+    {
+     "type": "code_default",
+     "file": "src/slate/sound/effects/spotting.py",
+     "symbol": "_approved",
+     "line": 389,
+     "tests": [
+      "tests/sound/test_sound_effects_spotting.py::test_approved_cues_keep_exact_sound_and_clock_without_rendering"
      ]
     }
    ]
@@ -40627,12 +40970,15 @@
     "FILMROOT/sound/p3/BALANCE.md:612-630; FILMROOT/sound/p3/tools/spot_v2.py (docstring)"
    ],
    "destination": {
-    "type": "pending",
-    "file": "src/slate/sound/effects/engine.py",
-    "symbol": "place_cue",
-    "module": "sound (effects engine, after proof 3)",
-    "what": "spot(): write-ons aligned on their audible start, up to ±4% rate on library whooshes, same-chord pads handed off over 0.3 s (equal power); tests on synthetic cues",
-    "note": "waits for proof 3 (`slate approve proof3 <file> --by NAME`): the effects engine port"
+    "type": "code_default",
+    "file": "src/slate/sound/effects/spotting.py",
+    "symbol": "build",
+    "line": 479,
+    "tests": [
+     "tests/sound/test_sound_effects_spotting.py::test_spot_uses_measured_anchor_clock_and_preserves_silent_act",
+     "tests/sound/test_sound_effects_spotting.py::test_page_uses_sampled_takes_with_reproducible_rate_variation",
+     "tests/sound/test_sound_effects_spotting.py::test_authored_sampled_beds_have_measured_short_handoff"
+    ]
    },
    "also": [
     {
@@ -40640,6 +40986,15 @@
      "file": "src/slate/sound/dsp.py",
      "symbol": "equal_power",
      "line": 56
+    },
+    {
+     "type": "code_default",
+     "file": "src/slate/sound/effects/rendering.py",
+     "symbol": "render_cue",
+     "line": 40,
+     "tests": [
+      "tests/sound/test_sound_effects_rendering.py::test_clip_gain_uses_absolute_film_clock_after_peak_level_and_only_once"
+     ]
     }
    ]
   },
@@ -40654,12 +41009,14 @@
     "FILMROOT/sound/p3/BALANCE.md:22-28; ~/.claude/projects/-Users-you-Documents-TrueSpace-website-build-2026-09-28/memory/feedback_sound-design-taste.md:21; FILMROOT/sound/p3/tools/spot_v2.py (docstring)"
    ],
    "destination": {
-    "type": "pending",
+    "type": "code_default",
     "file": "src/slate/sound/effects/engine.py",
-    "symbol": "pad_bed",
-    "module": "sound (effects engine, after proof 3)",
-    "what": "with a composed score, no continuous pad bed and no pad bloom at the landing",
-    "note": "waits for proof 3 (`slate approve proof3 <file> --by NAME`): the effects engine port"
+    "symbol": "balanced",
+    "line": 182,
+    "tests": [
+     "tests/sound/test_sound_effects_spotting.py::test_bed_needs_explicit_notes_and_score_mode_keeps_bed_as_metadata",
+     "tests/sound/test_sound_effects_pipeline.py::test_prepared_score_matches_single_preparation_exactly"
+    ]
    },
    "also": [
     {
@@ -40673,6 +41030,22 @@
      ],
      "tests": [
       "tests/sound/test_sound_mix.py::test_score_and_voice_alone_mix_to_target"
+     ]
+    },
+    {
+     "type": "code_default",
+     "file": "src/slate/sound/mix.py",
+     "symbol": "prepare_score",
+     "line": 177,
+     "tests": []
+    },
+    {
+     "type": "code_default",
+     "file": "src/slate/sound/effects/rendering.py",
+     "symbol": "silence_mask",
+     "line": 112,
+     "tests": [
+      "tests/sound/test_sound_effects_rendering.py::test_returns_are_split_and_silences_stop_dry_and_wet_together"
      ]
     }
    ]
@@ -41916,11 +42289,12 @@
    "destination": {
     "type": "skill_rule",
     "terms": [
-     "Perfect, don't replace.",
-     "keep everything else as it was"
+     "Bound to exact bytes.",
+     "Keep the approved baseline.",
+     "Follow the feedback."
     ],
-    "line": 68,
-    "note": "A tag round's takes stay in voice/tags/<round>/ and polish trials in voice/polish/try/, pinning nothing, until the owner picks.",
+    "line": 24,
+    "note": "Tag and polish proposals keep their own versions and do not silently replace selected or approved takes. ADR-015 allows requested revisions and preserves comparison history; measurements or permission to explore do not approve the resulting file.",
     "target": "skills/slate/references/approvals.md"
    },
    "also": [

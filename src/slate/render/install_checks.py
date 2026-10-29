@@ -35,7 +35,7 @@ def content_hash(film_dir: Path, film: dict) -> str:
     from slate.render import engines  # noqa: PLC0415 (engines imports this module's neighbours)
 
     film_dir = Path(film_dir)
-    listing: list[tuple[str, str]] = []
+    listing: list[tuple[str, str]] = [("film/settings", engines.film_settings_hash(film_dir, film))]
     for p in engines._code_files(film_dir / "scenes"):  # noqa: SLF001 - the same walk the render's own hash uses
         listing.append((p.relative_to(film_dir).as_posix(), jsonio.sha256(p)))
     timing = film_dir / "timing"

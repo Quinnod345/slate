@@ -1,9 +1,13 @@
 # The motion law
 
-A brand's motion law is how everything in its films moves: a few named eases, each with one job; a duration scale; stagger
-rules; morph techniques; motion-blur settings; the read-time rule; a banned list with reasoned exceptions; and a motion
-check per shot. It's written once per brand at onboarding (slate-brand, look-and-motion.md), stored as data in the
-brand's pack, and explained in a brand MOTION.md that records where every number came from.
+A brand's motion law records the movement chosen for its films: named eases, their jobs, a duration scale, stagger
+caps, overshoot and speed policies, and the source of those choices. Onboarding starts it (slate-brand,
+look-and-motion.md); the brand's pack stores the data, and MOTION.md explains where every number came from.
+
+The recipes below came from earlier product films. Use them as starting craft guidance. The current brief and newer
+authorized feedback govern the creative direction; preserve the earlier law, exact feedback and revision in the
+history. A requested redesign is work within that scope, not another request for the same creative approval.
+Current technical gates still apply, including checks that do not yet have a configurable creative policy.
 
 ## Where it lives
 
@@ -15,62 +19,72 @@ brand's pack, and explained in a brand MOTION.md that records where every number
 | `durations` | the duration scale, `{token: seconds}` |
 | `staggers` | stagger units, in seconds or `{frames, at_fps}` |
 | `stagger_cap` | `{seconds, fraction}`: a group's spread at most this many seconds and this fraction of its entrance |
-| `exit_factor` | exits as a fraction of their entrance (0.75 is the norm) |
+| `exit_factor` | exits as a fraction of their entrance (0.75 is the starter value) |
 | `roles` | which named ease does each job: `entrance`, `move`, `state`, `exit`, `relayout` |
-| `overshoot` | `{allowed, max, where}`: normally not allowed, or only for named container morphs |
+| `overshoot` | the allowed overshoot and peak: `allowed` can be true or a list of ease names; `max` sets the amount above 1; an ease can carry its own `peak` |
+| `linear_props` | properties allowed to move linearly, beyond time, continuous drifts and constant spins |
+| `extra_curves` | kit curves available to more classes: `sway`, `land`, `spring0`, `even` |
+| `speed_limits` | class limits replacing the defaults for `rig`, `ui` and `carry`, as fractions of the short side or pixels with their measured `short_side` |
+| `loops` | a brand's minimum loop period; the current gate can tighten its floor, not lower it |
+| `rigs` | the named rig's permitted phase modes and their lag or step |
 
 The kit reads it through `motionLawFrom()` (the Python mirror is `slate.motion.law_from`), and both are held to the
-same shared test vectors. A name a scene uses that the brand doesn't define is recorded, never thrown, and the hand-in
-check refuses the act until it's fixed. A brand with no law gets the kit's neutral law (standard CSS curves and a plain
-duration scale), recorded as a problem: it's a stand-in so placeholders render, never a brand's look.
+same shared test vectors. Besides named brand eases, the gate recognizes specific kit curves where they apply:
+rig parts can use sway, land and spring0; carries can use even; `extra_curves` extends their use. An unknown name is
+recorded instead of crashing the preview, and the hand-in check refuses unresolved motion problems. A brand with no
+law gets the kit's neutral law so placeholders render; that stand-in cannot pass as the brand's own motion law.
 
-## Anchor the law in the product
+Name a deliberate linear transform in `linear_props`, or use a supported trace exemption with its reason. Merely
+naming a linear ease does not permit every transform. Overshoot is checked by ease and peak; a descriptive
+`where` field does not implement a separate object-level allowance.
+
+## A product-film starting point
 
 - The film's motion grammar comes from the product's own grammar (one clock, the camera as the guide, pieces carried
   between beats), so the film feels like the product, only bigger.
-- **The state-change ease stays identical to the product's**, so a state change feels the same in the app and the film.
-- **Film entrances decelerate harder than the product's UI entrance curve**: film travel is 5 to 20 times UI travel and
-  needs a longer settle to read as calm.
-- **Soften an in-out for camera moves**: a quart in-out lurches over 1 to 3 second camera moves, and good reference
-  camera moves start and end at rest.
+- **Keep the product's state-change ease** when fidelity to the app is the goal, so the action feels familiar.
+- **Give a calm entrance a longer settle** when film travel is much larger than UI travel. Earlier film moves
+  travelled 5 to 20 times as far; a different brief can call for a sharper arrival.
+- **Measure camera acceleration**: a quart in-out lurched over earlier 1 to 3 second moves. Rest-to-rest travel
+  solved that case; a purposeful fast move still needs a clean render.
 - **A website's scroll easing is a different vocabulary** from a film's law; don't reuse web-scroll eases for film moves
   without measuring.
 - Measure reference films frame by frame and fit their curves (slate-brand, reference-analysis.md). Good references use
   hand-tuned curves; neither clean measurement on the first films came anywhere near After Effects' default Easy Ease.
 
-## The jobs
+## The jobs and their starting shapes
 
-- **entrance**: everything that enters (type, cards, UI arriving, count-ups, draw-ons). A fast start and a long settle.
-- **move**: rest-to-rest moves already on screen: camera push, pull and truck; shared-element carries. Starts and ends
-  at rest, so it never smears under motion blur.
-- **relayout**: short make-room re-layouts: a new line pushes a block, a list re-sorts, a card steps aside. 0.4 s or
-  less.
+- **entrance**: type, cards, UI arriving, count-ups and draw-ons. The calm starter uses a fast start and a long settle.
+- **move**: camera push, pull and truck, and shared-element carries. The starter begins and ends at rest to avoid an
+  abrupt change in blur; matching velocity across a handoff is another deliberate choice.
+- **relayout**: a new line pushes a block, a list re-sorts, a card steps aside. Earlier make-room moves used 0.4 s or
+  less; choose the brand's duration for the actual travel.
 - **state**: state changes: a chip flips, a check lands, a toggle, a glyph morph commits, a bar segment lights.
-- **exit**: anything leaving accelerates away, 25% shorter than its entrance.
-- **settle spring**: one persistent container that changes size (a card growing into a page, an island opening) uses a
-  damped settle, never a bounce, and only for named container morphs.
+- **exit**: the starter accelerates away and uses `exit_factor: 0.75`; the brand can choose a different factor.
+- **settle spring**: a persistent container can change size with a damped settle. Bounce or other follow-through can
+  serve an expressive object; name the curve and configure its overshoot rather than treating the calm recipe as a ban.
 
-When a brief's ease note conflicts with the law's ease for that job (a make-room move written with an entrance ease),
-use the law's ease and record the deviation in the act's notes.
+When the current brief changes the desired movement, update its named motion choices and record why. Do not let an
+older preset override a newer creative direction. Preserve the previous law and the comparison in the history.
 
-## Standing rules
+## Craft choices
 
 - **Intentionality**: one carrier, one idea per beat, and every move tied to the voice's word or to the idea. The
   approved first film's bar was one object carrying each act, with each phrase of the voice doing one legible thing to
   it.
 - **Fewer, better moves**: don't pan out to one thing and back when one draw-back can show both.
-- **Add motion purposefully**, aim for brevity and precision, and avoid anything that oscillates in a sustained way.
-- **No idle wobble** unless asked. Overshoot and follow-through share physical logic and decay to a stable endpoint.
-- **Linear is for time**: continuous drifts that start before the shot and end after it, and things that represent time
-  (progress bars, timelines, loaders, streaming text, a constant spin on a "thinking" indicator). Never for a move that
-  starts or stops on screen.
-- **Crossfades** only for atmosphere inside one shot, a seam blend of at most 4 frames within the same generated shot,
-  and audio.
-- **Hard cuts** only when motion masks them (inside a whip or a defocus), for a few musical hit cuts on downbeats if the
-  brand's law allows them, and for UI state cuts with the camera locked (the product itself changes state instantly).
-- **Nothing scales from zero**: entrances start from at least 85% scale.
-- **Banned by default**: glows, light leaks, flares and glitch presets; typewriter text except where the product really
-  streams text (banned-moves.md).
+- **Add motion purposefully.** Stillness, flutter, sustained movement and sharp travel can each serve a film. Inspect
+  the rendered result for unintended flicker, aliasing and loss of meaning.
+- **Keep physical logic legible.** Overshoot and follow-through need a controlled amplitude and endpoint; an intended
+  idle gesture should not look like an accidental wobble.
+- **Linear movement** works naturally for time and steady travel. Mechanical starts and stops can also be intentional;
+  declare the supported property allowance and inspect their speed and blur.
+- **Crossfades** can carry atmosphere or a deliberate transition. Earlier product films kept them to atmosphere,
+  audio and generated-shot seam blends of at most 4 frames to avoid doubled type.
+- **Hard cuts** can create contrast, land a musical hit or show an instant state change. Carries and motion-masked
+  cuts are useful when continuity is the chosen grammar.
+- **Graphic reveals and effects** can use scale, light, particles or streamed type when they serve the brief and the
+  brand. The earlier restrained preset avoided them; see [motion choices](banned-moves.md) for its failure evidence.
 
 ## Motion blur
 
@@ -87,16 +101,25 @@ AE stores an ease as speed and influence. For a segment of duration T moving a d
 - AE's minimum influence is 0.1%, so a vertical tangent can't be drawn exactly.
 
 Multi-dimensional properties take one ease per dimension, and the build reads every ease back after setting it.
-AE's default Easy Ease (33.3% influence, 0 speed on both sides) is banned on anything visible: it's the look of a
-template.
+AE's default Easy Ease has 33.3% influence and 0 speed on both sides. Earlier references used different curves, so
+applying this preset everywhere lost their character. It can still be a deliberate named choice; the gate checks
+the actual samples against the named curve.
 
-## The motion check, per shot
+## Current technical checks
 
-1. Every visible move uses one of the brand's named eases, or its settle spring on a named container.
-2. No Easy Ease, and no linear keys on transforms outside the listed exceptions.
-3. Every read-time rule holds.
-4. Motion blur is on for every moving graphic and off for footage.
-5. Every scene change is a carry, a portal, a mask, a whip or an allowed exception.
-6. Representative frames are reviewed on contact sheets, the way the references were studied.
+1. Every traced move uses a permitted named or kit ease, and its samples follow that curve. Duration and stagger
+   checks use the brand's selected values; linear transforms still need the applicable allowance.
+2. The current motion gate requires scaled entrances to start from at least 85% scale, hero text to move at least
+   16 px at a 1080 px short side or unmask, and text arrivals to wait until other carries are below 2 px per frame
+   at that size. These thresholds do not currently have brand overrides.
+3. Speed and acceleration are checked by class against brand limits or the defaults: rig 30/8, UI 60/16 and carry
+   170/45 at a 1080 px short side. A whip past carry limits becomes a REVIEW item.
+4. Loops have a minimum period of max(16 frames, fps/1.9), and rig parts are checked for whole-frame-delayed symmetry.
+   A brand may require slower loops or narrower rig modes; it cannot lower the current loop floor.
+5. Traces must be current and well formed. Render pixels cross-check unexplained fast motion; stability,
+   accessibility and read-time gates retain their own evidence requirements.
+6. Review representative frames and the full-speed movement with the chosen transition grammar and delivery blur.
 
-`slate qa motion` checks the traces; a person checks the frames.
+A trace's reasoned `exception` turns its violation into REVIEW, not an automatic pass. Acceptance is bound to the
+trace's bytes and must follow the existing person-approval rules. Preserve the plan's current entrance, loop and
+symmetry requirements; a creative direction is not evidence that a technical check passed.

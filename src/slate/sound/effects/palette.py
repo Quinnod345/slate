@@ -21,10 +21,11 @@ from typing import Any
 # The kinds a picture beat can be (docs/ARCHITECTURE.md §5), each with the one sound of its kind in the starting
 # palette. "family" is the material a person would name; "stem" is where it sits in the mix; "anchor" is what the ear
 # syncs to (onset: the strike's first sample within 12 dB of its peak; onset30: paper's first audible sound; peak20 /
-# peak50: the loudest 20 or 50 ms of air or a swell; end: where a lift or a drawn line finishes).
+# peak50: the approved 50 ms energy peak for either legacy name; start: the audible 2 ms RMS onset at -40 dB;
+# end: where a lift or a drawn line finishes).
 STARTING_KINDS: dict[str, dict[str, Any]] = {
     "tap": {"family": "wood block", "stem": "ui", "anchor": "onset", "what": "a row, check, chip or button ticks in"},
-    "type": {"family": "soft air", "stem": "fx", "anchor": "peak50", "what": "text writes on"},
+    "type": {"family": "soft air", "stem": "fx", "anchor": "start", "what": "text writes on"},
     "land": {"family": "wood knock", "stem": "ui", "anchor": "onset", "what": "a card, sheet or panel lands"},
     "snap": {"family": "clave", "stem": "ui", "anchor": "onset", "what": "a state flips or snaps into place"},
     "count": {"family": "tuned wood clicks", "stem": "ui", "anchor": "onset", "what": "a numeral counts"},
@@ -37,6 +38,50 @@ STARTING_KINDS: dict[str, dict[str, Any]] = {
     "character": {"family": "small felt notes (the motif)", "stem": "tonal", "anchor": "onset", "what": "the brand's character or mark gestures"},
     "impact": {"family": "sub with a hollow temple knock", "stem": "fx", "anchor": "onset", "what": "an act's one big landing"},
 }
+
+# The same material choices as rendering data. Pitches are resolved from the brand's key or explicit params;
+# a character's motif must be supplied by its brand. Composite interactions remain one logical cue.
+_RENDER_KINDS = {
+    "tap": {"type": "wood", "gain": -26, "params": {"kind": "block", "dur": 0.18, "octave": 5}},
+    "type": {"type": "whoosh", "gain": -36,
+             "params": {"dur": 0.45, "f0": 2000, "f1": 6000, "ease": "sine"}},
+    "land": {"type": "wood", "gain": -26, "params": {"kind": "knock", "dur": 0.3, "octave": 3}},
+    "snap": {"type": "wood", "gain": -32, "params": {"kind": "clave", "dur": 0.2, "octave": 5}},
+    "count": {"type": "countup3", "gain": -24,
+              "params": {"kind": "block", "octave": 5, "hold_frames": 1, "ease": "sine"}},
+    "draw": {"type": "air", "gain": -28,
+             "params": {"dur": 0.8, "f0": 600, "f1": 2400, "ease": "sine"}},
+    "data": {"type": "snote", "gain": -23,
+             "params": {"role": "felt_note", "octave": 5, "dur": 0.45, "vel": 35}},
+    "page": {"type": "sample", "gain": -32,
+             "params": {"files": ["FCP:Motions & Transitions/Swish 1.caf",
+                                   "FCP:Motions & Transitions/Swish 2.caf"]}},
+    "stamp": {"type": "layered", "gain": -25, "params": {"layers": [
+        {"type": "wood", "gain": -3, "params": {"kind": "temple", "dur": 0.25, "octave": 4}},
+        {"type": "snote", "gain": 0, "params": {"role": "felt_note", "dur": 0.45, "vel": 35, "octave": 5}},
+    ]}},
+    "whoosh": {"type": "layered", "gain": -25, "params": {"layers": [
+        {"type": "whoosh", "gain": -4, "anchor": "peak20",
+         "params": {"dur": 1.2, "f0": 250, "f1": 1200, "ease": "sine", "peak": 0.55,
+                    "pan_from": 0.3, "pan_to": -0.2}},
+        {"type": "sample", "gain": 0, "anchor": "peak20",
+         "params": {"file": "FCP:Motions & Transitions/Whoosh 13.caf"}},
+    ]}},
+    "swell": {"type": "spad", "gain": -31,
+              "params": {"octave": 3, "dur": 1.2, "vel": 35,
+                         "attack": 0.35, "release": 0.4, "ease": "sine"}},
+    "character": {"type": "snote", "gain": -25,
+                  "params": {"role": "felt_note", "dur": 0.45, "vel": 35}},
+    "impact": {"type": "layered", "gain": -12, "params": {"layers": [
+        {"type": "sub", "gain": 0, "params": {"dur": 0.7, "f0": 55, "f1": 35, "decay": 0.2}},
+        {"type": "wood", "gain": -4, "params": {"kind": "temple", "dur": 0.3, "octave": 3}},
+    ]}},
+}
+for _kind, _render in _RENDER_KINDS.items():
+    STARTING_KINDS[_kind].update(_render)
+    STARTING_KINDS[_kind]["balance_family"] = (
+        "impacts" if _kind == "impact" else "swells" if _kind == "swell" else
+        "textures" if _kind in ("type", "draw", "page", "whoosh") else "accents")
 
 STARTING_PALETTE: dict[str, Any] = {
     "source": "proof 2, the approved starting point (every brand gets its own during onboarding)",
@@ -118,14 +163,14 @@ def deep_merge(base: dict, extra: dict | None) -> dict:
 def from_brand(brand: dict | None) -> dict:
     """The palette for a brand pack: the starting point, then brand.json `sound.palette` over it, key by key.
 
-    The brand's own `sound.materials` and `sound.banned_timbres` are added to the starting lists (a brand extends the
-    rules; it never silently drops one, so removing a starting rule needs an explicit value in its palette).
+    An explicit material or banned-timbre list replaces the starter list. A list in `sound.palette` takes priority
+    over the top-level shorthand. Empty lists are deliberate choices, not a request to inherit every old ban.
     """
     sound = (brand or {}).get("sound") or {}
     pal = deep_merge(STARTING_PALETTE, sound.get("palette") or {})
     for key in ("materials", "banned_timbres"):
-        extra = sound.get(key) or []
-        pal[key] = list(dict.fromkeys([*pal.get(key, []), *extra]))
+        if key in sound and key not in (sound.get("palette") or {}):
+            pal[key] = list(dict.fromkeys(sound[key] or []))
     pal["brand"] = (brand or {}).get("name")
     pal["from_brand"] = bool(sound.get("palette"))
     return pal

@@ -41,7 +41,24 @@ def spec_path(film_dir: Path, name: str) -> Path:
 
 
 def load(film_dir: Path, name: str) -> dict | None:
-    return jsonio.read(record_path(film_dir, name), default=None)
+    path = record_path(film_dir, name)
+    return jsonio.read(deps.resolve_file(film_dir, path.relative_to(film_dir)), default=None)
+
+
+def read_dir(film_dir: Path, name: str, part: str) -> Path:
+    """Find inherited capture media for reading. Writers always use capture_dir in the child film."""
+    folder = capture_dir(film_dir, name) / part
+    if folder.is_dir():
+        return folder
+    lock = deps._module("slate.state.lock")  # noqa: SLF001 - the same optional state boundary as deps.resolve_file
+    if lock is not None:
+        rel = folder.relative_to(film_dir).as_posix()
+        for key in sorted(lock.entries(film_dir, prefix=rel)):
+            real = lock.resolve(film_dir, key)
+            if real.is_file():
+                tail = Path(key).relative_to(rel)
+                return real.parents[len(tail.parts) - 1]
+    return folder
 
 
 def require(film_dir: Path, name: str) -> dict:
@@ -61,7 +78,7 @@ def save(film_dir: Path, name: str, rec: dict, command: str) -> Path:
     inputs = [p for p in (spec_path(film_dir, name), capture_dir(film_dir, name) / "beats.json") if p.is_file()]
     source = (rec.get("source") or {}).get("file")
     if source:
-        full = Path(source) if Path(source).is_absolute() else Path(film_dir) / source
+        full = deps.resolve_file(film_dir, source)
         if full.is_file():
             inputs.append(full)
     deps.record_made(film_dir, deps.rel(film_dir, path), producer=command,

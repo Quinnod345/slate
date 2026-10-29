@@ -324,6 +324,22 @@ def qa_gate_names() -> list[str] | None:
     return list(names) if isinstance(names, dict) else None
 
 
+def unavailable_gate_modules(*, sound: bool = False) -> dict[str, str]:
+    """Required gate modules that couldn't load. A broken module must not shrink the final delivery's gate set."""
+    unavailable = {}
+    for name in (["slate.qa", "slate.sound.verify"] if sound else ["slate.qa"]):
+        loaded = module(name)
+        if loaded is None:
+            unavailable[name] = "not installed"
+            continue
+        statuses = getattr(loaded, "EXTERNAL_STATUS", {})
+        for external in getattr(loaded, "EXTERNAL", ()):
+            status = statuses.get(external, "not loaded")
+            if not status.startswith("merged:"):
+                unavailable[external] = status
+    return unavailable
+
+
 def _no_ae_in_tests(what: str) -> None:
     if in_tests():
         raise RuntimeError(f"a test reached the real After Effects call ({what}); tests must fake slate.finish.deps")

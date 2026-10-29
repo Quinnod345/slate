@@ -1,20 +1,26 @@
 # Anti-glitch rules
 
-Every rule here is a glitch that reached a review on the first films, with its cause. The pre-render checklist version
-is [the glitch catalogue](glitch-catalogue.md).
+These diagnoses came from glitches that reached review on the first films. Their fixes are contextual craft recipes;
+the current brief can choose fast travel, flutter, bounce, sustained motion, cuts or crossfades. Preserve that choice
+while repairing the actual jitter, unreadability, clipping or discontinuity. Current technical gates still apply (see
+[motion law](motion-law.md)). The pre-render checklist is [the glitch catalogue](glitch-catalogue.md).
 
 ## Speed, blur and flicker
 
 - **Blur length follows speed.** A wobble at f Hz makes motion blur pulse at 2f; flicker sensitivity peaks near 8 Hz.
-  A 4 to 4.5 Hz damped wobble on every beat read as jitter. Keep any oscillation well below 4 Hz, or better, don't
-  oscillate.
+  A 4 to 4.5 Hz damped wobble on every beat read as jitter. Current QA limits loop frequency to 1.9 Hz and requires at
+  least a 16-frame period. Test a permitted intentional flutter under the final shutter and remove unwanted flicker;
+  the failed wobble is not a general ban on oscillation.
 - **Sub-frame staggers** (1.05 and 1.65 frames) mean no two parts sit at the same phase of the shutter, so every part's
   blur differs. Offsets between parts are whole frames.
 - **A strong out-ease leaves rest at over six times its average speed**, so the blur jumps from nothing to a long streak
-  in one frame; an exit that ends fast does the same at the end. Big moves run on the rest-to-rest ease.
+  in one frame; an exit that ends fast does the same at the end. A rest-to-rest curve or velocity-matched handoff can
+  fix it; inspect the rendered continuity of a deliberately fast curve.
 - **Strobing is too much change between adjacent frames**, not a frame-rate problem. Keep a fast move's speed and
-  acceleration bounded (30 px a frame, 8 px a frame squared at a 1080-line frame) and its duration long.
-- **A whip so fast it doubles an element in the blur** is a defect; re-time the beats so the carry is a glide.
+  acceleration within its applicable class policy. At 1080 lines the default rig limits are 30 px a frame and 8 px a
+  frame squared; UI and carries have different defaults and brands can set supported speed overrides.
+- **Unexpected doubled edges during a whip** need inspection. Repair sampling, path or timing while preserving the
+  intended gesture; a fast whip does not automatically need to become a glide.
 - **Stacked out-of-phase loops read as swimming.**
 
 ## Entrances and exits
@@ -24,8 +30,8 @@ is [the glitch catalogue](glitch-catalogue.md).
   starts partly inside the frame.
 - **An opacity fade on a strong out-ease** is mostly done in its first frames and reads as a pop: fade-ins need a
   gentler curve or a longer duration, and objects lay in from just above rather than from deep behind.
-- **Nothing vanishes in one frame.** Every element leaves on the exit ease, including the heads and endpoints of lines
-  that fall or finish.
+- **Unplanned one-frame disappearances** need repair. The carried-object recipe uses exits, including line endpoints;
+  a deliberate cut or state change can be instantaneous when it serves the chosen grammar.
 - **Exits leave the frame as opaque objects**, front one first, and are removed once off frame; cards fading out over
   each other read as cards seen through cards.
 - **Return an object by carrying it back** (rising from below), not by fading it up from depth: a fade read as a ghost.
@@ -36,8 +42,8 @@ is [the glitch catalogue](glitch-catalogue.md).
 
 ## Morphs and overlaps
 
-- **Never crossfade one version of a card into another**, and never let two headings cross-fade: sequence the morph so
-  one leaves before the next arrives, and hold existing copy while new items drop in.
+- **Inspect overlapping cards and headings during crossfades.** Sequencing one out before another enters fixed the
+  earlier muddy overlap. A deliberate blend can remain when its text is readable and its continuity is intentional.
 - **Never duplicate an object to animate it.**
 - **Never ease a value twice** (a mask fed through two eases filled in one frame).
 - **Animate corner radii before a split or merge**; don't let them snap on the first frame.
@@ -61,7 +67,9 @@ is [the glitch catalogue](glitch-catalogue.md).
 
 ## Text and layout
 
-- **Never land a line of type while the layout around it is still moving**; wait for it to settle.
+- **Current motion QA rejects type entrances during another same-act carry moving above 2 px per frame at a 1080-line
+  frame**, with an exemption for type on that same carried element. Preserve this check; inspect any other moving-text
+  treatment for actual readability rather than assuming all moving layouts are prohibited.
 - **Never write glyphs into space that's still occupied**: clear each glyph's space before it arrives, and let an impact
   ring out before the end card forms.
 - **Keep layouts stable when data changes**: leave out explanatory lines that would make a column reflow (a reflow

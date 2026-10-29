@@ -8,6 +8,68 @@ files and the MCP tools are the public surface, and a change that breaks one of 
 The first build, extracted and generalized from the pipeline behind three brand films. No brand is in the core: brands
 are data packs, and the tests use a neutral demo brand.
 
+### Owner-approved Voice Library voices (2026-10-15)
+
+A voice profile can now carry a `library_approval`: the owner's recorded yes for one shared ElevenLabs Voice Library
+voice that the vendor labels "professional". With it, the voice is used as a library voice in `voice tts`, `voice
+tags`, `voice ab` and `voice cast`, all of which share the profile's policy and vendor checks. Until now Slate refused
+these voices as someone else's clone; Quinn's rule (2026-10-12) is about clones of people he works with, not voices
+their owners share in the vendor's library. The approval names the exact voice id, who approved it, when and the
+ruling. It never covers an instant clone, a famous voice or a clone of a named person, and autonomous films need
+`autonomous: true` in the approval. The policy tests cover each case; `voice-policy.md` documents the field. The Vixa
+brand pack records its narrator, Adam, this way, so its films no longer need a film-local wrapper.
+
+Also fixed: the `voice_fit` gate now measures a trimmed take by its play length (`slate voice trim`), the same
+length timing places it by; before, it measured the whole file and disagreed with timing.
+
+### Correctness pass (2026-10-04)
+
+- **Alignment comparisons measure the same words.** Only equal normalized occurrences contribute timing
+  disagreement; substitutions, missing and added words remain explicit with coverage. Saved engine copies must
+  bind current selected audio and forced-alignment text. Invalid clocks and incomplete inputs return exit 1.
+  Replay stays labelled, and comparison readiness does not grant timing quality or listening approval.
+
+- **Benchmark decisions bind the compared files.** Higgsedit protocol v2 freezes one master, clock, frame ranges
+  and channel. Runs bind exact input bytes and full comparison coverage; each distinct measured cut needs a
+  current review. Replanning preserves history, legacy records remain incomplete, and nonfinite values or rounded
+  threshold failures cannot create a winning verdict. See `docs/guides/higgsedit-benchmark.md` for the new-folder
+  migration and exact-cut review commands. The funded comparison remains open.
+- **Picture timing measures the pre-polish source.** Transcription and onset snapping use the selected polish's
+  verified source; cues and mixing keep the polished playback. Explicit source/output hashes and equal sample
+  rates/frame counts are checked before cache reuse. A narrow voice selector tracks source choices and stage
+  availability while excluding approval and QA bookkeeping. Whisper reuse checks language/model; forced alignment
+  checks its exact script text. Inherited gate inputs follow parent edits, child overrides and reference changes.
+- **Carry one idea through changing forms.** The shared motion guide explains crowds becoming data, weighted objects
+  becoming navigation, distance-paced curved travel and closing objects that retain their history. It combines the
+  existing kit; the authored paths, data, artwork and finished-scene proof remain with the film.
+
+- **The approved effects renderer is implemented.** `slate sfx spot|render|run` turns picture events into measured,
+  varied cues, plays installed sampled instruments, and balances shared families and hall returns around narration.
+  The mix preserves approved cue choices, recalculates unpinned rides, and writes exact solo deltas for review.
+  Render logs and sync evidence bind to the current cue sheet and delivered mix. Event-specific choices survive
+  re-spotting; write-ons align at their audible start.
+- **Physical books join the kit.** `HingedBook` and `PageLeaf` expose caller-owned front and back faces, curling
+  strips, cover thickness and continuous shadows. Both raster modes keep reverse artwork registered at landing.
+  The craft guides explain how one object can carry evidence across scenes without copying a source film's design.
+- **Updates refresh source bytes.** Installed engine code refreshes even when the Remotion pin stays the same.
+  Replacement holds the render and AE slots, preserves installed dependencies and vendor skills, and restores the
+  old sources if it fails. An interrupted dependency install remains unusable until a successful retry. Update also
+  reports relinking and doctor failures instead of claiming success.
+- **Renders resume against all their inputs.** Web chunk hashes include the scene HTML, film settings, shared kit,
+  engine code and package manifests, so a changed input cannot reuse an old chunk.
+- **Takes retain their provenance.** Reusing a shot refuses changed models, request settings or uploaded bytes before
+  any vendor submission. Additional takes can extend the same request; a different request needs a new shot id.
+- **Variants reuse approved media.** Generation takes and captured media resolve through the parent reference, then
+  conform and receive judgments in the child. A variant cannot submit, cancel or refresh the parent's vendor work.
+  MCP script reads also resolve inherited sources, and writes respect current storyboard and inherited approvals.
+- **Delivery keeps every required gate.** A missing QA or sound module becomes an explicit UNCHECKED blocker. The
+  master gate accepts the declared ffmpeg route for social variants in supervised and express modes.
+- **Failed eval starts preserve useful evidence.** Inconclusive runs keep their own logs and never replace a recorded
+  PASS or FAIL. The sandbox notice now states the same Aside-only browser rule the grader already enforced.
+- **Golden inputs can be frozen.** Private snapshots preserve and verify delivered inputs by hash. Four historical
+  failures were resolved by recovering the matching delivery revisions, applying the source checker's missing-field
+  semantics and handling decimal rounding at the existing tolerance boundary. Expected measurements are unchanged.
+
 ### Added
 
 - **Foundation.** Paths, settings and the model registry, Keychain-backed secrets, child processes that never open a

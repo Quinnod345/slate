@@ -58,7 +58,9 @@ owner asked for.
    (`voice_polish`). Every later polish of that film uses the pin, so a line re-voiced in week three gets week one's
    polish. Moving it is a re-pin with who approved it and why, after a new trial.
 5. **Align again.** Whisper hears the polished takes (the words gate runs on what the audience hears), then run the
-   voice checks.
+   voice checks. Picture timing measures the verified pre-polish source for word timestamps and onset snapping,
+   while the cue sheet and mix retain the polished file. Room processing can move recognised timestamps even when
+   sample counts match. Slate checks source/output provenance and an equal sample rate and frame count before reuse.
 
 ## What it writes
 

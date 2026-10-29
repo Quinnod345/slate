@@ -5,6 +5,11 @@ rejected first (flat shapes that didn't look polished, a 3D filament with no hie
 generated look that read as AI). What worked was the brand's own components and tokens, staged in space, approved from
 a moving test.
 
+These rejected versions are evidence about that film, not bans on flat shapes, glass, generated imagery or another
+brand's look. Follow the latest brief and authorized feedback, retaining the earlier look, its feedback and the
+revision. A requested exploration is already authorized; approval of its resulting moving reference remains a
+separate evidence decision.
+
 ## The north star
 
 The design north star is The Browser Company's craft and warmth, channelled inside the brand's own tokens: borrow the
@@ -24,14 +29,17 @@ feeling (hand-made, warm, every move with a reason), never their brand (motion-s
    rebuilt.
 
 The kit's looks library is the starting point: `flat` (the default until a brand chooses), `paper-2.5d` (only for
-brands whose own language is papery), `editorial` (type-led, for statements, kinetic type and stings), `blueprint`, and
+brands whose chosen film language is papery), `editorial` (type-led, for statements, kinetic type and stings), `blueprint`, and
 the After Effects bridge's looks by name when a look calls for AE.
 
 ## Composition
 
+This is the earlier product-film composition recipe. Adapt its density, focal objects and camera energy to the current
+direction; the concrete failed frames explain where a choice did not work, not what every film must avoid.
+
 - **Compose whole designed objects in generous space**: complete cards, rows and charts, with one clear focal object
-  and a clear hierarchy per frame. A thin line on a big empty field reads as empty; four camera variants of a line
-  close-up all failed for that reason.
+  and a clear hierarchy per frame. Four camera variants of an earlier thin-line close-up read as empty because the
+  line did not carry that idea; deliberate abstraction or sparseness can serve another brief.
 - **Stage beats as objects**: one card splitting into two identical cards, the broken one falling away, rather than
   tracking close-ups of a line.
 - **Every element has a job.** Cut on-screen words and decorations that don't (an unexplained lone word, a line with no
@@ -45,12 +53,16 @@ the After Effects bridge's looks by name when a look calls for AE.
 
 ## Colour and light
 
+The following material rules describe that flat or paper preset. A selected lit, dimensional or expressive look can
+use glows, radial shading and colour changes. Literal product status still uses truthful tokens; a graphic treatment
+cannot invent a product state or capability.
+
 - **The accent colour keeps one meaning** for the whole film (the line that matters is always the accent; competing
   lines are ink, never the accent).
-- **Status colours are the brand's tokens**, never traffic-light gradients or colour ramps.
-- **Depth comes from a soft cast shadow that follows an element's height**, never a glow; the element keeps its colour
-  and weight.
-- **No radial light or edge shading on flat brand fields**: a soft light on a flat disc read as a glow.
+- **Literal status colours are the product's tokens.** Interpretive graphics can choose a meaningful colour scale.
+- **The paper preset gets depth from a soft cast shadow** following height; another selected look can use light or glow.
+- **Flat brand fields stay flat in that preset.** A previous soft light on a flat disc read as an unwanted glow; a
+  deliberately lit treatment can use radial light or edge shading.
 - **In a paper look, a flat colour field that fills the frame** (a disc grown to fill it, a colour section) gets the
   look's paper grain and a soft paper edge, so it reads as paper rather than a flat screen fill; never a radial light.
 - A signature motif keeps one colour through the film and changes form only at designed moments.

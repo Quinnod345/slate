@@ -148,8 +148,12 @@ export async function renderMb(ctx, args, {onTrace = null} = {}) {
         'Regenerate the entry (it is rewritten before every render); if this persists the act ignores its `sub` prop.',
       );
     }
-    const from = Number(args.from ?? 0);
-    const to = Math.min(Number(args.to ?? masterFrames - 1), masterFrames - 1);
+    const from = Number(args.from ?? (target.kind === 'shot' ? target.first : 0));
+    const requestedTo = Number(args.to ?? (target.kind === 'shot' ? target.last : masterFrames - 1));
+    if (target.kind === 'shot' && (!Number.isInteger(from) || !Number.isInteger(requestedTo) || from < target.first || requestedTo > target.last || requestedTo < from)) {
+      throw usage('Frame range is outside replacement ' + target.shot + ' on its owning act clock.');
+    }
+    const to = target.kind === 'shot' ? requestedTo : Math.min(requestedTo, masterFrames - 1);
     if (!Number.isInteger(from) || !Number.isInteger(to) || from < 0 || to < from) {
       throw usage(`Frame range ${args.from ?? 0}–${args.to ?? masterFrames - 1} isn't inside ${target.comp}'s 0–${masterFrames - 1}.`);
     }
@@ -232,7 +236,8 @@ export async function renderMb(ctx, args, {onTrace = null} = {}) {
     const result = {
       file: out,
       comp: target.comp,
-      act: target.kind === 'act' ? target.act : null,
+      act: target.kind === 'act' || target.kind === 'shot' ? target.act : null,
+      ...(target.kind === 'shot' ? {shot: target.shot, scene: target.scene.scene} : {}),
       frames: [from, to],
       film_frames: [target.frameIn + from, target.frameIn + to + 1],
       frame_count: count,

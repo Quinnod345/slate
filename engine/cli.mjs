@@ -187,6 +187,7 @@ const handlers = {
       browser: {...browserStatus(), complete: Boolean(browserExecutable())},
       kit: {present: kitPresent(), entry: kitEntry(), hooks_from: kitHooksModule()},
       web: {present: fs.existsSync(web), module: web},
+      capabilities: {reverse_web_remotion: (await import('./remotion/lib/shot_scenes.mjs')).REVERSE_COMPOSITION_CAPABILITY},
       pins_ok: Object.entries(info.pins).every(([name, pin]) => !pin || info.installed[name] === pin),
     };
   },
@@ -222,12 +223,16 @@ const handlers = {
     return {film: ctx.id, ...(await emitEvents(ctx, args))};
   },
   async trace(args) {
-    const {traceAct, webScene} = await import('./remotion/events.mjs');
+    const {traceAct, webScene, invalidateMotion} = await import('./remotion/events.mjs');
     const {actOf} = await import('./remotion/lib/film.mjs');
+    const {mixedScenesForAct} = await import('./remotion/lib/shot_scenes.mjs');
     if (args.act === undefined || args.act === null) throw usage('Say which act to trace ("act": N).');
     const ctx = await film(args);
     const act = actOf(ctx, args.act).act;
-    if (webScene(ctx.dir, act)) {
+    let replacements;
+    try { replacements = mixedScenesForAct(ctx, act); }
+    catch (error) { invalidateMotion(ctx, act, error.message); throw error; }
+    if (webScene(ctx.dir, act) && !replacements.length) {
       return {film: ctx.id, act, written: false, reason: 'a web scene: the open web renderer writes its motion trace while it renders'};
     }
     return {film: ctx.id, act, ...(await traceAct(ctx, act, {brandPath: args.brand_path ?? null}))};

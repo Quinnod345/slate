@@ -610,7 +610,7 @@ def run_pytest(node_ids: list[str], repo: Path, *, timeout: float = 3600.0) -> t
 
 
 def gate_tests(data: dict, repo: Repo, *, timeout: float = 3600.0) -> GateResult:
-    """Every gate-type lesson's tests, run in one pytest batch: PASS only when every one of them passes."""
+    """Every gate-type lesson's tests: PASS only when every test passes and the pytest batch exits successfully."""
     name = "knowledge.tests"
     wanted = gate_type_tests(data)
     ids = sorted({t for ts in wanted.values() for t in ts})
@@ -635,6 +635,13 @@ def gate_tests(data: dict, repo: Repo, *, timeout: float = 3600.0) -> GateResult
         return GateResult.unchecked(name, f"{len(unrun)} gate-type lesson(s) have tests that were skipped or didn't "
                                           "run, so they aren't proved", engine=eng, details=details,
                                     evidence=[f"{k}: {', '.join(v)}" for k, v in unrun.items()][:30])
+    exit_code = info.get("exit_code")
+    if type(exit_code) is int and exit_code != 0:
+        return GateResult.fail(name, f"pytest ended with exit code {exit_code}; the gate-type test batch did not "
+                                     "complete successfully", evidence=[LEDGER], engine=eng, details=details)
+    if type(exit_code) is not int:
+        return GateResult.unchecked(name, "pytest did not report a confirmed terminal exit code, so the gate-type "
+                                          "test batch is not proved", evidence=[LEDGER], engine=eng, details=details)
     return GateResult.pass_(name, f"all {len(ids)} tests behind {len(wanted)} gate-type lessons pass (one pytest "
                                   "batch)", evidence=[LEDGER], engine=eng, details=details)
 

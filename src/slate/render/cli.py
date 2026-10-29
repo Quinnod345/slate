@@ -44,7 +44,7 @@ def register(sub) -> None:
                    help="first frame: the act's own with --act, otherwise a film frame (inclusive)")
     p.add_argument("--to", dest="frame_to", type=int, metavar="T", help="last frame (inclusive)")
     p.add_argument("--engine", choices=ENGINES, default=None,
-                   help="remotion (default), web, or ae; a patch defaults to its act's engine")
+                   help="remotion, web, or ae; mixed acts and patches default to their built owning engine")
     p.add_argument("--samples", type=int, metavar="N", help="motion-blur sub-frames per frame (default 16; draft 4)")
     p.add_argument("--sub", type=int, metavar="N", help="the same as --samples (render_mb's name for it)")
     p.add_argument("--draft", action="store_true", help="draft samples (4): for animatics, never delivered as final")
@@ -88,7 +88,8 @@ def register(sub) -> None:
     s.add_argument("--scale", type=float, default=0.5, help="size relative to the film (default 0.5)")
     s.add_argument("--samples", type=int, default=1, help="motion-blur sub-frames (default 1)")
     s.add_argument("--out", metavar="DIR", help="where the PNGs go (default renders/stills)")
-    s.add_argument("--engine", choices=ENGINES, default="remotion")
+    s.add_argument("--engine", choices=ENGINES, default=None,
+                   help="preview engine; omitted mixed previews follow each built owner")
 
 
 # ---- helpers ---------------------------------------------------------------------------------------------------
@@ -114,15 +115,20 @@ def _mb(n: float) -> str:
 
 
 def _describe_plan(p) -> str:
-    lines = [f"{p.engine}, {p.samples if p.samples else 'AE'} samples{' (draft)' if p.draft else ''}, "
+    per_engine = any(t.engine is not None for t in p.targets)
+    per_samples = any(t.samples is not None for t in p.targets)
+    engine_label = "engines vary by act" if per_engine else p.engine
+    sample_label = "samples vary by act" if per_samples else f"{p.samples if p.samples else 'AE'} samples"
+    lines = [f"{engine_label}, {sample_label}{' (draft)' if p.draft else ''}, "
              f"{p.width}x{p.height} at {p.fps_num}/{p.fps_den} fps, chunks of {p.chunk_frames} frames"]
     for t in p.targets:
         n = len(p.chunks[f"act{t.act.index}:{t.first}-{t.last}"])
         what = {"act": "whole act", "patch": "patch, spliced into the registered render", "range": "range"}[t.kind]
-        lines.append(f"  act {t.act.index} ({t.act.shots}) frames {t.first}–{t.last}: {what}, {n} chunk(s) "
+        detail = f"{p.engine_for(t)}, {p.samples_for(t)} samples, " if per_engine or per_samples else ""
+        lines.append(f"  act {t.act.index} ({t.act.shots}) frames {t.first}–{t.last}: {detail}{what}, {n} chunk(s) "
                      f"-> {t.out}")
-    where = "in the queue" if p.runs == "queue" else "here"
-    lines.append(f"Disk: about {_mb(p.disk_gb * 1e9)} reserved. Runs {where}: {p.why}.")
+    place = "in the queue" if p.runs == "queue" else "here"
+    lines.append(f"Disk: about {_mb(p.disk_gb * 1e9)} reserved. Runs {place}: {p.why}.")
     return "\n".join(lines)
 
 
@@ -163,9 +169,14 @@ def _check_before_queueing(film_dir: Path, film: dict, p, *, go: bool) -> None:
     """Refuse now, not an hour later in the queue: the engine's rules, what's installed, and patch bases."""
     from slate.render import deps, engines, runner  # noqa: PLC0415
 
-    eng = engines.get(p.engine, film_dir, film, go=go)
-    eng.rules()
-    eng.check_installed()
+    checked = set()
+    for t in p.targets:
+        name = p.engine_for(t)
+        if name not in checked:
+            eng = engines.get(name, film_dir, film, go=go)
+            eng.rules()
+            eng.check_installed()
+            checked.add(name)
     if any(t.kind == "act" for t in p.targets):
         deps.require_state_lock()
     for t in p.targets:

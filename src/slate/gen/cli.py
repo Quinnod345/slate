@@ -314,7 +314,8 @@ def register(sub) -> None:
     p.add_argument("--takes", type=int,
                    help=f"how many takes in all (default from the block, else {policy.DEFAULT_TAKES})")
     p.add_argument("--approval", help="the approval id a person said yes to (autonomous films)")
-    p.add_argument("--force", action="store_true", help="make new takes even though one is approved")
+    p.add_argument("--force", action="store_true",
+                   help="make more takes of the same request even though one is approved; changed requests need a new shot id")
     p.add_argument("--timeout", type=float, default=gen_run.WAIT_TIMEOUT_S, help="seconds to wait per take")
     p.add_argument("--detach", action="store_true", help="run it as a job in the queue and return at once")
 

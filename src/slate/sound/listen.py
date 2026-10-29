@@ -8,8 +8,9 @@ machine, so the file always plays. Close hits share an excerpt.
 
     listen.ridden_accents(film_dir, n=9) -> {"file": ..mp4, "index": ..json, "excerpts": [...]}
 
-It reads the accent family's own stem (sound/mix/family_stems/accents.wav): a ride is a gain on one hit, so the hit
-alone is what's added back. A mix without family stems has nothing to take a hit from, and says so.
+It reads the mixer's exact per-hit difference files: each contains the hit before its adaptive ride minus the hit
+afterward, including its own reverb and the final master processing. This preserves overlapping sounds and spectral
+rides. A missing or changed difference file requires another mix; a family stem cannot reconstruct it safely.
 """
 
 from __future__ import annotations
@@ -19,7 +20,7 @@ from pathlib import Path
 import numpy as np
 
 from slate import gates, jsonio, log, procs
-from slate.errors import MissingPrerequisite
+from slate.errors import MissingPrerequisite, UsageError
 from slate.sound import audio
 from slate.sound.film import MIX_DIR, Film, load
 
@@ -50,6 +51,47 @@ def _master(film: Film) -> Path | None:
     files += sorted(film.path("masters").glob("**/*.mov")) + sorted(film.path("masters").glob("**/*.mp4"))
     files = [p for p in files if p.is_file()]
     return max(files, key=lambda p: p.stat().st_mtime) if files else None
+
+
+def _ride_delta(film: Film, ride: dict) -> tuple[Path, int, int]:
+    """Validate the exact difference for one hit; return its file, film start and sample count."""
+    hint = "Run `slate mix` again to rebuild the exact per-hit listening deltas."
+    delta = ride.get("delta")
+    if not isinstance(delta, dict) or not isinstance(delta.get("file"), str) or not delta.get("sha256"):
+        raise MissingPrerequisite(f"Ride {ride.get('hit')!r} has no verified per-hit delta.", hint=hint)
+    relative = Path(delta["file"])
+    path = film.path(relative).resolve()
+    if relative.is_absolute() or not path.is_relative_to(film.dir.resolve()):
+        raise MissingPrerequisite("A listening delta must be a file inside this film.", hint=hint)
+    start = delta.get("start_sample")
+    if isinstance(start, bool) or not isinstance(start, int) or start < 0:
+        raise MissingPrerequisite("A listening delta has an invalid start sample.", hint=hint)
+    if not path.is_file() or jsonio.sha256(path) != delta["sha256"]:
+        raise MissingPrerequisite(f"Ride {ride.get('hit')!r} has a missing or changed per-hit delta.", hint=hint)
+    try:
+        info = audio.wav_info(path)
+    except (OSError, ValueError, UsageError) as error:
+        # A checksum alone cannot establish that the bytes are usable audio.
+        raise MissingPrerequisite("A listening delta is not a readable WAV file.", hint=hint) from error
+    if info.sample_rate != film.sr or info.channels != 2 or info.frames <= 0 or start + info.frames > film.n:
+        raise MissingPrerequisite("A listening delta's rate, channels or bounds do not match this film.", hint=hint)
+    return path, start, info.frames
+
+
+def _before_excerpt(now: np.ndarray, start: int, deltas: list[tuple[Path, int, int]], sr: int) -> np.ndarray:
+    """Add only the selected hits' exact differences, including tails outside their dry cue spans."""
+    before = np.array(now, copy=True)
+    end = start + len(before)
+    for path, at, size in deltas:
+        a, b = max(start, at), min(end, at + size)
+        if b <= a:
+            continue
+        delta, rate = audio.read_wav(path, a - at, b - a)
+        if rate != sr or delta.shape != (b - a, 2) or not np.isfinite(delta).all():
+            raise MissingPrerequisite("A listening delta changed or contains invalid audio.",
+                                      hint="Run `slate mix` again to rebuild the listening deltas.")
+        before[a-start:b-start] += delta
+    return before
 
 
 def _label(text: str, sub: str, path: Path, size: tuple[int, int]) -> Path:
@@ -97,38 +139,35 @@ def ridden_accents(film_dir: str | Path, *, n: int = 9, out: str | Path | None =
                                   hint="slate doctor --install")
     bal = balance.palette_balance(film.palette)
     rides = [r for r in balance.read_rides(film, balance.cue_hits(film, bal))["rides"]
-             if r.get("family") in FAMILIES and r.get("t") is not None and float(r.get("depth_db") or 0.0) < 0.0]
+             if r.get("family") in FAMILIES and not r.get("pinned") and r.get("t") is not None
+             and float(r.get("depth_db") or 0.0) < 0.0]
     if not rides:
         raise MissingPrerequisite("Nothing was ridden: sound/mix/rides.json lists no ridden accents.",
                                   hint="The mix's guards write it as they ride; there's nothing to hear until then.")
-    stems = {f: film.path(f"{MIX_DIR}/family_stems/{f}.wav") for f in FAMILIES}
-    missing = [f for f, p in stems.items() if not p.exists()]
-    if missing:
-        raise MissingPrerequisite(f"The mix has no {', '.join(missing)} family stem (sound/mix/family_stems/), so a "
-                                  "hit can't be heard on its own.", hint="Mix with family stems (the effects engine "
-                                                                         "writes them), then make the listening file.")
     mix_path = film.path(f"{MIX_DIR}/final_mix.wav")
     if not mix_path.exists():
         raise MissingPrerequisite(f"{film.id} hasn't been mixed yet.", hint="Run `slate mix` first.")
+    record = jsonio.read(film.path(f"{MIX_DIR}/rides.json"), default={}) or {}
+    if record.get("mix_sha256") != jsonio.sha256(mix_path):
+        raise MissingPrerequisite("The listening deltas are missing a current mix binding or belong to an older mix.",
+                                  hint="Run `slate mix` again to rebuild the exact per-hit listening deltas.")
+    if len({r.get("hit") for r in rides}) != len(rides):
+        raise MissingPrerequisite("The rides record repeats a hit, so its listening delta would be added twice.",
+                                  hint="Run `slate mix` again to rebuild the rides record.")
+    excerpts = _excerpts(rides, n, film.duration_s)
+    deltas = {r["hit"]: _ride_delta(film, r) for ex in excerpts for r in ex["rides"]}
     folder = film.path(out) if out else film.path(OUT_DIR)
     work = folder / "parts"
     work.mkdir(parents=True, exist_ok=True)
     sr = film.sr
     picture = _master(film)
     fps = f"{film.fps_num}/{film.fps_den}"
-    excerpts = _excerpts(rides, n, film.duration_s)
     clips, rows = [], []
     for k, ex in enumerate(excerpts, 1):
         a, b = int(round(ex["from"] * sr)), int(round(ex["to"] * sr))
         now, _ = audio.read_wav(mix_path, a, b - a)
         now = audio.to_stereo(now)
-        before = now.copy()
-        for r in ex["rides"]:
-            fam, _ = audio.read_wav(stems[r["family"]], a, b - a)
-            fam = audio.to_stereo(fam)
-            i0, i1 = max(0, int(round(float(r["t"]) * sr)) - a), min(b - a, int(round(float(r["end"]) * sr)) - a)
-            undo = 10 ** (-float(r["depth_db"]) / 20) - 1.0  # what the ride took off that hit, added back
-            before[i0:i1] += fam[i0:i1] * undo
+        before = _before_excerpt(now, a, [deltas[r["hit"]] for r in ex["rides"]], sr)
         hits = ", ".join(f"{r.get('hit')} at {float(r['t']):.2f} s ({float(r['depth_db']):+.1f} dB"
                          + (", half depth" if r.get("half_depth") else "") + ")" for r in ex["rides"])
         secs = (b - a) / sr

@@ -92,13 +92,15 @@ def compare(cut: str | Path, master: str | Path, *, ranges: list[list[int]] | No
     below = [i for i, v in enumerate(ssim) if v < SSIM_FRAME_FLOOR]
     return {
         "cut": str(cut), "master": str(master), "ranges": ranges,
+        "cut_media": {k: ci[k] for k in ("width", "height", "fps_num", "fps_den")},
+        "master_media": {k: mi[k] for k in ("width", "height", "fps_num", "fps_den")},
         "frames_cut": ci["frames"], "frames_reference": reference, "frames_compared": len(ssim),
         "frames_match": ci["frames"] == reference,
         "reference": "same size" if same else "reframed (master scaled to cover the cut and centre-cropped)",
         "psnr": measure.summarize(psnr, threshold=PSNR_FLOOR_DB),
-        "ssim": {"mean": round(sum(ssim) / len(ssim), 5) if ssim else None, "min": round(min(ssim), 5) if ssim else None,
+        "ssim": {"mean": sum(ssim) / len(ssim) if ssim else None, "min": min(ssim) if ssim else None,
                  "frame_floor": SSIM_FRAME_FLOOR, "below_floor": len(below),
-                 "below_floor_share": round(len(below) / len(ssim), 5) if ssim else None,
+                 "below_floor_share": len(below) / len(ssim) if ssim else None,
                  "worst": sorted(({"frame": i, "ssim": round(v, 5)} for i, v in enumerate(ssim)),
                                  key=lambda r: r["ssim"])[:10]},
         "engine": media.engine("psnr and ssim", pix_fmt=PIX_FMT),

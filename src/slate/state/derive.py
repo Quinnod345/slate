@@ -39,22 +39,25 @@ from slate import __version__, config, jsonio, log, paths
 from slate.errors import UsageError
 from slate.state import _util, approvals, autonomy, deps, film, lock, modes, production, scaffold
 
-KINDS = ("cutdown", "aspect", "language")
+KINDS = ("cutdown", "aspect", "language", "channel")
 
 # Film-relative paths (a trailing slash means a folder) and the kinds that reuse them by reference.
 PATH_RULES: tuple[tuple[str, frozenset[str]], ...] = (
-    ("script/script.json", frozenset({"aspect"})),
-    ("script/storyboard.json", frozenset({"aspect"})),
-    ("script/SCRIPT.md", frozenset({"aspect"})),
-    ("voice/", frozenset({"aspect", "cutdown"})),
-    ("timing/shots.json", frozenset()),  # it names the frame size: each film makes its own (same frames)
-    ("timing/timeline.json", frozenset()),
-    ("timing/vo_cues.json", frozenset({"aspect", "cutdown"})),
-    ("timing/vo_words.json", frozenset({"aspect", "cutdown"})),
-    ("timing/events.json", frozenset({"aspect", "cutdown"})),
-    ("timing/visual_events/", frozenset({"aspect", "cutdown"})),
+    ("script/script.json", frozenset({"aspect", "channel"})),
+    ("script/storyboard.json", frozenset({"aspect", "channel"})),
+    ("script/SCRIPT.md", frozenset({"aspect", "channel"})),
+    ("voice/", frozenset({"aspect", "cutdown", "channel"})),
+    ("timing/shots.json", frozenset({"channel"})),  # only an unchanged clock and size may reuse these
+    ("timing/timeline.json", frozenset({"channel"})),
+    ("timing/vo_cues.json", frozenset({"aspect", "cutdown", "channel"})),
+    ("timing/vo_words.json", frozenset({"aspect", "cutdown", "channel"})),
+    ("timing/events.json", frozenset({"aspect", "cutdown", "channel"})),
+    ("timing/captions.json", frozenset({"channel"})),
+    ("timing/captions.srt", frozenset({"channel"})),
+    ("timing/captions.vtt", frozenset({"channel"})),
+    ("timing/visual_events/", frozenset({"aspect", "cutdown", "channel"})),
     ("timing/motion/", frozenset({"cutdown"})),
-    ("captures/", frozenset({"aspect", "cutdown"})),
+    ("captures/", frozenset({"aspect", "cutdown", "channel"})),
 )
 # Lock entries reused wherever they live, by the command that made them.
 PRODUCER_RULES: tuple[tuple[str, frozenset[str]], ...] = (
@@ -67,6 +70,7 @@ INHERIT = {
     "aspect": frozenset({"claims", "script", "voice_shortlist", "look_test"}),
     "cutdown": frozenset({"claims", "voice_shortlist", "look_test"}),
     "language": frozenset({"look_test"}),
+    "channel": frozenset({"claims", "script", "voice_shortlist", "look_test"}),
 }
 PACKET_INHERIT = frozenset({"take", "plate", "score_take"})  # approvals that travel with a reused file
 
@@ -94,12 +98,18 @@ def _candidates(parent_dir: Path) -> dict[str, str | None]:
         for p in _util.walk_files(parent_dir / folder):
             rel = p.relative_to(parent_dir).as_posix()
             out[rel] = (files.get(rel) or {}).get("producer")
+    # Older generation runs recorded their downloaded media but not generation.json. Keep that provenance readable
+    # in new variants too, without rewriting the parent's record or requiring it to generate again.
+    for p in (parent_dir / "plates").glob("*/generation.json"):
+        rel = p.relative_to(parent_dir).as_posix()
+        out[rel] = (files.get(rel) or {}).get("producer") or "slate gen run"
     for rel, e in files.items():
         out.setdefault(rel, e.get("producer"))
     return out
 
 
-def _label(kinds: list[str], aspect: str | None, cut: float | None, language: str | None) -> str:
+def _label(kinds: list[str], aspect: str | None, cut: float | None, language: str | None,
+           channel: str | None = None) -> str:
     parts = []
     if "cutdown" in kinds and cut:
         parts.append(f"{cut:g}-second cut")
@@ -107,6 +117,8 @@ def _label(kinds: list[str], aspect: str | None, cut: float | None, language: st
         parts.append(aspect)
     if "language" in kinds and language:
         parts.append(language)
+    if "channel" in kinds and channel:
+        parts.append(f"{channel} channel")
     return ", ".join(parts)
 
 
@@ -149,7 +161,7 @@ def create(parent_dir: Path, child_id: str, *, format: str | None = None, aspect
         aspect = fmt_defaults["aspect"]
     if aspect:
         if film.aspect_of(*film.parse_aspect(aspect)) == film.aspect_of(pj["width"], pj["height"]):
-            if "cutdown" not in kinds and not language:
+            if "cutdown" not in kinds and not language and not channel:
                 raise UsageError(f"{pj['id']} is already {pj.get('aspect')}; name another aspect.")
         else:
             kinds.append("aspect")
@@ -158,9 +170,11 @@ def create(parent_dir: Path, child_id: str, *, format: str | None = None, aspect
         if language == pj.get("language"):
             raise UsageError(f"{pj['id']} is already in {language}.")
         kinds.append("language")
+    if not kinds and channel:
+        kinds.append("channel")
     if not kinds:
         raise UsageError("Say what the derived film changes: --cut SECONDS, --aspect W:H, --language xx, or a "
-                         "--format with another aspect.")
+                         "--channel (or a --format with another aspect).")
     route = None
     if channel:
         r = deps.route_for(channel)
@@ -183,10 +197,13 @@ def create(parent_dir: Path, child_id: str, *, format: str | None = None, aspect
             width, height = film.size_for_aspect(aspect, pj["width"], pj["height"])
     elif fmt_defaults:
         width, height = fmt_defaults["width"], fmt_defaults["height"]
+    if kinds == ["channel"] and (width, height) != (pj["width"], pj["height"]):
+        raise UsageError("A full-length channel variant reuses its parent's timing on the same frame size.",
+                         hint=f"Use a format at {pj['width']}×{pj['height']}, or choose a new aspect and rebuild timing.")
     if fmt_defaults and (fmt_defaults["fps_num"], fmt_defaults["fps_den"]) != (pj["fps_num"], pj["fps_den"]):
         log.warn(f"{child_id} keeps its parent's clock ({pj['fps_num']}/{pj['fps_den']}), not the format's "
                  f"({fmt_defaults['fps_num']}/{fmt_defaults['fps_den']}), so every reused timing stays frame-exact.")
-    label = _label(kinds, aspect, cut, language)
+    label = _label(kinds, aspect, cut, language, channel)
     lang_ok = _util.supported_language(language) if language else True
     if language and not lang_ok:
         log.warn(f"v1 speaks English only: the voice, captions and word timings for {language!r} need language "
@@ -213,6 +230,8 @@ def create(parent_dir: Path, child_id: str, *, format: str | None = None, aspect
         restage_why.append(f"text in {language} runs to different lengths")
     if "cutdown" in kinds:
         restage_why.append("the acts are re-cut to the kept shots, and every join is checked again")
+    if "channel" in kinds:
+        restage_why.append(f"the {channel} channel: its own layout, type scale and safe areas on the source clock")
     # Every channel's zone at the child's own aspect, from the formats module when it knows the format there (any
     # format, not only a 9:16-only one); else the named format's own safe_zones.
     source_fmt = fmt or {}

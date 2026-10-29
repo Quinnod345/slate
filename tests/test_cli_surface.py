@@ -299,8 +299,11 @@ libc.printf(b"native noise after it\n")
 def test_a_json_commands_stdout_is_sealed_once_its_object_is_out():
     """Native code prints through C stdio (Apple Vision does), buffered and flushed at exit: once a --json command's
     object is out, fd 1 points at stderr, so that text lands there and stdout stays exactly one object."""
+    # This case deliberately creates buffered C output. The queue runs Python unbuffered, which also makes libc's
+    # stdout unbuffered: inherited here, that would print the first line before the seal can exist.
+    env = {k: v for k, v in os.environ.items() if k != "PYTHONUNBUFFERED"}
     proc = subprocess.run([sys.executable, "-c", SEAL.format(src=str(REPO / "src"))], capture_output=True, text=True,
-                          timeout=60)
+                          env=env, timeout=60)
     assert proc.returncode == 0, proc.stderr
     assert json.loads(proc.stdout) == {"ok": True}
     assert "buffered in C stdio before" in proc.stderr and "after it" in proc.stderr

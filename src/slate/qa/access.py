@@ -21,7 +21,10 @@
 - type_size   body copy (a line of four or more words, not set in capitals) stands at least 28 px tall at 1080 lines:
               each line's capitals are measured on the picture inside its OCR box and must reach 62% of 28 px (the
               lowest common cap height), scaled to the frame's short side. The original film's 12 to 14 px body copy
-              was unreadable. Labels, eyebrows and anything a shot declares not for reading are left out.
+              was unreadable. Short lines, capitals and anything a shot declares not for reading are left out;
+              this word-count heuristic does not infer semantic roles such as native control labels.
+              Eligible witnesses without a measurement are reported as omissions and prevent PASS. A measured
+              undersized line remains FAIL even when other witnesses are missing.
 
 A sub-check that doesn't apply is left out rather than passed: a 16:9 film has no 9:16 safe zones, and a film with
 no voice has no captions. One that applies but can't run yet (no render, no OCR, no brand pairs) is UNCHECKED, with
@@ -1578,7 +1581,21 @@ BODY_SHARE = 7 / 270  # …which is this share of the frame's short side (scaled
 REFERENCE_LINES = BODY_PX / BODY_SHARE  # the line count the 28 px is stated at
 CAP_EM = 0.62  # the lowest common cap height, as a share of the type size (sans faces run about 0.62–0.73)
 BODY_WORDS = 4  # a line of this many words or more, not set in capitals, is body copy
+TYPE_SIZE_MAX_CANDIDATES = 400  # bound pixel decoding; an omitted witness remains unmeasured
 _MEASURABLE = re.compile(r"[A-Z0-9bdfhklt]")  # a capital, a figure or an ascender reaches the cap line
+#: A line's capitals fill most of its own OCR box (about 0.6 to 0.75 of it; the lowest seen on a film was 0.42). Ink
+#: standing under this share of the box, on a line measured whole in the same place and shot, is that line fading out
+#: (a few specks of it, or AE's dither on them), not its letters. Anywhere else it is measured like any other line.
+CAP_OF_BOX_MIN = 0.25
+
+
+def _iou(a, b) -> float:
+    """Intersection over union of two [x0, y0, x1, y1] boxes."""
+    ix = max(0.0, min(a[2], b[2]) - max(a[0], b[0]))
+    iy = max(0.0, min(a[3], b[3]) - max(a[1], b[1]))
+    inter = ix * iy
+    union = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter
+    return inter / union if union > 0 else 0.0
 
 
 def cap_height(gray) -> float | None:
@@ -1637,6 +1654,7 @@ def check_type_size(ctx, *, sheet: str | None = None, read: list | None = None):
     w, h = ctx.size
     floor = BODY_SHARE * CAP_EM * min(w, h)
     wanted: dict[tuple, tuple] = {}
+    eligible = 0
     for s, text, box in _text_lines(samples):
         words = text.split()
         if len(words) < BODY_WORDS or text.upper() == text or not _MEASURABLE.search(text):
@@ -1644,46 +1662,119 @@ def check_type_size(ctx, *, sheet: str | None = None, read: list | None = None):
         shot = ctx.shot_of_frame(int(s["frame"])) if s.get("frame") is not None else None
         if shot in skip:
             continue
+        eligible += 1
         key = (re.sub(r"\W+", "", text.lower())[:40], tuple(round(v, 2) for v in box))
         wanted.setdefault(key, (s, text, box, shot))
-    measured, small = [], []
+    measured, small, unmeasured = [], [], []
+    omission_counts: dict[str, int] = {}
+
+    def missing(item, reason: str, **extra) -> None:
+        s, text, _box, shot = item
+        omission_counts[reason] = omission_counts.get(reason, 0) + 1
+        unmeasured.append({"text": text[:60], "at": s["label"], "frame": s.get("frame"), "shot": shot,
+                           "reason": reason, **extra})
+
     by_part: dict[int, list] = {}
-    for item in list(wanted.values())[:400]:
+    for index, item in enumerate(wanted.values()):
+        if index >= TYPE_SIZE_MAX_CANDIDATES:
+            missing(item, "candidate_limit")
+            continue
+        if item[0].get("frame") is None:
+            missing(item, "missing_sample_frame")
+            continue
         frame = int(item[0]["frame"])
         k = next((i for i, (_p, f0, n) in enumerate(parts) if f0 <= frame < f0 + n), None)
         if k is not None:
             by_part.setdefault(k, []).append(item)
+        else:
+            missing(item, "source_frame_unmapped")
+    decoded = 0
+    faint: list = []  # witnesses whose crop has no measurable ink (a line caught fading in or out, or OCR noise)
+    slivers: list = []  # witnesses whose ink stands far shorter than their own box (CAP_OF_BOX_MIN)
+    measured_boxes: dict = {}
     for k, items in by_part.items():
         path, f0, _n = parts[k]
-        frames = media.read_frames(path, [int(it[0]["frame"]) - f0 for it in items], pix_fmt="gray")
+        try:
+            frames = media.read_frames(path, [int(it[0]["frame"]) - f0 for it in items], pix_fmt="gray")
+        except SlateError as exc:
+            for item in items:
+                missing(item, "decode_failed", message=exc.message, hint=exc.hint)
+            continue
         for s, text, box, shot in items:
             arr = frames.get(int(s["frame"]) - f0)
             if arr is None:
+                missing((s, text, box, shot), "frame_not_decoded")
                 continue
+            decoded += 1
             fh, fw = arr.shape[:2]
             x0, y0, x1, y1 = box
             pad = 0.15 * (y1 - y0)
             crop = arr[max(0, int((y0 - pad) * fh)):min(fh, int(math.ceil((y1 + pad) * fh))),
                        max(0, int(x0 * fw)):min(fw, int(math.ceil(x1 * fw)))]
-            cap = cap_height(crop) if crop.size else None
-            if cap is None:
+            if not crop.size:
+                missing((s, text, box, shot), "empty_crop")
                 continue
+            raw_cap = cap_height(crop)
+            cap = _num(raw_cap)
+            if raw_cap is None:
+                faint.append((s, text, box, shot))  # no ink to measure: settled below, against the measured lines
+                continue
+            if cap is None or cap <= 0:
+                missing((s, text, box, shot), "invalid_cap_measurement")
+                continue
+            sliver = cap < CAP_OF_BOX_MIN * (y1 - y0) * fh
             cap *= h / fh  # in the film's own pixels
             row = {"text": text[:60], "at": s["label"], "shot": shot, "cap_px": round(cap, 1),
                    "type_px_at_1080": round(cap / CAP_EM * REFERENCE_LINES / min(w, h), 1)}
+            if sliver:
+                slivers.append(((s, text, box, shot), row))  # settled below: a fading twin, or measured as it stands
+                continue
+            measured_boxes.setdefault(shot, []).append(box)
             measured.append(row)
             if cap < floor:
                 small.append(row)
+    # A faint witness that overlaps a line measured in the same shot is that line caught mid-fade (OCR may even read
+    # it differently: "Vhy does that matter?"): it adds nothing to measure. Any other faint witness stays an omission.
+    faint_duplicates = []
+    for item, row in slivers:
+        s, text, box, shot = item
+        if any(_iou(box, other) >= 0.5 for other in measured_boxes.get(shot, [])):
+            faint_duplicates.append({"text": text[:60], "at": s["label"], "frame": s.get("frame"), "shot": shot,
+                                     "sliver_cap_px": row["cap_px"]})
+        else:
+            measured.append(row)
+            if row["cap_px"] < floor:
+                small.append(row)
+    for item in faint:
+        s, text, box, shot = item
+        if any(_iou(box, other) >= 0.5 for other in measured_boxes.get(shot, [])):
+            faint_duplicates.append({"text": text[:60], "at": s["label"], "frame": s.get("frame"), "shot": shot})
+        else:
+            missing(item, "no_cap_measurement")
     details = {"floor_cap_px": round(floor, 1), "measured": len(measured), "engine": engine, "files": files,
-               "rule": f"body copy (≥ {BODY_WORDS} words, not in capitals) ≥ {BODY_PX:g} px at 1080 lines"}
+               "faint_duplicates": faint_duplicates[:40],
+               "rule": f"body copy (≥ {BODY_WORDS} words, not in capitals) ≥ {BODY_PX:g} px at 1080 lines",
+               "eligible": eligible, "unique_candidates": len(wanted), "duplicate_candidates": eligible - len(wanted),
+               "candidate_limit": TYPE_SIZE_MAX_CANDIDATES,
+               "selected_candidates": min(len(wanted), TYPE_SIZE_MAX_CANDIDATES), "decoded_candidates": decoded,
+               "unmeasured": len(unmeasured), "omission_counts": omission_counts,
+               "omitted_candidates": unmeasured[:40], "coverage_complete": not unmeasured,
+               "coverage_scope": "one witness per normalized text and rounded OCR box"}
     if small:
         smallest = min(small, key=lambda r: r["cap_px"])
         return _sub("type_size", "FAIL", f"{_plural(len(small), 'line')} of body copy under {BODY_PX:g} px at 1080 "
                     f"lines: “{smallest['text']}” at {smallest['at']} stands about {smallest['type_px_at_1080']:g} px",
                     [f"“{r['text']}” at {r['at']}: capitals {r['cap_px']:g} px (about {r['type_px_at_1080']:g} px "
-                     f"type at 1080 lines)" for r in small[:15]], small=small[:40], **details)
+                    f"type at 1080 lines)" for r in small[:15]], small=small[:40], **details)
+    if unmeasured:
+        return _sub("type_size", "UNCHECKED", f"{_plural(len(unmeasured), 'body-text witness')} could not be "
+                    f"measured; {len(measured)} of {len(wanted)} unique candidates measured",
+                    [f"“{r['text']}” at {r['at']}: {r['reason']}" for r in unmeasured[:15]],
+                    hint="Read the omitted candidates, restore their picture frames or measure their text crops, "
+                         "then run `slate qa access` again.", **details)
     if not measured:
-        return _sub("type_size", "PASS", "no body copy to measure (labels and titles aren't body copy)", [], **details)
+        return _sub("type_size", "PASS", "no body copy to measure under the word-count and capitalization rule",
+                    [], **details)
     lowest = min(measured, key=lambda r: r["cap_px"])
     return _sub("type_size", "PASS", f"all {_plural(len(measured), 'line')} of body copy stand at {BODY_PX:g} px or "
                 f"more at 1080 lines (smallest about {lowest['type_px_at_1080']:g} px)", [], **details)
@@ -1756,7 +1847,7 @@ def evaluate(film_dir: Path, *, render: str | None = None, render_act: int | Non
         paths.append(str(folder / "brand.json"))
     from slate.qa import media  # noqa: PLC0415
 
-    engine = gates.engine("slate qa access", __version__,
+    engine = gates.engine("slate qa access", __version__, rule_revision=gates.rule_revision(GATE),
                           flashes="WCAG 2.3.1 general and red flash thresholds (2.2 definitions)",
                           contrast="WCAG relative luminance",
                           decoder=f"ffmpeg {media.version('ffmpeg') or 'not installed'}")

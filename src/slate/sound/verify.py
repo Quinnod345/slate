@@ -21,7 +21,8 @@ sound.clarity          every word of the voice at least 3 dB over everything els
                        louder than the voice
 sound.music_licence    REVIEW for broadcast use (film, TV, radio) until the film records an Eleven Music Enterprise
                        licence; PASS otherwise
-sound.voice_limiter    the voice-only limiter touched under 5% of the speech (measured by `slate mix`)
+sound.voice_limiter    the voice-only limiter touched under 5% of the speech, from exact gain or a proven bypass;
+                      waveform-only estimates and unknown provenance remain UNCHECKED
 sound.key              every pitched note in the UI and tonal stems on the brand key's pentatonic; REVIEW a stem with more
                        than half its notes on one or two pitches
 sound.timbre           each effect stem's median spectral centroid at or under 1.5 kHz, no chime tails (a high partial
@@ -34,6 +35,7 @@ Only PASS counts as passed. A gate that can't run says UNCHECKED and why; it's n
 
 from __future__ import annotations
 
+from functools import partial
 from pathlib import Path
 from typing import Callable
 
@@ -84,8 +86,9 @@ class _Ctx:
         p = self.stem_paths[name]
         return self.read(p) if p.exists() else None
 
-    def inputs(self, *rels: str | Path) -> dict:
-        return gates.inputs_for(self.film.dir, [r for r in rels if self.film.path(r).exists()])
+    def inputs(self, *rels: str | Path, include_missing: bool = False) -> dict:
+        """Track absent dependencies when a gate needs their later creation to invalidate its result."""
+        return gates.inputs_for(self.film.dir, [r for r in rels if include_missing or self.film.path(r).exists()])
 
 
 def _engine() -> dict:
@@ -226,13 +229,27 @@ def anchor_offset(y: np.ndarray, rule: str, sr: int) -> int | None:
     """Samples from a sound's first sample to what the ear syncs to, measured on the sound on its own."""
     if rule in ("none", "bed", "vo"):
         return None
+    mono = np.abs(audio.mono(np.asarray(y, dtype=np.float64)))
+    if not len(mono) or not np.any(mono):
+        return None
+    if rule in ("start", "onset24", "end20"):
+        # The approved legacy names use a 2 ms RMS envelope. "onset24" is the historical name, not its threshold:
+        # like "start", it is 40 dB below the envelope peak. A bounded running sum preserves very short cues too.
+        width = max(1, int(0.002 * sr))
+        power = np.concatenate([[0.0], np.cumsum(mono ** 2)])
+        index = np.arange(len(mono))
+        low = np.clip(index - width // 2, 0, len(mono))
+        high = np.clip(index + (width - 1) // 2 + 1, 0, len(mono))
+        envelope = np.sqrt(np.maximum((power[high] - power[low]) / width, 0))
+        threshold = envelope.max() * 10 ** ((-20 if rule == "end20" else -40) / 20)
+        live = np.flatnonzero(envelope >= threshold)
+        return int(live[-1] + 1 if rule == "end20" else live[0]) if len(live) else None
     if rule in ("onset", "onset12"):
         return dsp.onset_index(y, 12.0)
     if rule == "onset30":
         return dsp.onset_index(y, 30.0)
-    if rule == "peak20":
-        return dsp.loudest_window_index(y, sr, 0.02)
-    if rule == "peak50":
+    if rule in ("peak20", "peak50"):
+        # The approved proof retained its legacy peak20 name after moving noise anchors to a steadier 50 ms window.
         return dsp.loudest_window_index(y, sr, 0.05)
     if rule in ("end", "end40"):
         return dsp.last_above_index(y, 40.0, sr=sr)
@@ -241,24 +258,25 @@ def anchor_offset(y: np.ndarray, rule: str, sr: int) -> int | None:
     raise ValueError(f"unknown anchor rule {rule!r}")
 
 
-def _hit_audio(film: Film, hit: dict, render: Callable | None) -> tuple[np.ndarray | None, str]:
-    """A hit's own audio: its file, or the effects engine's render of it. ("", reason) when neither is available."""
+def _hit_audio(film: Film, hit: dict, render: Callable | None) -> tuple[np.ndarray | None, int, str]:
+    """A hit's own samples, placement offset and any failure reason; offsets are film-rate samples."""
     if hit.get("file"):
         p = film.resolve_media(hit["file"])
         if not p.exists():
-            return None, f"file missing: {hit['file']}"
+            return None, 0, f"file missing: {hit['file']}"
         y = audio.load(p, film.sr)
         if hit.get("trim"):
             a, b = hit["trim"]
             y = y[int(float(a) * film.sr):int(float(b) * film.sr)]
-        return y, ""
+        align = (hit.get("params") or {}).get("align", hit.get("align"))
+        return y, (-len(y) if align == "end" else 0), ""
     if render is not None:
         try:
-            y, _start = render(hit)
-            return y, ""
+            y, start = render(hit)
+            return y, int(start), ""
         except Exception as exc:  # noqa: BLE001 - the engine refusing (gated) is a reason, not a crash
-            return None, str(getattr(exc, "message", exc))
-    return None, "no file, and the effects engine that could re-render it waits for proof 3"
+            return None, 0, str(getattr(exc, "message", exc))
+    return None, 0, "no file, and the effects engine that could re-render it waits for proof 3"
 
 
 def _hits(sheet: dict) -> list[dict]:
@@ -275,14 +293,118 @@ def _hits(sheet: dict) -> list[dict]:
     return out
 
 
-def _engine_renderer() -> Callable | None:
+def _engine_renderer(film: Film | None = None) -> Callable | None:
     try:
         from slate.sound.effects import engine  # noqa: PLC0415
         from slate.sound.effects import status  # noqa: PLC0415
 
-        return engine.render_cue if status()["approved"] else None
+        if not status()["approved"]:
+            return None
+        return engine.render_cue if film is None else partial(engine.render_cue, film_dir=film.dir, sample_rate=film.sr)
     except ImportError:
         return None
+
+
+def _applied_log(film: Film, sheet: dict) -> tuple[dict | None, set[str], str]:
+    """Read the actual mix's hit identities; stale or incomplete logs cannot certify generated effects."""
+    manifest = jsonio.read(film.path(f"{STEMS_DIR}/stems.json"), default={}) or {}
+    if manifest.get("producer") != "slate sfx" and not (film.data.get("sound") or {}).get("effects"):
+        return None, set(), ""
+    path = film.path(f"{MIX_DIR}/render_log.json")
+    mix_path, cue_path = film.path(f"{MIX_DIR}/final_mix.wav"), film.source(CUES_FILE)
+    log = jsonio.read(path, default={}) or {}
+    if (log.get("sample_rate") != film.sr or not mix_path.is_file() or not cue_path.is_file()
+            or log.get("mix_sha256") != jsonio.sha256(mix_path)
+            or log.get("cue_sheet_sha256") != jsonio.sha256(cue_path)):
+        return None, set(), "the effects render log is missing or stale; run slate mix"
+    expected = {str(hit.get("id")): hit for hit in _hits(sheet)}
+    rows = log.get("cues") or []
+    applied = {str(row.get("hit")): row for row in rows}
+    suppressed = set(log.get("suppressed_by_score") or [])
+    if (len(applied) != len(rows) or set(applied) & suppressed
+            or set(applied) | suppressed != set(expected)):
+        return None, set(), "the effects render log has different, missing or duplicate cue identities; run slate mix"
+    if suppressed:
+        score_present = film.source(f"{SCORE_DIR}/score.wav").is_file()
+        from slate.sound.effects.balance_mix import suppressed_by_score
+        if not score_present or any(not suppressed_by_score(expected[key]) for key in suppressed):
+            return None, set(), "the effects render log records unsupported score replacements; run slate mix"
+    return applied, suppressed, ""
+
+
+def _mixed_cue_sync(c: _Ctx, sheet: dict, frame: float) -> gates.GateResult | None:
+    """Generated effects need their own post-master hit measurements, bound to this cue sheet and mix."""
+    film = c.film
+    path = film.path(f"{MIX_DIR}/effects_sync.json")
+    manifest = jsonio.read(film.path(f"{STEMS_DIR}/stems.json"), default={}) or {}
+    if manifest.get("producer") != "slate sfx" and not (film.data.get("sound") or {}).get("effects"):
+        return None
+    def unchecked(why, details=None):
+        return gates.GateResult.unchecked("sound.cue_sync", why, engine=_engine(),
+            evidence=[f"{MIX_DIR}/effects_sync.json"], inputs=c.inputs(CUES_FILE, f"{MIX_DIR}/final_mix.wav"),
+            details=details or {})
+    if not path.is_file():
+        return unchecked("generated effects need their post-master sync report; run slate mix")
+    report = jsonio.read(path)
+    mix_path, cues_path = film.path(f"{MIX_DIR}/final_mix.wav"), film.source(CUES_FILE)
+    if (report.get("scope") != "master" or report.get("sample_rate") != film.sr
+            or not mix_path.is_file() or not cues_path.is_file()
+            or report.get("mix_sha256") != jsonio.sha256(mix_path)
+            or report.get("cue_sheet_sha256") != jsonio.sha256(cues_path)):
+        return unchecked("the post-master effect sync report is stale or does not describe this film's clock; run slate mix")
+    _applied, suppressed, log_error = _applied_log(film, sheet)
+    if log_error:
+        return unchecked(log_error)
+    expected = {str(hit.get("id")): hit for hit in _hits(sheet)
+                if str(hit.get("id")) not in suppressed and "beat" in hit
+                and hit.get("anchor") not in ("none", "bed", "vo")}
+    rows, over = [], []
+    unmeasured = list(report.get("unmeasured") or [])
+    seen = set()
+    for row in report.get("rows") or []:
+        key = str(row.get("id"))
+        hit = expected.get(key)
+        if hit is None or key in seen:
+            return unchecked("the post-master effect sync report has different or duplicate cue identities; run slate mix")
+        seen.add(key)
+        try:
+            anchor, beat = float(row["after_anchor_s"]), float(hit["beat"])
+            if not np.isfinite(anchor) or not np.isfinite(beat):
+                raise ValueError("non-finite anchor")
+        except (KeyError, TypeError, ValueError):
+            unmeasured.append({"id": key, "why": "invalid measured anchor"})
+            continue
+        delta_ms = (anchor - beat) * 1000
+        measured = {**row, "beat": beat, "delta_ms": round(delta_ms, 5)}
+        rows.append(measured)
+        if abs(delta_ms) > frame * 1000 + 1e-6:
+            over.append(measured)
+        if hit.get("anchor") == "clicks":
+            try:
+                end = float(row["end_anchor_s"])
+                beat_end = float(hit.get("beat_end", hit["beat"]))
+                if not np.isfinite(end + beat_end):
+                    raise ValueError("non-finite count endpoint")
+                last = {**measured, "id": key + ".last", "beat": beat_end,
+                        "after_anchor_s": end, "delta_ms": round((end-beat_end)*1000, 5)}
+                rows.append(last)
+                if abs(last["delta_ms"]) > frame * 1000 + 1e-6:
+                    over.append(last)
+            except (KeyError, TypeError, ValueError):
+                unmeasured.append({"id": key, "why": "missing or invalid count endpoint"})
+    unmeasured.extend({"id": key, "why": "missing post-master measurement"} for key in sorted(set(expected) - seen))
+    details = {"scope": "master", "frame_ms": round(frame * 1000, 3), "anchors": len(rows), "rows": rows,
+               "max_abs_delta_ms": max((abs(row["delta_ms"]) for row in rows), default=0),
+               "over_one_frame": over, "unmeasured": unmeasured}
+    if over:
+        return gates.GateResult.fail("sound.cue_sync", f"{len(over)} mixed effect anchor(s) exceed one frame "
+            f"({frame * 1000:.1f} ms)", evidence=[f"{MIX_DIR}/effects_sync.json"], engine=_engine(),
+            inputs=c.inputs(CUES_FILE, f"{MIX_DIR}/final_mix.wav"), details=details)
+    if unmeasured:
+        return unchecked(f"{len(unmeasured)} mixed effect anchor(s) could not be measured", details)
+    return gates.GateResult.pass_("sound.cue_sync", f"{len(rows)} post-master effect anchors within one frame",
+        evidence=[f"{MIX_DIR}/effects_sync.json"], engine=_engine(),
+        inputs=c.inputs(CUES_FILE, f"{MIX_DIR}/final_mix.wav"), details=details)
 
 
 def gate_cue_sync(c: _Ctx) -> gates.GateResult:
@@ -297,25 +419,52 @@ def gate_cue_sync(c: _Ctx) -> gates.GateResult:
         return gates.GateResult.pass_("sound.cue_sync", "no effects in this film (score and voice only)",
                                       engine=_engine(), inputs=c.inputs(CUES_FILE))
     frame = film.frame_s * float(film.palette["rules"].get("sync_frames", 1.0))
-    render = _engine_renderer()
+    mixed = _mixed_cue_sync(c, sheet, frame)
+    if mixed is not None:
+        return mixed
+    render = _engine_renderer(film)
     rows, over, unmeasured = [], [], []
     for hit in _hits(sheet):
         rule = hit.get("anchor") or film.palette["kinds"].get(hit.get("kind", ""), {}).get("anchor", "onset")
         if rule in ("none", "bed", "vo") or "beat" not in hit:
             continue
-        y, why = _hit_audio(film, hit, render)
+        y, start, why = _hit_audio(film, hit, render)
         if y is None:
             unmeasured.append({"id": hit.get("id"), "why": why})
             continue
+        if rule == "clicks":
+            from slate.sound.effects import voices  # noqa: PLC0415
+
+            parameters = voices.parameters(hit)
+            parameters.setdefault("fps_num", film.fps_num)
+            parameters.setdefault("fps_den", film.fps_den)
+            ticks = voices.count_ticks({"params": parameters}, film.sr, (film.brand or {}).get("motion"))
+            if not ticks or not np.any(y):
+                unmeasured.append({"id": hit.get("id"), "why": "the counter has no audible clicks"})
+                continue
+            for suffix, tick, beat in (("first", ticks[0], hit["beat"]),
+                                       ("last", ticks[-1], hit.get("beat_end", hit["beat"]))):
+                anchor = float(hit["t"]) + start / film.sr + tick["at"]
+                delta = anchor - float(beat)
+                row = {"id": str(hit.get("id")) + "." + suffix, "kind": hit.get("kind"),
+                       "beat": float(beat), "anchor_s": anchor, "delta_ms": round(delta*1000, 5),
+                       "rule": rule, "signal": "scheduled_clicks"}
+                rows.append(row)
+                if abs(delta) > frame + 1e-9:
+                    over.append(row)
+            continue
         off = anchor_offset(y, rule, film.sr)
-        anchor = float(hit["t"]) + off / film.sr
+        if off is None:
+            unmeasured.append({"id": hit.get("id"), "why": "the cue has no audible anchor"})
+            continue
+        anchor = float(hit["t"]) + (start + off) / film.sr
         delta = anchor - float(hit["beat"])
         row = {"id": hit.get("id"), "kind": hit.get("kind"), "beat": round(float(hit["beat"]), 4),
                "anchor_s": round(anchor, 4), "delta_ms": round(delta * 1000, 2), "rule": rule}
         rows.append(row)
         if abs(delta) > frame + 1e-9:
             over.append(row)
-    details = {"frame_ms": round(frame * 1000, 3), "anchors": len(rows),
+    details = {"frame_ms": round(frame * 1000, 3), "anchors": len(rows), "rows": rows,
                "max_abs_delta_ms": round(max((abs(r["delta_ms"]) for r in rows), default=0.0), 2),
                "over_one_frame": over, "unmeasured": unmeasured}
     inputs = c.inputs(CUES_FILE)
@@ -339,19 +488,31 @@ def gate_repeats(c: _Ctx) -> gates.GateResult:
     if sheet is None:
         return gates.GateResult.pass_("sound.repeats", "no effect cues in this film", engine=_engine(),
                                       inputs=c.inputs(CUES_FILE))
-    render = _engine_renderer()
+    applied, suppressed, log_error = _applied_log(film, sheet)
+    if log_error:
+        return gates.GateResult.unchecked("sound.repeats", log_error, engine=_engine(),
+                                          inputs=c.inputs(CUES_FILE, f"{MIX_DIR}/render_log.json"))
+    render = _engine_renderer(film)
     hits, unmeasured = [], []
     for hit in _hits(sheet):
+        if str(hit.get("id")) in suppressed:
+            continue
         if hit.get("anchor") in ("none", "bed", "vo") or hit.get("kind") in (None, "bed", "vo"):
             continue
         wave = None
         if hit.get("file") or render is not None:
-            y, why = _hit_audio(film, hit, render)
+            y, _start, why = _hit_audio(film, hit, render)
             if y is None:
                 unmeasured.append({"id": hit.get("id"), "why": why})
                 continue
             wave = audio.mono(y).astype(np.float32)  # compared by waveform (checks.same_sound)
             ident = checks.hit_hash(y)
+            if applied is not None and applied[str(hit.get("id"))].get("waveform_identity") != ident:
+                unmeasured.append({"id": hit.get("id"), "why": "the current sound differs from the mix's render log"})
+                continue
+        elif applied is not None:
+            unmeasured.append({"id": hit.get("id"), "why": "cannot verify the logged waveform without its renderer"})
+            continue
         elif hit.get("params") is not None:
             ident = checks.params_identity(str(hit.get("sound")), hit["params"])
         else:
@@ -371,7 +532,8 @@ def gate_repeats(c: _Ctx) -> gates.GateResult:
     res["pass"] = not res["identical_repeats"] and not res["kinds_with_several_sounds"] and \
         not res["sounds_serving_several_kinds"]
     res["unmeasured"] = unmeasured
-    inputs = c.inputs(CUES_FILE)
+    res["render_log_verified"] = applied is not None
+    inputs = c.inputs(CUES_FILE, f"{MIX_DIR}/render_log.json")
     if not res["pass"]:
         parts = []
         if res["identical_repeats"]:
@@ -749,19 +911,61 @@ def gate_music_licence(c: _Ctx) -> gates.GateResult:
 
 
 def gate_voice_limiter(c: _Ctx) -> gates.GateResult:
-    """L-sound-022: the voice-only limiter touches under 5% of the speech; past that it's shaping the read."""
+    """L-sound-022: exact voice-limiter touch stays under 5%; unproved measurement is UNCHECKED."""
     from slate.sound.mix import VOICE_LIMITER_MAX  # noqa: PLC0415
 
+    check_engine = {**_engine(), "rule_revision": gates.rule_revision("sound.voice_limiter")}
+    inputs = c.inputs(c.report_path, c.stem_paths["dialogue"], include_missing=True)
     dlg = c.stem("dialogue")
     if dlg is None or not np.any(dlg):
-        return gates.GateResult.pass_("sound.voice_limiter", "no voice in this film", engine=_engine())
+        return gates.GateResult.pass_("sound.voice_limiter", "no voice in this film", engine=check_engine, inputs=inputs)
     rep = c.report.get("voice_limiter")
-    inputs = c.inputs(c.report_path, c.stem_paths["dialogue"])
     if not isinstance(rep, dict) or rep.get("share") is None:
-        return gates.GateResult.unchecked("sound.voice_limiter", "this mix was made before Slate measured the voice "
-                                          "limiter's touch; mix again to measure it", evidence=["next: slate mix"],
-                                          engine=_engine(), inputs=inputs)
-    share = float(rep["share"])
+        return gates.GateResult.unchecked("sound.voice_limiter", "this mix has no recorded voice-limiter touch share; "
+                                          "mix again to measure it", evidence=["next: slate mix"],
+                                          engine=check_engine, inputs=inputs,
+                                          details=dict(rep) if isinstance(rep, dict) else {})
+
+    basis, share, speech_ms = rep.get("measurement_basis"), rep["share"], rep.get("speech_ms")
+    backend = c.report.get("limiter")
+    limited, dialogue_limited = rep.get("limited"), c.report.get("dialogue_limited")
+    provenance = "explicit_report"
+    if "measurement_basis" not in rep:
+        provenance = "unresolved_legacy_report"
+        if limited is True and dialogue_limited is True and backend in ("slate", "ffmpeg"):
+            basis = "gain_curve" if backend == "slate" else "waveform_ratio"
+            provenance = "legacy_report_contract"
+        elif limited is False and dialogue_limited is False and backend in ("slate", "ffmpeg"):
+            basis = "bypassed"
+            provenance = "legacy_report_contract"
+    details = {**rep, "effective_measurement_basis": basis, "measurement_provenance": provenance}
+
+    reason = None
+    if basis == "waveform_ratio":
+        reason = "waveform ratios estimate touch but do not record the limiter's applied gain"
+    elif basis not in ("gain_curve", "bypassed"):
+        reason = "the report has no supported measurement basis or corroborated legacy contract"
+    elif basis == "gain_curve" and (backend != "slate" or limited is not True or dialogue_limited is not True):
+        reason = "the report does not consistently identify a retained Slate gain curve"
+    elif basis == "bypassed" and (limited is not False or dialogue_limited is not False):
+        reason = "the report does not consistently identify a voice-limiter bypass"
+    elif isinstance(share, bool) or not isinstance(share, (int, float)):
+        reason = "the touch share is not a JSON number"
+    elif not 0 <= share <= 1 or not np.isfinite(share):
+        reason = "the touch share is not a finite proportion between zero and one"
+    elif basis == "bypassed" and (share != 0 or rep.get("touched_ms") != 0 or rep.get("max_reduction_db") != 0):
+        reason = "the bypass report does not contain zero-touch measurements"
+    elif basis == "bypassed" and (isinstance(speech_ms, bool) or not isinstance(speech_ms, (int, float))
+                                 or speech_ms < 0 or (isinstance(speech_ms, float) and not np.isfinite(speech_ms))):
+        reason = "the bypass report has no finite nonnegative speaking-time measurement"
+    if reason:
+        return gates.GateResult.unchecked("sound.voice_limiter", "this mix cannot prove the voice limiter's touch: "
+                                          + reason, evidence=[c.film.rel(c.report_path),
+                                                             "next: record exact gain or a proven bypass; Slate's "
+                                                             "own limiter records gain when selected explicitly"],
+                                          engine=check_engine, inputs=inputs, details=details)
+
+    share = float(share)
     what = (f"the voice limiter touched {share:.1%} of the speech ({rep.get('touched_ms')} of {rep.get('speech_ms')} "
             f"ms, at most {rep.get('max_reduction_db')} dB)")
     if share >= VOICE_LIMITER_MAX:
@@ -770,9 +974,9 @@ def gate_voice_limiter(c: _Ctx) -> gates.GateResult:
                                                                         "next: lower the hottest takes' gain in "
                                                                         "timing/vo_cues.json or clean their peaks, then "
                                                                         "slate mix"],
-                                     engine=_engine(), inputs=inputs, details=rep)
+                                     engine=check_engine, inputs=inputs, details=details)
     return gates.GateResult.pass_("sound.voice_limiter", what + f" (under {VOICE_LIMITER_MAX:.0%})",
-                                  evidence=[c.film.rel(c.report_path)], engine=_engine(), inputs=inputs, details=rep)
+                                  evidence=[c.film.rel(c.report_path)], engine=check_engine, inputs=inputs, details=details)
 
 
 def _effect_family_stems(c: _Ctx, roles: tuple[str, ...]) -> list[tuple[str, Path]]:
@@ -830,9 +1034,15 @@ def gate_key(c: _Ctx) -> gates.GateResult:
 
 
 def gate_timbre(c: _Ctx) -> gates.GateResult:
-    """L-sound-078: each effect stem (or family) at a median spectral centroid of 1.5 kHz or under, no chime tails,
-    nothing metallic or glassy: the palette is pads, small soft notes and wood."""
+    """Measure each effect stem against this palette's timbre limits, retaining all detector evidence.
+
+    The warm starter uses a 1.5 kHz ceiling and avoids chime tails and metallic rings. Another palette can set
+    `timbre.centroid_max_hz` (null for no ceiling), `timbre.no_chimes` and `timbre.no_metallic` explicitly.
+    """
     film = c.film
+    policy = {"centroid_max_hz": checks.CENTROID_MAX_HZ, "no_chimes": True, "no_metallic": True,
+              **(film.palette.get("timbre") or {})}
+    ceiling = policy["centroid_max_hz"]
     stems = [(r, p) for r, p in _effect_family_stems(c, ("ui", "fx", "tonal")) if np.any(c.read(p))]
     if not stems:
         return gates.GateResult.pass_("sound.timbre", "no effect stems in this film", engine=_engine())
@@ -841,14 +1051,14 @@ def gate_timbre(c: _Ctx) -> gates.GateResult:
         res = checks.timbre_check(c.read(path), film.sr)
         per[role] = res
         med = res["median_centroid_hz"]
-        if med is not None and med > checks.CENTROID_MAX_HZ:
+        if ceiling is not None and med is not None and med > float(ceiling):
             hot = ", ".join(f"{h['t']} s" for h in res["brightest"][:3])
             problems.append(f"the {role} stem's median centroid is {med / 1000:.2f} kHz, over "
-                            f"{checks.CENTROID_MAX_HZ / 1000:g} kHz (brightest hits at {hot})")
-        for h in res["chime_tails"][:3]:
+                            f"{float(ceiling) / 1000:g} kHz (brightest hits at {hot})")
+        for h in (res["chime_tails"][:3] if policy["no_chimes"] else []):
             problems.append(f"a {h['chime_tail']['hz'] / 1000:.1f} kHz partial still rings 300 ms after the {role} hit at "
                             f"{h['t']} s ({h['chime_tail']['db_vs_strike']:+.0f} dB against its strike): a chime's tail")
-        for h in res["metallic"][:3]:
+        for h in (res["metallic"][:3] if policy["no_metallic"] else []):
             problems.append(f"the {role} hit at {h['t']} s rings metallic or glassy past 300 ms (partials at "
                             f"{', '.join(f'{x:.0f}' for x in h['metallic']['partials_hz'])} Hz aren't one note's "
                             "harmonics)")
@@ -857,12 +1067,12 @@ def gate_timbre(c: _Ctx) -> gates.GateResult:
     if problems:
         return gates.GateResult.fail("sound.timbre", problems[0] + (f"; {len(problems) - 1} more" if len(problems) > 1
                                                                     else ""), evidence=evidence + problems[:12],
-                                     engine=_engine(), inputs=inputs, details={"stems": per})
+                                     engine=_engine(), inputs=inputs, details={"stems": per, "policy": policy})
     table = ", ".join(f"{r} {v['median_centroid_hz'] / 1000:.2f} kHz" for r, v in per.items()
                       if v["median_centroid_hz"] is not None) or "no hits"
-    return gates.GateResult.pass_("sound.timbre", f"no chimes, nothing metallic, every stem's median centroid at or "
-                                  f"under {checks.CENTROID_MAX_HZ / 1000:g} kHz ({table})", evidence=evidence,
-                                  engine=_engine(), inputs=inputs, details={"stems": per})
+    return gates.GateResult.pass_("sound.timbre", f"effect stems meet this palette's timbre limits ({table}); "
+                                  "detector flags remain in the measurements", evidence=evidence,
+                                  engine=_engine(), inputs=inputs, details={"stems": per, "policy": policy})
 
 
 def gate_mix_words(c: _Ctx) -> gates.GateResult:

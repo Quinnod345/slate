@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from install_helpers import client_calls, make_repo, openclaw_state, set_openclaw_state
+from install_helpers import client_calls, make_repo, openclaw_state, seed_skill, set_openclaw_state
 from slate.install import core, layout, mcp_register
 
 
@@ -148,6 +148,8 @@ def test_a_failing_agent_cli_is_reported_and_fails_the_install(home, repo, fakeb
 
 
 def test_uninstall_removes_only_slates_registration(home, repo, fakebin):
+    previous = seed_skill(home / ".agents/skills", "slate", "the previous skill")
+    previous_text = (previous / "SKILL.md").read_text()
     _install(home, repo, fakebin, run_clients=True)
     set_openclaw_state(home, servers={"slate": {"command": "/opt/other/slate-server", "args": []}})
     res = core.uninstall(home=home, repo=repo, client_path=str(fakebin), run_clients=True, jobs_agent=False)
@@ -155,6 +157,69 @@ def test_uninstall_removes_only_slates_registration(home, repo, fakebin):
     assert did == {"claude": "removed", "codex": "removed", "openclaw": "left alone"}
     assert "slate" not in json.loads((home / ".claude.json").read_text())["mcpServers"]
     assert openclaw_state(home)["servers"]["slate"]["command"] == "/opt/other/slate-server"
+    final = json.loads(layout.resolve(home, repo=repo).manifest_file.read_text())
+    assert [m["client"] for m in final["mcp"]] == ["openclaw"]
+    assert final["links"] == []
+    assert final["agents"] == []
+    assert final["backups"] and all(b["restored"] for b in final["backups"])
+    assert (previous / "SKILL.md").read_text() == previous_text
+
+
+@pytest.mark.parametrize("client", ["claude", "codex"])
+@pytest.mark.parametrize("problem", ["malformed", "unreadable"])
+def test_uninstall_preserves_registration_when_settings_cannot_be_read(home, repo, fakebin, monkeypatch,
+                                                                      client, problem):
+    _install(home, repo, fakebin, run_clients=True)
+    cfg = home / (".claude.json" if client == "claude" else ".codex/config.toml")
+    if problem == "malformed":
+        cfg.write_text("{not-json" if client == "claude" else "[unterminated")
+    else:
+        read_text = type(cfg).read_text
+
+        def unreadable(path, *args, **kw):
+            if path == cfg:
+                raise PermissionError("settings are unreadable")
+            return read_text(path, *args, **kw)
+
+        monkeypatch.setattr(type(cfg), "read_text", unreadable)
+    before = cfg.read_bytes()
+    first_call = len(client_calls(home))
+    res = core.uninstall(home=home, repo=repo, client_path=str(fakebin), run_clients=True, jobs_agent=False)
+    entry = next(m for m in res["mcp"] if m["client"] == client)
+    assert entry["did"] == "left alone"
+    assert "couldn't read" in entry["why"] and "ownership" in entry["why"]
+    assert not [c for c in client_calls(home)[first_call:] if c["client"] == client]
+    assert cfg.read_bytes() == before
+    final = json.loads(layout.resolve(home, repo=repo).manifest_file.read_text())
+    assert [m["client"] for m in final["mcp"]] == [client]
+
+
+def test_uninstall_retains_failed_registration_in_final_manifest(home, repo, fakebin, monkeypatch):
+    _install(home, repo, fakebin, run_clients=True)
+    monkeypatch.setenv("FAKE_CLIENT_FAIL", "codex")
+    res = core.uninstall(home=home, repo=repo, client_path=str(fakebin), run_clients=True, jobs_agent=False)
+    assert res["ok"] is False
+    did = {m["client"]: m["did"] for m in res["mcp"]}
+    assert did == {"claude": "removed", "codex": "failed", "openclaw": "removed"}
+    final = json.loads(layout.resolve(home, repo=repo).manifest_file.read_text())
+    assert [m["client"] for m in final["mcp"]] == ["codex"]
+
+
+def test_uninstall_preserves_registrations_pointing_to_a_replaced_shim(home, repo, fakebin):
+    _install(home, repo, fakebin, run_clients=True)
+    shim = layout.resolve(home, repo=repo).shim
+    shim.unlink()
+    replacement = "#!/bin/sh\nexec /opt/another-server --stdio\n"
+    shim.write_text(replacement)
+    first_call = len(client_calls(home))
+    res = core.uninstall(home=home, repo=repo, client_path=str(fakebin), run_clients=True, jobs_agent=False)
+    assert shim.read_text() == replacement
+    assert {m["client"]: m["did"] for m in res["mcp"]} == {
+        "claude": "left alone", "codex": "left alone", "openclaw": "left alone"}
+    assert not [c for c in client_calls(home)[first_call:] if c["argv"][:2] in
+                (["mcp", "remove"], ["mcp", "unset"])]
+    final = json.loads(layout.resolve(home, repo=repo).manifest_file.read_text())
+    assert sorted(m["client"] for m in final["mcp"]) == ["claude", "codex", "openclaw"]
 
 
 def test_dry_run_on_run_mode_changes_nothing(home, repo, fakebin):

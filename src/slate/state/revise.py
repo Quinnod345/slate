@@ -1,4 +1,4 @@
-"""Perfect, don't replace: notes on approved work are changes to that exact artifact, checked by measurement.
+"""Preserve the approved baseline, then make the requested revision and compare it by measurement.
 
     slate revise start <artifact> --notes "…" --by NAME     snapshot the approved version; notes → numbered checklist
     slate revise check                                      measure the revision against the approved version
@@ -6,8 +6,8 @@
 
 `start` requires the artifact to be approved and unchanged since, keeps a copy of the approved version in
 archive/revisions/<id>/, writes the notes verbatim as a direction change and as a numbered checklist of changes to that
-exact artifact in PRODUCTION.md, and records the hash of everything else, which stays as it was. A note that needs a new
-approach (a redesign, a swap, research as a way forward) becomes a question for the person, never a silent change.
+exact artifact in PRODUCTION.md, and records the hash of everything outside its declared scope. A requested redesign
+is a checklist item, not an automatic question. Explicit questions are reserved for information that is missing.
 
 `check` runs the built-in measures (did the artifact change; did anything else change that isn't downstream of it;
 for JSON, which keys changed and whether they're inside the declared scope) and every registered comparison hook.
@@ -155,7 +155,7 @@ def start(film_dir: Path, artifact: str, *, notes: str, by: str, what: str | Non
             break
     if rec is None:
         if not approved_by:
-            raise Refused(f"Perfect, don't replace works on approved work, and {rel} has no approval.",
+            raise Refused(f"An approved-work revision needs an approved baseline, and {rel} has no approval.",
                           hint="If the person approved it along with these notes, add --approved-by NAME --what KIND; "
                                "if it isn't approved, just edit it.")
         if not what:
@@ -183,13 +183,8 @@ def start(film_dir: Path, artifact: str, *, notes: str, by: str, what: str | Non
         baseline = _baseline(film_dir, rel, hasher)
     items, qtexts = [], [q for q in (questions or []) if q.strip()]
     for text in _util.split_items(notes, lang):
-        phrase = _util.needs_new_approach(text, lang)
-        if phrase:
-            qtexts.append(f"This note seems to ask for a new approach (“{phrase}”), so it's a question "
-                          f"before anything changes: perfect the approved {rel}, or redesign? The note: “{text}”")
-        else:
-            items.append({"n": len(items) + 1, "text": text, "status": "open", "scope": list(scopes or []),
-                          "evidence": None})
+        items.append({"n": len(items) + 1, "text": text, "status": "open", "scope": list(scopes or []),
+                      "evidence": None})
     direction = production.add_direction(film_dir, notes.strip(), source=by.strip(), kind=f"revision {rid} of {rel}")
     rev = {
         "id": rid, "artifact": rel, "what": rec["what"], "approval": rec["id"], "approved_sha": rec["sha256"],
@@ -205,6 +200,10 @@ def start(film_dir: Path, artifact: str, *, notes: str, by: str, what: str | Non
         rev["questions"].append(q["id"])
     _save_revision(film_dir, rev)
     production.render(film_dir)
+    from slate import history  # noqa: PLC0415
+
+    history.record(film_dir, notes=notes.strip(), by=by.strip(), before=rev["snapshot"],
+                   outcome="requested", revision=rid)
     return rev
 
 
@@ -385,4 +384,9 @@ def done(film_dir: Path, revision_id: str | None = None, *, evidence: str | None
                         "evidence": evidence})
     _save_revision(film_dir, rev)
     production.render(film_dir)
+    from slate import history  # noqa: PLC0415
+
+    history.record(film_dir, notes=rev["notes"], by=rev["by"], before=rev["snapshot"],
+                   after=rev["artifact"], outcome="measured" if result["status"] == "PASS" else "draft",
+                   revision=rev["id"])
     return {**rev, "next": f"slate approve {rev['what']} {rev['artifact']} --by NAME"}

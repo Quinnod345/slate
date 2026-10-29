@@ -1,7 +1,8 @@
 # Spotting: from the picture's beats to sounds
 
-Spotting decides what each moment of the film sounds like. It starts from the picture's own beats, so every sound has a
-visible cause, and it follows the picture's own eases, so sound moves the way the picture moves.
+Spotting decides what each moment sounds like. Synchronized effects start from the picture's beats and follow its
+movement. The current brief can also call for off-screen sound, ambience, deliberate repetition or silence; record
+their intended timing and source instead of treating visible cause as a universal creative rule.
 
 ## Where the beats come from
 
@@ -11,10 +12,18 @@ visible cause, and it follows the picture's own eases, so sound moves the way th
 - A character's gestures, one row per note, on their contact frames.
 - The score's own landings, from `sound/score/directions.json`.
 
-Every sound's attack sits on its beat's frame (for air and swells, the peak), within one frame. Sound never comes before
-the picture.
+Every sound's measured anchor sits on its beat's frame, within one frame: the onset of a strike, the peak of air or a
+swell, or the end of a draw. A sound can start before its anchor; its peak or endpoint still serves the exact beat.
 
-**A repeating state sounds once.** A thinking loop or a pulse sounds on its first cycle only; later cycles are silent.
+`slate sfx spot` builds `sound/sound_cues.json` from those events. It validates every expected act before placing a cue
+and refuses malformed or missing event files. Each event keeps one logical cue, with count clicks represented as
+individually measured notes. `t` is the picture contact; sustained draws and counts give `start` and `dur` and end on
+`t`. Counts also give numeric `from` and `to`, and may set `hold_frames`. Prose is never parsed to guess those values.
+Each event's seed stays stable across unrelated insertions. See [effects engine](effects-engine.md) for execution,
+authored beds and preserving approved spans.
+
+**The starting recipe sounds a repeating state once.** A thinking loop or pulse was silent after its first cycle.
+A requested recurring sound can repeat under the chosen palette's rules; inspect its rhythm and narration balance.
 
 **Tell the sound exactly what each beat is.** Each kind of interaction has its own family of sounds with several
 variations, and that only works when every beat names its kind (and its size). A beat with a loose or wrong kind gets the
@@ -23,6 +32,9 @@ wrong sound; an unknown kind is reported, never guessed.
 **Land the film's impact at the end of a sentence**, so its sound and its ripple play in the voice's pause.
 
 ## Moment patterns that worked
+
+These are warm product-film patterns. Their materials, one-moment structure and silence are contextual choices; the
+current palette and authorized listening feedback can choose another sound language.
 
 - **Lists and step sequences** land on small notes rising up the scale, one per item.
 - **State chips** flip on wood clacks pitched by meaning: positive bright, neutral middle, negative low; a negative state
@@ -57,11 +69,14 @@ purpose.
 
 ## Carrying an approved proof onto the real picture
 
-A proof spotted on the storyboard moves onto the real picture cue by cue:
+When adapting a storyboard proof to the real picture is within the authorized work, move it cue by cue:
 - move every cue to the beat the picture really has, and remove cues for beats it doesn't have;
 - re-voice tonal roles on the sampled instruments;
 - trim a file that opens on silence, so its hit lands with the others;
 - tie every change to one of the owner's own words about the proof.
+
+Keep a source-bound approved clip unchanged as the baseline. A moved or altered result needs its own applicable
+reference or delivered-file approval; permission to adapt does not make its new bytes approved.
 
 ## A spotting sheet
 

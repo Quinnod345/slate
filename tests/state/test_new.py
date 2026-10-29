@@ -40,7 +40,7 @@ def test_new_scaffolds_a_valid_git_film(new_film, state_env):
     assert "| F1 | Format: fixture-explainer" in goal and "| F3 | Budget:" in goal
     prod = (fd / "brief" / "PRODUCTION.md").read_text()
     for heading in ("Asks, in the requester's words", "Direction changes", "Questions waiting for a person",
-                    "Revisions (perfect, don't replace)", "Approvals", "Status"):
+                    "Revisions (preserve baseline and requested scope)", "Approvals", "Status"):
         assert heading in prod
     brief = production.load_brief(fd)
     assert brief["request"]["text"] == request.strip("\n")

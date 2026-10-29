@@ -17,7 +17,7 @@ import {TIMING_FILES, realFile} from './lib/film.mjs';
 import {ensureEntry, filmDataFile, kitPresent, slateDir} from './entry.mjs';
 
 /** Bump when the bundle's makeup changes (aliases, public dir handling), so old bundles are never reused. */
-export const BUNDLE_FORMAT = 1;
+export const BUNDLE_FORMAT = 2;
 const MARKER = '.slate-bundle.json';
 const LEASES = '.leases';
 
@@ -28,7 +28,7 @@ export function bundlesRoot(args = {}) {
 const safeId = (id) => String(id).replace(/[^A-Za-z0-9._-]+/g, '-').slice(0, 60) || 'film';
 
 /** The files the engine writes in .slate/ (entry.mjs), the only ones it hashes there. */
-const ENGINE_GLUE = /^(entry\.tsx|Root\.tsx|film\.tsx|act\d+\.tsx|film-data\.ts|placeholder\.tsx|kit-placeholder\.tsx|broken\.tsx|rest-states\.tsx|label\.tsx|spoken\.json)$/;
+const ENGINE_GLUE = /^(entry\.tsx|Root\.tsx|film\.tsx|act\d+\.tsx|shot-.+\.tsx|film-data\.ts|placeholder\.tsx|kit-placeholder\.tsx|broken\.tsx|rest-states\.tsx|label\.tsx|spoken\.json)$/;
 
 // A file being written next to the sources (an editor's or a builder's temp file) is never a source.
 const TEMP_NAME = /(\.tmp(\.|$)|\.swp$|~$)/;
@@ -63,11 +63,12 @@ export async function bundleInputs(ctx, entryFile) {
 
 /**
  * The source hash: sha256 over (label, file sha256) for every file that goes into the bundle, plus film.json, the
- * engine's lockfile, the Remotion version and the film's folder. Kit files the film never imports don't change it, so
+ * engine's lockfile, copied public-leaf bytes and effective alias structure, the Remotion version and film's folder.
+ * Kit files the film never imports don't change it, so
  * a kit edit elsewhere doesn't throw away a good bundle. When the imports can't be read, every scene and kit file
  * counts.
  */
-export async function sourceHash(ctx, {entry}) {
+export async function sourceHash(ctx, {entry, publicView = publicPlan(ctx)}) {
   const parts = new Map();
   const add = (file) => {
     if (TEMP_NAME.test(path.basename(file))) return;
@@ -95,9 +96,10 @@ export async function sourceHash(ctx, {entry}) {
   add(path.join(ctx.dir, 'film.json'));
   const lock = path.join(ENGINE_DIR, 'package-lock.json');
   if (fs.existsSync(lock)) parts.set('engine/package-lock.json', sha256FileSync(lock));
+  parts.set('public/view', sha256Buffer(JSON.stringify(publicView.entries)));
   const lines = [...parts.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => `${k}\0${v}`);
   lines.push(`format\0${BUNDLE_FORMAT}`, `remotion\0${engineInfo().installed.remotion}`, `inputs\0${inputs ? 'imports' : 'all'}`);
-  // A film is its folder: a bundle's public/ is a link into that folder, so two copies of a film never share one.
+  // A film is its folder: its public aliases retain that folder's paths, so copies never share a bundle.
   lines.push(`film_dir\0${ctx.dir}`);
   return sha256Buffer(lines.join('\n'));
 }
@@ -230,40 +232,141 @@ function webpackOverrideFor(ctx) {
 export const MEDIA_DIRS = ['captures', 'plates'];
 
 /**
- * The folder served as the bundle's public/: .slate/public, holding links (never copies) to everything in the film's
- * own public/ and to its captures/ and plates/, so `staticFile('captures/demo/frames/f00012.jpg')` reads the film's
- * files in place. A name the film's public/ already uses wins. Returns {dir, links, warnings}.
- *
- * Links are safe to delete: removing a bundle or this folder removes the links, never what they point at.
+ * Resolve the effective public inputs without writing into the film. Existing regular files, directories and
+ * unrelated links in the legacy .slate/public folder keep their precedence. Recognizable generated aliases are
+ * replaced by the current source inputs in the owned view, including aliases whose original source was deleted.
  */
-export function publicDir(ctx) {
-  const dir = path.join(slateDir(ctx.dir), 'public');
-  fs.mkdirSync(dir, {recursive: true});
-  const want = new Map();
+function publicRoots(ctx) {
+  const roots = new Map();
   const warnings = [];
   const own = path.join(ctx.dir, 'public');
+  const legacy = path.join(slateDir(ctx.dir), 'public');
   if (fs.existsSync(own) && fs.statSync(own).isDirectory()) {
-    for (const name of fs.readdirSync(own)) if (name !== '.DS_Store') want.set(name, path.join('..', '..', 'public', name));
+    for (const name of fs.readdirSync(own).sort()) if (name !== '.DS_Store') roots.set(name, path.join(own, name));
   }
   for (const name of MEDIA_DIRS) {
-    // a derived film's captures and plates can live in its parent (.slate/refs.json): link to them there
     const real = realFile(ctx.dir, name);
     if (!fs.existsSync(real)) continue;
-    if (want.has(name)) warnings.push(`public/${name} shadows the film's ${name}/ folder in staticFile() paths`);
-    else want.set(name, real === path.join(ctx.dir, name) ? path.join('..', '..', name) : real);
+    if (roots.has(name)) warnings.push('public/' + name + " shadows the film's " + name + '/ folder in staticFile() paths');
+    else roots.set(name, real);
   }
-  for (const name of fs.readdirSync(dir)) {
-    const full = path.join(dir, name);
-    const st = fs.lstatSync(full);
-    // only the links this function made are ever removed here
-    if (st.isSymbolicLink() && (!want.has(name) || fs.readlinkSync(full) !== want.get(name))) fs.unlinkSync(full);
+  if (fs.existsSync(legacy) && fs.statSync(legacy).isDirectory()) {
+    for (const name of fs.readdirSync(legacy).sort()) {
+      const file = path.join(legacy, name);
+      const stat = fs.lstatSync(file);
+      if (stat.isSymbolicLink()) {
+        const target = path.resolve(legacy, fs.readlinkSync(file));
+        const generated = target === path.join(own, name) ||
+          (MEDIA_DIRS.includes(name) && (target === path.join(ctx.dir, name) || target === realFile(ctx.dir, name)));
+        if (generated) continue;
+      }
+      roots.set(name, file);
+    }
   }
-  for (const [name, target] of want) {
-    const full = path.join(dir, name);
-    if (fs.lstatSync(full, {throwIfNoEntry: false})) continue;
-    fs.symlinkSync(target, full);
+  return {roots, warnings};
+}
+
+/** Inspect directory-link targets too. A final-file link anywhere in a normal public subtree needs an overlay. */
+function inspectPublic(source, relative, {opaque = false, ancestors = new Set()} = {}) {
+  const stat = fs.lstatSync(source);
+  const target = fs.realpathSync(source);
+  const resolved = stat.isSymbolicLink() ? fs.statSync(source) : stat;
+  const directory = resolved.isDirectory();
+  const node = {
+    path: relative, source, target,
+    kind: directory ? (stat.isSymbolicLink() ? 'directory-link' : 'directory') : (stat.isSymbolicLink() ? 'file-link' : 'file'),
+    link: stat.isSymbolicLink() ? fs.readlinkSync(source) : null,
+  };
+  if (!directory) {
+    if (!resolved.isFile()) throw usage('Public asset is not a regular file or directory: ' + source);
+    return {...node, fileLinks: stat.isSymbolicLink()};
   }
-  return {dir, links: [...want.keys()].sort(), warnings};
+  if (opaque) return {...node, opaque: true, fileLinks: false};
+  if (ancestors.has(target)) throw usage('Public directory links form a cycle at ' + source, 'Remove the cyclic directory link before bundling.');
+  const next = new Set(ancestors).add(target);
+  const children = fs.readdirSync(source).sort().map((name) => inspectPublic(path.join(source, name), path.join(relative, name), {ancestors: next}));
+  return {...node, children, fileLinks: children.some((child) => child.fileLinks)};
+}
+
+/** Linked regular leaves stay live; their shape and alias targets count, while their bytes are not copied or hashed. */
+function publicStructure(node) {
+  const {fileLinks, children, ...identity} = node;
+  return children ? {...identity, children: children.map(publicStructure)} : identity;
+}
+
+function preparePublicNode(node) {
+  const {fileLinks, children, ...identity} = node;
+  if (node.kind === 'file' || node.kind === 'file-link') return {...identity, type: 'copy', sha256: sha256FileSync(node.target)};
+  if (!fileLinks) return {...identity, type: 'alias', structure: publicStructure(node)};
+  return {...identity, type: 'directory', children: children.map(preparePublicNode)};
+}
+
+/** Captures and plates are deliberately opaque: normal frame files stay in place, without a tree copy or byte scan. */
+function publicPlan(ctx) {
+  const {roots, warnings} = publicRoots(ctx);
+  const entries = [...roots.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([name, source]) =>
+    preparePublicNode(inspectPublic(source, name, {opaque: MEDIA_DIRS.includes(name)})));
+  return {entries, warnings};
+}
+
+const containsPath = (parent, child) => child === parent || child.startsWith(parent + path.sep);
+
+/** Resolve existing parent links before accepting a destination, so an owned view cannot overwrite its sources. */
+function physicalDestination(dir) {
+  let existing = dir;
+  const missing = [];
+  while (!fs.existsSync(existing)) {
+    missing.unshift(path.basename(existing));
+    const parent = path.dirname(existing);
+    if (parent === existing) break;
+    existing = parent;
+  }
+  return path.join(fs.realpathSync(existing), ...missing);
+}
+
+/**
+ * Build the public view in a caller-owned destination. Top-level public files and final-file links become exact
+ * regular bytes. Clean directory subtrees remain aliases; an overlaid directory copies only its file leaves and
+ * retains clean child-directory aliases. The legacy .slate/public folder and every source asset remain untouched.
+ */
+export function publicDir(ctx, ownedDir, plan = publicPlan(ctx)) {
+  if (typeof ownedDir !== 'string' || !ownedDir) throw usage('A public view needs an owned destination folder.');
+  const dir = path.resolve(ownedDir);
+  const physical = physicalDestination(dir);
+  const filmRoot = fs.realpathSync(ctx.dir);
+  const sources = new Set([physicalDestination(path.join(ctx.dir, 'public')),
+    physicalDestination(path.join(slateDir(ctx.dir), 'public'))]);
+  const collect = (node) => {
+    sources.add(node.source);
+    sources.add(node.target);
+    if (node.children) for (const child of node.children) collect(child);
+    if (node.structure?.children) for (const child of node.structure.children) collect(child);
+  };
+  for (const node of plan.entries) collect(node);
+  if (containsPath(dir, ctx.dir) || containsPath(physical, filmRoot) ||
+      [...sources].some((source) => containsPath(source, physical) || containsPath(physical, source))) {
+    throw usage('The owned public view overlaps a source asset: ' + dir, 'Use the bundle cache or a separate scratch folder for the view.');
+  }
+  fs.rmSync(dir, {recursive: true, force: true});
+  fs.mkdirSync(dir, {recursive: true});
+  const links = [];
+  const write = (node) => {
+    const dest = path.join(dir, node.path);
+    if (node.type === 'copy') {
+      fs.copyFileSync(node.target, dest);
+      if (sha256FileSync(dest) !== node.sha256) {
+        throw new EngineError('Public asset changed while copying: ' + node.source, {hint: 'Bundle again after the asset has finished changing.'});
+      }
+    } else if (node.type === 'alias') {
+      fs.symlinkSync(node.target, dest);
+      links.push(node.path);
+    } else {
+      fs.mkdirSync(dest, {recursive: true});
+      for (const child of node.children) write(child);
+    }
+  };
+  for (const node of plan.entries) write(node);
+  return {dir, links: links.sort(), warnings: plan.warnings};
 }
 
 function explainBundleError(e) {
@@ -289,7 +392,8 @@ export async function getBundle(ctx, args = {}) {
   const entryInfo = await ensureEntry(ctx, {brandPath: args.brand_path ?? null});
   const entryFile = args.entry ? path.resolve(args.entry) : entryInfo.entry;
   if (!fs.existsSync(entryFile)) throw usage(`No entry file at ${entryFile}.`);
-  const hash = await sourceHash(ctx, {entry: entryFile});
+  const publicView = publicPlan(ctx);
+  const hash = await sourceHash(ctx, {entry: entryFile, publicView});
   const root = bundlesRoot(args);
   fs.mkdirSync(root, {recursive: true});
   const name = `${safeId(ctx.id)}-${args.entry ? 'entry-' : ''}${hash.slice(0, 16)}`;
@@ -300,24 +404,29 @@ export async function getBundle(ctx, args = {}) {
     return {serve_url: dir, dir, hash, reused: true, entry: entryInfo};
   }
   const tmp = path.join(root, `.tmp-${name}-${process.pid}`);
+  const publicTmp = path.join(root, `.tmp-public-${name}-${process.pid}`);
   fs.rmSync(tmp, {recursive: true, force: true});
+  fs.rmSync(publicTmp, {recursive: true, force: true});
   // A process stopped mid-bundle (a signal, the caller's deadline) takes its half-made bundle with it.
-  const dropTmp = () => fs.rmSync(tmp, {recursive: true, force: true});
+  const dropTmp = () => {
+    fs.rmSync(tmp, {recursive: true, force: true});
+    fs.rmSync(publicTmp, {recursive: true, force: true});
+  };
   process.once('exit', dropTmp);
   const t0 = Date.now();
   let lastPct = -1;
   log(`bundling ${ctx.id} (${hash.slice(0, 12)})`);
-  const pub = publicDir(ctx);
-  for (const w of pub.warnings) log(`note: ${w}`);
   try {
+    const pub = publicDir(ctx, publicTmp, publicView);
+    for (const w of pub.warnings) log(`note: ${w}`);
     await remotionBundle({
       entryPoint: entryFile,
       outDir: tmp,
       enableCaching: false,
       rootDir: ctx.dir,
       publicDir: pub.dir,
-      symlinkPublicDir: true,
-      // the public folder holds links to the film's own media on purpose
+      symlinkPublicDir: false,
+      // The prepared regular leaves copy into the bundle; directory aliases keep media in place.
       onSymlinkDetected: () => {},
       webpackOverride: webpackOverrideFor(ctx),
       onProgress: (p) => {
@@ -328,6 +437,7 @@ export async function getBundle(ctx, args = {}) {
         }
       },
     });
+    fs.rmSync(publicTmp, {recursive: true, force: true});
   } catch (e) {
     dropTmp();
     process.removeListener('exit', dropTmp);

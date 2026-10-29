@@ -444,11 +444,17 @@ RING_FROM_S, RING_TO_S = 0.3, 0.6  # where a strike should have died away
 CHIME_DB = -30.0  # a high partial (2 kHz and up) this close to its strike's peak, 300 ms on, is a chime's tail
 TONAL_DB = 20.0  # a partial stands this far over the ring window's own median (noise doesn't)
 HARMONIC_CENTS = 35.0
+SWELL_DB = 1.0  # a sound louder 300-600 ms on than its strike, by this much, is still swelling in, not ringing out
+
+
+LOCAL_OCT = 1 / 3  # a tonal partial also stands TONAL_DB over its own neighbourhood, this far either side of it
 
 
 def _tonal_peaks(f: np.ndarray, db: np.ndarray, lo: float, hi: float, *, within_db: float = 20.0) -> list[tuple[float, float]]:
     """[(Hz, dB)] of the spectrum's tonal peaks in lo..hi: local maxima standing TONAL_DB over the band's median and
-    within within_db of the band's strongest."""
+    over their own neighbourhood's (LOCAL_OCT either side), and within within_db of the band's strongest. The
+    neighbourhood test is what a partial passes and noise doesn't: band-limited noise (the air on a draw) stands far
+    over a wide band's median, most of which is the filter's stopband, but never over the noise right beside it."""
     band = (f >= lo) & (f <= hi)
     if not band.any():
         return []
@@ -456,8 +462,15 @@ def _tonal_peaks(f: np.ndarray, db: np.ndarray, lo: float, hi: float, *, within_
     sub = db[idx]
     floor, top = float(np.median(sub)), float(np.max(sub))
     peaks = signal.find_peaks(sub, prominence=TONAL_DB / 2)[0]
+    span = 2 ** LOCAL_OCT
+
+    def local_floor(k: int) -> float:
+        fk = f[idx[k]]
+        near = (f >= fk / span) & (f <= fk * span)
+        return float(np.median(db[near])) if near.any() else floor
+
     out = [(float(f[idx[k]]), float(sub[k])) for k in peaks
-           if sub[k] - floor >= TONAL_DB and sub[k] >= top - within_db]
+           if sub[k] - floor >= TONAL_DB and sub[k] >= top - within_db and sub[k] - local_floor(k) >= TONAL_DB]
     return sorted(out, key=lambda p: -p[1])[:8]
 
 
@@ -504,10 +517,17 @@ def timbre_check(y: np.ndarray, sr: int) -> dict:
         if c is not None:
             centroids.append(c)
         strike = m[a:a + int(0.06 * sr)]
-        if nxt - t >= RING_TO_S and len(strike) > 64:
+        ring = m[a + int(RING_FROM_S * sr):a + int(RING_TO_S * sr)]
+        # Ringing is what a strike leaves as it decays: a bell is quieter 300 ms on than at its strike, however slowly
+        # it fades. A sound louder by then (a pad's slow attack, swelling in) is no strike: its sustain was measured
+        # against its quiet first 60 ms and read as a chime or as metal.
+        swelling = len(ring) > 64 and len(strike) > 64 and (
+            np.sqrt(np.mean(ring ** 2)) >= np.sqrt(np.mean(strike ** 2)) * 10 ** (SWELL_DB / 20))
+        if swelling:
+            row["sustained"] = True
+        if nxt - t >= RING_TO_S and len(strike) > 64 and not swelling:
             _f0, sdb = _spectrum(strike, sr)
             peak = float(np.max(sdb))
-            ring = m[a + int(RING_FROM_S * sr):a + int(RING_TO_S * sr)]
             f, rdb = _spectrum(ring, sr)
             high = [p for p in _tonal_peaks(f, rdb, 2000.0, 12000.0, within_db=60.0)]
             if high and high[0][1] - peak > CHIME_DB:
@@ -516,7 +536,7 @@ def timbre_check(y: np.ndarray, sr: int) -> dict:
             ringing = [p for p in _tonal_peaks(f, rdb, 150.0, 12000.0) if p[1] - peak > -40.0]
             bright = [p for p in ringing if p[0] >= 1000.0]
             if bright and len(ringing) >= 2 and not _harmonic([p[0] for p in ringing]):
-                row["metallic"] = {"partials_hz": [round(p[0], 1) for p in ringing[:6]]}
+                row["metallic"] = {"partials_hz": [round(p[0], 1) for p in ringing]}
                 metallic.append(row)
         hits.append(row)
     med = float(np.median(centroids)) if centroids else None

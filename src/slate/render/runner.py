@@ -25,13 +25,15 @@ import contextlib
 import dataclasses
 import os
 import shutil
+import tempfile
 from pathlib import Path
 
 from slate import errors, gates, jsonio, log
 from slate.errors import Busy, MissingPrerequisite, Refused, SlateError, SpendRefused, UsageError
 from slate.render import chunks as chunks_mod
 from slate.render import clean, deps, engines, install_checks, joins, media, registry, shot_engines, splice
-from slate.render.plan import CHUNK_EXT, Plan, Target, acts_from_shots, build, ceil_gb, render_settings, segments
+from slate.render.plan import (CHUNK_EXT, Plan, Target, acts_from_shots, build, ceil_gb, cost_subframes,
+                               render_settings, segments, where)
 
 
 # slate.errors.TryLater (exit 75: a rate limit, a service briefly away). Read defensively, so a checkout whose foundation
@@ -104,13 +106,47 @@ def _shot_patch_engine(film_dir: Path, shots: dict, act: int | None, frames, eng
     return seg.engine, {act: seg}
 
 
+
+def _target_plan(p: Plan, t: Target) -> Plan:
+    """A target's actual settings for the existing chunk, splice and registry helpers."""
+    return dataclasses.replace(p, engine=p.engine_for(t), samples=p.samples_for(t), targets=[t])
+
+
+def _mixed_render_base(film_dir: Path, shots: dict, p: Plan, *, use_default: bool = False) -> str:
+    """Resolve each mixed owner by default; an explicit conflict cannot replace its visible base."""
+    chosen: list[tuple[Target, str]] = []
+    for t in p.targets:
+        actual = p.engine_for(t)
+        owner = actual
+        if t.scene is None:
+            built = shot_engines.act_engine(film_dir, t.act.index)
+            if built in ("remotion", "web") and shot_engines.mixed_scenes(film_dir, shots, t.act.index):
+                if use_default:
+                    owner = built
+                elif built != actual:
+                    raise Refused(
+                        f"Act {t.act.index}'s mixed composition needs its built {built} base; "
+                        f"{actual} would replace that base.",
+                        hint=f"Leave --engine off, or render this act with --engine {built}.")
+        chosen.append((t, owner))
+    if use_default:
+        names = {owner for _t, owner in chosen}
+        if len(names) == 1:
+            return next(iter(names))
+        for t, owner in chosen:
+            t.engine = owner if owner != p.engine else None
+    return p.engine
+
+
 def prepare(film_dir: Path, *, act: int | None = None, frames: tuple[int, int] | None = None,
-            engine: str | None = "remotion", samples: int | None = None, out: str | Path | None = None,
+            engine: str | None = None, samples: int | None = None, out: str | Path | None = None,
             draft: bool = False, detach: bool = False) -> tuple[dict, Plan]:
     """(film.json, plan) for a render, without doing anything."""
     film_dir = Path(film_dir).resolve()
     film = deps.load_film(film_dir)
     shots = deps.load_shots(film_dir)
+    use_default = engine is None
+    requested_samples = samples
     shot_engine, in_shot = _shot_patch_engine(film_dir, shots, act, frames, None if engine == "remotion" and frames
                                               else engine)
     if in_shot:
@@ -125,12 +161,33 @@ def prepare(film_dir: Path, *, act: int | None = None, frames: tuple[int, int] |
         seg = in_shot.get(t.act.index)
         if seg is not None and t.kind == "patch":
             t.scene = seg.to_dict(film_dir)["scene"]
+    owner = _mixed_render_base(film_dir, shots, p, use_default=use_default)
+    if owner != p.engine:
+        p = build(film_dir, film, shots, act=act, frames=frames, engine=owner, samples=samples, draft=draft, out=out,
+                  detach=detach, registered=_registered(film_dir))
+        for t in p.targets:
+            seg = in_shot.get(t.act.index)
+            if seg is not None and t.kind == "patch":
+                t.scene = seg.to_dict(film_dir)["scene"]
+    # Cross-act patches inherit each registered owner's count when samples were omitted.
+    # Whole acts retain the film count; explicit samples keep the existing seam checks.
+    if use_default and requested_samples is None and any(t.engine is not None for t in p.targets):
+        registered = _registered(film_dir)
+        for t in p.targets:
+            entry = registered.get(t.act.index) or {}
+            if t.kind == "patch" and entry.get("engine") == p.engine_for(t):
+                count = entry.get("samples")
+                if count is not None and count != p.samples:
+                    t.samples = count
+        p.subframes = cost_subframes(p.targets, p.samples)
+        p.runs, p.why = where(p, detach=detach)
     return film, p
 
 
 def check_patch(film_dir: Path, p: Plan, t: Target) -> dict:
     """A patch needs a registered, intact render of its act, at the act's current frames, from the same engine and
     sample count (anything else would put a visible seam in the act). Returns the registry entry."""
+    p = _target_plan(p, t)
     entry = registry.find(film_dir, t.act.index)
     n = t.act.index
     if entry is None:
@@ -158,6 +215,7 @@ def _settings(p: Plan, t: Target, eng: engines.Engine) -> dict:
     The sources are the engine's own bundle hash when it gives one (it covers exactly what's bundled: scenes, kit,
     timing, film.json, the lockfile), otherwise Slate's hash of the same inputs.
     """
+    p = _target_plan(p, t)
     return {"engine": p.engine, "samples": p.samples, "codec": eng.codec, "width": p.width, "height": p.height,
             "fps_num": p.fps_num, "fps_den": p.fps_den, "act": t.act.index,
             "act_frames": [t.act.frame_in, t.act.frame_out], "sources": eng.bundle_hash or eng.sources()}
@@ -165,6 +223,7 @@ def _settings(p: Plan, t: Target, eng: engines.Engine) -> dict:
 
 def _options(p: Plan, t: Target) -> dict:
     """What `--resume` needs to run this target again."""
+    p = _target_plan(p, t)
     frames = None if t.kind == "act" else [t.first, t.last]
     return {"act": t.act.index, "frames": frames, "engine": p.engine, "samples": p.samples, "draft": p.draft,
             "out": t.out if t.kind == "range" else None, "kind": t.kind}
@@ -236,23 +295,77 @@ def _trace_written_while_rendering(film_dir: Path, t: Target, ws: chunks_mod.Wor
     return None
 
 
+def _invalidate_trace(film_dir: Path, act: int, reason: str) -> str | None:
+    """Retain exact previous bytes and failure context before making current QA coverage unavailable."""
+    trace = Path(film_dir) / "timing" / "motion" / f"act{act}.json"
+    if not trace.is_file():
+        return None
+    previous = trace.read_bytes()
+    root = trace.parent / "failures"
+    root.mkdir(parents=True, exist_ok=True)
+    folder = Path(tempfile.mkdtemp(prefix=f"act{act}-", dir=root))
+    jsonio.write_text_atomic(folder / "previous.json", previous)
+    jsonio.write_atomic(folder / "failure.json", {
+        "act": act, "file": trace.relative_to(film_dir).as_posix(), "reason": reason,
+        "previous_sha256": jsonio.sha256_bytes(previous), "previous_bytes": len(previous),
+    })
+    trace.unlink()
+    return folder.relative_to(film_dir).as_posix()
+
+
 def _refresh_trace(film_dir: Path, t: Target, eng: engines.Engine, ws: chunks_mod.Workspace) -> dict | None:
-    """Bring the act's motion trace up to date with the scenes just rendered (`slate qa motion` reads it), and record
-    what made it. A trace that can't be written is reported, never a reason to undo a proven render."""
+    """Refresh motion coverage without undoing a proven render. Failed reads preserve the older evidence, then
+    remove its current trace: QA must not mistake a base-only or stale array for complete mixed-engine coverage."""
     try:
         res = eng.trace(t.act.index)
     except SlateError as exc:
         log.warn(f"act {t.act.index} is rendered, but its motion trace couldn't be refreshed: {exc.message}")
-        return {"written": False, "reason": exc.message}
+        evidence = _invalidate_trace(film_dir, t.act.index, exc.message)
+        return {"written": False, "reason": exc.message, **({"failure_evidence": evidence} if evidence else {})}
     if not res:
-        res = _trace_written_while_rendering(film_dir, t, ws)
+        try:
+            base = shot_engines.act_engine(film_dir, t.act.index)
+            if getattr(eng, "scene", None) is not None and base in ("remotion", "web"):
+                # An admitted isolated replacement already identifies its owner. The owner's
+                # trace reader validates the full composition, including resolved timing.
+                owner = engines.RemotionEngine if base == "remotion" else engines.WebEngine
+                res = owner(film_dir, eng.film).trace(t.act.index)
+                if not res:
+                    reason = "the owning mixed act produced no complete motion trace"
+                    evidence = _invalidate_trace(film_dir, t.act.index, reason)
+                    return {"written": False, "reason": reason,
+                            **({"failure_evidence": evidence} if evidence else {})}
+            else:
+                shots = deps.load_shots(film_dir)
+                mixed = base in ("remotion", "web") and bool(shot_engines.mixed_scenes(
+                    film_dir, shots, t.act.index))
+                if mixed:
+                    reason = "the owning mixed act produced no complete motion trace"
+                    evidence = _invalidate_trace(film_dir, t.act.index, reason)
+                    return {"written": False, "reason": reason,
+                            **({"failure_evidence": evidence} if evidence else {})}
+                res = _trace_written_while_rendering(film_dir, t, ws)
+        except SlateError as exc:
+            evidence = _invalidate_trace(film_dir, t.act.index, exc.message)
+            return {"written": False, "reason": exc.message,
+                    **({"failure_evidence": evidence} if evidence else {})}
     if not res:
         return None
-    trace = {k: res[k] for k in ("written", "file", "entries", "reason") if k in res}
-    if trace.get("written") and trace.get("file"):
+    trace = {k: res[k] for k in ("written", "file", "entries", "reason", "frame_base", "base_engine", "web_shots",
+                                 "remotion_shots", "base_file", "composition_file") if k in res}
+    if not trace.get("written"):
+        evidence = _invalidate_trace(film_dir, t.act.index, str(trace.get("reason") or "motion refresh produced no trace"))
+        if evidence:
+            trace["failure_evidence"] = evidence
+        return trace
+    if trace.get("file"):
         try:
-            deps.state_lock().record(film_dir, trace["file"], producer=f"slate render --act {t.act.index}",
-                                     inputs=sorted(set(list(res.get("sources") or []) + ["timing/shots.json"])))
+            sources = sorted(set(list(res.get("sources") or []) + ["timing/shots.json"]))
+            captured = res.get("source_hashes") or {}
+            inputs = {name: None for name in sources} if captured else sources
+            if captured:
+                inputs.update(captured)
+            deps.state_lock().record(film_dir, trace["file"], producer=f"slate render --act {t.act.index}", inputs=inputs)
         except SlateError as exc:
             log.warn(f"couldn't record {trace['file']} in film.lock.json: {exc.message}")
     return trace
@@ -427,7 +540,10 @@ def _splice_shots(film_dir: Path, film: dict, p: Plan, t: Target, joined: Path, 
     """The act's shots drawn by another engine (slate.render.shot_engines), each rendered over exactly its shot's
     frames at the act's sample count and spliced into the new act render with the splice's proof, before the act is
     checked and installed. Returns one record per shot, with its splice gate."""
-    segs = shot_engines.segments(film_dir, deps.load_shots(film_dir), t.act.index, t.act.frame_in, p.engine)
+    p = _target_plan(p, t)
+    shots = deps.load_shots(film_dir)
+    _mixed_render_base(film_dir, shots, p)
+    segs = shot_engines.segments(film_dir, shots, t.act.index, t.act.frame_in, p.engine)
     done: list[dict] = []
     for seg in segs:
         eng = engines.get(seg.engine, film_dir, film, go=go, scene=seg.scene)
@@ -461,6 +577,7 @@ def _splice_shots(film_dir: Path, film: dict, p: Plan, t: Target, joined: Path, 
 
 def _render_target(film_dir: Path, p: Plan, t: Target, eng: engines.Engine, ws: chunks_mod.Workspace,
                    m: media.Media, *, accept_change: bool = False, go: bool = False, fresh: bool = False) -> dict:
+    p = _target_plan(p, t)
     ws.write_plan("running")
     kept, rendered = _render_chunks(eng, ws, t, p, m)
     ws.write_plan("joining")
@@ -470,7 +587,8 @@ def _render_target(film_dir: Path, p: Plan, t: Target, eng: engines.Engine, ws: 
     joined.parent.mkdir(parents=True, exist_ok=True)
     proof = joins.assemble(ws.chunks, joined, codec=eng.codec, media=m)
     frames_gate = _frames_gate(t, proof, m)
-    result = {"kind": t.kind, "act": t.act.index, "shots": t.act.shots, "file": t.out, "first": t.first,
+    result = {"kind": t.kind, "act": t.act.index, "engine": p.engine, "samples": p.samples,
+              "shots": t.act.shots, "file": t.out, "first": t.first,
               "last": t.last, "film_frames": t.film_frames, "frame_count": proof["frames"],
               "chunks": {"total": len(ws.chunks), "kept": kept, "rendered": rendered}, "proof": proof,
               "gates": [frames_gate.to_dict(), *_engine_gates(t, ws)], "registered": False}
@@ -600,6 +718,10 @@ def _execute_whole_acts(film_dir: Path, p: Plan, eng: engines.Engine, *, in_queu
     all_gates = [g for r in results for g in r.pop("gates", [])]
     return {"ok": True, "ran": "queue" if in_queue else "here", "film": str(film_dir), "engine": p.engine,
             "samples": p.samples, "draft": p.draft, "renders": results, "gates": all_gates,
+            **({"engines": {str(t.act.index): p.engine_for(t) for t in p.targets}}
+               if any(t.engine is not None for t in p.targets) else {}),
+            **({"samples_by_act": {str(t.act.index): p.samples_for(t) for t in p.targets}}
+               if any(t.samples is not None for t in p.targets) else {}),
             "cleaned": {"bundles": 0, "freed_bytes": 0}}
 
 
@@ -609,15 +731,22 @@ def execute(film_dir: Path, film: dict, p: Plan, *, go: bool = False, fresh: boo
     registered render (recorded as accepted); `rollout` renders each act's one-sample preview against its reference
     first."""
     film_dir = Path(film_dir).resolve()
+    _mixed_render_base(film_dir, deps.load_shots(film_dir), p)
     # a patch inside a shot drawn by another engine renders from that shot's own scene
     scenes = {t.scene for t in p.targets}
     scene = _resolve(film_dir, next(iter(scenes))) if len(scenes) == 1 and None not in scenes else None
     if len(scenes) > 1:
         raise UsageError("These ranges lie in different engines' shots: render each on its own.")
-    eng = engines.get(p.engine, film_dir, film, go=go, scene=scene)
-    eng.preflight()
+    selected: dict[str, engines.Engine] = {}
+    for t in p.targets:
+        name = p.engine_for(t)
+        if name not in selected:
+            eng = engines.get(name, film_dir, film, go=go, scene=scene)
+            eng.preflight()
+            selected[name] = eng
+    eng = next(iter(selected.values()))
     media.require_toolchain()
-    if getattr(eng, "whole_acts_only", False):
+    if len(selected) == 1 and getattr(eng, "whole_acts_only", False):
         if any(t.kind == "act" for t in p.targets):
             deps.require_state_lock()
         return _execute_whole_acts(film_dir, p, eng, in_queue=in_queue)
@@ -633,39 +762,48 @@ def execute(film_dir: Path, film: dict, p: Plan, *, go: bool = False, fresh: boo
         _slot_and_disk(stack, film_dir, p, in_queue)
         # This process holds the render slot, so any bundle older than a render could use is a leak.
         swept = clean.sweep_bundles()
-        stack.callback(eng.close)
-        eng.open()
+        for each in selected.values():
+            stack.callback(each.close)
+            each.open()
         workspaces = []
         for t in p.targets:
-            ws = chunks_mod.Workspace(film_dir, t, _settings(p, t, eng), p.chunk_frames, CHUNK_EXT[eng.codec])
+            eng = selected[p.engine_for(t)]
+            each = _target_plan(p, t)
+            ws = chunks_mod.Workspace(film_dir, t, _settings(each, t, eng), p.chunk_frames, CHUNK_EXT[eng.codec])
             for sibling in ws.siblings():
                 log.info(f"removing chunks made with other settings: {sibling.name}")
                 shutil.rmtree(sibling, ignore_errors=True)
             if fresh:
                 ws.remove()
-            ws.write_plan("waiting", options=_options(p, t))
+            ws.write_plan("waiting", options=_options(each, t))
             workspaces.append(ws)
         for t, ws in zip(p.targets, workspaces):
+            eng = selected[p.engine_for(t)]
+            each = _target_plan(p, t)
             label = f"act {t.act.index}" + ("" if t.kind == "act" else f" frames {t.first}–{t.last}")
-            preview = _rollout_preview(film_dir, p, t, eng) if rollout and t.kind == "act" else None
-            log.info(f"{label}: {t.frames} frames, {p.samples or 'AE'} samples, {len(ws.chunks)} chunk(s), "
-                     f"{p.engine}")
-            res = _render_target(film_dir, p, t, eng, ws, m, accept_change=accept_change, go=go, fresh=fresh)
+            preview = _rollout_preview(film_dir, each, t, eng) if rollout and t.kind == "act" else None
+            log.info(f"{label}: {t.frames} frames, {each.samples or 'AE'} samples, {len(ws.chunks)} chunk(s), "
+                     f"{each.engine}")
+            res = _render_target(film_dir, each, t, eng, ws, m, accept_change=accept_change, go=go, fresh=fresh)
             if preview is not None:
                 res["gates"].insert(0, preview)
             results.append(res)
     all_gates = [g for r in results for g in r.pop("gates", [])]
     return {"ok": True, "ran": "queue" if in_queue else "here", "film": str(film_dir), "engine": p.engine,
             "samples": p.samples, "draft": p.draft, "renders": results, "gates": all_gates,
+            **({"engines": {str(t.act.index): p.engine_for(t) for t in p.targets}}
+               if any(t.engine is not None for t in p.targets) else {}),
+            **({"samples_by_act": {str(t.act.index): p.samples_for(t) for t in p.targets}}
+               if any(t.samples is not None for t in p.targets) else {}),
             "cleaned": {"bundles": len(swept), "freed_bytes": sum(i["bytes"] for i in swept)}}
 
 
 def run(film_dir: Path, *, act: int | None = None, frames: tuple[int, int] | None = None,
-        engine: str | None = "remotion", samples: int | None = None, out: str | Path | None = None,
+        engine: str | None = None, samples: int | None = None, out: str | Path | None = None,
         draft: bool = False, go: bool = False, fresh: bool = False, resume: bool = False,
         in_queue: bool = False, accept_change: bool = False, rollout: bool = False) -> dict:
     """Render in this process. See the package docstring; `engine=None` means the registered render's engine for a
-    patch, otherwise remotion."""
+    patch. A mixed whole act defaults to its built owning engine; pure previews retain the Remotion default."""
     film_dir = Path(film_dir).resolve()
     if resume:
         return resume_run(film_dir, act=act, go=go, in_queue=in_queue)
@@ -706,14 +844,17 @@ def job_argv(film_dir: Path, p: Plan, *, act: int | None, frames, out, go: bool,
              resume: bool, accept_change: bool = False, rollout: bool = False) -> list[str]:
     """The `slate` command the queue runs (its words after `slate`): exactly this plan, rendered in the job's own
     process. Spelled out from the plan, never this process's argv, which is wrong under the MCP server."""
-    argv = ["render", "--film", str(film_dir), "--json", "--in-queue", "--engine", p.engine]
+    argv = ["render", "--film", str(film_dir), "--json", "--in-queue"]
+    # A global override would erase default per-target ownership in the queue child.
+    if not any(t.engine is not None for t in p.targets):
+        argv += ["--engine", p.engine]
     if resume:
         argv.append("--resume")
     if act is not None:
         argv += ["--act", str(act)]
     if frames is not None:
         argv += ["--from", str(frames[0]), "--to", str(frames[1])]
-    if p.samples is not None:
+    if p.samples is not None and not any(t.samples is not None for t in p.targets):
         argv += ["--samples", str(p.samples)]
     if p.draft:
         argv.append("--draft")
@@ -752,4 +893,3 @@ def submit(film_dir: Path, film: dict, p: Plan, argv: list[str]) -> str:
     resources = ("render", "ae") if p.engine == "ae" else ("render",)
     return deps.detach("render", argv, film=str(film_dir), resources=resources, priority=priority,
                        disk_gb=ceil_gb(p.disk_gb))
-

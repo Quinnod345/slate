@@ -80,6 +80,7 @@ class Stage:
     action: tuple[str, ...] = ()
     refused: tuple[tuple[str, str], ...] = ()
     free_when: tuple[str, ...] = ()
+    requires_film: bool = True
 
     @property
     def cli(self) -> str:
@@ -118,6 +119,15 @@ _DELIVER = Stage("deliver", ("deliver",), "queue", "the delivery set and its man
                  "slate.finish.cli", kind="deliver")
 
 RUN: dict[str, Stage] = {s.name: s for s in (
+    Stage("history context", ("history", "context"), "inline",
+          "read global contextual preferences in exact planning pages with source references and detail retrieval; "
+          "no approval inferred",
+          "slate.history", requires_film=False,
+          options=(("--topic", r"(?:story|look|motion|voice|sound|process)"),
+                   ("--view", r"(?:planning|index|detail)"), ("--offset", r"[0-9]{1,400}"), ("--limit", SMALL_INT),
+                   ("--pattern-index", r"[0-9]{1,400}"),
+                   ("--field", r"(?:pattern|guidance|scope|counterexamples|evidence|interpretation)"),
+                   ("--text-offset", r"[0-9]{1,400}"), ("--text-chars", INT), ("--expect-sha256", r"[0-9a-f]{64}"))),
     Stage("script lint", ("script", "lint"), "inline", "check script/script.json against the script gates; writes nothing",
           "slate.story.cli"),
     Stage("script build", ("script", "build"), "inline",
@@ -156,6 +166,8 @@ RUN: dict[str, Stage] = {s.name: s for s in (
                                "their own terminal (slate voice tags adopt <shot> <take> --force)."),)),
     Stage("score estimate", ("score", "compose"), "inline", "what composing the score would cost; nothing is spent",
           "slate.sound.cli", positional=PART, max_positional=40, extra=("--dry-run",)),
+    Stage("sfx status", ("sfx",), "inline", "the effects engine's sound-proof approval gate; writes nothing",
+          "slate.sound.cli", action=("status",)),
     _REVIEW,
     _DELIVER,
 )}
@@ -179,6 +191,14 @@ JOBS: dict[str, Stage] = {s.name: s for s in (
           resources=("elevenlabs_music",), paid=True),
     Stage("score assemble", ("score", "assemble"), "queue", "place, join and repair the takes into the score",
           "slate.sound.cli", kind="score"),
+    Stage("sfx spot", ("sfx",), "queue", "spot and measure designed effects from every act's picture events",
+          "slate.sound.cli", action=("spot",), options=(("--seed", r"-?[0-9]{1,10}"),),
+          kind="sfx", resources=("render",)),
+    Stage("sfx render", ("sfx",), "queue", "render the existing effects cue sheet to balanced stems",
+          "slate.sound.cli", action=("render",), kind="sfx", resources=("render",)),
+    Stage("sfx run", ("sfx",), "queue", "spot picture events then render their designed effect stems",
+          "slate.sound.cli", action=("run",), options=(("--seed", r"-?[0-9]{1,10}"),),
+          kind="sfx", resources=("render",)),
     Stage("mix", ("mix",), "queue", "the delivery mix: the film's loudness targets, four stems that sum to it",
           "slate.sound.cli", flags=("--no-score", "--calibrate"), options=(("--under", NUMBER), ("--duck", NUMBER)),
           kind="mix"),
@@ -319,6 +339,9 @@ def check_args(st: Stage, args: list[str] | None) -> list[str]:
                     value = args[i]
                     if not isinstance(value, str):
                         raise UsageError(f"{name} needs a string value.")
+                # A split value keeps the same size and line-break contract as an inline option token.
+                if len(value) > MAX_ARG_LEN or any(ch in value for ch in "\x00\n\r"):
+                    raise UsageError(f"The value for {name} is too long or holds a line break.")
                 if not re.fullmatch(options[name], value or ""):
                     raise UsageError(f"{name} {value!r} isn't a value {st.cli} accepts here.")
                 opts_out.append(f"{name}={value}")

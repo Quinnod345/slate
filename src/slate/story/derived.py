@@ -85,7 +85,7 @@ def load(film_dir: Path, film: dict) -> tuple[dict, Derived]:
         if real.is_file() and real.resolve() != own.resolve():
             parent = (film.get("parent") or {}).get("id") or "its parent"
             raise Refused(f"{film.get('id') or film_dir.name} follows {parent}'s script and storyboard by reference "
-                          "(a new aspect of the same film), so there's nothing to build here.",
+                          "(an unchanged source script), so there's nothing to build here.",
                           hint=f"Edit {parent}'s script/script.json and run `slate script build --film {parent}`; "
                                "this film reads the result.")
         return load_script(film_dir), Derived()  # raises the plain "there's no script yet"

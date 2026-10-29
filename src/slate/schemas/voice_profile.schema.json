@@ -114,8 +114,9 @@
   },
   "tag_policy": {
    "type": "object",
-   "properties": {
-    "banned_extra": {
+      "properties": {
+        "avoid_low_effort": {"type": "boolean"},
+        "banned_extra": {
      "type": "array",
      "items": {
       "type": "string"
@@ -167,6 +168,26 @@
     "null"
    ],
    "description": "whose real recordings these are (source: recording)"
+  },
+  "library_approval": {
+   "description": "The owner's recorded yes for one shared ElevenLabs Voice Library voice the vendor labels \"professional\": it is then used as a library voice. Never an instant clone, a famous voice or a clone of a named person.",
+   "type": [
+    "object",
+    "null"
+   ],
+   "properties": {
+    "voice_id": {"type": "string", "description": "the one voice this approval covers"},
+    "vendor_category": {"enum": ["professional"]},
+    "voice_name": {"type": ["string", "null"]},
+    "approved_by": {"type": "string", "minLength": 1},
+    "approved_at": {"type": "string", "description": "YYYY-MM-DD"},
+    "ruling": {"type": "string", "minLength": 1, "description": "where the owner's words are recorded (a path or a quote)"},
+    "ruling_sha256": {"type": ["string", "null"]},
+    "autonomous": {"type": "boolean", "description": "autonomous films may use it too (default false)"},
+    "note": {"type": ["string", "null"]}
+   },
+   "required": ["voice_id", "vendor_category", "approved_by", "approved_at", "ruling"],
+   "additionalProperties": false
   },
   "pace": {
    "type": "object",

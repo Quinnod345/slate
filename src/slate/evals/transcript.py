@@ -3,13 +3,14 @@
 Each agent records a run in its own format:
 
 - Claude Code's print mode with `--output-format stream-json`: `system` init, `assistant` messages with `tool_use`
-  parts, `user` messages carrying `tool_result`s, and a final `result`. A loaded skill is a `Skill` tool call.
+  parts, `user` messages carrying `tool_result`s, and a final `result`. A confirmed skill load is a `Skill` call with
+  a successful matched result.
 - `codex exec --json`: JSONL `thread.started`, `item.started|updated|completed` (agent_message, command_execution,
-  file_change, mcp_tool_call, web_search, dynamic_tool_call …) and `turn.completed|failed`. A loaded skill is a command
-  that reads its SKILL.md.
+  file_change, mcp_tool_call, web_search, dynamic_tool_call …) and `turn.completed|failed`. A confirmed skill load is
+  a completed command that reads its SKILL.md and exits successfully.
 - OpenClaw: the session transcript (`session` and `message` lines, assistant `toolCall` parts, `toolResult`
   messages), or the Gateway's `chat.history` JSON, plus the `openclaw agent --json` envelope. A loaded skill is a
-  `read` (or an exec) of its SKILL.md.
+  `read` (or an exec) of its SKILL.md with a successful matched result.
 
 All three become one list of `Event`s, so every grader works on every agent. Tool names are normalised to
 `mcp__<server>__<tool>` for MCP tools, whatever the agent called them.
@@ -50,6 +51,8 @@ class Event:
     exit_code: int | None = None
     status: str = "completed"  # completed | in_progress | failed | denied
     ref: str = ""  # where it came from ("line 12")
+    started_at: int | None = None  # source record where this action was first observed
+    completed_at: int | None = None  # source record carrying its terminal result, when present
 
     def brief(self, width: int = 110) -> str:
         what = self.text or self.name or json.dumps(self.args, ensure_ascii=False)[:200]
@@ -120,10 +123,14 @@ class Transcript:
                 out.append((e, call))
         return out
 
-    def skills_loaded(self) -> list[tuple[str, Event]]:
-        """(skill name, event) for every skill the agent loaded, however its agent loads skills."""
+    def skills_loaded(self, *, confirmed: bool = False) -> list[tuple[str, Event]]:
+        """Recognized skill-loading actions. Negative routing checks retain attempts; positive checks request only
+        terminal successes. A tool invocation without a result is an attempt, not proof that its skill loaded."""
         out: list[tuple[str, Event]] = []
         for e in self.events:
+            if confirmed and not (e.status == "completed" and e.ok is True and e.exit_code in (None, 0)
+                                  and (e.started_at is None or e.completed_at is not None)):
+                continue
             if e.kind == "skill" and e.name:
                 out.append((normalize_skill(e.name), e))
             elif e.kind == "read":
@@ -302,6 +309,7 @@ def parse_claude(text: str) -> Transcript:
                     t.events.append(Event(len(t.events), "text", text=part["text"], ref=f"line {n}"))
                 elif part.get("type") == "tool_use":
                     ev = _tool_event(len(t.events), str(part.get("name", "")), part.get("input") or {}, f"line {n}")
+                    ev.started_at = n
                     t.events.append(ev)
                     if part.get("id"):
                         by_id[part["id"]] = ev
@@ -314,10 +322,11 @@ def parse_claude(text: str) -> Transcript:
                     if ev is None:
                         continue
                     ev.output = _text_of(part.get("content"))
+                    ev.completed_at = n
                     failed = bool(part.get("is_error"))
                     ev.ok = not failed
+                    ev.status = "failed" if failed else "completed"
                     if failed:
-                        ev.status = "failed"
                         m = re.search(r"[Ee]xit code (\d+)", ev.output)
                         ev.exit_code = int(m.group(1)) if m else None
                     elif ev.kind == "command":
@@ -333,6 +342,7 @@ def parse_claude(text: str) -> Transcript:
                 ev = by_id.get((denial or {}).get("tool_use_id"))
                 if ev is not None:
                     ev.status, ev.ok = "denied", False
+                    ev.completed_at = n
             t.info["result"] = {k: obj.get(k) for k in ("subtype", "is_error", "num_turns", "duration_ms")}
     return t
 
@@ -341,7 +351,7 @@ def parse_claude(text: str) -> Transcript:
 
 def parse_codex(text: str) -> Transcript:
     t = Transcript("codex-jsonl")
-    items: dict[str, tuple[int, dict, str]] = {}
+    items: dict[str, tuple[int, int, dict, str]] = {}
     order: list[str] = []
     failures: list[str] = []
     for n, obj in _json_lines(text):
@@ -356,7 +366,13 @@ def parse_codex(text: str) -> Transcript:
             iid = str(item.get("id") or f"line{n}")
             if iid not in items:
                 order.append(iid)
-            items[iid] = (n, item, kind)
+            started_at = items[iid][0] if iid in items else n
+            if iid in items and item.get("type") == "command_execution":
+                previous = items[iid][2]
+                # Updates can omit native request metadata. Retain only cwd fields that were explicitly recorded;
+                # no run default or caller environment may fill a missing command cwd.
+                item = {**{k: previous[k] for k in ("cwd", "workdir", "working_directory") if k in previous}, **item}
+            items[iid] = (started_at, n, item, kind)
         elif kind == "turn.completed":
             t.info["usage"] = obj.get("usage")
         elif kind == "turn.failed":
@@ -365,9 +381,12 @@ def parse_codex(text: str) -> Transcript:
         elif kind == "error":
             t.info.setdefault("errors", []).append(obj.get("message"))
     for iid in order:
-        n, item, last = items[iid]
+        started_at, n, item, last = items[iid]
         for ev in _codex_item(item, last, len(t.events), f"line {n}"):
             ev.index = len(t.events)
+            ev.started_at = started_at
+            if last == "item.completed":
+                ev.completed_at = n
             t.events.append(ev)
     messages = t.of_kind("text")
     if messages:
@@ -390,22 +409,27 @@ def _codex_item(item: dict, last: str, index: int, ref: str) -> list[Event]:
     if kind == "command_execution":
         code = item.get("exit_code")
         ok = None if code is None else code == 0
-        return [Event(index, "command", name="shell", text=str(item.get("command") or ""), output=str(
+        args = {k: item[k] for k in ("cwd", "workdir", "working_directory") if k in item}
+        return [Event(index, "command", name="shell", text=str(item.get("command") or ""), args=args, output=str(
             item.get("aggregated_output") or ""), ok=ok, exit_code=code, status=status, ref=ref)]
     if kind == "file_change":
         return [Event(index, "write", name=str(ch.get("path", "")), args={"kind": ch.get("kind")}, status=status,
                       ref=ref) for ch in item.get("changes") or [] if isinstance(ch, dict)]
     if kind == "mcp_tool_call":
         name = f"mcp__{item.get('server', '')}__{item.get('tool', '')}"
-        failed = bool(item.get("error")) or status == "failed"
-        return [Event(index, "tool", name=name, args=item.get("arguments") or {}, output=_text_of(item.get("result")),
-                      ok=not failed, status=status, ref=ref)]
+        result = item.get("result")
+        failed = bool(item.get("error")) or status == "failed" or (
+            isinstance(result, dict) and result.get("isError") is True)
+        ok = False if failed else True if status == "completed" and result is not None else None
+        return [Event(index, "tool", name=name, args=item.get("arguments") or {}, output=_text_of(result),
+                      ok=ok, status=status, ref=ref)]
     if kind == "web_search":
         return [Event(index, "tool", name="web_search", args={"query": item.get("query")}, status=status, ref=ref)]
     if kind == "error":
         return [Event(index, "error", text=str(item.get("message") or ""), ref=ref)]
     if "skill" in kind and (item.get("name") or item.get("skill")):
-        return [Event(index, "skill", name=str(item.get("name") or item.get("skill")), args=item, ref=ref)]
+        return [Event(index, "skill", name=str(item.get("name") or item.get("skill")), args=item, status=status,
+                      ref=ref)]
     name = str(item.get("tool") or item.get("name") or kind)
     args = item.get("arguments") or item.get("input") or {k: v for k, v in item.items()
                                                           if k not in ("id", "type", "status")}
@@ -446,7 +470,7 @@ def parse_openclaw(text: str, envelope: dict | None = None) -> Transcript:
             elif "role" in obj and "content" in obj:
                 messages.append((f"line {n}", obj))
     by_id: dict[str, Event] = {}
-    for ref, m in messages:
+    for source_position, (ref, m) in enumerate(messages, 1):
         role = m.get("role")
         content = m.get("content")
         if role == "assistant":
@@ -463,6 +487,7 @@ def parse_openclaw(text: str, envelope: dict | None = None) -> Transcript:
                     name = str(part.get("name") or part.get("toolName") or "")
                     args = part.get("arguments") if part.get("arguments") is not None else part.get("input")
                     ev = _tool_event(len(t.events), name, args or {}, ref)
+                    ev.started_at = source_position
                     t.events.append(ev)
                     call_id = part.get("id") or part.get("toolCallId")
                     if call_id:
@@ -471,12 +496,33 @@ def parse_openclaw(text: str, envelope: dict | None = None) -> Transcript:
             ev = by_id.get(str(m.get("toolCallId") or m.get("tool_call_id") or ""))
             if ev is not None:
                 ev.output = _text_of(content)
+                ev.completed_at = source_position
                 failed = bool(m.get("isError"))
-                ev.ok = not failed
-                if failed:
-                    ev.status = "failed"
-                elif ev.kind == "command":
-                    ev.exit_code = 0
+                if ev.kind == "command":
+                    # A successful tool response does not prove that its child command exited successfully. Native
+                    # exec records may carry an explicit exit or the standard terminal footer; neither is inferred
+                    # from isError false. A running response or an omitted command exit remains ambiguous.
+                    details = m.get("details") if isinstance(m.get("details"), dict) else {}
+                    codes = [code for code in (details.get("exitCode"), m.get("exitCode"), m.get("exit_code"))
+                             if type(code) is int]
+                    footer = re.search(r"(?:^|\n)\(Command exited with code (-?\d+)\)\s*\Z", ev.output)
+                    if footer:
+                        codes.append(int(footer.group(1)))
+                    code = next((value for value in codes if value != 0), codes[0] if codes else None)
+                    states = [status for status in (m.get("status"), details.get("status")) if status is not None]
+                    state_failed = any(status in ("failed", "error", "denied") for status in states)
+                    pending = any(status in ("running", "in_progress", "queued") for status in states)
+                    unknown_state = any(status not in ("completed", "exited", "failed", "error", "denied",
+                                                       "running", "in_progress", "queued") for status in states)
+                    ev.ok = (False if failed or state_failed or code not in (None, 0) else
+                             None if pending or unknown_state or code is None else True)
+                    ev.exit_code = code if ev.ok is not None else None
+                    ev.status = "failed" if ev.ok is False else "in_progress" if pending else "completed"
+                    if (pending or unknown_state) and ev.ok is not False:
+                        ev.completed_at = None
+                else:
+                    ev.ok = not failed
+                    ev.status = "failed" if failed else "completed"
     if envelope:
         _apply_envelope(t, envelope)
     last = t.final_event()

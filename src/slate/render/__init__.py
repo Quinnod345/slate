@@ -1,7 +1,7 @@
 """`slate render`: chunked, resumable renders with proven joins and splices, a renders registry, and bundle cleanup
 everywhere.
 
-    run(film_dir, *, act=None, frames=None, engine="remotion", samples=None, out=None) -> dict
+    run(film_dir, *, act=None, frames=None, engine=None, samples=None, out=None) -> dict
     registry.entries(film_dir) -> list[dict]      registry.register(film_dir, entry) -> None
     splice.splice(film_dir, base, patch, frame_in, frame_out) -> dict
 
@@ -27,12 +27,13 @@ _SUBMODULES = {"registry", "splice", "plan", "chunks", "joins", "media", "engine
 
 
 def run(film_dir: Path, *, act: int | None = None, frames: tuple[int, int] | None = None,
-        engine: str | None = "remotion", samples: int | None = None, out: str | Path | None = None,
+        engine: str | None = None, samples: int | None = None, out: str | Path | None = None,
         **options: Any) -> dict:
     """Render in this process: a whole act (registered, which locks the timeline), every act, a patch spliced into the
     registered act render (`act` + `frames`, the act's own frame numbers, inclusive), or a range to `out`.
 
-    Options: draft, go (After Effects), fresh, resume, in_queue. See slate.render.runner.
+    Without an engine override, mixed acts follow their built owning engine and pure previews keep the Remotion
+    default. Options: draft, go (After Effects), fresh, resume, in_queue. See slate.render.runner.
     """
     from slate.render.runner import run as _run  # noqa: PLC0415
 

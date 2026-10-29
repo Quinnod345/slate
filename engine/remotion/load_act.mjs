@@ -30,6 +30,7 @@ import {pathToFileURL} from 'node:url';
 import {build} from 'esbuild';
 import {EngineError, KIT_DIR, NODE_MODULES} from './lib/common.mjs';
 import {filmDataFile, kitHooksModule, kitPresent, sceneBeats, sceneEvents, sceneIndex} from './entry.mjs';
+import {canonicalSource, sourceCapture} from './lib/shot_scenes.mjs';
 
 /**
  * The kit functions the engine calls, by name, each with how it's called for act N. Earlier names win; the later
@@ -140,7 +141,26 @@ function usesKit(metafile, ctx) {
   return Object.keys(metafile.inputs).some((p) => path.resolve(ctx.dir, p).startsWith(kit));
 }
 
-async function bundleAndImport(ctx, act, tmp, files, tag) {
+/** Capture the exact bytes esbuild consumes, rather than hashing its import list afterwards. */
+function capturedSources(capture, temporaryRoot) {
+  return {
+    name: 'slate-observed-module-sources',
+    setup(b) {
+      b.onLoad({filter: /.*/, namespace: 'file'}, (a) => {
+        const ext = path.extname(a.path).toLowerCase();
+        const loader = ({'.ts': 'ts', '.tsx': 'tsx', '.js': 'js', '.jsx': 'jsx', '.mjs': 'js',
+          '.cjs': 'js', '.mts': 'ts', '.cts': 'ts', '.json': 'json', '.svg': 'text', '.txt': 'text',
+          ...EMPTY_LOADERS})[ext];
+        if (!loader) return null;
+        const bytes = fs.readFileSync(a.path);
+        if (!canonicalSource(a.path).startsWith(canonicalSource(temporaryRoot) + path.sep)) capture.record(a.path, bytes);
+        return {contents: loader === 'empty' ? '' : bytes, loader, resolveDir: path.dirname(a.path)};
+      });
+    },
+  };
+}
+
+async function bundleAndImport(ctx, act, tmp, files, tag, capture = null) {
   const build1 = async (withKit) => {
     const lines = [];
     const names = [];
@@ -159,7 +179,9 @@ async function bundleAndImport(ctx, act, tmp, files, tag) {
     fs.writeFileSync(entry, lines.join('\n'));
     const outfile = path.join(tmp, `out-${tag}-${withKit ? 'kit' : 'plain'}.mjs`);
     try {
-      const res = await build({...esbuildOptions(ctx), entryPoints: [entry], outfile});
+      const options = esbuildOptions(ctx);
+      if (capture) options.plugins = [...options.plugins, capturedSources(capture, tmp)];
+      const res = await build({...options, entryPoints: [entry], outfile});
       return {outfile, metafile: res.metafile};
     } catch (e) {
       throw new EngineError(`Act ${act}'s modules don't build:\n${formatBuildError(e, ctx)}`, {
@@ -190,26 +212,30 @@ async function bundleAndImport(ctx, act, tmp, files, tag) {
  * indexLoaded, indexError}. Throws EngineError(kind 'refused') when the act's modules can't be built or throw while
  * loading, with the file and line when esbuild has them (a throw at module load breaks every composition in a bundle).
  */
-export async function loadAct(ctx, act) {
-  const index = sceneIndex(ctx.dir, act);
+export async function loadAct(ctx, act, {scene = null, captureSources = false, contextSources = {}} = {}) {
+  if (scene && (scene.engine !== 'remotion' || scene.act !== Number(act))) throw new EngineError('Replacement module has another owning act.', {kind: 'refused'});
+  const index = scene?.index ?? sceneIndex(ctx.dir, act);
   if (!index) return {act, index: null, missing: true};
-  const beatsFile = sceneBeats(ctx.dir, act);
-  const eventsFile = sceneEvents(ctx.dir, act);
+  const moduleAt = (name) => ['.tsx', '.ts', '.jsx', '.js', '.mjs'].map((ext) => path.join(scene.scene, name + ext)).find((file) => fs.existsSync(file)) ?? null;
+  const beatsFile = scene ? moduleAt('beats') : sceneBeats(ctx.dir, act);
+  const eventsFile = scene ? moduleAt('events') : sceneEvents(ctx.dir, act);
+  const capture = captureSources ? sourceCapture(contextSources) : null;
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), `slate-act${act}-`));
   try {
     let loaded;
     let indexLoaded = true;
     let indexError = null;
     try {
-      loaded = await bundleAndImport(ctx, act, tmp, {scene: index, beats: beatsFile, extra: eventsFile}, 'all');
+      loaded = await bundleAndImport(ctx, act, tmp, {scene: index, beats: beatsFile, extra: eventsFile}, 'all', capture);
     } catch (e) {
       // The picture may need the browser to load; its beats must not. Try them alone before giving up. A module that
       // doesn't even build is broken for the renderer too, so that never falls back.
       if (!(beatsFile || eventsFile) || !(e instanceof EngineError) || e.details?.stage !== 'load') throw e;
       indexLoaded = false;
       indexError = e.message.split('\n')[0];
-      loaded = await bundleAndImport(ctx, act, tmp, {scene: null, beats: beatsFile, extra: eventsFile}, 'beats');
+      loaded = await bundleAndImport(ctx, act, tmp, {scene: null, beats: beatsFile, extra: eventsFile}, 'beats', capture);
     }
+    capture?.verify();
     const {mod, metafile, kitUsed} = loaded;
     const inputs = Object.keys(metafile.inputs)
       .map((p) => path.resolve(ctx.dir, p))
@@ -227,7 +253,9 @@ export async function loadAct(ctx, act) {
       extra: mod.extra ?? {},
       kit,
       usesKit: kitUsed,
-      inputs,
+      inputs: capture ? Object.keys(capture.hashes).sort() : inputs,
+      ...(capture ? {source_hashes: {...capture.hashes}, source_capture: capture} : {}),
+      ...(scene ? {shot: scene.shot, descriptor: scene} : {}),
       indexLoaded,
       indexError,
       hooks: {
@@ -244,6 +272,8 @@ export async function loadAct(ctx, act) {
     fs.rmSync(tmp, {recursive: true, force: true});
   }
 }
+
+export const loadRemotionShot = (ctx, scene, options = {}) => loadAct(ctx, scene.act, {...options, scene, captureSources: true});
 
 /** The act's own declarations, wherever they are: events.* wins, then beats.*, then index.*. */
 export function declarations(loaded) {

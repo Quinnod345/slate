@@ -152,7 +152,7 @@ def _is_ours(entry: dict, lay: Layout) -> bool:
         return False
     path = Path(command).expanduser()
     if os.path.normpath(path) == os.path.normpath(lay.shim):
-        return True
+        return links.is_slate_shim(path, lay)
     if links._inside(path, lay.repo):  # an older registration straight into this checkout
         return True
     return links.is_slate_shim(path, lay)
@@ -273,7 +273,10 @@ def unregister(clients: list[str], lay: Layout, *, run: bool, path: str | None =
         res["current"] = cur
         if cur is None:
             res["did"] = "nothing registered"
-        elif "unknown" not in cur and not _is_ours(cur, lay):
+        elif "unknown" in cur:
+            res["did"] = "left alone"
+            res["why"] = f"ownership couldn't be confirmed: {cur['unknown']}"
+        elif not _is_ours(cur, lay):
             res["did"] = "left alone"
             res["why"] = f"the {SERVER!r} server registered there isn't Slate's ({cur.get('command')})"
         elif not run:

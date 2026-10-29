@@ -11,6 +11,10 @@ Modes change who sits when (slate.state.modes):
   person there, and the brand's approved references stand in for claims, voice and look);
 - draft: nothing blocks, and a draft is never approved as a final cut.
 
+An unchanged approved brand voice can answer the cast choice in any mode. Film-specific profile overrides and TTS
+pins must match that exact choice, and raw film voice objects must satisfy the film manifest's voice contract
+before normalization. The reusable approval never substitutes for a new narration take or another film approval.
+
 approvals.json also holds the questions waiting for a person (a question can park the film) and the revisions made
 under "perfect, don't replace".
 """
@@ -389,23 +393,94 @@ def spend_approval(film_dir: Path, approval_id: str) -> dict | None:
 
 
 def covered_by_brand(film_dir: Path) -> dict[str, str]:
-    """Sitting items the brand's approved references already answer (why each is covered)."""
+    """Sitting items answered by standing brand approvals, without approving new film artifacts.
+
+    The approved voice reference answers the cast choice in every mode only when the raw film voice is valid and
+    its normalized profile and any TTS pins still match it. That reuse approves neither narration nor a take, spend,
+    script or final cut. Reference freshness remains the brand module's decision; an id match cannot revive a
+    changed reference.
+    """
     from slate.state import deps, film  # noqa: PLC0415
 
     fj = film.load(film_dir)
     try:
         pack = deps.brand_load(fj["brand"])
+        approved = {key: deps.brand_reference_approved(pack, key) for key in ("look_motion", "truth", "voice")}
     except Exception:  # noqa: BLE001 - an unreadable pack covers nothing
         return {}
     out = {}
-    if deps.brand_reference_approved(pack, "look_motion"):
+    if approved["look_motion"]:
         out["look_test"] = "the brand's look and motion reference is approved (no look test needed)"
-    if film.mode_of(film_dir) == "autonomous":
-        if deps.brand_reference_approved(pack, "truth"):
-            out["claims"] = "autonomous films use only the brand's approved claims"
-        if deps.brand_reference_approved(pack, "voice"):
-            out["voice_shortlist"] = "the brand's approved voice reference"
+    mode = film.mode_of(film_dir)
+    if mode == "autonomous" and approved["truth"]:
+        out["claims"] = "autonomous films use only the brand's approved claims"
+    if approved["voice"] and _same_brand_voice(fj, pack, mode):
+        out["voice_shortlist"] = "the film reuses the brand's exact approved voice choice (cast approval only)"
     return out
+
+
+def _same_brand_voice(fj: dict, pack: dict, mode: str) -> bool:
+    """Compare the effective cast and synthesis contract, including first-use pins, without writing any pins.
+
+    Brand snapshots follow the current brand through profile.load; complete film profiles and their overrides
+    retain their real source and cloning claims. Raw voice objects must first satisfy the film schema's voice
+    contract, so normalization cannot turn malformed source or snapshot fields into approval evidence. Missing or
+    null voices, valid snapshots and the profile loader's legacy string ids keep their existing inheritance.
+    Absent pins are normal before first use. Present pins must be valid and equal to the approved normalized choice,
+    including each recorded narration seed. A reference without a fixed seed cannot establish that an existing
+    per-line seed was approved, so that case gets a film approval.
+    """
+    from slate.voice import profile, tts  # noqa: PLC0415
+
+    try:
+        raw = fj.get("voice")
+        if raw is not None and not isinstance(raw, (dict, str)):
+            return False
+        if isinstance(raw, dict):
+            import jsonschema  # noqa: PLC0415 - the normal profile validator already requires this dependency
+
+            # Validate only the voice contract; unrelated legacy film metadata does not change this cast choice.
+            film_schema = jsonio.schema("film")
+            validator_cls = jsonschema.validators.validator_for(film_schema)
+            if not validator_cls(film_schema["properties"]["voice"]).is_valid(raw):
+                return False
+            if "profile" in raw and not isinstance(raw["profile"], dict):
+                return False
+        expected = profile.load(pack)
+        effective = profile.load(pack, film=fj)
+        if profile.policy_problems(expected, mode=mode) or profile.policy_problems(effective, mode=mode):
+            return False
+        chosen = (bool(expected.get("speaker")) if expected["provider"] == "recording" else
+                  bool(expected.get("voice_id")))
+        if not chosen:
+            return False
+        fields = (*profile.CLAIMS, "voice_id", "seed", "output_format", "language")
+        if any(effective.get(key) != expected.get(key) for key in fields):
+            return False
+        wanted = tts.requested_pin(expected)
+        if tts.requested_pin(effective, fj) != wanted:
+            return False
+        actual = fj.get("pins", {})
+        if not isinstance(actual, dict):
+            return False
+        pinned_profile = dict(effective)
+        for key, field in tts.PIN_KEYS.items():
+            if key in actual:
+                if actual[key] != wanted[key]:
+                    return False
+                pinned_profile[field] = actual[key]
+        if jsonio.validate(pinned_profile, "voice_profile"):
+            return False
+        for key, value in actual.items():
+            if not key.startswith("seed."):
+                continue
+            if not isinstance(value, int) or isinstance(value, bool) or not 0 <= value <= 4294967295:
+                return False
+            if expected["seed"] is None or value != expected["seed"]:
+                return False
+        return True
+    except Exception:  # noqa: BLE001 - a malformed or unavailable voice never supplies a cast approval
+        return False
 
 
 def sittings(film_dir: Path, hasher: _util.Hasher | None = None) -> dict:

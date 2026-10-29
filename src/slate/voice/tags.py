@@ -1,14 +1,13 @@
-"""Direction with eleven_v4 audio tags, and the rules that keep it safe.
+"""Direction with eleven_v4 audio tags, exact script words and a scoped voice policy.
 
 An audio tag is a short instruction in square brackets, placed where the delivery should change:
 `[warmly, with a smile in her voice] Hi there.` Tags direct; they never change the words. So:
 
 - **A tagged line must strip back to the script exactly.** `strip(tagged)` removes the tags, and `check()` refuses
   any tagged line whose words differ from the script line (ElevenLabs' own tag writer is told the same).
-- **Never ask a voice for less effort or more breath.** Whisper, soft, quiet and gentle tags (and their kin: hushed,
-  murmuring, breathy, intimate, calm, a low voice) made the films' narrator sound whispery and a little scary
-  (Quinn, 2026-09-30). They are refused before any request is sent, in every film and for every brand. A brand can
-  ban more words (`tag_policy.banned_extra`); nothing can un-ban these.
+- **Delivery choices belong to the voice and brief.** `tag_policy.avoid_low_effort` opts into the full-voice
+  restriction for a voice whose quiet or breathy delivery was rejected. It defaults to false; one film's rejection
+  does not ban gentle delivery in every film. `tag_policy.banned_extra` retains explicit brand restrictions.
 - v4 doesn't support SSML: pauses come from punctuation or a `[pause]` tag.
 - Neighbouring-line context (`previous_text` / `next_text`) always carries plain words; a tag belongs to its line.
 
@@ -44,8 +43,7 @@ BANNED: tuple[tuple[str, str], ...] = (
     ("low voice", r"\blow(?:er)?\b[^\]]*\bvoice\b"),
 )
 
-WHY_BANNED = ("tags that lower vocal effort or add breath make the read sound whispery and scary; give the feeling "
-              "through a full, clear voice instead (warm, with a smile, bright, confident, reassuring, sincere)")
+WHY_BANNED = "this voice's policy explicitly avoids low-effort or breathy delivery"
 
 
 def tags_in(text: str) -> list[str]:
@@ -60,8 +58,8 @@ def strip(text: str) -> str:
     return " ".join(marked.replace("\x00", " ").split())
 
 
-def banned_patterns(extra: Iterable[str] = ()) -> list[tuple[str, re.Pattern]]:
-    out = [(label, re.compile(pat, re.IGNORECASE)) for label, pat in BANNED]
+def banned_patterns(extra: Iterable[str] = (), *, avoid_low_effort: bool = False) -> list[tuple[str, re.Pattern]]:
+    out = [(label, re.compile(pat, re.IGNORECASE)) for label, pat in BANNED] if avoid_low_effort else []
     for word in extra or ():
         word = str(word).strip()
         if word:
@@ -69,9 +67,9 @@ def banned_patterns(extra: Iterable[str] = ()) -> list[tuple[str, re.Pattern]]:
     return out
 
 
-def banned_in(tagged: str, extra: Iterable[str] = ()) -> list[tuple[str, str]]:
+def banned_in(tagged: str, extra: Iterable[str] = (), *, avoid_low_effort: bool = False) -> list[tuple[str, str]]:
     """[(tag, banned word)] for every tag that asks for less effort or more breath (or a brand's extra bans)."""
-    pats = banned_patterns(extra)
+    pats = banned_patterns(extra, avoid_low_effort=avoid_low_effort)
     hits = []
     for tag in tags_in(tagged):
         for label, pat in pats:
@@ -81,13 +79,13 @@ def banned_in(tagged: str, extra: Iterable[str] = ()) -> list[tuple[str, str]]:
     return hits
 
 
-def refuse_banned(tagged: str, extra: Iterable[str] = (), *, where: str = "") -> None:
+def refuse_banned(tagged: str, extra: Iterable[str] = (), *, where: str = "", avoid_low_effort: bool = False) -> None:
     """Raise Refused when a line carries a banned tag. Called before any request is sent."""
-    hits = banned_in(tagged, extra)
+    hits = banned_in(tagged, extra, avoid_low_effort=avoid_low_effort)
     if hits:
         listed = ", ".join(f"{t} ({w})" for t, w in hits)
-        raise Refused(f"{where + ': ' if where else ''}refusing banned audio tags {listed}: {WHY_BANNED}.",
-                      hint="Swap the tag for a full-voice one (the words stay as written), then run it again.",
+        raise Refused(f"{where + ': ' if where else ''}refusing banned audio tags {listed}: this voice's explicit policy.",
+                      hint="Choose a direction within this voice's policy while preserving the script words.",
                       details={"banned": [t for t, _ in hits]})
 
 
@@ -132,8 +130,9 @@ def check(tagged: str, line: str, *, policy: dict | None = None) -> list[str]:
             problems.append("an empty tag []")
     if SSML.search(tagged):
         problems.append("SSML markup: eleven_v4 doesn't support SSML; use punctuation, a line break or a [pause] tag")
-    for tag, word in banned_in(tagged, policy.get("banned_extra") or ()):
-        problems.append(f"banned tag {tag} ({word}): {WHY_BANNED}")
+    for tag, word in banned_in(tagged, policy.get("banned_extra") or (),
+                               avoid_low_effort=bool(policy.get("avoid_low_effort", False))):
+        problems.append(f"banned tag {tag} ({word}): this voice's explicit tag policy")
     allowed = policy.get("allowed")
     if allowed:
         vocab = {a.casefold().strip("[] ") for a in allowed}

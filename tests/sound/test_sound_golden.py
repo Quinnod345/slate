@@ -66,16 +66,53 @@ def test_the_gap_check_reproduces_each_films_music_check(filmroot, film):
     assert abs(ours["quietest_outside_stops_dbfs"] - mc["quietest_outside_stops_dbfs"]) <= 0.1
 
 
+def _delivered_voice_inputs(filmroot, film):
+    """Select the preserved timing and takes belonging to this delivered audio, never today's re-voice.
+
+    The delivery's original sample count and per-take starts identify its input revision. Matching those records
+    only chooses a candidate; the test still measures every take against the delivered waveform independently.
+    """
+    record = _rec(filmroot, film, "final_mix.json")
+    voice = _rec(filmroot, film, "verify.json")["voice"]
+    expected = {r["shot"]: r["expected_s"] for r in voice["per_take"]}
+    delivered_takes = {r["shot"]: r.get("take") for r in voice["per_take"]}
+    current = filmroot / TIMING[film]
+    archives = sorted((filmroot / "sound/vo").glob(f"*_before_*/build_{film}"))
+    matching = []
+    for src in [*archives, current]:
+        if not (src / "shots.json").is_file() or not (src / "vo_cues.json").is_file():
+            continue
+        shots = json.loads((src / "shots.json").read_text())
+        if round(shots["total_frames"] * shots["fps_den"] / shots["fps_num"] * SR) != record["samples"]:
+            continue
+        cues = json.loads((src / "vo_cues.json").read_text())
+        starts = {shot["id"]: shot["sec_in"] for shot in shots["shots"]}
+        if {c["shot"] for c in cues["cues"]} != set(expected):
+            continue
+        if any(abs(c.get("t", starts[c["shot"]] + c.get("at", 0)) - expected[c["shot"]]) > 0.00051
+               for c in cues["cues"]):
+            continue
+        for cue in cues["cues"]:
+            # A delivery can use polished takes without changing the clock or the earlier cue sheet. Its verifier
+            # names the take it actually measured; preserve that provenance instead of comparing the raw take.
+            original = Path(delivered_takes.get(cue["shot"]) or cue["file"])
+            take = (src.parent / original.parent.name / original.name) if src != current else filmroot / original
+            cue["file"] = str(take)
+        if all(Path(c["file"]).is_file() for c in cues["cues"]):
+            matching.append((src, shots, cues))
+    archived = [item for item in matching if item[0] != current]
+    candidates = archived or matching
+    assert len(candidates) == 1, (f"Film {film}: need one preserved voice input revision matching the delivery; "
+                                  f"found {[str(item[0]) for item in candidates]}. Freeze a coherent private oracle.")
+    return candidates[0]
+
+
 def _film_from(filmroot, film, tmp_path):
-    """A Slate film folder standing in for one of the films: its clock and voice cues, takes by absolute path."""
-    src = filmroot / TIMING[film]
+    """A Slate film folder with the delivered revision's clock and voice cues, takes by absolute path."""
+    _src, shots, cues = _delivered_voice_inputs(filmroot, film)
     fd = tmp_path / f"golden_{film}"
     (fd / "timing").mkdir(parents=True)
-    shots = json.loads((src / "shots.json").read_text())
     (fd / "timing" / "shots.json").write_text(json.dumps(shots))
-    cues = json.loads((src / "vo_cues.json").read_text())
-    for c in cues["cues"]:
-        c["file"] = str(filmroot / c["file"])
     (fd / "timing" / "vo_cues.json").write_text(json.dumps(cues))
     (fd / "film.json").write_text(json.dumps({"id": f"golden-{film.lower()}", "fps_num": shots["fps_num"],
                                               "fps_den": shots["fps_den"]}))
@@ -191,9 +228,10 @@ def test_as_p3_film_mix_when_it_is_delivered(filmroot):
 # Each film's delivery mix and the inputs it was made from (sound/tools/final_mix.py in the films): the voice and effect
 # stems the effects engine rendered, the composed score, and the record it wrote. B and C are the v2 sound (an effects
 # ceiling at -7 dBTP and the linked limiter). A is checked twice: from build/audio/film_sound_stems, its v1 layout (no
-# effects ceiling, no linked limiter; that mix is archived with its record, since build/audio now carries A's v2 sound),
-# and as delivered, from build/audio_v2/film_v2_stems with the repaired score (build/audio/final_mix.json is a copy of
-# build/audio_v2's). B and C land within tolerance on Slate's own voice limiter. A's voice has more for a limiter to
+# effects ceiling, no linked limiter; that mix is archived with its record),
+# and as delivered, from build/audio_v2/film_v2_stems with the repaired score and its own archived record.
+# build/audio is the current delivery pointer and can later contain a different mix; it is not this v2 oracle.
+# B and C land within tolerance on Slate's own voice limiter. A's voice has more for a limiter to
 # do, and Slate's gain-curve limiter takes about 0.15 dB more gain on it than the films' limiter (ffmpeg's alimiter at
 # 4x), right on the gain's tolerance; with the films' own limiter (mix_arrays keeps it for exactly this) A lands within
 # 0.07 LU on every stem.
@@ -205,7 +243,7 @@ HEAVY = {
     "A": {"stems": "build/audio/film_sound_stems", "score": "sound/music/score_film.wav",
           "record": "build/renders.nosync/archive_A_draft-2.4/audio_v1", "limiter": "ffmpeg"},
     "A-delivered": {"stems": "build/audio_v2/film_v2_stems", "score": "sound/music/score_film_v2.wav",
-                    "record": "build/audio", "limiter": "ffmpeg"},
+                    "record": "build/audio_v2", "limiter": "ffmpeg"},
 }
 
 

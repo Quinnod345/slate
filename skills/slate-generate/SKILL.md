@@ -12,6 +12,14 @@ default, only what code can't make, judges every take, and never ships an ugly o
 This is stage 8 of the production. Every generation runs on the Higgsfield **Cloud API** (the one funded lane), through
 Slate's ledger, estimated first.
 
+Higgsfield also contributes before a final shot is chosen: original-video analysis, visual inspiration, storyboard
+keyframes, start/end transition experiments and comparisons with another animation engine. These are development
+tasks, distinct from deciding how much generated footage ships. Keep their questions, comparisons and rejections in
+the creative history. Generated analysis is not narration or product-claim authority. Precise camera motion, UI
+transformations and object continuity can remain authored in Remotion/R3F or After Effects while generated imagery
+supplies atmosphere or a reveal shape. Read `slate history context --topic process` when available. Existing budgets
+and upload permissions still apply; reuse references and approved assets before paying for a new experiment.
+
 ## 1. When to generate
 
 - **The requester decides how much**: each film has a generation setting, `none`, `rarely` (the default) or

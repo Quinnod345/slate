@@ -41,6 +41,7 @@ from slate.errors import SlateError, UsageError
 MODULES: list[tuple[str, str]] = [
     ("slate.doctor", "doctor, connect"),
     ("slate.guide", "guide"),
+    ("slate.history", "history"),
     ("slate.demo", "demo"),
     ("slate.state.cli", "new, status, make, approve, film, variant, revise"),
     ("slate.story.cli", "script"),

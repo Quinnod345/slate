@@ -65,14 +65,14 @@
    "type": ["object", "null"],
    "required": ["id", "dir"],
    "properties": {"id": {"type": "string"}, "dir": {"type": "string"}},
-   "description": "The film this one is derived from (a cut-down, a new aspect or a new language), or null."
+   "description": "The film this one is derived from (a cut-down, a new aspect, a new language or a full-length channel variant), or null."
   },
   "derivation": {
    "type": ["object", "null"],
    "required": ["kind", "kinds"],
    "properties": {
-    "kind": {"enum": ["cutdown", "aspect", "language"]},
-    "kinds": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["cutdown", "aspect", "language"]}},
+    "kind": {"enum": ["cutdown", "aspect", "language", "channel"]},
+    "kinds": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["cutdown", "aspect", "language", "channel"]}},
     "aspect": {"type": ["string", "null"]},
     "cut_s": {"type": ["number", "null"], "exclusiveMinimum": 0},
     "language": {"type": ["string", "null"]},

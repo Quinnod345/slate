@@ -78,6 +78,10 @@ def main(argv):
         print(json.dumps({"status": "ok", "sessionId": "sess-123", "payloads": [{"text": "hi"}]}))
         return 0
     emit({"type": "system", "subtype": "init", "model": "fake", "cwd": os.getcwd()})
+    if mode == "error":
+        emit({"type": "result", "subtype": "error_during_execution", "is_error": True,
+              "result": "The configured model is not supported by this account."})
+        return 1
     if mode == "env":
         keys = ["BROWSER", "SLATE_FAKE_VENDORS", "SLATE_LIVE", "HF_KEY", "ELEVENLABS_API_KEY", "SLATE_FILMS",
                 "SLATE_DATA", "SLATE_BRANDS", "SLATE_EVAL_PROBE_LOG", "SLATE_EVAL_TRIPWIRE_LOG", "PYTHONPATH", "TERM",

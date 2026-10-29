@@ -1,6 +1,6 @@
 // The font plan and the substitution gate, with a fake measure (the real one runs in the page).
-import {beforeEach, describe, expect, it} from 'vitest';
-import {GATE_MARKER, checkFace, checkPlan, fontPlan, gateReport, parseReportLine, parseSource, reportLine, setBrand, setFilmData, toGateResult, type Measure} from '@slate/kit/core';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import {GATE_MARKER, brandTokens, checkFace, checkPlan, fontPlan, gateReport, parseReportLine, parseSource, reportLine, setBrand, setFilmData, toGateResult, type Measure} from '@slate/kit/core';
 import FILM from './fixtures/film-data';
 
 beforeEach(() => {
@@ -10,17 +10,17 @@ beforeEach(() => {
 
 /**
  * A measure that behaves like a browser: a family it "has" gives its own widths, one it doesn't falls back to the
- * generic's width. Faces are keyed "family|weight".
+ * generic's width. Faces may be keyed "family|weight|style" for an exact face, or "family|weight" for both styles.
  */
 function fakeMeasure(installed: Record<string, number>): Measure {
   const generic: Record<string, number> = {monospace: 600, serif: 520, 'sans-serif': 500};
   return (font: string) => {
     const m = font.match(/^(normal|italic) (\d+) \d+px (.*)$/);
     if (!m) throw new Error(`bad font string ${font}`);
-    const [, , weight, families] = m;
+    const [, style, weight, families] = m;
     for (const fam of families.split(',').map((s) => s.trim().replace(/^"|"$/g, ''))) {
       if (generic[fam] !== undefined) return generic[fam];
-      const w = installed[`${fam}|${weight}`] ?? installed[`${fam}|*`];
+      const w = installed[`${fam}|${weight}|${style}`] ?? installed[`${fam}|${weight}`] ?? installed[`${fam}|*`];
       if (w !== undefined) return w;
     }
     return generic['sans-serif'];
@@ -52,6 +52,70 @@ describe('the plan', () => {
     expect(p.faces.map((f) => f.family)).toEqual(['Unlicensed']);
     expect(p.problems.join(' ')).toMatch(/Nameless: no usable source/);
     expect(p.problems.join(' ')).toMatch(/Unlicensed: no licence noted/);
+  });
+
+  it('merges the weights required by roles sharing a family and source', () => {
+    const p = fontPlan({type: {families: [
+      {role: 'body', family: 'Fixture Sans', source: 'installed', weights: [400], licence: 'fixture'},
+      {role: 'heading', family: 'fixture sans', source: 'local', weights: [590, 400], licence: 'fixture'},
+    ]}});
+    expect(p.faces).toHaveLength(1);
+    expect(p.faces[0]).toMatchObject({family: 'Fixture Sans', weights: [400, 590], styles: ['normal']});
+    expect(p.problems).toEqual([]);
+    expect(p.errors ?? []).toEqual([]);
+  });
+
+  it('checks only the weight and style combinations the roles declare', () => {
+    const p = fontPlan({type: {families: [
+      {role: 'body', family: 'Fixture Sans', source: 'installed', weights: [400], styles: ['normal'], licence: 'fixture'},
+      {role: 'emphasis', family: 'Fixture Sans', source: 'installed', weights: [590], styles: ['italic'], licence: 'fixture'},
+    ]}});
+    const checks = checkPlan(p, fakeMeasure({'Fixture Sans|400|normal': 540, 'Fixture Sans|590|italic': 560}));
+    expect(checks.map((c) => [c.style, c.weight])).toEqual([['normal', 400], ['italic', 590]]);
+    expect(gateReport(checks).status).toBe('PASS');
+  });
+
+  it('shares default and named weight normalization with the token adapter', () => {
+    for (const weights of [undefined, ['regular', 'medium', 'semibold', 'bold', 'black', '510', 'bad', -1, 1001], []]) {
+      const pack = {type: {families: [{role: 'sans', family: 'Fixture Sans', source: 'installed', weights, licence: 'fixture'}]}};
+      expect(fontPlan(pack).faces[0].weights).toEqual(brandTokens(pack).fonts.sans.weights);
+    }
+    const p = fontPlan({type: {families: [{family: 'Fixture Sans', source: 'installed', licence: 'fixture'}]}});
+    expect(p.faces[0].weights).toEqual([400, 700]);
+  });
+
+  it('accepts equivalent file sources with an optional format descriptor', () => {
+    const url = 'https://example.test/fixture.woff2';
+    const p = fontPlan({type: {families: [
+      {role: 'body', family: 'Fixture Sans', source: url, weights: [400], licence: 'fixture'},
+      {role: 'heading', family: 'Fixture Sans', source: {kind: 'file', url, format: 'woff2'}, weights: [700], licence: 'fixture'},
+    ]}});
+    expect(p.faces).toHaveLength(1);
+    expect(p.faces[0]).toMatchObject({weights: [400, 700], source: {kind: 'file', url, format: 'woff2'}});
+    expect(p.errors ?? []).toEqual([]);
+  });
+
+  it('reports incompatible sources and never selects the first source as the family proof', () => {
+    const p = fontPlan({type: {families: [
+      {role: 'body', family: 'Fixture Sans', source: 'installed', weights: [400], licence: 'fixture'},
+      {role: 'heading', family: 'Fixture Sans', source: 'https://example.test/fixture.woff2', weights: [700], licence: 'fixture'},
+    ]}});
+    expect(p.faces).toEqual([]);
+    expect(p.errors).toHaveLength(1);
+    expect(p.errors![0]).toMatch(/Fixture Sans: conflicting font sources for roles "body" and "heading"/);
+    const report = gateReport(checkPlan(p, fakeMeasure({'Fixture Sans|*': 540})), [], p.problems, p.errors);
+    expect(report.status).toBe('FAIL');
+    expect(report.summary).toMatch(/source conflict/);
+    expect(report.failures).toEqual(p.errors);
+  });
+
+  it('keeps a later usable declaration when an earlier role has no source', () => {
+    const p = fontPlan({type: {families: [
+      {role: 'body', family: 'Fixture Sans', weights: [400], licence: 'fixture'},
+      {role: 'heading', family: 'Fixture Sans', source: 'installed', weights: [590], licence: 'fixture'},
+    ]}});
+    expect(p.faces[0]).toMatchObject({role: 'heading', weights: [590]});
+    expect(p.problems.join(' ')).toMatch(/no usable source/);
   });
 });
 
@@ -92,6 +156,24 @@ describe('the gate', () => {
     expect(r.status).toBe('FAIL');
   });
 
+  it('fails a missing weight required only by a second role', () => {
+    const p = fontPlan({type: {families: [
+      {role: 'body', family: 'Fixture Sans', source: 'installed', weights: [400], licence: 'fixture'},
+      {role: 'heading', family: 'Fixture Sans', source: 'installed', weights: [590], licence: 'fixture'},
+    ]}});
+    const report = gateReport(checkPlan(p, fakeMeasure({'Fixture Sans|400': 540})));
+    expect(report.status).toBe('FAIL');
+    expect(report.failures).toHaveLength(1);
+    expect(report.failures[0]).toMatch(/Fixture Sans 590 did not render/);
+  });
+
+  it('keeps ordinary onboarding problems as warnings', () => {
+    const p = fontPlan({type: {families: [{role: 'sans', family: 'Fixture Sans', source: 'installed', weights: [400]}]}});
+    const report = gateReport(checkPlan(p, fakeMeasure({'Fixture Sans|400': 540})), [], p.problems, p.errors);
+    expect(report.status).toBe('PASS');
+    expect(report.warnings.join(' ')).toMatch(/no licence noted/);
+  });
+
   it('round-trips through the log line the engine reads, and becomes a gate result', () => {
     const r = gateReport(checkPlan(fontPlan(), fakeMeasure({'Menlo|400': 610})));
     const line = `console: ${reportLine(r)} (and then some)`;
@@ -102,6 +184,62 @@ describe('the gate', () => {
     expect(g).toMatchObject({gate: 'fonts', status: 'FAIL', checked_at: '2026-09-30T12:00:00Z'});
     expect(g.evidence.some((e) => e.includes('SUBSTITUTED'))).toBe(true);
     expect(Object.keys(g).sort()).toEqual(['checked_at', 'details', 'engine', 'evidence', 'gate', 'inputs', 'status', 'summary']);
+  });
+});
+
+describe('the page verdict cache', () => {
+  beforeEach(async () => {
+    (await import('@slate/kit')).resetFontGate();
+    vi.stubGlobal('window', {});
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('does not reuse a passed plan when identical faces now have a source conflict', async () => {
+    const {runFontGate} = await import('@slate/kit');
+    const clear = fontPlan({});
+    const conflicting = fontPlan({type: {families: [
+      {role: 'body', family: 'Fixture Sans', source: 'installed', weights: [400], licence: 'fixture'},
+      {role: 'heading', family: 'Fixture Sans', source: 'https://example.test/fixture.woff2', weights: [700], licence: 'fixture'},
+    ]}});
+    expect(conflicting.faces).toEqual(clear.faces);
+    expect((await runFontGate(clear)).status).toBe('PASS');
+    const failed = await runFontGate(conflicting);
+    expect(failed.status).toBe('FAIL');
+    expect(failed.failures.join(' ')).toMatch(/conflicting font sources/);
+  });
+
+  it('refreshes ordinary warnings even when the checked faces are unchanged', async () => {
+    const {runFontGate} = await import('@slate/kit');
+    const clear = fontPlan({});
+    expect((await runFontGate(clear)).warnings).toEqual([]);
+    const warned = await runFontGate({...clear, problems: ['Fixture licence needs an onboarding note.']});
+    expect(warned.status).toBe('PASS');
+    expect(warned.warnings).toEqual(['Fixture licence needs an onboarding note.']);
+  });
+
+  it('refuses a conflicted render before loading any other declared font', async () => {
+    const {holdFirstFrame} = await import('@slate/kit');
+    const fontFace = vi.fn(function () { throw new Error('A conflicted plan must not load fonts.'); });
+    vi.stubGlobal('FontFace', fontFace);
+    const p = fontPlan({type: {families: [
+      {role: 'other', family: 'Fixture Other', source: 'https://example.test/other.woff2', weights: [400], licence: 'fixture'},
+      {role: 'body', family: 'Fixture Sans', source: 'installed', weights: [400], licence: 'fixture'},
+      {role: 'heading', family: 'Fixture Sans', source: 'https://example.test/fixture.woff2', weights: [700], licence: 'fixture'},
+    ]}});
+    const released = vi.fn();
+    const cancelled = vi.fn();
+    const hold = holdFirstFrame(p, {delayRender: () => 101, continueRender: released, cancelRender: cancelled});
+    expect(await hold.done).toBe(false);
+    expect(fontFace).not.toHaveBeenCalled();
+    expect(released).not.toHaveBeenCalled();
+    expect(cancelled).toHaveBeenCalledTimes(1);
+    expect(String(cancelled.mock.calls[0][0])).toMatch(/Font gate failed:.*source conflict/);
   });
 });
 
@@ -175,5 +313,19 @@ describe('the hold on the first frame', () => {
     resetFontGate();
     holdFirstFrame(PLAN, d);
     expect(calls.delay).toBe(3);
+  });
+
+  it('takes a new failing hold when the same faces acquire a plan error', async () => {
+    const {holdFirstFrame} = await import('@slate/kit');
+    const good = deps(() => Promise.resolve(PASS));
+    const first = holdFirstFrame(PLAN, good.deps);
+    expect(await first.done).toBe(true);
+    const bad = deps(() => Promise.resolve(FAIL));
+    const failed = holdFirstFrame(Object.assign({}, PLAN, {errors: ['Fixture Sans has conflicting font sources.']}) as never, bad.deps);
+    expect(failed).not.toBe(first);
+    expect(await failed.done).toBe(false);
+    expect(bad.calls.delay).toBe(1);
+    expect(bad.calls.released).toEqual([]);
+    expect(bad.calls.failed).toHaveLength(1);
   });
 });

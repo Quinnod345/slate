@@ -6,7 +6,8 @@ write anything when any of them FAILs.
 - script.structure     the script can be planned: acts, unique ids, every silent shot has a length
 - script.pace          every VO line at most 2.6 words a second of its shot (the format can change the ceiling)
 - script.read_time     on-screen text holds long enough once it has settled: max(1.5 s, 0.4 s + 0.3 s x words),
-                       measured as dur − entrance − 0.75 x entrance, and 2 s for a number (MOTION.md §7)
+                       measured as dur − entrance − 0.75 x entrance, and 2 s for a number (MOTION.md §7). Declared
+                       labels of at most three words use a 1 s default floor and retain the per-word requirement.
 - script.on_screen     at most 12 on-screen words a shot, and at most 40% of the words its voice says (keywords, not
                        transcripts); on-screen text the voice says word for word, in order, is read along with it
                        (the films' VO-matched lines) and keeps only the 12-word cap
@@ -93,8 +94,10 @@ def reading(s: PlannedShot) -> tuple[set[str], str | None]:
     """The shot's whole-shot reading declarations ({"voice_matched", "not_for_reading", "labels"} with `true`) and a
     problem with them, if any. A declaration needs its reason; a list of statements is for the picture's QA.
     `labels` says the on-screen words name what the picture shows (a product's own UI, an end card's name and address)
-    rather than a second script, so they may run past 40% of the voice; they still count toward the word cap and are
-    timed in full. It speaks for the whole shot (`true`). `slate qa readtime` reads it the same way
+    rather than a second script, so they may run past 40% of the voice. They still count toward the word cap. Each
+    declared label of at most three authored words uses a 1 s default floor while keeping the base and per-word
+    requirement; longer labels are timed in full. Explicit reading-policy floors, numbers and voice-matched text
+    retain their obligations. It speaks for the whole shot (`true`). `slate qa readtime` reads it the same way
     (slate.qa.checks.text.reading_declarations)."""
     raw = s.data.get("reading")
     if raw is None:
@@ -133,7 +136,20 @@ def check_read_time(plan: Plan, brand: dict, rules: dict) -> GateResult:
         settled = s.dur - ent - float(rules["exit_factor"]) * ent
         if "voice_matched" in flags:  # the voice reads it along as it lands: only the floor
             need = float(rules["floor"])
+            if "labels" in flags:
+                need = max(need, 1.5)
             notes.append(f"{s.id}: voice-matched ({s.data['reading']['reason']}), held to the {need:g} s floor")
+        elif "labels" in flags:
+            from slate.qa import textmatch  # noqa: PLC0415 - the same statement boundaries as the master gate
+
+            parts = textmatch.statement_parts(text, labels=True, lang=plan.lang) or [text]
+            needs = []
+            for part in parts:
+                words = spoken.word_count(part, plan.lang)
+                floor = float(rules["label_floor"] if 0 < words <= 3 else rules["floor"])
+                needs.append(textmatch.need_seconds(part, floor=floor, base=float(rules["base"]),
+                                                    per_word=float(rules["per_word"]), words=words))
+            need = max(needs)
         else:
             need = max(float(rules["floor"]), float(rules["base"]) + float(rules["per_word"]) * n)
         if _has_number(text, plan.lang):

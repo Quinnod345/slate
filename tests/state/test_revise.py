@@ -36,16 +36,15 @@ def approved(new_film):
     return fd
 
 
-def test_start_turns_notes_into_a_checklist_and_questions(approved):
+def test_start_preserves_all_requested_changes_including_a_new_approach(approved):
     fd = approved
     rev = revise.start(fd, "sound/cues.json", notes=NOTES, by="Test Person", scopes=["shots.S19"])
     assert rev["id"] == "rv1" and rev["artifact"] == "sound/cues.json" and rev["what"] == "sound_proof"
     assert rev["approved_sha"] == approvals.latest(fd, "sound_proof", "sound/cues.json")["sha256"]
     assert [i["text"] for i in rev["items"]] == ["The S19 click is a touch loud: bring it down about 2 dB.",
-                                                 "Let the pad breathe a beat longer before the reveal."]
-    assert len(rev["questions"]) == 1  # "research a completely different sound design" is a question, not a change
-    q = approvals.load(fd)["questions"][0]
-    assert "new approach" in q["text"] and not q["parks"]  # supervised: asked, not parked
+                                                 "Let the pad breathe a beat longer before the reveal.",
+                                                 "Maybe research a completely different sound design for the reveal."]
+    assert rev["questions"] == []
     assert (fd / rev["snapshot"]).read_text() == (fd / "sound" / "cues.json").read_text()
     assert "sound/mix.wav" in rev["baseline"] and "script/storyboard.json" in rev["baseline"]
     assert "sound/cues.json" not in rev["baseline"]
@@ -129,13 +128,39 @@ def test_hooks_are_measured_and_broken_hooks_are_unchecked(approved, monkeypatch
     assert set(res["measures"]) == {"level_vs_voice", "palette", "never"}
 
 
-def test_autonomous_new_approach_notes_park_the_film(new_film):
+def test_requested_redesign_does_not_automatically_park_the_film(new_film):
     fd = new_film("auto", mode="autonomous", brand="onboarded-brand", format="fixture-reel")
     (fd / "sound" / "proof.json").write_text("{}")
     approvals.record(fd, what="sound_proof", path="sound/proof.json", approved_by="Test Person")
     rev = revise.start(fd, "sound/proof.json", notes="Scrap it and redesign the whole thing.", by="Test Person")
-    assert rev["items"] == [] and len(rev["questions"]) == 1
-    assert modes.parked(fd)  # an autonomous film waits for the person's answer
+    assert rev["items"][0]["text"] == "Scrap it and redesign the whole thing."
+    assert rev["questions"] == [] and not modes.parked(fd)
+
+
+def test_explicit_missing_information_still_parks_an_autonomous_revision(new_film):
+    fd = new_film("auto", mode="autonomous", brand="onboarded-brand", format="fixture-reel")
+    (fd / "sound" / "proof.json").write_text("{}")
+    approvals.record(fd, what="sound_proof", path="sound/proof.json", approved_by="Test Person")
+    rev = revise.start(fd, "sound/proof.json", notes="Redesign the reveal.", by="Test Person",
+                       questions=["Which of the two conflicting briefs is current?"])
+    assert len(rev["items"]) == 1 and len(rev["questions"]) == 1 and modes.parked(fd)
+
+
+def test_revision_history_binds_baseline_and_revised_file_without_inventing_approval(approved, monkeypatch):
+    from slate import jsonio
+
+    monkeypatch.setattr(revise, "HOOKS", {})
+    monkeypatch.setattr(revise, "HOOK_MODULES", ())
+    rev = revise.start(approved, "sound/cues.json", notes="Reduce S19 by 2 dB.", by="Test Person",
+                       scopes=["shots.S19"])
+    _cues(approved, s19=-19)
+    revise.done(approved)
+    rows = [json.loads(l) for l in (approved / "creative-history.jsonl").read_text().splitlines()]
+    assert [r["outcome"] for r in rows] == ["requested", "measured"]
+    assert rows[0]["before"]["sha256"] == rev["approved_sha"]
+    assert rows[1]["after"]["sha256"] == jsonio.sha256(approved / "sound/cues.json")
+    assert all(r["approval_inferred"] is False for r in rows)
+    assert not approvals.is_approved(approved, "sound_proof", "sound/cues.json")
 
 
 def test_revise_cli(approved):

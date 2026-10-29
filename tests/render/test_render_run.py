@@ -159,6 +159,35 @@ def test_a_new_engine_bundle_hash_invalidates_chunks(fakes, film):
     assert _renders(fakes) == [(1, 0, 9), (1, 10, 19), (1, 20, 29)]
 
 
+@pytest.mark.parametrize("changed", ["html", "kit", "film", "dependencies"])
+def test_web_resume_rerenders_chunks_when_shared_inputs_change(fakes, film, changed):
+    """Web chunks are keyed before the page renders: the shared kit, HTML and film data must be in that key."""
+    scene = film / "scenes" / "act1" / "index.html"
+    scene.write_text("<main>original</main>\n")
+    engine = fakes.bridge.engine_dir()
+    kit = engine / "remotion" / "kit.ts"
+    kit.write_text("export const colour = 'black';\n")
+    lockfile = engine / "package-lock.json"
+    lockfile.write_text('{"version": 1}\n')
+    fakes.bridge.fail[(1, 20)] = 2
+    with pytest.raises(Refused, match="failed 2 times"):
+        runner.run(film, act=1, engine="web")
+    if changed == "html":
+        scene.write_text("<main>updated</main>\n")
+    elif changed == "kit":
+        kit.write_text("export const colour = 'white';\n")
+    elif changed == "dependencies":
+        lockfile.write_text('{"version": 2}\n')
+    else:
+        data = jsonio.read(film / "film.json")
+        data["title"] = "Updated title shown by the scene"
+        jsonio.write_atomic(film / "film.json", data)
+    fakes.bridge.calls.clear()
+    result = runner.run(film, act=1, engine="web")
+    assert _renders(fakes) == [(1, 0, 9), (1, 10, 19), (1, 20, 29)]
+    assert result["renders"][0]["chunks"]["kept"] == []
+
+
 def test_a_chunk_that_crashes_once_is_tried_again(fakes, film):
     fakes.bridge.fail[(1, 10)] = 1
     runner.run(film, act=1)

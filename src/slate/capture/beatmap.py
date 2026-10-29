@@ -175,7 +175,7 @@ def run(film_dir: Path, name: str, *, word_time: WordTime | None = None) -> dict
     film = deps.load_film(film_dir)
     clk = deps.film_clock(film)
     cap = store.capture_dir(film_dir, name)
-    raw_dir = cap / "raw"
+    raw_dir = store.read_dir(film_dir, name, "raw")
     raw_count = media.count_frames(raw_dir)
     if raw_count < 1:
         raise UsageError(f"Capture {name} hasn't been conformed yet.", hint=f"slate capture conform --name {name}")
@@ -267,6 +267,7 @@ def run(film_dir: Path, name: str, *, word_time: WordTime | None = None) -> dict
                      inputs={deps.rel(film_dir, p): None for p in (store.spec_path(film_dir, name),
                                                                     Path(film_dir) / "timing" / "vo_words.json")
                              if p.is_file()})
+    rec["film"] = store.film_block(film)
     rec["frames"] = {**_frames_block(film_dir, frames_dir, film, spec), "film_in": result.film_in}
     rec["taps"] = taps
     rec["retime"] = result.edits

@@ -83,9 +83,20 @@ def _no_real_ae_dialog_check(monkeypatch):
     yield
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def filmroot():
-    """The film project, read-only. Skips when it isn't on this machine (e.g. CI)."""
+    """A verified private snapshot when selected, otherwise the legacy read-only film project.
+
+    Explicit snapshots fail on missing or changed data. The default live source remains a diagnostic comparison;
+    its parity failures are never hidden by relabelling that source a delivered snapshot.
+    """
+    selected = os.environ.get("SLATE_GOLDEN_ROOT")
+    if selected:
+        from golden_oracle import verified
+
+        with verified(Path(selected)) as root:
+            yield root
+        return
     if not FILMROOT.exists():
-        pytest.skip("film project (golden data) not on this machine")
-    return FILMROOT
+        pytest.skip("film project (golden data) not on this machine; set SLATE_GOLDEN_ROOT to a frozen snapshot")
+    yield FILMROOT

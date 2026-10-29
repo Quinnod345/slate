@@ -15,10 +15,12 @@ requester's own words, so nobody has to remember what was asked.
 ## brief/PRODUCTION.md: the live tracker
 
 - **Asks**, in the requester's words, with status and evidence.
-- **Direction changes**, numbered and quoted exactly, each saying what it supersedes. The latest approval governs:
-  when a direction change contradicts the plan, the change wins, and the tracker says so.
+- **Direction changes**, numbered and quoted exactly, each saying what it supersedes. Follow the latest authorized
+  direction within its scope, and record when it supersedes an earlier creative plan. Approval of an artifact still
+  binds to the exact approved bytes.
 - **Questions waiting for a person**, and their answers.
-- **Revisions** (perfect, don't replace): each note on approved work, as a checklist of changes to that artifact.
+- **Revisions**: preserve the approved baseline and record each requested change as a checklist, including a redesign.
+  Ask only when missing or conflicting information prevents the next step.
 - **Approvals**, with who approved what and its SHA-256.
 - **Status**: one row per stage from `slate status` (`slate status --write` refreshes it).
 

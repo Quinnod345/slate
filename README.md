@@ -7,24 +7,30 @@ a person in Terminal can run the same way.
 It's built from the pipeline behind three brand films, with every brand pulled out: brands are data packs, and each
 one gets its own look, motion, voice and sound during onboarding.
 
-> **Status:** 0.1.0 is being built. Every stage has its command, from `slate doctor` and `slate connect` to
-> `slate deliver`, along with the installer, `slate update`, the MCP server, the ten skills, the open web renderer, the
-> knowledge ledger (`slate knowledge check`) and `slate demo`, which makes a neutral 15-second reel through every stage
-> to prove it all works on your Mac. `CHANGELOG.md` keeps the list.
+> **Status:** 0.1.0 passes local verification: 4,878 Python tests, 435 engine tests, TypeScript, all 23 pipeline
+> demo stages and all 17 fresh-home installation checks. The approved effects renderer and physical-page kit are
+> implemented and verified. The demo uses replayed vendors and delivers a draft; real brand approvals, live AE
+> acceptance, remaining agent evaluations and private release distribution are still open. See
+> `docs/build_reports/codex-completion.md` for evidence and limits, and `CHANGELOG.md` for the changes.
 
 ## Download
 
-One command clones Slate and runs its installer:
+The release download is not verified yet: this checkout has no configured remote, and the intended private
+repository could not be resolved during the 2026-10-04 check. Once the private repository is available to your
+account, one command clones Slate and runs its installer:
 
 ```sh
 git clone https://github.com/Quinnod345/slate.git ~/code/slate && ~/code/slate/install.sh
 ```
 
-The repository is private for now, so your git credentials need access to it (`gh auth setup-git` once, if git asks).
-The installer asks before it installs anything.
+Your git credentials need access to the private repository (`gh auth setup-git` once, if git asks). From an existing
+local checkout, run `./install.sh`. The installer asks before it installs anything.
 
-Already installed? `slate update` pulls the latest and re-links every agent at once, and `slate install --check` says
-whether each agent is wired up. `INSTALL_FOR_AGENTS.md` walks an agent through all of it.
+Already installed? `slate update` fast-forwards the configured upstream, re-links every agent, refreshes changed
+installed engine sources and dependencies, and runs doctor. Engine replacement waits until the render and After
+Effects slots are idle. A failed installer or an unchecked doctor leaves the update unsuccessful with its evidence.
+`slate install --check` says whether each agent is wired up. `INSTALL_FOR_AGENTS.md` walks an agent through all of it. An already-open MCP client can retain its previous
+command list; reconnect it after an update and verify that the current stages are advertised.
 
 ## Connect it: five steps
 
@@ -49,6 +55,9 @@ the master, the review packet and a draft delivery. One line per stage says what
 vendors are replayed, so nothing is spent, and the delivery's manifest says it isn't final because the voice and
 score are stand-ins. It takes a few minutes; `slate demo --keep` keeps the film in your films folder, and
 `slate demo --live` voices and scores it for real, after you say yes.
+
+The [continuous-evidence guide](skills/slate-motion/references/continuous-evidence.md) shows how one carried idea
+can become a crowd, data, navigation and an earned closing object using the existing kit.
 
 ## What you need first
 

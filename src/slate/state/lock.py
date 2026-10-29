@@ -24,7 +24,8 @@ mix its sound, so approving a reference or editing the look stales nothing that 
 `brand:<name>` whole keeps comparing the whole file until its stage runs again),
 `film:<dotted.key>` (one film.json value, e.g. film:targets.runtime_s, so a new pin doesn't make
 everything made from the film's targets stale), `film:*` (all of film.json except its bookkeeping: pins, the pin log,
-versions, budgets, model overrides, stamps) and `format:<name>`. Any other `scheme:name` keeps the producer's own
+versions, budgets, model overrides, stamps), `voice:<shot>#timing` (the selected take paths, read length and polish
+provenance, excluding approval and QA bookkeeping) and `format:<name>`. Any other `scheme:name` keeps the producer's own
 marker and is reported as not checkable here, never guessed fresh or stale.
 """
 
@@ -190,6 +191,17 @@ def _named_input(film_dir: Path, key: str) -> tuple[bool, str | None]:
                 return True, None
             node = node[part]
         return True, jsonio.sha256_obj(node)
+    if scheme == "voice":
+        shot, sep, block = name.partition("#")
+        if not sep or block != "timing":
+            return True, UNVERIFIABLE
+        from slate.timing.takes import timing_selector  # noqa: PLC0415
+
+        try:
+            selector = timing_selector(film_dir, shot)
+        except SlateError:
+            return True, None
+        return True, jsonio.sha256_obj(selector) if selector is not None else None
     if scheme == "format":
         try:
             fmt, _src = deps.format_load(name)

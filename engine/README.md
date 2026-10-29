@@ -71,7 +71,7 @@ kill is a SIGKILL: it skips every cleanup, and Chrome, which runs in its own pro
 | `stills` | `film` (optional with `entry`), `specs: ["Act2:120"]`, `scale`, `out_dir`, `contact_sheet: {comp, every_s \| count \| frames, columns, scale}`, `entry`, `serve_url`, `gl`, `pixels` | the stills (with sha256 and, asked, a pixel hash), the sheet and its index (per cell: frame, shot, timecode; for the sheet: `cell` [w, h], `padding`, `margin`, `labels`) |
 | `emit-events` | `film`, `act` (default: every built act), `dry_run` (check everything, write nothing; a web act's page is opened and read, nothing written) | per act: the file, beats or silence, kinds, capture beats, the motion trace, what changed since the last emit (`changes`, and `changes_file`); in a dry run its problems and word misses |
 | `trace` | `film`, `act` | one act's motion trace from the kit's motion registry, as the act is now (`slate render` refreshes it after each act render); a web act says its renderer writes its own |
-| `check` | `film`, `act` (or `acts: [N, …]`: one run, one bundle between them), `banned_words` (the brand's list; absent or null means UNCHECKED, `[]` means it bans none), `never_claim` (the brand's and the film's; absent skips the gate, null is UNCHECKED), `contracts`, `hold`, `markup` (+ `against: <git ref>`), `determinism` | gate results (each filed under the `scenes` stage) and the worst status (per act, with `acts`); a web act, and a web shot inside a Remotion act, is checked through the open web renderer |
+| `check` | `film`, `act` (or `acts: [N, …]`: one run, one bundle between them), `banned_words` (the brand's list; absent or null means UNCHECKED, `[]` means it bans none), `never_claim` (the brand's and the film's; absent skips the gate, null is UNCHECKED), `contracts`, `hold`, `markup` (+ `against: <git ref>`), `determinism` | gate results (each filed under the `scenes` stage) and the worst status (per act, with `acts`); a Web act or Web replacement is checked through the open web renderer; Remotion replacements use their own module |
 | `golden` | none: the kit's golden stills; `film`: the approved-acts check (`plan: true` lists the frames, renders nothing); `gl`, `keep` | each still (or each approved act's frames) with its PSNR, the font gate's must-fail probe, `pass` |
 | `web-render` | whatever the open web renderer takes: a render, `{emit: true}` (with `dry_run`), `{scaffold: true}` | `engine/web/render.mjs`'s `webRender(args)` result |
 
@@ -87,13 +87,14 @@ exits, on success, on an error and on SIGTERM.
 <film>/scenes/act<N>/events.ts   optional: the act's events, when kept apart
 <film>/scenes/contracts.tsx      optional: the named rest states acts meet on (each exported component is one)
 <film>/scenes/act<N>/web/        instead of index.tsx: a web act, drawn by the open web renderer (web/README.md)
-<film>/scenes/shots/<SHOT>/web/  optional: a web shot inside a Remotion act (Per-shot engines, below)
+<film>/scenes/shots/<SHOT>/web/  optional: a Web shot inside a Remotion act (Per-shot engines, below)
+<film>/scenes/shots/<SHOT>/index.tsx  optional: a Remotion shot inside a Web act
 <film>/scenes/ae/act<N>.json     instead of either: an act built in After Effects, as data (ae/README.md)
 <film>/public/                   optional: files scenes load with staticFile()
 <film>/captures/ <film>/plates/  conformed captures and plates: staticFile('captures/<name>/frames/f00012.jpg'),
                                  staticFile('plates/<shot>/plate/frames/f00012.jpg') (and …/matte/frames)
 <film>/.slate/                   generated (entry, Root, act<N>, film, film-data, placeholder, broken, rest-states,
-                                 label, spoken.json, public/): never edit
+                                 label, spoken.json): never edit
 <film>/tsconfig.json             generated: type checks run from the film folder
 ```
 
@@ -141,14 +142,28 @@ gate then fails the render loudly.
 
 ## Bundles
 
-One bundle per film folder per source hash, in `SLATE_DATA/cache/bundles/`. The hash covers exactly what goes into the
-bundle (esbuild walks the entry's imports with the same aliases), plus film.json, the lockfile and the Remotion
-version, so a kit change the film never imports keeps its bundle. The public folder is linked, not copied: the films'
-290 MB bundles were mostly copies of their plates, and 56 of them once filled 14 GB. It is `.slate/public/`, which
-holds links to each entry of the film's own `public/` and to its `captures/` and `plates/` (a name the film's
-`public/` already uses wins, with a note), so image sequences are read in place. Deleting a bundle or that folder
-removes links, never what they point at. Every process using a bundle holds a lease, and nothing deletes a bundle a
-live process holds; pruning removes a film's older bundles and anything unleased for a day.
+One bundle per film folder per source hash, in `SLATE_DATA/cache/bundles/`. The hash covers the entry's imported code
+(esbuild walks the same aliases), film.json, the lockfile and the Remotion version. It also covers copied public
+leaves, their source and resolved target paths, and the effective public alias structure. A kit change the film never
+imports keeps its bundle. Replacing, retargeting, adding or deleting an effective public input changes its identity;
+editing the bytes of a regular leaf reached through an unchanged directory alias remains visible in place.
+
+Each bundle owns its public view. Regular top-level files from the film's `public/` and final-file links, including
+links beneath directory-link targets, become exact regular files in that view. A directory containing file links
+gets an overlay: its file leaves are copied, while clean child subtrees retain directory aliases. The pinned
+Remotion static-file server refuses final-file symlinks, so linking a logo or cached font leaf is not sufficient.
+
+Captures and plates retain directory aliases and are read in place. Their trees are not copied or scanned for byte
+hashes: the films' 290 MB bundles were mostly copies of their plates, and 56 of them once filled 14 GB. Regular frame
+leaves in those trees are supported; a final-file symlink inside a capture or plate tree still has the pinned server's
+limitation. A name the film's own `public/` already uses wins over a capture or plate alias, with a note.
+
+Existing unmanaged entries in the legacy `.slate/public/` keep their collision precedence. That folder, original public
+assets, captures and plates are never rewritten or cleaned by bundling. Recognizable old generated aliases are
+resolved from the current inputs in the owned view; a deleted input does not remain served through its stale alias.
+The temporary view lives beside the temporary bundle under `.tmp-…-<pid>` and is removed after bundling or on failure.
+Removing or pruning a bundle deletes only its owned files and aliases. Every process using a bundle holds a lease;
+nothing deletes a bundle a live process holds, and pruning removes older film bundles and anything unleased for a day.
 
 ## Rendering with motion blur (render_mb)
 
@@ -278,44 +293,49 @@ for everything else, in a dry-run emit: nothing is written but the contract stil
 
 ## Per-shot engines
 
-A shot may carry its own engine; by default it's drawn by its act's (P074). The brand picks the engine for its scenes
-(brand.json `look.engine`), and a shot that needs something its act's engine can't give says so on its own. What's
-built, and the rules that keep it safe (`src/slate/render/shot_engines.py` holds them in code):
+A shot may carry its own engine; by default it uses its act's engine (P074). The brand picks the act's engine through
+brand.json `look.engine`. Code acts support replacements in both directions: a Web shot inside a Remotion act and a
+Remotion shot inside a Web act. `src/slate/render/shot_engines.py` resolves declarations and owning scenes.
 
-- **Declaring it.** A shot's `engine` (`remotion`, `web` or `ae`) in `script/script.json`, where a person writes it.
-  `slate script build` carries it into the storyboard and `slate timing` into `timing/shots.json`, which render and
-  check read first; a storyboard built before it carried engines falls back to the script's declaration by shot id.
-  A shot that names no engine is drawn by its act's.
-- **Where its scene lives.** A web shot inside a Remotion act is a page of its own,
-  `scenes/shots/<SHOT>/web/index.html`, built with `@slate/web` like a web act's (copy the web template there). It draws the act's time and is only ever
-  asked for its shot's frames. Its own folder keeps it out of the act's type check and module: the generated entry
-  gives each one a `tsconfig.shot-<ID>.json` of its own. A declaration and the scenes on disk must agree: a shot that
-  says web needs that page, and a page there needs the shot to say web.
-- **Its beats.** emit-events opens each web shot's page in a dry run and adds the beats it lands, inside its shot, to
-  the act's events; a beat outside its shot is refused like any other.
-- **Handing it in.** `slate check <act>` hands each web shot in through the open web renderer, as
-  `handin.act<N>.shot.<ID>.*`: its type check, its page (it loads and draws), its word lookups, its network wall and
-  fonts, its banned words, never-claims and literal frames. `handin.act<N>.shots` lists the act's shots in other
-  engines, or FAILs on a problem with them (an engine Slate doesn't know, a declaration without its scene, a scene
-  without its declaration, or a combination that isn't built).
-- **Rendering.** The act renders whole in its own engine; then each shot in another engine renders over exactly its
-  shot's frames, at the act's sample count, from its own page, and is spliced into the act render with the splice's
-  proof (frame count, the frames at both joins, the edge scan) before the act is registered. The registry entry lists
-  the shots and their engines (`shot_engines`). A seam between engines is always a cut, so a patch may not cross one,
-  and a patch inside such a shot renders in that shot's engine.
+- **Declaring it.** A shot's `engine` (`remotion`, `web` or `ae`) starts in `script/script.json`.
+  `slate script build` carries it into the storyboard; render and check read `timing/shots.json` first and fall back
+  to the script declaration by shot id when an older timing file has no engine. An undeclared shot uses its act's engine.
+- **Where its scene lives.** A Web replacement uses `scenes/shots/<SHOT>/web/index.html` with `@slate/web`. A Remotion
+  replacement uses `scenes/shots/<SHOT>/index.tsx` (`.ts`, `.jsx` and `.js` are also supported). Declaration and
+  available scene must agree. Both replacements draw in the owning act's clock and receive only their shot's frames.
+  The generated entry gives a Remotion replacement a `Shot-<ID>` composition with the owning act's full duration;
+  it does not shift that composition's origin to the shot's first frame.
+- **Its beats.** `emit-events` reads actual Web page registrations and Remotion module exports or kit registrations.
+  Replacement beats must belong to that shot. Raw base rows are validated before beats owned by replaced base
+  shots leave the visible list, so hidden malformed rows and duplicate ids remain problems. The act's impact limit
+  applies to the final composition. Placed capture beats join independently from one captured input generation;
+  pure acts and whole-act silence retain their behavior.
+- **Handing it in.** `slate check <act>` checks the replacement with its own engine under
+  `handin.act<N>.shot.<ID>.*` and checks the declaration set under `handin.act<N>.shots`. A missing scene, unknown engine
+  or unsupported combination fails by name. Copy shared by scenes remains covered when its path reaches the same
+  physical file through an alias.
+- **Rendering.** The act renders whole in its owning engine. Each replacement renders exactly its film frame range,
+  at the act's sample count, then is spliced into the act with proof before registration. The registry records
+  `shot_engines`. Engine seams are cuts; a patch cannot cross one, while an isolated replacement patch uses its
+  declared engine. An omitted render engine selects each built mixed act's owner, so one film may contain acts with different
+  base engines. An explicit conflicting engine is refused before rendering.
+- **Motion evidence.** Web pages return raw runtime rows, owning act clocks and hashes of consumed HTML, scripts, CSS
+  and context bytes. Remotion replacements return their actual kit rows in the same film clock. The emitter validates
+  these inputs, selects visible base registrations, and combines namespaced replacement rows. Captured relative and
+  absolute source keys must resolve consistently, and the virtual Web context uses the real brand data and embedded SVGs.
+  Complete base registrations and composition details remain under `timing/motion/sources/`; the active trace describes
+  the composition. An ambiguous base curve spanning a replacement is refused with an ownership hint rather than cropped,
+  resampled or assigned another ease. An isolated patch refreshes its whole owning act once. Failed refreshes preserve
+  previous trace bytes and the reason under `timing/motion/failures/`, then remove the current trace so stale evidence
+  cannot pass as current.
+- **Review stills.** Each requested frame follows the render's shot boundaries, including nonzero act starts and the
+  last frame of a replacement. Replacement frames use their declared scene. An omitted preview engine uses the owner for uncovered frames
+  in a built mixed act and Remotion for a pure preview. An explicit preview engine remains the caller's choice
+  for uncovered base frames; replacement frames still use their declared scene. Ordering, deduplication, scale, samples and filenames
+  retain their existing contract. Only requested engines open, and each closes on success or failure.
 
-Not built yet, so refused by name rather than guessed at:
-
-- an After Effects shot inside a code-engine act, or a code-engine shot inside an AE-built act. aerender renders whole
-  comps and the AE project builds whole acts, so the AE lane works per act (`scenes/ae/actN.json`): build the act in
-  one engine;
-- a Remotion shot inside a web act: it needs a composition of its own in the generated entry (`Shot-<ID>`, drawn at act
-  time), which the entry doesn't make yet. Make the act Remotion and the other shots web instead;
-- a web shot's tweens in the act's motion trace: the open web renderer writes a scene's trace for its whole act, so a
-  shot's render passes `trace: false` and `slate qa motion` doesn't see that shot's motion yet (its pixels still face
-  the film's glitch scan and joins);
-- `slate timing` carrying a shot's `engine` from the script into `timing/shots.json` belongs to the timing stage;
-  until it does, the script's declaration is read directly, as above.
+After Effects remains an act lane: an AE shot inside a code act, or a code shot inside an AE act, is refused because
+the AE project builds and renders whole acts (`scenes/ae/act<N>.json`).
 
 **After Effects acts** start from the brand's look: `slate engine scaffold --act N` reads `look.engine`, and for an AE
 look writes `scenes/ae/actN.json`, a starter scene in the brand's own names (its first on-screen line on the brand's

@@ -55,11 +55,11 @@ and the balance gates, `sound.balance.approved_spans` and `sound.planned_stops` 
 | `bit_depth` | the mix and every stem are integer PCM at the delivery depth and rate (a 16-bit or float mix fails) |
 | `silent_stems` | no stem is silent |
 | `stems_sum` | the stems add up to the mix, sample for sample |
-| `captions` | one caption rule (the law's 2 lines of 42 characters, 17 characters a second, at least 1 s), tightened by the format at the film's aspect and by film.json, never loosened; ordered, never overlapping, word for word |
+| `captions` | one caption rule (the law's 2 lines of 42 characters, 17 characters a second, at least 1 s), tightened by the format at the film's aspect and by film.json, never loosened; ordered, never overlapping, word for word. Cue timestamps must be finite; nonfinite timing stays UNCHECKED. A changed acceptance revision makes older saved checks STALE without rewriting them. |
 | `claims` | every claim approved or sourced; autonomous films use approved claims only |
 | `banned_words` | the brand's one list (every form of each entry, naming its substitute) against the script, the captions, the OCR of the picture and what Whisper heard in every take in use; self-commentary captions on screen when the brand forbids them |
 | `ocr` | Apple Vision reads the whole picture every 0.25 s; UNCHECKED (never another engine) when it can't |
-| `readtime` | every on-screen statement readable for max(1.5 s, 0.4 s + 0.3 s per word) once fully built, counting only frames where it's at least 90% opaque and moving under 8 px a frame; a shot's declared `reading` (below) is honoured |
+| `readtime` | every on-screen statement readable for max(1.5 s, 0.4 s + 0.3 s per word) once fully built, counting only frames where it's at least 90% opaque and moving under 8 px a frame; declared short labels retain their word formula and explicit policy, read-along lines cover their measured phrase end, and exactly bound counts hold 2 s after landing/settle (below) |
 | `glitch` | one- and two-frame glitches in every act render, triaged against planned beats; flags that block matching explains as motion or a fade are listed, not sent to a person; runs of blank frames between pictures are flagged |
 | `boundary` | every join between consecutive act renders: contiguous, no bigger a jump than the picture's own motion either side |
 | `cuts` | every scene change sits on a shot start whose declared transition allows a cut (a carry, portal, mask, whip, UI cut, at most three music cuts, or a seam of 4 frames or less); no hard cut or crossfade at a join the transition doesn't declare |
@@ -82,15 +82,73 @@ Some text isn't meant to be read the usual way, and a shot says so in script/scr
 {"id": "L02", "on_screen": "…", "reading": {"labels": true, "reason": "the app's own screen title, shown in the Simulator"}}
 ```
 
-- **voice_matched**: a definition the voice reads along as it lands. It may run past the on-screen word budget and
-  needs only the 1.5 s floor.
+- **voice_matched**: a definition the voice reads along as it lands. It may run past the on-screen word budget.
+  Once complete, its first qualifying readable run must meet the 1.5 s floor and cover the matching phrase's
+  measured final word on the film clock. When it is also a declared label, the floor is
+  `max(1.5 s, the effective read_time.floor)`; a shorter label or policy floor cannot weaken it. Progressive builds
+  retain one OCR sample of onset uncertainty and need not show the complete text throughout the phrase. A later
+  reappearance cannot excuse early disappearance. The check resolves only that phrase, so unrelated later
+  narration does not extend its hold. Missing, invalid or unmatched word timings or voice placement are UNCHECKED.
 - **not_for_reading**: a surface shown too small to read on purpose. Its listed statements (or the whole shot, with
-  `true`) aren't timed; its large elements still must read.
+  `true`) aren't timed; its large elements still must read. A valid whole-shot declaration also excludes that
+  surface from count landing and coverage requirements. Exact listed count exemptions apply only to the literal
+  final display they name; punctuation-normalized OCR matches cannot exempt a different number.
 - **labels**: the on-screen words name what the picture shows (a product's UI, a Simulator label, an end card), not a
-  second script. It means the same to the script gates and to `slate qa readtime`: it answers the 40% voice-share rule
-  only, so the words still count toward the 12-word cap and are timed in full. It's `true` for the whole shot.
+  second script. Declare `labels: true` for the whole shot with a reason. Each authored `on_screen` part of one to
+  three words uses `max(1.0 s, 0.4 s + 0.3 s per word)` by default, so three words still need 1.3 s. Longer parts
+  retain the usual floor. This declaration answers the 40% voice-share rule, but its words still count toward the
+  12-word cap. Numeric labels retain the 2 s number requirement; a spoken label also retains the voice-matched
+  floor and phrase coverage.
 
-A declaration without a reason, or naming text the shot doesn't show, is reported as a problem, never a quiet pass.
+A reading exemption without a reason, or naming text the shot doesn't show, fails. The label formula consumes the
+existing `read_time.floor`, `base` and `per_word` settings, with the script overriding its format. An explicitly
+authored floor, including 1.5 s, takes precedence over the 1 s label default; the generic 1.5 s inherited from the
+shared format alone does not. `label_floor` is derived policy, not a new setting to author. If a declared format's
+needed policy or provenance is missing or malformed, the label policy is UNCHECKED; a separate short hold still
+fails.
+
+## Declared count landings
+
+A readable animated number names its exact final display and every count event that completes it:
+
+```json
+{"id": "S04", "on_screen": "72% complete", "reading": {"count_events": [{"text": "72% complete", "events": ["progress-count"]}]}}
+```
+
+`reading.count_events` is a nonempty list of bindings, each with exactly `text` and `events`. `text` must name one
+literal authored `on_screen` part, including its numeric sign, decimal point, currency or percent marks.
+`events` is a nonempty list of unique event-id strings. Duplicate or stray display selectors, malformed bindings
+and nonexistent literal parts fail. This metadata grants no exemption and needs no reason by itself; the three
+reading declarations above still require a reason.
+
+The checker resolves each event in the owning act's canonical `timing/visual_events/actN.json`, for the same placed
+shot. The id must be unique in that act, the kind must be `count`, and `t`, `start` and `dur` must be finite film
+seconds, with a positive duration. The landing `t` must agree with `start + dur` within half a film frame, stay within its owning act by that half-frame tolerance, lie within its owning
+shot's existing clock tolerance, and agree with any supplied frame. All named counts must resolve before
+their latest landing is used. Shot-local script estimates, another shot's event or an intermediate value do not
+supply that landing.
+
+The first continuous complete and legible final-value run that reaches the landing must extend 2 s from the later
+of the landing and its own readable onset. Only samples inside the owning shot count, under the existing opacity
+and motion limits. Its measured end includes one OCR sample interval; no second interval is added. A late settle
+cannot borrow elapsed count time, and a later reappearance cannot excuse a short first exposure. Exact picture
+matching preserves digit-token boundaries, case, signs, punctuation and units; ordinary word or unit spacing may
+vary. Separate OCR tokens such as `1 2%` cannot prove `12%`. Ambiguous or unusable OCR evidence is UNCHECKED.
+
+A known readable count without a binding is UNCHECKED. Missing or malformed canonical events, invalid identity,
+timing or clock evidence are also UNCHECKED. An independently proved short hold, missing statement or malformed
+declaration still fails; unknown evidence never turns that failure into a pass. Numeric text alone does not prove a
+count animation. Ordinary static text and numbers keep their existing checks, and timers or nonnumeric motion gain
+no count-reading obligation merely from `kind: count`. A valid whole-shot `not_for_reading: true` with a reason
+needs no count binding or visual export for audience reading; supplied malformed or stray metadata still fails.
+A listed exemption for a counted display remains limited to its exact, valid bound display.
+
+The result hashes the storyboard, script, placed shots and film clock, each owning act's event path even when
+absent, and the picture/OCR and motion-trace inputs it consumes. Declared labels also bind the raw format policy and
+shared defaults they use; declared voice-matched text binds measured words and voice cues. Changing a count
+landing, adding a previously missing export, or changing those consumed policies or timings makes the saved result
+STALE. The readtime acceptance revision is 2: older saved checks require a fresh run and are not rewritten or
+backfilled.
 
 ## One OCR engine
 

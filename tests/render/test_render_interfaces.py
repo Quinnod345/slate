@@ -3,7 +3,7 @@
 import inspect
 
 import slate.render
-from slate.render import registry, splice
+from slate.render import registry, splice, stills
 
 
 def _params(fn):
@@ -15,7 +15,18 @@ def test_run_signature():
     assert list(params)[:6] == ["film_dir", "act", "frames", "engine", "samples", "out"]
     kw = inspect.Parameter.KEYWORD_ONLY
     assert params["act"] == (kw, None) and params["frames"] == (kw, None)
-    assert params["engine"] == (kw, "remotion") and params["samples"] == (kw, None) and params["out"] == (kw, None)
+    assert params["engine"] == (kw, None) and params["samples"] == (kw, None) and params["out"] == (kw, None)
+
+
+
+def test_stills_signature():
+    params = {name: (kind, default) for name, kind, default in _params(stills.stills)}
+    assert list(params) == ["film_dir", "frames", "act", "scale", "samples", "out_dir", "engine"]
+    kw = inspect.Parameter.KEYWORD_ONLY
+    assert params["film_dir"] == (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.empty)
+    assert params["frames"] == (kw, inspect.Parameter.empty) and params["act"] == (kw, None)
+    assert params["scale"] == (kw, 0.5) and params["samples"] == (kw, 1)
+    assert params["out_dir"] == (kw, None) and params["engine"] == (kw, None)
 
 
 def test_registry_signatures():

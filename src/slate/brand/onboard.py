@@ -561,18 +561,113 @@ def _moves_of(data: Any) -> tuple[list[tuple[str, dict]], str | None]:
     return [], film
 
 
-def measured_moves(path: str | Path) -> tuple[dict, list[str]]:
+def _fit_identity(ease: dict) -> str | None:
+    """Match only the explicit identity written by this importer, never a legacy basename or display label."""
+    source = ease.get("source") if isinstance(ease, dict) else None
+    identity = source.get("measurement_identity") if isinstance(source, dict) else None
+    if not isinstance(identity, dict) or identity.get("schema") != 1:
+        return None
+    reference = identity.get("reference")
+    if not isinstance(reference, dict) or reference.get("kind") not in ("video", "analysis"):
+        return None
+    digest = reference.get("sha256" if reference["kind"] == "video" else "data_sha256")
+    if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+        return None
+    if not isinstance(reference.get("path"), str) or not reference["path"]:
+        return None
+    if not isinstance(identity.get("move"), str) or not identity["move"]:
+        return None
+    occurrence = identity.get("occurrence")
+    if not isinstance(occurrence, int) or isinstance(occurrence, bool) or occurrence < 1:
+        return None
+    return jsonio.sha256_obj(identity)
+
+
+def _merge_measured(existing: dict, incoming: dict, *, reserved: set[str] | None = None) -> list[str]:
+    """Retain distinct measurements and return their actual stored keys; matching source/version/move imports update."""
+    identities = {identity: key for key, ease in existing.items() if (identity := _fit_identity(ease)) is not None}
+    reserved = set(incoming) | (reserved or set())
+    retained = []
+    for requested, ease in incoming.items():
+        identity = _fit_identity(ease)
+        key = identities.get(identity) if identity is not None else None
+        if key is None:
+            key = requested
+            suffix = 2
+            while key in existing:
+                key = f"{requested}-{suffix}"
+                suffix += 1
+                while key in reserved:
+                    key = f"{requested}-{suffix}"
+                    suffix += 1
+        existing[key] = ease
+        if identity is not None:
+            identities[identity] = key
+        retained.append(key)
+    return retained
+
+
+def _measured_reference(video: dict, lineage: dict, analysis: dict, reference: dict | None) -> dict:
+    """A declared full video path and digest, or the exact parsed analysis identity when those are absent."""
+    path = video.get("path")
+    if not isinstance(path, str) or not Path(path).is_absolute():
+        path = lineage.get("video")
+    digest = video.get("sha256")
+    if (not isinstance(path, str) or not Path(path).is_absolute() or not isinstance(digest, str)
+            or not re.fullmatch(r"[0-9a-fA-F]{64}", digest)):
+        path = (reference or {}).get("file") or (reference or {}).get("path")
+        digest = (reference or {}).get("sha256")
+    if (isinstance(path, str) and Path(path).is_absolute() and isinstance(digest, str)
+            and re.fullmatch(r"[0-9a-fA-F]{64}", digest)):
+        result = {"kind": "video", "path": path, "sha256": digest.lower()}
+        other = lineage.get("video")
+        if isinstance(other, str) and Path(other).is_absolute() and other != path:
+            result["lineage_video"] = other  # Conflicting declared paths stay distinct and remain in the full provenance.
+        return result
+    return {"kind": "analysis", "path": analysis["file"], "data_sha256": analysis["data_sha256"]}
+
+
+def _measured_films(measured: dict) -> set[str]:
+    """Count identified film paths intact; keep the legacy label count for older records."""
+    films = set()
+    for ease in measured.values():
+        source = ease.get("source") or {}
+        identity = source.get("measurement_identity")
+        reference = identity.get("reference") if isinstance(identity, dict) else None
+        if _fit_identity(ease) is not None and reference.get("kind") == "video":
+            film = reference["path"]
+        elif _fit_identity(ease) is not None:
+            video = source.get("video") or {}
+            lineage = source.get("measurement") or {}
+            path = video.get("path") or lineage.get("video")
+            film = (path if isinstance(path, str) and Path(path).is_absolute() else
+                    str(source.get("film") or source.get("where") or "").split(" ")[0])
+        else:
+            film = str(source.get("film") or source.get("where") or "").split(" ")[0]
+        if film:
+            films.add(film)
+    return films
+
+
+def measured_moves(path: str | Path, *, reference: dict | None = None) -> tuple[dict, list[str]]:
     """Moves measured in reference films → fitted eases. Accepts slate analyze's analysis.json, {"moves": [...]} or
     {"moves": {name: {t|times, v|values, source, note}}} (samples are fitted here with fit_ease), or
     {name: {bezier, rms, duration_s, …}} (already fitted)."""
     from slate.motion import fit  # noqa: PLC0415
 
     data = jsonio.read(Path(path).expanduser())
+    analysis = {"file": str(Path(path).expanduser().resolve()), "data_sha256": jsonio.sha256_obj(data)}
+    video = data.get("video") if isinstance(data, dict) and isinstance(data.get("video"), dict) else {}
     pairs, film = _moves_of(data)
-    out, problems = {}, []
+    reserved = {f"{Path(film).stem}-{name}" if film else name for name, _ in pairs}
+    out, problems, occurrences = {}, [], {}
     label = Path(path).name
     for name, m in pairs:
+        move = name
         lin = m.get("lineage") if isinstance(m.get("lineage"), dict) else {}
+        ref = _measured_reference(video, lin, analysis, reference)
+        move_key = jsonio.sha256_obj([ref, move])
+        occurrences[move_key] = occurrences.get(move_key, 0) + 1
         where = str(m.get("source") or m.get("film") or lin.get("video") or film or label)
         if lin.get("window_s"):
             where += " " + "–".join(f"{float(x):.2f}" for x in lin["window_s"]) + " s"
@@ -594,11 +689,18 @@ def measured_moves(path: str | Path) -> tuple[dict, list[str]]:
             problems.append(f"{name}: {exc}")
             continue
         rms = r.get("rms")
-        out[name] = {"bezier": [round(float(x), 4) for x in r["bezier"]],
+        ease = {"bezier": [round(float(x), 4) for x in r["bezier"]],
                      "lineage": f"measured from {where}" + (f" ({m['note']})" if m.get("note") else "") +
                                 (f", fitted with fit_ease (RMS {float(rms):.2%})" if rms is not None else ""),
                      "duration_s": r.get("duration_s"), "fit_rms": rms,
-                     "source": {"kind": "measured", "where": where, "film": lin.get("video") or film or where}}
+                     "source": {"kind": "measured", "where": where,
+                                "film": ref["path"] if ref["kind"] == "video" else lin.get("video") or film or where,
+                                "measurement_identity": {"schema": 1, "reference": ref, "move": move,
+                                                         "occurrence": occurrences[move_key]},
+                                "analysis": analysis, "video": copy.deepcopy(video), "measurement": copy.deepcopy(lin)}}
+        if reference is not None:
+            ease["source"]["reference_record"] = copy.deepcopy(reference)
+        _merge_measured(out, {name: ease}, reserved=reserved)
     return out, problems
 
 
@@ -903,7 +1005,7 @@ def grounded_directions(raw: dict) -> list[dict]:
             and str(b.get("grounded_in") or "").strip()]
 
 
-def _analyze_film(video: Path, brand: str, inputs: dict, notes: list[str]) -> dict | None:
+def _analyze_film(video: Path, brand: str, inputs: dict, notes: list[str], *, reference: dict | None = None) -> dict | None:
     """Run slate analyze's cuts and eases on a reference film and take its measured moves (fit_ease), with lineage."""
     try:
         analyze = importlib.import_module("slate.analyze")
@@ -911,13 +1013,15 @@ def _analyze_film(video: Path, brand: str, inputs: dict, notes: list[str]) -> di
         notes.append(f"{video.name}: slate analyze isn't installed, so its moves weren't measured (give them with "
                      "--measured)")
         return None
+    reference = reference or {"file": str(video.resolve()), "sha256": jsonio.sha256(video)}
     result = analyze.run(video, steps=["cuts", "eases"], brand=brand)
     out = Path(str(result.get("out") or ""))
     analysis_file = out / "analysis.json"
-    fits, problems = measured_moves(analysis_file) if analysis_file.is_file() else ({}, ["no analysis.json written"])
-    inputs["measured"].update(fits)
+    fits, problems = (measured_moves(analysis_file, reference=reference) if analysis_file.is_file() else
+                      ({}, ["no analysis.json written"]))
+    retained = _merge_measured(inputs["measured"], fits)
     notes += [f"{video.name}: {p}" for p in problems]
-    return {"file": str(analysis_file), "moves": sorted(fits)}
+    return {"file": str(analysis_file), "moves": sorted(retained)}
 
 
 def _analyze_available() -> bool:
@@ -952,9 +1056,7 @@ def look_items(folder: Path, raw: dict) -> list[Item]:
                       f"{len(product)} ease(s) from {', '.join(kinds)}" if product else "none yet",
                       _cmd(name, "look", "--from-app PATH"), required=False))
     measured = inputs.get("measured") or {}
-    films = {str((m.get("source") or {}).get("film") or (m.get("source") or {}).get("where") or "").split(" ")[0]
-             for m in measured.values()}
-    films.discard("")
+    films = _measured_films(measured)
     how = ("slate analyze <film>, then " if _analyze_available() else "") + _cmd(name, "look", "--measured FILE.json")
     items.append(Item("reference_films", "Two or three reference films, their moves measured and fitted (fit_ease)",
                       len(films) >= 2 and len(measured) >= 2,
@@ -1146,7 +1248,7 @@ def look(name: str, *, from_app: Iterable[str] = (), from_website: str | None = 
         changes.append(f"read {where} from stdin (values only: no code is written anywhere)")
     for mfile in measured:
         fits, problems = measured_moves(mfile)
-        inputs["measured"].update(fits)
+        _merge_measured(inputs["measured"], fits)
         notes += [f"{mfile}: {p}" for p in problems]
         changes.append(f"{len(fits)} measured move(s) from {mfile}")
     look_sec = raw.get("look") if isinstance(raw.get("look"), dict) else {}
@@ -1163,8 +1265,13 @@ def look(name: str, *, from_app: Iterable[str] = (), from_website: str | None = 
         except SlateError:
             pass
         if analyze and not dry_run:
-            rec["analysis"] = _analyze_film(p, raw.get("name") or folder.name, inputs, notes)
-        look_sec["references"] = _merge_list(refs, [rec], lambda r: str(r.get("file")))
+            rec["analysis"] = _analyze_film(p, raw.get("name") or folder.name, inputs, notes, reference=rec)
+
+        def reference_key(record):
+            return record.get("what"), str(record.get("file")), record.get("sha256")
+
+        prior = next((r for r in refs if reference_key(r) == reference_key(rec)), {})
+        look_sec["references"] = _merge_list(refs, [{**prior, **rec}], reference_key)
         raw["look"] = look_sec
         changes.append(f"reference film {p.name} (read in place, not copied)"
                        + (f"; {len(rec['analysis']['moves'])} move(s) measured" if rec.get("analysis") else ""))

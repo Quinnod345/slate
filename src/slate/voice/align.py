@@ -19,6 +19,7 @@ they keep the pipeline running offline, and the gates treat them as unchecked, n
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import tempfile
@@ -151,13 +152,13 @@ def _whisper_doc(data: dict, *, audio: Path, model: str, info: dict, language: s
             "replay": False, "at": now()}
 
 
-def _elevenlabs_doc(res: dict, *, audio: Path) -> dict:
+def _elevenlabs_doc(res: dict, *, audio: Path, source_text: str) -> dict:
     words = [{"word": str(w.get("text", "")).strip(), "start": w.get("start"), "end": w.get("end"),
               "loss": w.get("loss")} for w in res.get("words") or [] if str(w.get("text", "")).strip()]
     return {"engine": {"name": "elevenlabs forced alignment", "version": None, "model": res.get("model"),
                        "request_id": res.get("request_id")},
             "audio": str(audio), "sha256": jsonio.sha256(audio), "text": " ".join(w["word"] for w in words),
-            "segments": [{"words": words}], "loss": res.get("loss"), "replay": bool(res.get("replay")),
+            "source_text": source_text, "segments": [{"words": words}], "loss": res.get("loss"), "replay": bool(res.get("replay")),
             "note": "Forced alignment places the script's words; it can't tell whether they were said.",
             "at": now()}
 
@@ -247,7 +248,7 @@ def align(film_dir: str | Path, *, only: str | list[str] | None = None, engine: 
         client = elevenlabs.Client(mode=vf.mode, film=vf.dir)
         for ln, take, audio in real:
             res = client.align(audio=audio, text=ln.text)
-            doc = _elevenlabs_doc(res, audio=audio)
+            doc = _elevenlabs_doc(res, audio=audio, source_text=ln.text)
             path = _write(vf, ln.shot, "elevenlabs", doc, canonical=canonical)
             rows.append({"shot": ln.shot, "take": take, "engine": f"elevenlabs {res.get('model')}",
                          "file": vf.rel(path), "request_id": res.get("request_id")})
@@ -270,31 +271,130 @@ def load(film_dir: str | Path, shot: str, engine: str | None = None) -> dict | N
     return jsonio.read(path) if path.is_file() else None
 
 
+def _comparison_inputs(vf: VoiceFilm, line, a: dict, b: dict) -> tuple[dict | None, str | None]:
+    """Saved alignments must describe the currently selected audio and forced-alignment script."""
+    audio = vf.final_audio(line.shot)
+    if audio is None:
+        return None, "needs a current selected audio file"
+    try:
+        audio_hash = jsonio.sha256(audio)
+    except OSError:
+        return None, "needs a readable current selected audio file"
+    for name, doc, engines in (("whisper", a, {"openai-whisper", "replay"}),
+                               ("elevenlabs", b, {"elevenlabs forced alignment"})):
+        if not isinstance(doc, dict) or not isinstance(doc.get("engine"), dict) or \
+                doc["engine"].get("name") not in engines:
+            return None, f"needs a {name} alignment with its engine binding"
+        source = doc.get("audio")
+        if not isinstance(source, str) or not source:
+            return None, f"needs a {name} alignment with its audio binding"
+        path = Path(source)
+        if not path.is_absolute():
+            path = vf.dir / path
+        try:
+            is_selected = path.resolve() == audio.resolve()
+        except (OSError, RuntimeError, ValueError):
+            is_selected = False
+        if not is_selected:
+            return None, f"needs a current {name} alignment: its audio path is not the selected take"
+        if doc.get("sha256") != audio_hash:
+            return None, f"needs a current {name} alignment: its audio SHA does not match the selected take"
+        if "source_text" in doc and doc["source_text"] != line.text:
+            return None, f"needs a current {name} alignment: its source text does not match the current line"
+    if b.get("source_text") != line.text:
+        return None, "needs an elevenlabs alignment bound to the current exact source text"
+    return {"audio": str(audio), "sha256": audio_hash, "source_text": line.text}, None
+
+
+def _comparison_words(doc: dict) -> list[dict]:
+    """Validate saved numeric times before the word reader converts values to floats."""
+    from slate.voice.measure import whisper_words  # noqa: PLC0415
+
+    raw = [word for segment in doc.get("segments") or [] for word in segment.get("words") or []]
+    if not raw:
+        raw = doc.get("words") or []
+    for word in raw:
+        for field in ("start", "end"):
+            value = word.get(field)
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or \
+                    not math.isfinite(value) or value < 0:
+                raise ValueError("word times must be finite nonnegative numbers")
+        if word["end"] < word["start"]:
+            raise ValueError("a word ends before it starts")
+    return whisper_words(doc)
+
+
+def _comparison_mean(values: list[float]) -> float | None:
+    # Divide before summing so finite, large diagnostic values cannot overflow the mean.
+    return round(math.fsum(v / len(values) for v in values), 1) if values else None
+
+
 def compare(film_dir: str | Path, *, only: str | list[str] | None = None) -> dict:
-    """Whisper against ElevenLabs Forced Alignment, word by word (start and end differences in ms)."""
-    from slate.voice.measure import align_words, whisper_words  # noqa: PLC0415
+    """Compare current saved inputs; only equal normalized words contribute timing disagreement."""
+    from slate.voice.measure import align_words  # noqa: PLC0415
 
     vf = VoiceFilm(film_dir)
     shots, all_d = [], []
     for ln in vf.select(only):
+        shot = {"shot": ln.shot, "comparison_ready": False, "matched": None,
+                "start_ms_mean": None, "start_ms_max": None, "end_ms_mean": None}
+        shots.append(shot)
         a = load(vf.dir, ln.shot, "whisper") or load(vf.dir, ln.shot, "replay")
         b = load(vf.dir, ln.shot, "elevenlabs")
         if not a or not b:
-            shots.append({"shot": ln.shot, "status": "needs both engines (slate voice align, then --engine elevenlabs)"})
+            shot["status"] = "needs both engines (slate voice align, then --engine elevenlabs)"
             continue
-        wa, wb = whisper_words(a), whisper_words(b)
-        _, _, pairs = align_words([lang.norm_token(w["word"]) for w in wa], [lang.norm_token(w["word"]) for w in wb])
+        inputs, problem = _comparison_inputs(vf, ln, a, b)
+        if problem:
+            shot["status"] = problem
+            continue
+        shot["inputs"] = inputs
+        try:
+            wa, wb = _comparison_words(a), _comparison_words(b)
+        except (ValueError, TypeError, AttributeError, KeyError, OverflowError) as exc:
+            shot["status"] = f"needs valid saved word times: {exc}"
+            continue
+        # Keep apostrophes and numeric spelling: a punctuation-only difference can match, but a contraction or
+        # differently spelled number stays explicit. A multiword token remains one timestamped occurrence.
+        na = [tuple(lang.norm_words(w["word"])) for w in wa]
+        nb = [tuple(lang.norm_words(w["word"])) for w in wb]
+        edits, _, aligned = align_words(nb, na)
+        pairs = [(j, i) for i, j in aligned if nb[i] and nb[i] == na[j]]
+        matched_a, matched_b = {i for i, _ in pairs}, {j for _, j in pairs}
+        aligned_a, aligned_b = {j for _, j in aligned}, {i for i, _ in aligned}
         d_start = [abs(wa[i]["start"] - wb[j]["start"]) * 1000 for i, j in pairs]
         d_end = [abs(wa[i]["end"] - wb[j]["end"]) * 1000 for i, j in pairs]
+        if not all(math.isfinite(d) for d in d_start + d_end):
+            shot["status"] = "needs valid saved word times: timing differences exceed finite numeric range"
+            continue
         all_d += d_start
-        shots.append({"shot": ln.shot, "matched": len(pairs), "whisper_words": len(wa), "fa_words": len(wb),
-                      "start_ms_mean": round(sum(d_start) / len(d_start), 1) if d_start else None,
-                      "start_ms_max": round(max(d_start), 1) if d_start else None,
-                      "end_ms_mean": round(sum(d_end) / len(d_end), 1) if d_end else None,
-                      "engines": [a["engine"], b["engine"]], "replay": bool(a.get("replay") or b.get("replay"))})
-    out = {"film": vf.id, "shots": shots,
-           "overall_start_ms_mean": round(sum(all_d) / len(all_d), 1) if all_d else None,
-           "note": "Evaluation only: Whisper stays the default aligner and the gates' ear."}
+        shot.update({"matched": len(pairs), "whisper_words": len(wa), "fa_words": len(wb), "edits": edits,
+                     "coverage": {"whisper_fraction": len(pairs) / len(wa) if wa else None,
+                                  "fa_fraction": len(pairs) / len(wb) if wb else None},
+                     "substitutions": [{"fa_index": i, "whisper_index": j, "fa_word": wb[i]["word"],
+                                        "whisper_word": wa[j]["word"]}
+                                       for i, j in aligned if not nb[i] or nb[i] != na[j]],
+                     "deletions": [{"index": i, "word": w["word"]} for i, w in enumerate(wb)
+                                   if i not in aligned_b],
+                     "insertions": [{"index": i, "word": w["word"]} for i, w in enumerate(wa)
+                                    if i not in aligned_a],
+                     "unmatched_whisper_words": [{"index": i, "word": w["word"]} for i, w in enumerate(wa)
+                                                  if i not in matched_a],
+                     "unmatched_fa_words": [{"index": i, "word": w["word"]} for i, w in enumerate(wb)
+                                             if i not in matched_b],
+                     "start_ms_mean": _comparison_mean(d_start),
+                     "start_ms_max": round(max(d_start), 1) if d_start else None,
+                     "end_ms_mean": _comparison_mean(d_end),
+                     "engines": [a["engine"], b["engine"]], "replay": bool(a.get("replay") or b.get("replay")),
+                     "comparison_ready": bool(pairs)})
+        if not pairs:
+            shot["status"] = "no equal normalized words matched; timing disagreement is unavailable"
+    out = {"film": vf.id, "shots": shots, "complete": bool(shots) and all(s["comparison_ready"] for s in shots),
+           "overall_start_ms_mean": _comparison_mean(all_d),
+           "note": "Evaluation data only, not timing accuracy or listening approval. Replay was not heard. "
+                   "Whisper stays the default aligner and the gates' ear. Edits describe forced-alignment words "
+                   "missing, added or substituted in Whisper; complete means every selected shot has current "
+                   "bound inputs, valid times and at least one equal-word comparison."}
     jsonio.write_atomic(vf.dir / "voice" / "align" / "compare.json", {"generated": "do not edit by hand: "
                                                                                     "slate voice align --compare", **out})
     return out

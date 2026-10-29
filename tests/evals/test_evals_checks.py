@@ -1,8 +1,11 @@
 """Each grader on small, hand-built transcripts: what passes, what fails, and what stays unchecked."""
 
+import json
+from pathlib import Path
+
 import pytest
 
-from slate.evals import checks
+from slate.evals import checks, transcript
 from slate.evals.transcript import Event, Transcript
 
 LANES = [["(?i)full[- ]?(?:production|film|pipeline|video)", "(?i)(?<!pre-)(?<!pre)\\bproduction\\b"],
@@ -203,7 +206,7 @@ def test_lane_question_not_asked():
 
 # ---- skills, commands, order ------------------------------------------------------------------------------------------
 def test_skill_loaded_before_a_step():
-    t = T(cmd("slate new x --brand demo"), skill("slate"), final="ok")
+    t = T(cmd("slate new x --brand demo"), Event(0, "skill", name="slate", ok=True), final="ok")
     assert run("skill_loaded", t, skill="slate").status == "PASS"
     assert run("skill_loaded", t, skill="slate", before={"slate": "new"}).status == "FAIL"
     assert run("skill_loaded", T(say("x"), final="ok"), skill="slate").status == "FAIL"
@@ -233,7 +236,7 @@ def test_order():
 
 # ---- fast lane, spend, publishing ------------------------------------------------------------------------------------
 def test_fast_lane_detection():
-    assert run("fast_lane_used", T(skill("higgsfield-generate"), final="ok")).status == "PASS"
+    assert run("fast_lane_used", T(Event(0, "skill", name="higgsfield-generate", ok=True), final="ok")).status == "PASS"
     assert run("fast_lane_used", T(cmd("higgsfield generate video --prompt x"), final="ok")).status == "PASS"
     assert run("fast_lane_used", T(tool("mcp__hf__generate_video", prompt="x"), final="ok")).status == "PASS"
     assert run("fast_lane_not_used", T(cmd("higgsfield account status"), final="ok")).status == "PASS"
@@ -386,7 +389,8 @@ def test_a_slate_command_the_slices_end_interrupts_isnt_a_stdin_wait():
 
 
 def test_reading_the_fast_lane_skill_beside_slate_isnt_taking_it():
-    consulted = T(Event(0, "read", name="/u/.agents/skills/higgsfield-generate/SKILL.md"), skill("slate"),
+    consulted = T(Event(0, "read", name="/u/.agents/skills/higgsfield-generate/SKILL.md"),
+                  Event(0, "skill", name="slate", ok=True),
                   cmd("slate new launch --brand demo --format ad"), cmd("slate gen estimate --shot S01 --live"))
     assert run("fast_lane_not_used", consulted).status == "PASS"
     assert run("no_vendor_spend", consulted).status == "PASS", "the free /estimate spends nothing, even live"
@@ -700,3 +704,224 @@ def test_a_command_the_harness_cut_at_a_render_isnt_a_stdin_wait():
     assert run("no_stdin_wait", harness, config={"kill_is_real": True}).status == "PASS"
     assert run("no_stdin_wait", cut(), config={"kill_is_real": True}).status == "FAIL", \
         "without the cut, an unfinished script at the slice's end still counts"
+
+
+# ---- confirmed skill loading and completion order --------------------------------------------------------------------
+
+def _skill_loading_log(fmt, outcome="success", *, late=False, skill_name="slate"):
+    """A neutral load plus a production start, recorded in each adapter's real message shape."""
+    path = f"/neutral/skills/{skill_name}/SKILL.md"
+    if fmt == "claude-stream-json":
+        request = {"type": "assistant", "message": {"content": [
+            {"type": "tool_use", "id": "load", "name": "Skill", "input": {"skill": skill_name}}]}}
+        production = {"type": "assistant", "message": {"content": [
+            {"type": "tool_use", "id": "make", "name": "Bash",
+             "input": {"command": "slate new neutral --brand demo"}}]}}
+        result = {"type": "user", "message": {"content": [
+            {"type": "tool_result", "tool_use_id": "load", "content": f"Launching skill: {skill_name}",
+             **({"is_error": True} if outcome == "failed" else {})}]}}
+        end = [{"type": "user", "message": {"content": [
+            {"type": "tool_result", "tool_use_id": "make", "content": "created"}]}},
+               {"type": "result", "subtype": "success", "result": "done"}]
+        rows = [request] + ([production, result] if late else [result, production]) + end
+        if outcome == "unknown":
+            rows.remove(result)
+        return transcript.parse("\n".join(json.dumps(row) for row in rows), fmt)
+    if fmt == "codex-jsonl":
+        load = {"id": "load", "type": "command_execution", "command": f"cat {path}"}
+        make = {"id": "make", "type": "command_execution", "command": "slate new neutral --brand demo"}
+        request = {"type": "item.started", "item": {**load, "status": "in_progress"}}
+        production = {"type": "item.started", "item": {**make, "status": "in_progress"}}
+        result = {"type": "item.completed", "item": {**load, "aggregated_output": "skill text",
+                  "exit_code": 1 if outcome == "failed" else 0,
+                  "status": "failed" if outcome == "failed" else "completed"}}
+        end = [{"type": "item.completed", "item": {**make, "exit_code": 0, "status": "completed"}},
+               {"type": "item.completed", "item": {"id": "answer", "type": "agent_message", "text": "done"}},
+               {"type": "turn.completed"}]
+        rows = [request] + ([production, result] if late else [result, production]) + end
+        if outcome == "unknown":
+            rows.remove(result)
+        return transcript.parse("\n".join(json.dumps(row) for row in rows), fmt)
+    request = {"role": "assistant", "content": [
+        {"type": "toolCall", "id": "load", "name": "read", "arguments": {"path": path}}]}
+    production = {"role": "assistant", "content": [
+        {"type": "toolCall", "id": "make", "name": "exec",
+         "arguments": {"command": "slate new neutral --brand demo"}}]}
+    result = {"role": "toolResult", "toolCallId": "load", "content": "skill text",
+              "isError": outcome == "failed"}
+    end = [{"role": "toolResult", "toolCallId": "make", "content": "created", "isError": False},
+           {"role": "assistant", "content": "done"}]
+    rows = [request] + ([production, result] if late else [result, production]) + end
+    if outcome == "unknown":
+        rows.remove(result)
+    return transcript.parse(json.dumps({"messages": rows}), fmt)
+
+
+@pytest.mark.parametrize("fmt", transcript.FORMATS)
+@pytest.mark.parametrize("outcome,expected", [("success", "PASS"), ("failed", "FAIL"), ("unknown", "UNCHECKED")])
+def test_skill_loading_requires_confirmed_success_without_hiding_attempts(fmt, outcome, expected):
+    t = _skill_loading_log(fmt, outcome)
+    assert run("skill_loaded", t, skill="slate", before={"slate": "new"}).status == expected
+    assert [n for n, _ in t.skills_loaded()] == ["slate"]
+    assert [n for n, _ in t.skills_loaded(confirmed=True)] == (["slate"] if outcome == "success" else [])
+    assert run("skill_not_loaded", t, skill="slate").status == "FAIL", "negative routing retains the attempt"
+
+
+@pytest.mark.parametrize("fmt", transcript.FORMATS)
+def test_skill_result_after_production_start_cannot_retroactively_satisfy_loading_order(fmt):
+    t = _skill_loading_log(fmt, late=True)
+    assert run("skill_loaded", t, skill="slate").status == "PASS", "the later load did succeed"
+    assert run("skill_loaded", t, skill="slate", before={"slate": "new"}).status == "FAIL"
+    assert run("order", t, steps=[{"skill": "slate"}, {"slate": "new"}]).status == "FAIL"
+    load = t.skills_loaded(confirmed=True)[0][1]
+    make = t.slate_calls()[0][0]
+    assert load.index < make.index, "request ordering alone would incorrectly pass this case"
+    assert load.completed_at > make.started_at
+
+
+@pytest.mark.parametrize("ok,code,status,expected", [
+    (False, 1, "failed", "FAIL"),
+    (True, 1, "completed", "FAIL"),
+    (True, 0, "failed", "FAIL"),
+    (False, None, "denied", "FAIL"),
+    (True, 0, "in_progress", "UNCHECKED"),
+    (None, None, "completed", "UNCHECKED"),
+    (None, 0, "completed", "UNCHECKED"),
+])
+def test_skill_loading_never_promotes_failed_nonzero_pending_or_ambiguous_events(ok, code, status, expected):
+    event = Event(0, "command", text="cat /neutral/skills/slate/SKILL.md", ok=ok, exit_code=code, status=status)
+    t = T(event, final="done")
+    assert run("skill_loaded", t, skill="slate").status == expected
+    assert run("skill_not_loaded", t, skill="slate").status == "FAIL"
+
+
+def test_earliest_successful_completion_wins_when_loads_finish_out_of_request_order():
+    def request(call_id):
+        return {"type": "assistant", "message": {"content": [
+            {"type": "tool_use", "id": call_id, "name": "Skill", "input": {"skill": "slate"}}]}}
+
+    def result(call_id, failed=False):
+        return {"type": "user", "message": {"content": [
+            {"type": "tool_result", "tool_use_id": call_id, "content": "loaded", "is_error": failed}]}}
+
+    production = {"type": "assistant", "message": {"content": [
+        {"type": "tool_use", "id": "make", "name": "Bash", "input": {"command": "slate new neutral"}}]}}
+    rows = [request("first"), request("second"), result("second"), production, result("first"),
+            {"type": "result", "subtype": "success", "result": "done"}]
+    t = transcript.parse("\n".join(json.dumps(row) for row in rows), "claude-stream-json")
+    assert t.skills_loaded(confirmed=True)[0][1].completed_at > t.skills_loaded(confirmed=True)[1][1].completed_at
+    assert run("skill_loaded", t, skill="slate", before={"slate": "new"}).status == "PASS"
+    assert run("order", t, steps=[{"skill": "slate"}, {"slate": "new"}]).status == "PASS"
+    rows[2] = result("second", failed=True)
+    t = transcript.parse("\n".join(json.dumps(row) for row in rows), "claude-stream-json")
+    assert run("skill_loaded", t, skill="slate", before={"slate": "new"}).status == "FAIL"
+
+
+@pytest.mark.parametrize("result,error,expected", [
+    (None, None, "UNCHECKED"),
+    ({"content": [{"type": "text", "text": "skill text"}], "isError": False}, None, "PASS"),
+    ({"content": [{"type": "text", "text": "denied"}], "isError": True}, None, "FAIL"),
+    (None, {"message": "denied"}, "FAIL"),
+])
+def test_codex_mcp_read_requires_an_actual_non_error_terminal_result(result, error, expected):
+    item = {"id": "load", "type": "mcp_tool_call", "server": "files", "tool": "read_file",
+            "arguments": {"path": "/neutral/skills/slate/SKILL.md"}, "status": "completed"}
+    if result is not None:
+        item["result"] = result
+    if error is not None:
+        item["error"] = error
+    rows = [{"type": "item.completed", "item": item},
+            {"type": "item.completed", "item": {"id": "answer", "type": "agent_message", "text": "done"}},
+            {"type": "turn.completed"}]
+    t = transcript.parse("\n".join(json.dumps(row) for row in rows), "codex-jsonl")
+    assert run("skill_loaded", t, skill="slate").status == expected
+    assert run("skill_not_loaded", t, skill="slate").status == "FAIL"
+
+
+def test_failed_slate_load_cannot_waive_negative_fast_lane_routing():
+    failed = Event(0, "skill", name="slate", ok=False, status="failed")
+    vendor = Event(0, "read", name="/neutral/skills/higgsfield-generate/SKILL.md")
+    t = T(failed, vendor, final="done")
+    assert run("fast_lane_not_used", t).status == "FAIL"
+    assert run("fast_lane_used", t).status == "UNCHECKED", "an unresolved vendor skill is not positive loading proof"
+
+
+@pytest.mark.parametrize("case_id,config_id,fmt,expected", [
+    ("routing-open-request", "claude-code", "claude-stream-json", "PASS"),
+    ("routing-open-request", "openclaw", "openclaw", "UNCHECKED"),
+    ("triggering-launch-video", "codex", "codex-jsonl", "PASS"),
+    ("triggering-launch-video", "pursuit-slice", "codex-jsonl", "PASS"),
+])
+def test_preserved_recordings_demonstrate_supported_success_shapes(case_id, config_id, fmt, expected):
+    """Read preserved recordings only; this never invokes an agent or changes their raw evidence."""
+    root = Path(__file__).resolve().parents[2] / "evals" / "fixtures" / "recorded"
+    t = transcript.load(root / case_id / config_id, fmt)
+    assert bool(t.skills_loaded(confirmed=True)) is (expected == "PASS")
+    spec = {"skill": "slate"}
+    if case_id == "triggering-launch-video":
+        spec["before"] = {"slate": ""}
+    assert run("skill_loaded", t, **spec).status == expected
+
+
+@pytest.mark.parametrize("output,fields,expected,code,status", [
+    ("skill text\n(Command exited with code 1)", {}, "FAIL", 1, "failed"),
+    ("skill text\n(Command exited with code 0)\n", {}, "PASS", 0, "completed"),
+    ("skill text\n(Command exited with code -9)", {}, "FAIL", -9, "failed"),
+    ("skill text", {}, "UNCHECKED", None, "completed"),
+    ("failed", {"isError": True}, "FAIL", None, "failed"),
+    ("skill text", {"details": {"exitCode": 1, "status": "completed"}}, "FAIL", 1, "failed"),
+    ("skill text", {"details": {"exitCode": 0, "status": "completed"}}, "PASS", 0, "completed"),
+    ("still running", {"details": {"status": "running"}}, "UNCHECKED", None, "in_progress"),
+    ("still running", {"details": {"exitCode": 0, "status": "running"}}, "UNCHECKED", None, "in_progress"),
+    ("failed", {"exit_code": 2}, "FAIL", 2, "failed"),
+    ("skill text\n(Command exited with code 1)", {"details": {"exitCode": 0}}, "FAIL", 1, "failed"),
+    ("Example (Command exited with code 1)", {}, "UNCHECKED", None, "completed"),
+    ("skill text\n(Command exited with code 1)\nmore text\n(Command exited with code 0)", {}, "PASS", 0, "completed"),
+    ("skill text", {"details": {"exitCode": 0, "status": "unknown"}}, "UNCHECKED", None, "completed"),
+    ("failed", {"details": {"exitCode": 0, "status": "failed"}}, "FAIL", 0, "failed"),
+])
+def test_openclaw_exec_load_requires_command_exit_evidence(output, fields, expected, code, status):
+    """Use the recorded exec wrapper, including a false tool error flag around a nonzero child exit."""
+    rows = [{"role": "assistant", "content": [
+        {"type": "toolCall", "id": "load", "name": "exec",
+         "arguments": {"command": "cat /neutral/skills/slate/SKILL.md"}}]},
+            {"role": "toolResult", "toolCallId": "load", "isError": False,
+             "content": [{"type": "toolResult", "toolCallId": "load", "name": "exec",
+                          "content": output, "text": output}], **fields},
+            {"role": "assistant", "content": "done"}]
+    t = transcript.parse(json.dumps({"messages": rows}), "openclaw")
+    event = t.commands()[0]
+    assert event.exit_code == code and event.status == status
+    assert event.ok is (True if expected == "PASS" else False if expected == "FAIL" else None)
+    assert run("skill_loaded", t, skill="slate").status == expected
+    assert run("skill_not_loaded", t, skill="slate").status == "FAIL"
+    if status == "in_progress":
+        assert event.completed_at is None
+
+
+def test_preserved_openclaw_exec_nonzero_footer_is_not_tool_success():
+    """The saved source result at messages 3/4 isError false but definitively reports child exit 1."""
+    root = Path(__file__).resolve().parents[2] / "evals" / "fixtures" / "recorded"
+    t = transcript.load(root / "routing-open-request" / "openclaw", "openclaw")
+    failed = next(event for event in t.commands() if event.started_at == 3)
+    assert failed.completed_at == 4
+    assert "(Command exited with code 1)" in failed.output
+    assert failed.ok is False and failed.exit_code == 1 and failed.status == "failed"
+    load = next(event for name, event in t.skills_loaded() if name == "slate")
+    assert load.started_at == 5 and load.completed_at == 6
+    assert load.ok is None and load.exit_code is None, "the preserved truncated exec output omits its exit status"
+    assert run("skill_loaded", t, skill="slate").status == "UNCHECKED"
+
+
+
+def test_openclaw_direct_read_success_does_not_parse_skill_text_as_command_status():
+    rows = [{"role": "assistant", "content": [
+        {"type": "toolCall", "id": "load", "name": "read",
+         "arguments": {"path": "/neutral/skills/slate/SKILL.md"}}]},
+            {"role": "toolResult", "toolCallId": "load", "isError": False,
+             "content": "A command example in this skill:\n(Command exited with code 1)"},
+            {"role": "assistant", "content": "done"}]
+    t = transcript.parse(json.dumps({"messages": rows}), "openclaw")
+    event = t.of_kind("read")[0]
+    assert event.ok is True and event.status == "completed" and event.exit_code is None
+    assert run("skill_loaded", t, skill="slate").status == "PASS"

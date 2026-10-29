@@ -139,6 +139,11 @@ def master_finish(film: Film, method: str) -> GateResult:
     if method == "ae":
         return GateResult.pass_("master.finish", "finished in After Effects (a person started it)", engine=engine,
                                 inputs=inputs, details=details)
+    route = (film.data.get("derivation") or {}).get("route") or {}
+    if method == "ffmpeg" and route.get("master") == "ffmpeg":
+        return GateResult.pass_("master.finish", f"mastered with ffmpeg for the declared "
+                                f"{route.get('label') or 'social cut-down'} route", engine=engine, inputs=inputs,
+                                details={**details, "route": route})
     if configured == "ffmpeg":
         return GateResult.pass_("master.finish", "mastered with ffmpeg: this Mac finishes supervised films with "
                                 "ffmpeg ([finish] supervised_master)", engine=engine, inputs=inputs, details=details)
@@ -180,6 +185,11 @@ def film_gates(film: Film) -> dict:
     required = required_gates(film)
     blocking: list[dict] = []
     results: list[dict] = []
+    unavailable = deps.unavailable_gate_modules(sound=any(m.get("audio") for m in rec.get("masters") or []))
+    for module, why in unavailable.items():
+        result = {"gate": f"{module.removeprefix('slate.')}.available", "status": "UNCHECKED",
+                  "summary": f"required gate module {module} is unavailable: {why}"}
+        blocking.append(result)
     for name in required:
         r = report.get(name)
         if r is None:
@@ -205,6 +215,8 @@ def film_gates(film: Film) -> dict:
 def next_for(blocking: list[dict]) -> str:
     """The one command that moves the most blocking gates."""
     names = [b["gate"] for b in blocking]
+    if any(n.endswith(".available") for n in names):
+        return "Repair the unavailable gate modules named above, then run slate qa and slate verify."
     if any(n.startswith("master.") for n in names) and not any(not n.startswith("master.") for n in names):
         return "slate master"
     qa_names = [n for n in names if not n.startswith(("master.", "ae.", "sound."))]

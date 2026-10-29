@@ -3,10 +3,9 @@
 Generalized from the films' rounds of audio-tag work (`tag_optimize.py`, `scope_eval.py`, `tag_pick.py`,
 `c01_confident.py`, `tag_abc_v3.py`, 2026-09-30). What those rounds learned is built in:
 
-- **Full voice only.** No tag may lower effort or add breath (whisper, soft, quiet, gentle and kin are refused before
-  any request), and every take is measured: a tagged read breathier than the voice's own untagged reads of the same
-  words is out, however good its tag looks. Two tests, both required: the statistical rule (`slate.voice.breath`) and
-  the strict one, no span breathier than the breathiest untagged read of the same words.
+- **Full voice when explicitly required.** `tag_policy.avoid_low_effort` opts this voice into low-effort tag
+  restrictions and the statistical and strict same-words breath gates. Otherwise these measurements remain evidence
+  for listening; they do not reject an intentional delivery or penalize its rank.
 - **Three spans per take**: the words the tag governs, the words where the line's feeling should show (the same for
   every take of the line), and the whole line. A tag on the last word can whisper that word while the line's average
   barely moves.
@@ -102,7 +101,7 @@ def plan(vf: VoiceFilm, cand: dict, *, only: list[str] | None = None, include_he
                          "intent": spec.get("intent", "none")})
     if problems:
         raise Refused("These tag candidates can't be sent:\n  - " + "\n  - ".join(problems),
-                      hint="Tags change delivery, never words; and never whisper, soft, quiet or gentle.",
+                      hint="Keep the script words and follow this voice's explicit tag policy.",
                       details={"problems": problems})
     keys = [(j["shot"], j["key"]) for j in jobs]
     dupes = sorted({k for k in keys if keys.count(k) > 1})
@@ -574,7 +573,12 @@ def pick_round(vf: VoiceFilm, name: str) -> dict:
                 "complete": None if v.get("end_tail_below_speech_db") is None
                 else v["end_tail_below_speech_db"] >= analyze.COMPLETE_DB,
             }
+            full_voice_required = bool((vf.profile.get("tag_policy") or {}).get("avoid_low_effort", False))
+            full_voice_measurement = gates["full_voice"]
+            if not full_voice_required:
+                gates.pop("full_voice")
             if v.get("replay"):  # a stand-in voice proves nothing about the real read
+                full_voice_measurement = None
                 gates = {g: None for g in gates}
             es = v["spans"]["emotion"]
             ctx = {"question_words": v.get("question_words"), "base_q": base_q,
@@ -588,11 +592,13 @@ def pick_round(vf: VoiceFilm, name: str) -> dict:
             bidx = max((s["breath"]["index"] for s in v["spans"].values() if s.get("breath")), default=0.0)
             passes = all(x is True for x in gates.values())
             rows.append({"take": k, "key": v["key"], "tagged": v["tagged"], "intent": intent, "gates": gates,
+                         "full_voice_required": full_voice_required, "full_voice_measurement": full_voice_measurement,
                          "passes": passes, "unchecked": [g for g, x in gates.items() if x is None],
                          "emotion_present": bool(present), "emotion": notes, "breath_index_max": round(bidx, 2),
                          "breath_within_untagged": within, "breath_vs_untagged": vs_untagged,
                          "last_word_rise_st": v.get("last_word_rise_st"), "last_word_rise_cap_st": round(rise_cap, 2),
-                         "score": round(score - 0.5 * bidx, 3), "paced_s": v.get("paced_s"), "replay": v.get("replay"),
+                         "score": round(score - (0.5 * bidx if full_voice_required else 0), 3),
+                         "paced_s": v.get("paced_s"), "replay": v.get("replay"),
                          "family": [tuple(tags_mod.tags_in(v["tagged"] or "")), v.get("context")]})
         rows.sort(key=lambda r: (not (r["passes"] and r["emotion_present"]), not r["passes"], -r["score"]))
         ok = [r for r in rows if r["passes"] and r["emotion_present"]]
@@ -619,7 +625,7 @@ def _ranking_md(path: Path, picks: dict) -> None:
                   f"No pick: {p.get('why')}", "", "| Take | Tagged | Gates | Feeling | Breath index | Score |",
                   "|---|---|---|---|---|---|"]
         for r in rows:
-            g = "".join("✓" if r["gates"][x] is True else ("✗" if r["gates"][x] is False else "·") for x in GATE_NAMES)
+            g = "".join("✓" if r["gates"].get(x) is True else ("✗" if r["gates"].get(x) is False else "·") for x in GATE_NAMES)
             lines.append(f"| `{r['take']}` | {r['tagged'] or ''} | {g} | {'yes' if r['emotion_present'] else 'no'} | "
                          f"{r['breath_index_max']:+.2f} | {r['score']} |")
         lines.append("")

@@ -127,6 +127,6 @@ def event_steps(spec: dict) -> list[dict]:
 
 
 def resolve(film_dir: Path, value: str) -> Path:
-    """A path from a spec: absolute, or relative to the film folder."""
+    """A path from a spec: absolute, or a film file (including an inherited reference)."""
     path = Path(value).expanduser()
-    return path if path.is_absolute() else Path(film_dir) / path
+    return deps.resolve_file(film_dir, path)

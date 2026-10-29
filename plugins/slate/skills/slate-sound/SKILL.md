@@ -1,6 +1,6 @@
 ---
 name: slate-sound
-description: Design, score, mix and verify the sound of a Slate film. Covers the approved starting palette (pads, soft felt notes, hollow wood clicks and clacks, no chimes) and each brand's own palette, spotting sound from the picture's events with one deliberate sound per kind of interaction, Eleven Music scores planned per act and assembled by measurement, the mix and its balance against the voice, and the sound gates (the designed effects engine waits on proof 3). Use when a Slate film needs its score planned, composed or assembled, its mix built or rebalanced, its sound verified, a brand's sound palette defined, or an answer on how a film should sound.
+description: Design, score, mix and verify the sound of a Slate film. Covers the warm starting palette as a contextual preset, each brand and film's chosen palette, measured effects from picture events, Eleven Music scores planned per act and assembled by measurement, balance against the voice, and the sound gates. Use when a Slate film needs its effects spotted or rendered, its score planned, composed or assembled, its mix built or rebalanced, its sound verified, a brand's sound palette defined, or an answer on how a film should sound.
 ---
 
 # slate-sound
@@ -14,19 +14,32 @@ This is stage 9 of the production. Its inputs are the voice's placed takes (`tim
 
 ## 1. Taste and the starting palette
 
-- **Pads, small soft felt notes, and hollow wood** (woodblock, temple block, clave, knock, rim), with air for moves and
-  a sub for the one big landing. **No chimes, bells, metal, glass or buzzers.**
-- **Designed, not stock.** Tonal roles play on real sampled instruments; a synthesized tonal layer sounded cheap.
-- **Never glide a sustained tone's pitch** (it reads as a siren); change notes by crossfading held notes.
-- **No room-tone drone** under the effects.
-- **One deliberate sound per kind of interaction**, the same across a brand's films, with natural variation between
-  repeats: never the same hit twice in a row.
-- **Restraint and silence**: only what the eye follows makes a sound; a held breath before a landing is silence on
-  purpose.
+Read `slate history context --topic sound` when a private history is selected. The starter below reflects one
+successful direction, not a universal prohibition. Every brand can choose its own materials, energy and silence.
+Use the current brief and listening feedback to set its palette; measurements check that palette and preserve
+approved references. A detector flag is evidence to inspect, not a substitute for hearing the intended result.
+
+- **The warm starter:** pads, small soft felt notes, and hollow wood (woodblock, temple block, clave, knock, rim), with
+  air for moves and a sub for a big landing. **No chimes** is this starter's choice, along with avoiding bells, metal,
+  glass and buzzers; another palette can use them.
+- **Design the result.** The current effects renderer uses real sampled instruments for tonal roles and reports a
+  missing sample rather than substituting a synthesized tone. A previous synthesized layer sounded cheap in that
+  proof; it does not establish a universal creative ban on synthesis or stock material.
+- **The starter avoids sustained pitch glides and room-tone drone.** A glide had read as a siren in the earlier proof.
+  A different direction can permit glides with both `rules.no_glides` and `rules.no_slide_ups` false, and drone with
+  `rules.no_drone` false in the chosen palette.
+- **One deliberate sound per kind, with variation** is the starter's interaction language. Repeats and shared sounds
+  can be chosen through the palette's rules; keep intentional repetition distinct from an accidental repeated file.
+- **Restraint and silence** can make a landing matter. Off-screen sound, ambience and dense passages can also serve a
+  requested story. Choose the hierarchy deliberately and keep narration intelligible.
 
 That palette (proof 2's, the approved proof) is the **starting point**. Each brand gets its own palette during
 onboarding: its key and tempo, its materials, its banned timbres, its motif, and its levels measured against its
 voice (slate-brand). See [taste](references/taste.md) and [palette](references/palette.md).
+
+Use the latest brief and authorized listening feedback for revisions. Keep the original proof, feedback and new result
+as comparison history. The film's `sound.palette` overrides the brand's palette for that film. A requested experiment
+does not need approval of the same choice again; source-bound proof, reference and delivery approvals remain separate.
 
 ## 2. Balance: the voice first
 
@@ -44,22 +57,25 @@ mix buried them 25 to 28 LU under, and they stopped standing out: that was a fai
 ## 3. Spotting: tell the sound what each beat is
 
 The picture's events name each beat's **kind** (tap, type, land, snap, count, draw, data, page, stamp, whoosh, swell,
-character, impact) and **size**. Each kind has its own family of sounds; bursts of beats become one gesture; an act has
-at most one impact; a big impact gets an echo on the score's tempo; every sound's attack sits on its beat's frame. See
+character, impact) and **size**. The starting recipe gives kinds distinct families, groups bursts into gestures and uses
+at most one impact per act, often with an echo on the score's tempo. Choose density and repetition for this brief;
+every synchronized sound's measured anchor still needs to sit on its beat's frame. See
 [spotting](references/spotting.md) and [families](references/families.md).
 
-## 4. The effects engine waits for proof 3
+## 4. Run the approved effects design
 
-The designed effects engine (spotting beats to cues and rendering them to stems) is built only after the owner approves
-proof 3, the perfected proof of the approved design: `slate sfx` refuses until that approval is recorded, and
-`slate sfx status` shows the gate. Until then a film's sound is its score, its voice and its brand's onboarding sound
-reference, through the mix; effect stems made another way (by hand, in a DAW) can be supplied as stems. See
-[effects engine](references/effects-engine.md).
+`slate sfx status` reports the hash-bound proof 3 approval. The effects engine is built; it refuses until that approval
+is present and current. After approval, `slate sfx spot` writes measured cues and
+`slate sfx render` writes their balanced stems; `slate sfx run` does both. Use `--dry-run` to inspect the work without
+writing, or `--detach` to queue it in the render slot. Missing samples and malformed event files stop with a report;
+they never turn into a synthesized stand-in or a silent act. A score-and-voice film can still mix without effects.
+See [effects engine](references/effects-engine.md).
 
 ## 5. The score
 
-A composed score is part of most films: Eleven Music on its best model, composed per act and assembled by measurement,
-never playing the effects' own materials.
+A composed score is part of most films: Eleven Music on its best model, composed per act and assembled by measurement.
+The warm starter keeps the effects' materials out of the score to make their roles distinct; choose instrumentation
+for the current sound direction and record it in the palette and score plan.
 
 ```
 slate score plan          # one composition plan per act: 3 s pre-rolls, parts under 90 s, blocks of 3 s or more
@@ -99,18 +115,21 @@ polish in a DAW is allowed, but the engine's timing stays the reference. See [mi
 drone, levels against the palette, the brand's sound reference, clarity under the voice, the music licence for the
 destination, the voice limiter's touch, notes on the brand's key, timbre, and Whisper hearing the mix word for word)
 and the seven balance gates (section 6, an approved span kept as approved among them), and a delivery needs every one
-of them. Only PASS counts; a gate that can't run (no approved sound reference, say) is UNCHECKED. See
+of them under its configured policy. Glides, drone, repeats and timbre have supported palette controls; allowing a
+material does not erase the measured detector evidence or approve the mix by ear. Only PASS counts; a gate that can't
+run (no approved sound reference, say) is UNCHECKED. See
 [verification](references/verification.md).
 
 A change to the approved narration (a polish, a re-voice) moves the balance: re-run the balance gates after it and
 re-solve the mix's rides (mix.md).
 
-## 8. Perfect, don't replace
+## 8. Preserve what worked; explore what was requested
 
-When the owner approves a sound and adds notes, apply the notes to that exact sound, and keep its levels measurable
-against the approved version. The films' sound once went off the rails exactly here: small notes (a cheap-sounding
-tonal layer, glides that read as a siren, more variation wanted) were answered with a new vocabulary and a new layer,
-and the effects ended up buried. Research only fixes a named flaw.
+Keep the approved sound as the comparison baseline. Apply small balance notes without changing unrelated decisions;
+when the owner requests a new sound or an experiment, build it within the authorized scope. Record both successful
+and rejected versions with their feedback. A previous request to return to a proof means that redesign lost something
+valuable in that film; it does not ban future redesigns. Compare intentionality, audibility and voice clarity by ear
+as well as by measurement. New experiments do not overwrite the approved source.
 
 ## References
 
@@ -120,5 +139,5 @@ and the effects ended up buried. Research only fixes a named flaw.
 - [spotting](references/spotting.md): from beats to sounds, moment by moment.
 - [score](references/score.md): the Eleven Music playbook and directions.json.
 - [mix](references/mix.md): the balance hierarchy, the mix, stems and their manifest.
-- [verification](references/verification.md): the twelve sound gates and how sync is measured.
-- [effects-engine](references/effects-engine.md): the gated effects engine, and what a film uses until it's open.
+- [verification](references/verification.md): the sixteen core and seven balance gates, configured policies and measured sync.
+- [effects-engine](references/effects-engine.md): commands, proof approvals, reproducible cues, beds and approved spans.

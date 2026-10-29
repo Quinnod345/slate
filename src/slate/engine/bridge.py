@@ -80,7 +80,9 @@ def deadline_for(timeout: float | None) -> float | None:
 
 
 def _complete(folder: Path) -> bool:
-    return (folder / "cli.mjs").is_file() and (folder / "node_modules" / "remotion" / "package.json").is_file()
+    from slate.engine import install  # noqa: PLC0415
+
+    return install.is_complete(folder)
 
 
 def engine_dir() -> Path:
@@ -95,6 +97,11 @@ def engine_dir() -> Path:
         if not (folder / "cli.mjs").is_file():
             raise MissingPrerequisite(f"SLATE_ENGINE_DIR points at {folder}, which has no cli.mjs.",
                                       hint="Unset SLATE_ENGINE_DIR, or point it at an engine folder.")
+        from slate.engine import install  # noqa: PLC0415
+
+        if install.marker(folder).get("packages_ready", True) is False:
+            raise MissingPrerequisite(f"The dependency installation in SLATE_ENGINE_DIR ({folder}) did not finish.",
+                                      hint="Run `slate engine install --npm-ci` again, or unset SLATE_ENGINE_DIR.")
         return folder
     installed = paths.engine_home(config.engine_version())
     if _complete(installed):

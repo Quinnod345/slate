@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from slate import jsonio, log, paths
-from slate.errors import MissingPrerequisite
+from slate.errors import MissingPrerequisite, SlateError
 
 # Craft defaults from the films (docs/PLAN.md §7, method stages 3–5). They are method, not brand: a format or a
 # script's own "timing" block overrides any of them.
@@ -279,13 +279,51 @@ def timing_settings(script: dict, fmt: dict) -> dict:
     return out
 
 
+def _label_floor(fmt: dict) -> float:
+    """A label's default floor, preserving an authored format floor and any nondefault shared policy.
+
+    Resolved formats inherit the generic 1.5 s floor from the shared template. That inherited default is not a
+    label-specific override. The format's source distinguishes it from an explicitly authored floor, including an
+    explicit 1.5 s. If that provenance cannot be read, preserve the resolved floor rather than granting a shorter
+    hold. A direct format dictionary without a source is already an explicit policy.
+    """
+    block = fmt.get("read_time")
+    floor = _num(block.get("floor")) if isinstance(block, dict) else None
+    if floor is None:
+        return 1.0
+    source = fmt.get("path")
+    if floor != DEFAULT_READ_TIME["floor"] or not source:
+        return float(floor)
+    try:
+        authored = jsonio.read(Path(source))
+    except (OSError, SlateError, TypeError, ValueError):
+        return float(floor)
+    if not isinstance(authored, dict):
+        return float(floor)
+    if "read_time" not in authored:
+        return 1.0
+    raw = authored["read_time"]
+    if not isinstance(raw, dict) or "floor" in raw:
+        return float(floor)
+    return 1.0
+
+
 def read_time_settings(script: dict, fmt: dict) -> dict:
+    """Resolve existing read-time settings with the script taking precedence over its format.
+
+    label_floor is derived metadata, not a new user setting. Its default is 1 s for explicitly declared labels of
+    at most three words; an explicit existing floor overrides it. Base and per_word retain their usual precedence.
+    """
     out = dict(DEFAULT_READ_TIME)
-    for block in (fmt.get("read_time"), (script.get("rules") or {}).get("read_time")):
+    label_floor = _label_floor(fmt)
+    for index, block in enumerate((fmt.get("read_time"), (script.get("rules") or {}).get("read_time"))):
         if isinstance(block, dict):
             for k, v in block.items():
                 if k in out and _num(v) is not None:
                     out[k] = float(v)
+                    if k == "floor" and index == 1:
+                        label_floor = float(v)
+    out["label_floor"] = label_floor
     # The film's own rule wins over its format's, as with timing. 0 is a real limit: a format whose picture carries no
     # words (a website hero loop) says so with 0, and any on-screen word then fails the density gate.
     for density in (fmt.get("on_screen_max_words"), (script.get("rules") or {}).get("on_screen_max_words")):

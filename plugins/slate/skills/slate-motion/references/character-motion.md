@@ -1,7 +1,9 @@
 # Character motion: the one-page checklist
 
-Run this before handing in any act where a brand mark, motif or character moves. Each line is a rule from the full
-method in [character and motif motion](character-and-motif-motion.md); the reason is there.
+Use this checklist for the kit's radial mark-character method. It combines that method's choreography and renderer
+contract with current technical checks; it does not prescribe every future character's personality. The original
+flutter, feedback and repair remain context in [character and motif motion](character-and-motif-motion.md). Follow the
+latest authorized direction without treating jitter repairs as an instruction to remove playful energy.
 
 ## Clock and phase
 
@@ -15,8 +17,10 @@ method in [character and motif motion](character-and-motif-motion.md); the reaso
 
 - [ ] Every move starts and ends at rest, or hands its exact velocity on. No entrance, exit, state or linear ease on
       the parts (the fast-out entrance ease leaves rest at over six times its average speed and smears under blur).
-- [ ] Every point at most 30 px a frame and 8 px a frame squared, at a 1080-line frame.
-- [ ] No oscillation faster than a 16-frame swing; nothing loops but a breath; at most one overshoot per gesture.
+- [ ] Every point meets the applicable rig speed policy: the defaults are 30 px a frame and 8 px a frame squared at a
+      1080-line frame. Supported brand speed overrides replace those defaults.
+- [ ] Current motion QA's loop floor is at least 16 frames and no faster than 1.9 Hz; brand loop settings can tighten
+      it. The earlier gesture recipe used only a breath loop and one overshoot, not a universal creative ban on loops.
 - [ ] Nothing is driven by the voice's loudness (it modulates at 2 to 8 Hz, the jitter band).
 
 ## Drawing
@@ -37,7 +41,8 @@ method in [character and motif motion](character-and-motif-motion.md); the reaso
 
 - [ ] Each gesture has one meaning and keys to its word: contact C = S + 2, early never late.
 - [ ] One momentary gesture at a time, at least 4 still frames between.
-- [ ] Still between gestures; calm (the exact brand mark) at both ends of every act.
+- [ ] The current kit hand-in checks require stillness between its gestures and calm (the exact brand mark) at both act
+      ends. A different requested grammar cannot be declared passed while those applicable checks still fail.
 - [ ] The mark returns to the exact brand mark at rest and at every act boundary.
 - [ ] Every sound on its own contact frame, one event per note.
 

@@ -1,8 +1,9 @@
 # Transitions
 
-Every scene change is a **carry** (an element continues across), a **portal**, a **mask**, a **whip** (a motion-masked
-cut), or a documented exception. Hard cuts and crossfades between shots aren't allowed by default: hard cuts break the
-carried-pieces grammar and read as a slideshow; crossfades double-expose type into mud and hide motion.
+Earlier product films chose a carried-pieces grammar: **carries** (an element continues across), **portals**, **masks**
+and **whips** (motion-masked cuts). It is a useful preset, not the universal grammar. The current brief and authorized
+feedback can choose hard cuts, crossfades or another transition language. Keep required shared-object handoffs and act
+contracts exact; inspect double-exposed type and discontinuous objects as defects rather than banning the technique.
 
 ## Carries
 
@@ -21,16 +22,18 @@ carried-pieces grammar and read as a slideshow; crossfades double-expose type in
 - Hold the frame still for about half a second before a whip, so the whip reads as deliberate.
 - A whip out mirrors the next act's whip in: the same direction and a matching rotation, over the last few frames
   (6 frames on the first films, with a real rotation), blurred by the real sub-sampled render, never an effect blur.
-- A whip so fast it doubles an element in the blur is a defect: re-time the beats so the carry can be a gentle glide.
+- Unexpected doubled edges or unreadable content under a whip need repair. Inspect the final blur and decide whether
+  the intended fast gesture reads; repair its sampling, path or timing without automatically replacing it with a glide.
 
 ## Portals and masks
 
 - **A brand mark as a portal** between acts: it scales from lockup size through the frame on the rest-to-rest ease at
-  the signature duration, and its window shape becomes the next act. At most three times in a film, only at act breaks.
+  the signature duration, and its window shape becomes the next act. The earlier recipe used it at most three times,
+  at act breaks; choose its recurrence for the current structure.
 - A portal zoom targets a clean area of the object, so it lands on bare ground.
 - **Never rotate a mark with a fixed orientation**, even in a portal zoom.
-- **Reveal footage by parting the page** along a line, like paper: two sheets slide apart, each with an edge and a soft
-  shadow on the footage underneath. No crossfade.
+- **For a paper look, reveal footage by parting the page** along a line: two sheets slide apart, each with an edge and a
+  soft shadow underneath. A different requested look may reveal the footage with a crossfade or another device.
 - A window growing out of a thin element reads as a white box on the ground; open a section by pulling a sheet away with
   a moving, shadowed edge instead.
 - Brand icons such as frame brackets can crop into a detail like a viewfinder, then open back out.
@@ -39,14 +42,14 @@ carried-pieces grammar and read as a slideshow; crossfades double-expose type in
 
 A depth-of-field rack between focal elements is a lens effect: allowed, and never counted as a crossfade.
 
-## The reasoned exceptions
+## Other useful transitions
 
 | Exception | When |
 |---|---|
 | Motion-masked cut | inside a whip or a defocus: it counts as a transition |
 | Musical hit cuts | a few, on downbeats, only if the brand's law allows them |
 | UI state cut | a tab switch in the product with the camera locked, because the product changes state instantly; under sub-frame motion blur it renders as one mixed frame, which is expected, not a glitch |
-| Crossfade | atmosphere inside one shot; a blend of at most 4 frames hiding a seam in the same generated shot; audio |
+| Crossfade | atmosphere, a deliberate overlap between shots, or audio; an earlier generated-shot seam needed at most 4 frames, which is a repair example rather than a universal limit |
 
 ## Act boundaries
 

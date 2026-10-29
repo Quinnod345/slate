@@ -77,6 +77,9 @@ class Target:
     out: str  # film-relative when inside the film, otherwise absolute
     # a shot drawn by another engine than its act's (slate.render.shot_engines): its scene folder, film-relative
     scene: str | None = None
+    # None inherits the scalar plan fallback; default multi-act renders can have different owners.
+    engine: str | None = None
+    samples: int | None = None
 
     @property
     def frames(self) -> int:
@@ -89,6 +92,10 @@ class Target:
 
     def to_dict(self) -> dict:
         out = asdict(self)
+        if self.engine is None:
+            out.pop("engine")
+        if self.samples is None:
+            out.pop("samples")
         out["act"] = self.act.index
         out["frames"] = self.frames
         out["film_frames"] = self.film_frames
@@ -114,6 +121,16 @@ class Plan:
     runs: str = "here"  # "here" or "queue"
     why: str = ""
 
+    def engine_for(self, target: Target) -> str:
+        """The engine that draws this target; the plan engine remains the scalar fallback."""
+        name = target.engine or self.engine
+        if name not in ENGINES:
+            raise UsageError(f"Unknown engine {name!r}: use one of {', '.join(ENGINES)}.")
+        return name
+
+    def samples_for(self, target: Target) -> int | None:
+        return target.samples if target.samples is not None else self.samples
+
     @property
     def clock(self) -> Clock:
         return Clock(self.fps_num, self.fps_den)
@@ -121,6 +138,10 @@ class Plan:
     def to_dict(self) -> dict:
         return {
             "film": self.film, "engine": self.engine, "samples": self.samples, "draft": self.draft,
+            **({"engines": {str(t.act.index): self.engine_for(t) for t in self.targets}}
+               if any(t.engine is not None for t in self.targets) else {}),
+            **({"samples_by_act": {str(t.act.index): self.samples_for(t) for t in self.targets}}
+               if any(t.samples is not None for t in self.targets) else {}),
             "width": self.width, "height": self.height, "fps_num": self.fps_num, "fps_den": self.fps_den,
             "chunk_frames": self.chunk_frames, "targets": [t.to_dict() for t in self.targets],
             "chunks": self.chunks, "subframes": self.subframes, "disk_gb": round(self.disk_gb, 3),
@@ -270,7 +291,7 @@ def estimate_gb(targets: list[Target], width: int, height: int, *, registered_fr
 
 
 def cost_subframes(targets: list[Target], samples: int | None) -> int:
-    return sum(t.frames * (samples or AE_COST_SAMPLES) for t in targets)
+    return sum(t.frames * ((t.samples if t.samples is not None else samples) or AE_COST_SAMPLES) for t in targets)
 
 
 def where(plan: Plan, *, detach: bool, settings: dict | None = None) -> tuple[str, str]:

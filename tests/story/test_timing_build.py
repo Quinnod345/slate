@@ -67,7 +67,7 @@ def test_cues_place_each_take_at_its_lead(voiced):
 
 def test_the_studio_polish_reaches_the_cue_sheet(voiced):
     """A polished take is what the film plays: the cue sheet (and so the mix) carries the polished file, ahead of the
-    paced one it was made from. The polish keeps every sample where it was, so the reads and words don't move."""
+    paced one it was made from. Picture timing measures that source; playback keeps the polished take."""
     import shutil
 
     folder = voiced / "voice" / "takes" / "S02"

@@ -37,8 +37,9 @@ def test_plan_follows_the_playbook(sound_film):
     assert [name for name, _ in plan.plan_blocks(a1["composition_plan"])] == ["pre-roll", "S01", "S02", "tail"]
     assert p["model_id"] == "music_v2_5"  # the registry's best, always passed
     neg = p["styles"]["negative"]
-    for word in ("woodblock", "marimba", "bells", "chimes", "kazoo", "paper"):  # effects' materials, banned timbres
+    for word in ("kazoo", "paper"):  # The fixture's explicit banned timbre and effects material.
         assert word in neg
+    assert not set(("woodblock", "marimba", "bells", "chimes")) & set(neg)
     pos = p["styles"]["positive"]
     assert "in A minor" in pos and "70-80 BPM" in pos and "soft piano" in pos
     assert jsonio.validate(jsonio.read(sound_film / "sound/score/plan.json"), "score") == []
@@ -94,8 +95,9 @@ def test_v2_models_get_chunk_plans_never_v1_sections(sound_film):
             assert 3000 <= chunk["duration_ms"] <= 120000
             for style in ("in A minor", "70-80 BPM", "soft piano", "instrumental"):
                 assert style in chunk["positive_styles"]
-            for style in ("woodblock", "marimba", "vocals"):
+            for style in ("paper", "kazoo", "vocals"):
                 assert style in chunk["negative_styles"]
+            assert not set(("woodblock", "marimba", "bells", "chimes")) & set(chunk["negative_styles"])
         assert [b["name"] for b in part["blocks"]] == [n for n, _ in plan.plan_blocks(comp)]
     assert jsonio.read(sound_film / "sound/score/plans/act1.json") == p["parts"][0]["composition_plan"]
     assert jsonio.validate(jsonio.read(sound_film / "sound/score/plan.json"), "score") == []
@@ -153,6 +155,39 @@ def test_an_unknown_landing_is_a_usage_error(sound_film):
                         {"parts": {"act2": {"join": "bloom", "landing_event": "nowhere"}}})
     with pytest.raises(UsageError):
         plan.build(sound_film)
+
+
+def test_score_landing_and_moment_resolve_inherited_events_per_act(sound_film):
+    from slate.sound.film import load
+    from slate.state import lock
+
+    child = sound_film.parent / "derived-score"
+    child.mkdir()
+    parent_event = sound_film / "timing/visual_events/act2.json"
+    jsonio.write_atomic(parent_event, [{"shot": "S03", "id": "arrival", "kind": "impact", "t": 9.2}])
+    before = parent_event.read_bytes()
+    data = jsonio.read(sound_film / "film.json")
+    data["id"] = child.name
+    jsonio.write_atomic(child / "film.json", data)
+    rec = lock.empty()
+    for rel in ("timing/shots.json", "timing/visual_events/act2.json"):
+        rec["files"][rel] = {"ref": {"film": sound_film.name, "dir": str(sound_film), "path": rel,
+                                    "sha256": jsonio.sha256(sound_film / rel)}}
+    jsonio.write_atomic(child / "film.lock.json", rec)
+    jsonio.write_atomic(child / "timing/visual_events/act1.json",
+                        [{"shot": "S01", "id": "local", "kind": "tap", "t": 2.0}])
+    jsonio.write_atomic(child / "sound/score/directions.json",
+                        {"parts": {"act2": {"join": "bloom", "landing_event": "arrival"}},
+                         "moments": [{"event": "local"}]})
+    p = plan.build(child, write=False)
+    assert p["parts"][1]["landing_s"] == 9.2
+    assert p["moments"][0]["t"] == 2.0
+    assert parent_event.read_bytes() == before
+    assert not (child / "timing/visual_events/act2.json").exists()
+    # A child's own event file wins over the parent's approved reference.
+    jsonio.write_atomic(child / "timing/visual_events/act2.json",
+                        [{"shot": "S03", "id": "arrival", "kind": "impact", "t": 9.4}])
+    assert plan._event_time(load(child), "arrival") == 9.4
 
 
 # ---------------------------------------------------------------------------------------------------------------

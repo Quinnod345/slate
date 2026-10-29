@@ -146,3 +146,131 @@ def test_gen_calls_match_the_interface(cfg):
     assert notify.imessage("a message", dry_run=True)["channel"] == "imessage"
     cfg('push_command = ["fixture-push", "{title}"]\n')
     assert notify.push("title", "a message", dry_run=True)["channel"] == "push"
+
+
+@pytest.mark.parametrize("failed_channels", [("imessage",), ("push",), ("imessage", "push")])
+@pytest.mark.parametrize("failure_mode", ["exit", "exception"])
+def test_both_channel_isolation_with_configured_transports(cfg, monkeypatch, failed_channels, failure_mode):
+    """Real notification handlers use a recorded transport; no process or message leaves the test."""
+    cfg('imessage_route = "osascript"\npush_command = ["fixture-push", "{title}", "{body}"]\n')
+    monkeypatch.setenv("SLATE_LIVE", "1")
+    seen, warnings = [], []
+    monkeypatch.setattr(notify.log, "warn", warnings.append)
+
+    def transport(argv, *, timeout):
+        channel = "imessage" if argv[0] == "/usr/bin/osascript" else "push"
+        seen.append(channel)
+        if channel in failed_channels:
+            if failure_mode == "exception":
+                raise SlateError(f"{channel} fixture transport failed")
+            return {"returncode": 1, "stdout": "", "stderr": f"{channel} fixture transport failed"}
+        return {"returncode": 0, "stdout": "", "stderr": ""}
+
+    monkeypatch.setattr(notify, "transport", transport)
+    out = notify.both("The neutral phone cut is held.", title="Held")
+    assert seen == ["imessage", "push"]
+    assert [r["channel"] for r in out] == ["imessage", "push"]
+    assert [r["sent"] for r in out] == [c not in failed_channels for c in ("imessage", "push")]
+    for result in out:
+        if not result["sent"]:
+            assert result["error"] == "error" and result["exit_code"] == 1
+            assert "fixture transport failed" in result["why"]
+            assert any(w.startswith(result["channel"] + ": ") for w in warnings)
+
+
+@pytest.mark.parametrize("control", ["interrupt", "terminated", "async_cancel", "future_cancel", "unexpected"])
+def test_both_channel_isolation_does_not_swallow_cancellation_or_unexpected_errors(cfg, monkeypatch, control):
+    import asyncio
+    from concurrent.futures import CancelledError
+
+    errors = {"interrupt": KeyboardInterrupt(), "terminated": SystemExit(143),
+              "async_cancel": asyncio.CancelledError(), "future_cancel": CancelledError(),
+              "unexpected": ValueError("unexpected fixture bug")}
+    failure = errors[control]
+    cfg('imessage_route = "osascript"\npush_command = ["fixture-push"]\n')
+    monkeypatch.setenv("SLATE_LIVE", "1")
+    seen = []
+
+    def transport(argv, *, timeout):
+        seen.append(argv[0])
+        raise failure
+
+    monkeypatch.setattr(notify, "transport", transport)
+    with pytest.raises(type(failure)) as got:
+        notify.both("Held", title="Held")
+    assert got.value is failure and seen == ["/usr/bin/osascript"]
+
+
+def test_both_channel_isolation_keeps_usage_errors(cfg, sends, monkeypatch):
+    cfg('imessage_route = "invalid"\npush_command = ["fixture-push"]\n')
+    monkeypatch.setenv("SLATE_LIVE", "1")
+    with pytest.raises(UsageError, match="imessage_route"):
+        notify.both("Held", title="Held")
+    assert sends == []
+
+
+def test_both_channel_isolation_keeps_retry_controls(monkeypatch):
+    from slate.errors import TryLater
+
+    seen = []
+    retry = TryLater("fixture notification backoff", retry_after_s=12)
+
+    def delayed(*args, **kwargs):
+        raise retry
+
+    monkeypatch.setattr(notify, "imessage", delayed)
+    monkeypatch.setattr(notify, "push", lambda *args, **kwargs: seen.append("push"))
+    with pytest.raises(TryLater) as got:
+        notify.both("Held", title="Held")
+    assert got.value is retry and got.value.retry_after_s == 12 and seen == []
+
+
+@pytest.mark.parametrize("control", ["retry", "refused", "busy", "usage"])
+@pytest.mark.parametrize("entrypoint", ["imessage", "both"])
+def test_imessage_channel_isolation_preserves_configured_transport_controls(cfg, monkeypatch, control, entrypoint):
+    from slate.errors import Busy, Refused, TryLater
+
+    controls = {"retry": TryLater("fixture backoff", retry_after_s=12), "refused": Refused("fixture refusal"),
+                "busy": Busy("fixture resource busy"), "usage": UsageError("fixture route usage")}
+    failure = controls[control]
+    cfg('imessage_route = "auto"\npush_command = ["fixture-push"]\n')
+    monkeypatch.setenv("SLATE_LIVE", "1")
+    monkeypatch.setattr(notify, "_openclaw", lambda _cfg: "/fixture/openclaw")
+    seen = []
+
+    def transport(argv, *, timeout):
+        seen.append(list(argv))
+        raise failure
+
+    monkeypatch.setattr(notify, "transport", transport)
+    with pytest.raises(type(failure)) as got:
+        if entrypoint == "both":
+            notify.both("Held", title="Held")
+        else:
+            notify.imessage("Held")
+    assert got.value is failure
+    assert len(seen) == 1 and seen[0][0] == "/fixture/openclaw"
+    if control == "retry":
+        assert got.value.retry_after_s == 12 and got.value.exit_code == 75
+
+
+@pytest.mark.parametrize("failure_type", ["ordinary", "missing"])
+def test_imessage_channel_isolation_preserves_ordinary_and_missing_tool_fallback(cfg, monkeypatch, failure_type):
+    cfg('imessage_route = "auto"\npush_command = ["fixture-push"]\n')
+    monkeypatch.setenv("SLATE_LIVE", "1")
+    monkeypatch.setattr(notify, "_openclaw", lambda _cfg: "/fixture/openclaw")
+    seen = []
+
+    def transport(argv, *, timeout):
+        seen.append(argv[0])
+        if argv[0] == "/fixture/openclaw":
+            error_type = SlateError if failure_type == "ordinary" else MissingPrerequisite
+            raise error_type("fixture first route unavailable")
+        return {"returncode": 0, "stdout": "", "stderr": ""}
+
+    monkeypatch.setattr(notify, "transport", transport)
+    out = notify.both("Held", title="Held")
+    assert seen == ["/fixture/openclaw", "/usr/bin/osascript", "fixture-push"]
+    assert [r["sent"] for r in out] == [True, True]
+    assert out[0]["channel"] == "imessage" and out[0]["route"] == "osascript"
+    assert out[1]["channel"] == "push" and out[1]["route"] == "command"

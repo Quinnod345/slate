@@ -133,9 +133,9 @@ LESSONS: dict[str, list[tuple[str, list[str]]]] = {
                                                                 "lyrics", "some industries are excluded by the "
                                                                 "vendor's terms"]),
                     ("skills/slate-sound/SKILL.md", ["Never name an artist, songwriter, song or label"])],
-    "L-sound-D004": [("skills/slate-sound/references/spotting.md", ["A repeating state sounds once",
-                                                                    "sounds on its first cycle only; later cycles "
-                                                                    "are silent"])],
+    "L-sound-D004": [("skills/slate-sound/references/spotting.md", ["The starting recipe sounds a repeating state once",
+                                                                    "A requested recurring sound can repeat under "
+                                                                    "the chosen palette's rules"])],
     "L-sound-S027": [("skills/slate-sound/references/spotting.md", ["Carrying an approved proof onto the real "
                                                                     "picture", "move every cue to the beat the "
                                                                     "picture really has", "trim a file that opens on "

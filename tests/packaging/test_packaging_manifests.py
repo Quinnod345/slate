@@ -284,13 +284,22 @@ def test_ci_runs_the_tests_and_the_drift_checks():
     assert set(flow["on"]) >= {"push", "pull_request"}
 
 
-def test_the_twelve_decisions_are_recorded_with_dates():
+def test_founding_decisions_and_followups_are_sequential_and_dated():
+    from datetime import date
+
     text = (REPO / "docs" / "DECISIONS.md").read_text()
     numbers = re.findall(r"^## ADR-(\d{3}): ", text, re.M)
-    assert numbers == [f"{n:03d}" for n in range(1, 13)]
+    assert len(numbers) >= 12
+    assert numbers == [f"{n:03d}" for n in range(1, len(numbers) + 1)]
     sections = re.split(r"^## ADR-\d{3}: ", text, flags=re.M)[1:]
-    for section in sections:
-        assert re.search(r"\*\*Date:\*\* 2026-09-30", section)
+    for index, section in enumerate(sections):
+        dated = re.search(r"^- \*\*Date:\*\* (\d{4}-\d{2}-\d{2})(?=[.\s]|$)", section, re.M)
+        assert dated is not None
+        recorded_date = date.fromisoformat(dated.group(1))
+        if index < 12:
+            assert recorded_date == date(2026, 9, 30)
+        else:
+            assert recorded_date >= date(2026, 9, 30)
         for part in ("**Context:**", "**Decision:**", "**Consequences:**"):
             assert part in section
 

@@ -131,21 +131,30 @@ export const canvasMeasure: Measure = (font, text) => {
 
 const gates = new Map<string, Promise<FontGateReport>>();
 
+/** Diagnostics belong to the plan: changed conflicts or warnings cannot reuse an earlier verdict or frame hold. */
+function planKey(plan: FontPlan): string {
+  return JSON.stringify({faces: plan.faces, problems: plan.problems, errors: plan.errors ?? []});
+}
+
 /** Load every declared face and run the gate (once per page for each plan). */
 export function runFontGate(plan: FontPlan = fontPlan()): Promise<FontGateReport> {
-  const key = JSON.stringify(plan.faces);
+  const key = planKey(plan);
   const hit = gates.get(key);
   if (hit) return hit;
   const gate = (async () => {
     const loadErrors: string[] = [];
-    for (const face of plan.faces) {
-      try {
-        await loadFace(face);
-      } catch (e) {
-        loadErrors.push(`${face.family}: ${(e as Error).message}`);
+    const planErrors = plan.errors ?? [];
+    // Conflicting sources are ambiguous before any font loads. Ordinary onboarding problems remain warnings.
+    if (!planErrors.length) {
+      for (const face of plan.faces) {
+        try {
+          await loadFace(face);
+        } catch (e) {
+          loadErrors.push(`${face.family}: ${(e as Error).message}`);
+        }
       }
     }
-    const report = gateReport(checkPlan(plan, canvasMeasure), loadErrors, plan.problems);
+    const report = gateReport(planErrors.length ? [] : checkPlan(plan, canvasMeasure), loadErrors, plan.problems, planErrors);
     (window as unknown as {__SLATE_FONT_GATE__?: FontGateReport}).__SLATE_FONT_GATE__ = report;
     if (report.status === 'PASS') console.log(reportLine(report));
     else console.error(reportLine(report));
@@ -184,7 +193,7 @@ export const FONT_HOLD_MS = 180000;
  * then throws away, or mount a tree twice, and a hold taken there was released by no effect.
  */
 export function holdFirstFrame(plan: FontPlan, deps?: Partial<HoldDeps>): FirstFrameHold {
-  const key = JSON.stringify(plan.faces);
+  const key = planKey(plan);
   const have = holds.get(key);
   if (have) return have;
   const d: HoldDeps = {delayRender, continueRender, cancelRender, run: runFontGate, ...deps};

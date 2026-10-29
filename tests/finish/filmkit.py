@@ -226,9 +226,15 @@ def pass_gates(film_dir: Path, names: list[str] | None = None, *, extra: dict | 
 
         names = [n for n in (deps.qa_gate_names() or []) if n != "psnr"]  # psnr is the master's own, measured
         names += deps.sound_gate_names()  # `slate verify`'s, required when the master carries the mix
-    results = [gates.GateResult.pass_(n, "fixture: passed", engine=gates.engine("fixture", "1")) for n in names]
+    def fixture_engine(name: str) -> dict:
+        """Represent a fresh fixture result under the gate's current rule."""
+        revision = gates.rule_revision(name)
+        metadata = {"rule_revision": revision} if revision is not None else {}
+        return gates.engine("fixture", "1", **metadata)
+
+    results = [gates.GateResult.pass_(n, "fixture: passed", engine=fixture_engine(n)) for n in names]
     for n, status in (extra or {}).items():
-        results.append(gates.GateResult(n, status, f"fixture: {status}", engine=gates.engine("fixture", "1")))
+        results.append(gates.GateResult(n, status, f"fixture: {status}", engine=fixture_engine(n)))
     gates.write_report(film_dir, results)
 
 

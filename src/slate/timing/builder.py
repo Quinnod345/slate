@@ -30,7 +30,7 @@ from slate.timing import ease as easing
 from slate.timing import words as wordlib
 from slate.timing.cues import make_cues
 from slate.timing.shots import check_frames, iter_shots, make_shots
-from slate.timing.takes import Take, film_file, find_takes
+from slate.timing.takes import Take, film_file, find_takes, for_alignment
 from slate.timing.timeline import collect_events, resolve
 from slate.timing.vowords import TWO_WORD_SHARE, record_for_take, unheard
 
@@ -171,6 +171,12 @@ def lock_inputs(film_dir: Path, film: dict, takes: dict[str, Take]) -> dict:
     from slate.story.inputs import brand_block_inputs  # noqa: PLC0415 (story owns the brand-pack reading)
 
     keys = [str(STORYBOARD), *[t.rel for _sid, t in sorted(takes.items())]]
+    for sid, take in sorted(takes.items()):
+        source = for_alignment(film_dir, take)
+        if source.rel not in keys:
+            keys.append(source.rel)
+        if take.take_id:
+            keys.append(f"voice:{sid}#timing")
     if (Path(film_dir) / "timing" / "pinned_words.json").is_file():
         keys.append("timing/pinned_words.json")  # pinned word times shape the timeline too
     keys += [f"film:{k}" for k in FILM_KEYS if k in film]
@@ -345,10 +351,13 @@ def alignments_to_make(film_dir: Path, *, engine: str = "whisper", realign: bool
         return []
     film = load_film(film_dir)
     lang = film.get("language") or "en"
-    voiced = [sh["id"] for _i, _a, sh in iter_shots(load_storyboard(film_dir)) if (sh.get("vo") or "").strip()]
+    lines = {sh["id"]: sh.get("vo") or "" for _i, _a, sh in iter_shots(load_storyboard(film_dir))
+             if (sh.get("vo") or "").strip()}
+    voiced = list(lines)
     takes = find_takes(film_dir, voiced)
     return [sid for sid in voiced if sid in takes and (realign or aligner.reusable(
-        film_dir, sid, takes[sid], engine=engine, language=lang, film=film) is None)]
+        film_dir, sid, takes[sid], engine=engine, language=lang, film=film,
+        line=lines[sid]) is None)]
 
 
 def run(film_dir: Path, *, force: bool = False, engine: str = "whisper", realign: bool = False,
@@ -372,7 +381,7 @@ def run(film_dir: Path, *, force: bool = False, engine: str = "whisper", realign
     cues, _missing = make_cues(storyboard, takes, voice=film_voice(film))
     share = float((storyboard.get("timing") or {}).get("two_word_share", TWO_WORD_SHARE))
     words_doc: dict = {"note": "Word timings inside each approved take (seconds from the take's first sample). Starts "
-                               "are the aligner's, snapped to the take's own energy onset within ±80 ms; a start with "
+                               "are the aligner's, snapped to the verified pre-polish source's energy onset within ±80 ms; a start with "
                                "snap null was placed inside a transcribed number, not measured. `tokens` resolves "
                                "every word of the script line.", "shots": {}}
     lines = {sh["id"]: sh.get("vo") or "" for _i, _a, sh in iter_shots(storyboard)}
@@ -385,8 +394,10 @@ def run(film_dir: Path, *, force: bool = False, engine: str = "whisper", realign
                                        film=film, write_cache=not dry_run)
         info = {k: rec_align.get(k) for k in ("engine", "model", "version", "replay")}
         runs.append(info)
-        rec = record_for_take(take_rel=take.rel, line=lines[sid], result=rec_align["result"], take_path=take.path,
+        source = for_alignment(film_dir, take)
+        rec = record_for_take(take_rel=take.rel, line=lines[sid], result=rec_align["result"], take_path=source.path,
                               lang=lang, take_seconds=take.read_seconds, two_word_share=share)
+        rec["timing_source"] = {"file": source.rel, "sha256": source.sha256(), "stage": source.stage}
         rec["aligner"] = info
         words_doc["shots"][sid] = rec
     if runs:
@@ -427,7 +438,7 @@ def run(film_dir: Path, *, force: bool = False, engine: str = "whisper", realign
         _record_lock(film_dir, rel, inputs)
     for r in out.results:
         # film.json's clock and size are the timing files' lock inputs (film:<key>); the gates keep to the files
-        r.inputs = gates.inputs_for(film_dir, [STORYBOARD, *[t.rel for t in takes.values()]])
+        r.inputs = {key: value for key, value in inputs.items() if not key.startswith(("film:", "brand:"))}
     gates.write_report(film_dir, out.results)
     return out
 

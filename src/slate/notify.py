@@ -185,6 +185,10 @@ def imessage(text: str, attachment: str | os.PathLike | None = None, *, dry_run:
         try:
             res = transport(argv, timeout=timeout)
         except SlateError as exc:
+            # Keep ordinary transport and missing-tool fallback. Refusal, usage and retry controls must reach the
+            # caller unchanged rather than becoming a base send error that the two-channel helper can suppress.
+            if type(exc) is not SlateError and not isinstance(exc, MissingPrerequisite):
+                raise
             errors.append(f"{route}: {exc.message}")
             continue
         if _ok(route, res):
@@ -256,12 +260,23 @@ def push(title: str, body: str, *, dry_run: bool = False) -> dict:
 
 
 def both(text: str, *, title: str, attachment: str | os.PathLike | None = None, dry_run: bool = False) -> list[dict]:
-    """iMessage (with the file) and a push, as held films and questions go out. A route that isn't configured is
-    reported in the result instead of stopping the other."""
+    """Try iMessage and push independently and report each ordinary delivery failure.
+
+    Missing prerequisites and the transport's base SlateError become channel results. Usage, refusal and retry
+    controls retain their exceptions; interrupts and cancellation are not caught.
+    """
     out = []
-    for fn in (lambda: imessage(text, attachment, dry_run=dry_run), lambda: push(title, text, dry_run=dry_run)):
+    for channel, send in (("imessage", lambda: imessage(text, attachment, dry_run=dry_run)),
+                          ("push", lambda: push(title, text, dry_run=dry_run))):
         try:
-            out.append(fn())
+            out.append(send())
         except MissingPrerequisite as exc:
-            out.append({"sent": False, "why": exc.message, "hint": exc.hint, "missing": True})
+            out.append({"channel": channel, "sent": False, "why": exc.message, "hint": exc.hint, "missing": True})
+        except SlateError as exc:
+            # The current transport reports start, timeout and send failures with the base SlateError. Keep other
+            # control exceptions intact instead of turning a refusal or a requested retry into a completed send.
+            if type(exc) is not SlateError:
+                raise
+            log.warn(f"{channel}: {exc.message}")
+            out.append({"channel": channel, "sent": False, "why": exc.message, **exc.to_dict()})
     return out

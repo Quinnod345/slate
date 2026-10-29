@@ -7,9 +7,9 @@ The voice stages (`slate voice tts|clean|pace|polish`) own the takes and record 
                                          "polished": "…polished.wav"}}}}}
 
 A shot's take is its selected take's final stage: polished, else paced, else clean, else raw (the voice module's own
-rule, slate.voice.film.VoiceFilm.STAGES). The studio polish keeps every sample where it was, so a polished take reads
-exactly as long as the stage it was polished from and its words land at the same times; picking it here is what
-carries the de-esser, the EQ and the room into the cue sheets and the mix. Timing
+rule, slate.voice.film.VoiceFilm.STAGES). Picking it here carries the de-esser, EQ and room into cue sheets and the
+mix. Picture timing measures the pre-polish source: equal sample counts preserve the clock, but room processing
+can still shift a recogniser's word timestamps. `for_alignment` verifies the source and its sample clock. Timing
 also accepts a flat list ({"takes": [{"shot", "file", "seconds", "dur"}]}) and, with no manifest at all, files named
 `voice/takes/<shot>.<wav|flac|aif|aiff|mp3|m4a>`. `dur` (or `trim`) is a play length shorter than the file, for a
 take whose leaked tail was trimmed (film A trimmed S10 and S20 this way). A take's read length is that trim when it
@@ -22,10 +22,11 @@ parent and nothing is copied. Every path here goes through `film_file`, which fo
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from slate import jsonio
+from slate.errors import MissingPrerequisite, SlateError
 from slate.timing import audio
 
 MANIFEST = Path("voice") / "takes.json"
@@ -178,3 +179,93 @@ def _referenced(film_dir: Path, folder: Path) -> list[str]:
     except Exception:  # noqa: BLE001 - no film state, no references
         return []
     return sorted(rel for rel, e in entries.items() if isinstance(e, dict) and e.get("ref"))
+
+
+POLISH_FIELDS = ("file", "source", "source_stage", "source_sha256", "sha256")
+
+
+def _selected_info(film_dir: Path, shot: str) -> tuple[str | None, dict]:
+    manifest = jsonio.read(film_file(film_dir, MANIFEST), default=None)
+    entry = ((manifest or {}).get("shots") or {}).get(shot) if isinstance(manifest, dict) else None
+    if not isinstance(entry, dict):
+        return None, {}
+    take_id = entry.get("selected")
+    info = (entry.get("takes") or {}).get(take_id) if take_id else None
+    return str(take_id) if take_id else None, info if isinstance(info, dict) else {}
+
+
+def _polish_info(film_dir: Path, shot: str, take_id: str) -> tuple[bool, object]:
+    doc = jsonio.read(film_file(film_dir, TAKES_DIR / shot / f"{take_id}.json"), default=None)
+    stages = doc.get("stages") if isinstance(doc, dict) else None
+    return (True, stages["polish"]) if isinstance(stages, dict) and "polish" in stages else (False, None)
+
+
+def timing_selector(film_dir: Path, shot: str) -> dict | None:
+    """Only the selected audio paths, read length and polish provenance; approvals and QA bookkeeping are excluded.
+
+    State hashes this value as `voice:<shot>#timing`. Audio bytes are separate inputs. Inherited films resolve both
+    the manifest and sidecar through their references, just as they resolve the selected audio.
+    """
+    take_id, info = _selected_info(film_dir, shot)
+    if not info:
+        return None
+    fields = (*STAGES, *(f"{stage}_seconds" for stage in STAGES), "seconds", "dur", "trim")
+    value = {"selected": take_id, "take": {key: info[key] for key in fields if key in info},
+             "available_stages": [stage for stage in STAGES if info.get(stage) and
+                                  film_file(film_dir, str(info[stage])).is_file()]}
+    present, polish = _polish_info(film_dir, shot, take_id)
+    if present:
+        value["polish"] = ({key: polish.get(key) for key in POLISH_FIELDS} if isinstance(polish, dict) else polish)
+    return value
+
+
+def for_alignment(film_dir: Path, take: Take) -> Take:
+    """The verified pre-polish take for word alignment and onset snapping; playback retains the selected final take.
+
+    Explicit polish provenance must match both files and the selected source stage. Legacy manifests without that
+    provenance use their nearest available pre-polish stage, with an exact sample-rate and frame-count check.
+    """
+    if take.stage != "polished":
+        return take
+    hint = f"Rebuild the selected polish with `slate voice polish --only {take.shot}` before rebuilding timing."
+
+    def refuse(message: str):
+        raise MissingPrerequisite(f"{take.shot} polish timing source: {message}", hint=hint)
+
+    take_id, info = _selected_info(film_dir, take.shot)
+    if take_id != take.take_id or not info:
+        refuse("the selected take changed; reload its manifest.")
+    present, polish = _polish_info(film_dir, take.shot, take_id)
+    if present:
+        if not isinstance(polish, dict):
+            refuse("the recorded polish provenance is malformed.")
+        stage = polish.get("source_stage")
+        if stage not in STAGES[1:] or not info.get(stage) or not polish.get("source"):
+            refuse("the recorded source stage is missing or invalid.")
+        file = str(info[stage])
+        source = film_file(film_dir, file)
+        if source.resolve() != film_file(film_dir, str(polish["source"])).resolve():
+            refuse("the recorded source does not match the selected take's source stage.")
+        if not polish.get("file") or film_file(film_dir, str(polish["file"])).resolve() != take.path.resolve():
+            refuse("the recorded output does not match the selected polish.")
+        if not source.is_file() or polish.get("source_sha256") != jsonio.sha256(source):
+            refuse("the recorded source hash no longer matches its audio.")
+        if polish.get("sha256") != take.sha256():
+            refuse("the recorded output hash no longer matches its audio.")
+    else:
+        stage = next((s for s in STAGES[1:] if info.get(s) and film_file(film_dir, str(info[s])).is_file()), None)
+        if stage is None:
+            refuse("no pre-polish source is available.")
+        file = str(info[stage])
+        source = film_file(film_dir, file)
+    from slate.voice.audio import read_wav  # noqa: PLC0415 - native WAV clock, no transcription or external decoder
+
+    try:
+        source_samples, source_rate = read_wav(source)
+        output_samples, output_rate = read_wav(take.path)
+    except (OSError, ValueError, SlateError) as exc:
+        refuse(f"cannot verify the sample clock ({exc}).")
+    if source_rate <= 0 or len(source_samples) == 0 or source_rate != output_rate or len(source_samples) != len(output_samples):
+        refuse("the source and output have different sample rates or frame counts.")
+    return replace(take, path=source, rel=_rel_of(film_dir, file, source), stage=stage,
+                   seconds=len(source_samples) / source_rate)

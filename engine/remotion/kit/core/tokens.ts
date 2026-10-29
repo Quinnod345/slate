@@ -4,6 +4,7 @@
 // contrast, and listed in `problems` so onboarding can fill it in.
 import {brandPack, memoOnBrand} from './brand';
 import {BLACK, WHITE, bestOn, contrast, ensureContrast, isColor, luminance, mix, rgbTriplet, saturation, toHex} from './color';
+import {fontWeights} from './font-weights';
 import type {BrandPack, BrandType, FamilyInput, PaletteTree} from './types';
 
 export type ToneName = 'ok' | 'warn' | 'risk' | 'neutral';
@@ -220,12 +221,6 @@ function familyList(t: BrandType | undefined): FamilyInput[] {
   return Object.entries(f).map(([role, v]) => ({role, ...(v as FamilyInput)}));
 }
 
-function weightsOf(f: FamilyInput): number[] {
-  const w = (f.weights ?? [400, 700]).map((x) => (typeof x === 'string' ? ({regular: 400, normal: 400, medium: 500, semibold: 600, bold: 700, black: 900} as Record<string, number>)[x.toLowerCase()] ?? Number(x) : x));
-  const clean = w.filter((x) => Number.isFinite(x) && x >= 1 && x <= 1000);
-  return clean.length ? [...new Set(clean)].sort((a, b) => a - b) : [400];
-}
-
 const cssQuote = (name: string) => (/^[a-z-]+$/i.test(name) && ['serif', 'sans-serif', 'monospace', 'system-ui', 'cursive', 'fantasy'].includes(name) ? name : `"${name.replace(/"/g, '')}"`);
 
 export function fontTokens(pack: BrandPack, problems: string[]): Record<string, FontFamilyToken> {
@@ -239,7 +234,7 @@ export function fontTokens(pack: BrandPack, problems: string[]): Record<string, 
       continue;
     }
     const fallback = (f.fallback === 'serif' || f.fallback === 'monospace' || f.fallback === 'sans-serif' ? f.fallback : GENERIC[role] ?? 'sans-serif') as FontFamilyToken['fallback'];
-    out[role] = {role, family, css: `${cssQuote(family)}, ${fallback}`, weights: weightsOf(f), fallback, declared: true};
+    out[role] = {role, family, css: `${cssQuote(family)}, ${fallback}`, weights: fontWeights(f.weights), fallback, declared: true};
   }
   // aliases: body/text → sans, heading/headline → display; display falls back to sans, sans to the first family
   const alias = (to: string, from: string[]) => {
@@ -400,4 +395,3 @@ export function contrastPairs(t: Tokens): {fg: string; bg: string; role: 'body' 
   ];
   return pairs.map(([fg, bg, role]) => ({fg, bg, role, ratio: +contrast(fg, bg).toFixed(2)}));
 }
-

@@ -6,8 +6,8 @@ From the films' `tag_samples.py`, `tag_ab.py` and `tag_ab_v2.py` (round 2, after
 - Each take is voiced like the film's takes: the film's pinned voice, model and settings, one seed for every
   variant of the line, the neighbouring lines as plain context. Then the film's clean-up and pacing.
 - Every take is measured before anyone listens: Whisper word for word (no repeat, no tag read aloud), breath and
-  vocal effort against the untagged takes of the same words (a tagged take that measures breathier or softer is
-  rejected however good its tag looks), creak, and whether the paced take still fits its shot.
+  vocal effort against the untagged takes of the same words, creak, and whether the paced take still fits its shot.
+  Breathier delivery is a rejection only when this voice explicitly requires full delivery.
 - The clips are level-matched to -20 LUFS: `A.wav` (untagged), `<key>.wav` per variant, `A<key>.wav` (A, 0.8 s, then
   the variant) and `reel.wav` with every pair, so neither side wins by being louder.
 
@@ -62,7 +62,7 @@ def run(film_dir: str | Path, shot: str, variants: list[str], *, seed: int | Non
                                                                                               policy=policy)]
     if problems:
         raise Refused("These variants can't be sent:\n  - " + "\n  - ".join(problems),
-                      hint="Tags change delivery, never words; and never whisper, soft, quiet or gentle.",
+                      hint="Keep the script words and follow this voice's explicit tag policy.",
                       details={"problems": problems})
     use = current_voice(vf)
     voice_id = use.get("voice_id") or profile_mod.require_voice(prof)
@@ -164,7 +164,11 @@ def run(film_dir: str | Path, shot: str, variants: list[str], *, seed: int | Non
             "creak": None if base_creak is None or not line_span else line_span["creak_frac"] <= base_creak + 0.01,
             "fits": fit["fits"],
         }
+        full_voice_measurement = gates["full_voice"]
+        if not policy.get("avoid_low_effort", False):
+            gates.pop("full_voice")
         if t.get("replay"):  # a stand-in voice proves nothing about the real read
+            full_voice_measurement = None
             gates = {k: None for k in gates}
         verdict = (False if any(v is False for v in gates.values()) else
                    True if all(v is True for v in gates.values()) else None)
@@ -173,6 +177,8 @@ def run(film_dir: str | Path, shot: str, variants: list[str], *, seed: int | Non
                        "words": chk and {k: chk[k] for k in ("heard", "wer", "word_errors", "repeats",
                                                              "spoken_tag_words", "lexicon")},
                        "spans": spans, "breath": verdicts, "fit": fit, "gates": gates,
+                       "full_voice_required": bool(policy.get("avoid_low_effort", False)),
+                       "full_voice_measurement": full_voice_measurement,
                        "passes": verdict if t["tagged"] else None}
 
     clips, reel_items = {}, []

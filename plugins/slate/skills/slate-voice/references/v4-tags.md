@@ -4,13 +4,13 @@ An audio tag is a short natural-language instruction in square brackets, placed 
 `[warmly, with a smile] Hi, it's good to meet you.` The list of tags is open (they're direction, not a fixed menu), and
 v4 follows them more reliably than earlier models, though not perfectly. Tags are billed as characters.
 
-## The rule above all: full voice only
+## Match the delivery to this voice and brief
 
-**Never use a tag that lowers vocal effort or adds breath.** That means whisper or whispering, talking softly, soft or
-softly, quiet or quietly, gentle or gently, hushed, murmuring, under one's breath, breathy, intimate, calm, and a low
-voice, in any form or combination. The owner heard them as whispery and a little scary. Even a tag that sounds harmless
-("calm and reassuring") measured breathier than the voice's untagged reads. Slate refuses these words inside any tag
-before a request is sent, for every brand; a brand can ban more, and nothing can un-ban these.
+Quiet, gentle and breathy delivery can fit a film. On one character voice it sounded scary, so preserve that scoped
+preference without making it universal. `tag_policy.avoid_low_effort=true` explicitly enables the full-voice tag
+restriction and breath comparison gate for a voice that needs them; the default is false. `banned_extra`, an allowed
+vocabulary and a per-line cap remain explicit brand choices. Read `slate history context --topic voice` for the
+sequence of choices and reversals. The current brief takes priority over an earlier draft's tag.
 
 **Emotion comes through a full, clear voice**: warm, with a smile, bright, confident, reassuring, encouraging, sincere,
 matter-of-fact, hopeful.
@@ -85,9 +85,9 @@ normal spread is known), on the spans the tag governs and on the whole line:
 - **energy**: loudness and its contour; **creak**: low, irregular pitch; **pace**: words a second and pauses; **words**:
   errors, repeats, tags spoken.
 
-A take is rejected when its breath measures sit clearly above the untagged spread (on average more than one spread, or
-two core measures well beyond it, or the voice dropping out). These checks were validated against the owner's ear on
-takes they'd already judged, before they were trusted. The owner still picks by ear.
+A take's breath measures are retained even when full delivery is not required. When the voice explicitly requires it,
+the comparison rejects delivery above its untagged spread. Otherwise breathiness is evidence for listening, not a
+universal failure. Exact words, complete endings and the edit's fit still matter. The owner picks by ear.
 
 ## The A/B before a full re-voice
 

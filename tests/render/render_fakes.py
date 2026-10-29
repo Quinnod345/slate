@@ -258,6 +258,11 @@ class FakeState:
         self.records.append(row)
         return row
 
+    def resolve(self, film_dir, rel_path):
+        """These render fixtures own their files; inherited resolution is covered with the real state module."""
+        path = Path(rel_path)
+        return path if path.is_absolute() else Path(film_dir) / path
+
     def lock_asset(self, film_dir, rel_path, *, reason):
         self.locked.append((str(rel_path), reason))
 
@@ -353,7 +358,7 @@ class Fakes:
             "slate.jobs.locks": _module("slate.jobs.locks", hold=self.jobs.hold),
             "slate.jobs.disk": _module("slate.jobs.disk", reserve=self.jobs.reserve),
             "slate.state": _package("slate.state"),
-            "slate.state.lock": _module("slate.state.lock", record=self.state.record,
+            "slate.state.lock": _module("slate.state.lock", record=self.state.record, resolve=self.state.resolve,
                                         lock_asset=self.state.lock_asset, is_locked=self.state.is_locked,
                                         timeline_locked=self.state.timeline_locked),
             "slate.state.film": _module("slate.state.film", load=lambda d: json.loads(

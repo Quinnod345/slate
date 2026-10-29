@@ -109,19 +109,21 @@ def _conform(args: argparse.Namespace) -> int:
         rec = store.require(film, args.name)
         spec = rec["spec"]
         cap = store.capture_dir(film, args.name)
-        if rec["kind"] == "web" and (cap / "shots").is_dir():
-            shots = sorted((cap / "shots").glob("f[0-9][0-9][0-9][0-9][0-9].jpg"))
+        shots_dir = store.read_dir(film, args.name, "shots")
+        if rec["kind"] == "web" and shots_dir.is_dir():
+            shots = sorted(shots_dir.glob("f[0-9][0-9][0-9][0-9][0-9].jpg"))
             if shots:
                 raw = conform.from_frames(shots, film, args.name, spec=spec)
             else:
-                stamps = jsonio.read(cap / "shots" / "stamps.json").get("stamps") or []
-                raw = conform.from_timestamps(sorted((cap / "shots").glob("r[0-9][0-9][0-9][0-9][0-9].jpg")), stamps,
+                stamps = jsonio.read(shots_dir / "stamps.json").get("stamps") or []
+                raw = conform.from_timestamps(sorted(shots_dir.glob("r[0-9][0-9][0-9][0-9][0-9].jpg")), stamps,
                                               film, args.name, duration=spec["duration"], spec=spec)
             path = ios.finish(film, spec, source=None, raw=raw, command="slate capture conform",
                               extra={k: rec.get(k) for k in ("web", "steps", "source", "notes")
                                      if rec.get(k) is not None})
         else:
-            src = args.src or (cap / "raw.mov" if (cap / "raw.mov").is_file() else
+            recording = deps.resolve_file(film, (cap / "raw.mov").relative_to(film))
+            src = args.src or (recording if recording.is_file() else
                                spec_mod.resolve(film, spec["source"]) if spec.get("source") else None)
             if src is None:
                 raise UsageError(f"Capture {args.name} has no recording to conform; pass --src.")

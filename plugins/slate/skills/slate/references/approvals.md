@@ -63,16 +63,16 @@ next agent knows exactly what was handed over and what wasn't.
 
 ## Approved work stays approved
 
-- **Work the owner approved is not rebuilt.** Build around it. When something next to it changes, keep its outer
-  geometry and timing so it still fits.
-- **Perfect, don't replace.** Notes on approved work are perfecting notes. Write them as a checklist of changes to that
-  exact artifact, keep everything else as it was, and check the revision against the approved version by measurement.
-  If a note seems to need a new approach, ask first. Research only to fix a specific named flaw, never to redesign.
+- **Keep the approved baseline.** Preserve it for comparison. When the owner asks for a change, apply that request
+  within its scope and keep unrelated geometry and timing stable.
+- **Follow the feedback.** Notes can request a refinement or a redesign. Record every requested change and compare
+  the resulting version; do not turn a request for a new approach into another question. Ask when information is
+  missing, and retain the exact answer and the version it concerned.
 - **How it goes wrong:** notes on an approved sound (a tonal layer that sounded cheap, glides that read as a siren, more
   variation wanted) were answered by replacing the design: a new composed layer, a researched vocabulary, and effects
   pushed from about 11 to 17 LU under the voice down to 25 to 28 LU under it, where they stopped standing out. The owner
   had to point back at the approved proof.
-- **A latent bug in approved work** that produced the look they approved stays: record it rather than fix it and change
-  approved frames.
-- **Retiring a direction:** delete nothing, stop every watcher, leave the files in place, and write a short handover
+- **A latent bug in approved work** belongs in the history. Scope a correction around the intended look and verify the
+  revised render; a preview approval does not require preserving a visible defect in the final file.
+- **Retiring a direction:** delete nothing, stop only watchers owned by that direction, leave the files in place, and write a short handover
   listing only the plumbing worth reusing.

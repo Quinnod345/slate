@@ -193,6 +193,16 @@ def plan(script: dict, *, timing: dict, takes: dict | None = None, use_takes: bo
             source_id = str(originals[k].get("id"))
             k += 1
             data = dict(sh)
+            # Count bindings refer to exact ids in the emitted visual export, not draft shot names. Text keeps the
+            # existing shot-name remap, but a colliding visual event id must not be rewritten with the shot id.
+            original_reading = originals[k - 1].get("reading")
+            reading = data.get("reading")
+            if isinstance(original_reading, dict) and isinstance(reading, dict):
+                original_counts, counts = original_reading.get("count_events"), reading.get("count_events")
+                if isinstance(original_counts, list) and isinstance(counts, list):
+                    for original, count in zip(original_counts, counts):
+                        if isinstance(original, dict) and isinstance(count, dict) and "events" in original:
+                            count["events"] = copy.deepcopy(original["events"])
             data["on_screen"] = text_of(sh.get("on_screen"))
             data["sources"] = [str(s) if not isinstance(s, dict) else s for s in list_of(sh.get("sources",
                                                                                                    sh.get("source")))]

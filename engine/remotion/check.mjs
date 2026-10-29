@@ -38,8 +38,9 @@ import ts from 'typescript';
 import {EngineError, listFiles, log, refused, sha256FileSync, usage} from './lib/common.mjs';
 import {actOf} from './lib/film.mjs';
 import {ensureEntry, contractsModule, missingIndexNote, sceneIndex, slateDir} from './entry.mjs';
-import {actMarginList, declarations, loadAct, rigLint} from './load_act.mjs';
-import {actShotScenes, captureBeats, computeEvents, emitWebAct, eventsFile, validateEventsFile, webRenderer, webScene, webShotPage} from './events.mjs';
+import {actMarginList, declarations, loadAct, loadRemotionShot, rigLint} from './load_act.mjs';
+import {baseScene, canonicalSource, contextCapture, frameOwner, mixedScenesForAct} from './lib/shot_scenes.mjs';
+import {actShotScenes, captureBeats, computeEvents, emitWebAct, eventsFile, validateEventsFile, webRenderer, webScene, webShotPage, readReverseAct, computeReverseEvents, writeReverseMotion} from './events.mjs';
 import {useBundle} from './bundle.mjs';
 import {pixelHash, psnr, renderStills} from './stills.mjs';
 import {browserLogCollector, fontGate} from './kit_bridge.mjs';
@@ -483,6 +484,7 @@ export async function eventsGate(ctx, act, loaded, name, args = {}) {
     return gate(name, 'FAIL', `${rel} is valid, but the act's beats don't compute now: ${e.message.split('\n')[0]}`, {engine, inputs});
   }
   for (const f of now.captures.files) inputs[f] = inputsFor(ctx, [f])[f];
+  if (now.loaded?.mixed) Object.assign(inputs, now.loaded.mixed.capture.hashes);
   if (now.problems.length) {
     const n = now.problems.length;
     return gate(name, 'FAIL', `${rel} can't be current: the act's beats have ${n} problem${n > 1 ? 's' : ''} now; the first: ${now.problems[0]}`, {engine, evidence: now.problems.slice(0, 30), inputs});
@@ -505,6 +507,7 @@ async function boundaries(ctx, act, loaded) {
   const idx = ctx.acts.findIndex((a) => a.act === act);
   const mine = declarations(loaded).contracts ?? {};
   const decl = async (n) => {
+    if (baseScene(ctx, n)?.engine === 'web') return {built: true, web: true, contracts: {}};
     if (!sceneIndex(ctx.dir, n)) return {built: false, contracts: {}};
     try {
       return {built: true, contracts: declarations(await loadAct(ctx, n)).contracts ?? {}};
@@ -516,14 +519,14 @@ async function boundaries(ctx, act, loaded) {
   if (idx > 0) {
     const prev = ctx.acts[idx - 1];
     const p = await decl(prev.act);
-    out.push({side: 'in', from: prev.act, to: act, out: p.contracts.out, in: mine.in, neighbour: p});
+    out.push({side: 'in', from: prev.act, to: act, out: p.web ? mine.in : p.contracts.out, in: mine.in, neighbour: p});
   } else if (mine.in) {
     out.push({side: 'in', from: null, to: act, out: undefined, in: mine.in, neighbour: null});
   }
   if (idx < ctx.acts.length - 1) {
     const next = ctx.acts[idx + 1];
     const n = await decl(next.act);
-    out.push({side: 'out', from: act, to: next.act, out: mine.out, in: n.contracts.in, neighbour: n});
+    out.push({side: 'out', from: act, to: next.act, out: mine.out, in: n.web ? mine.out : n.contracts.in, neighbour: n});
   } else if (mine.out) {
     out.push({side: 'out', from: act, to: null, out: mine.out, in: undefined, neighbour: null});
   }
@@ -551,10 +554,48 @@ export function lazyBundle(ctx, args) {
   };
 }
 
+/** Every contract frame uses the same owning scene as the final splice, including frames inside a hold. */
+export async function renderOwnedStills(ctx, b, specs, opts, args = {}) {
+  const made = [];
+  for (const spec of specs) {
+    const m = /^Act(\d+)$/.exec(spec.comp);
+    const owner = m ? frameOwner(ctx, Number(m[1]), spec.frame) : null;
+    if (!owner || owner.engine === 'remotion') {
+      made.push(...await renderStills(ctx, b, [{...spec, comp: owner?.shot ? owner.comp : spec.comp}],
+        opts));
+      continue;
+    }
+    if (owner.engine !== 'web') throw refused('The boundary frame is not drawn by a supported code engine.');
+    if (opts.scale !== 1) throw usage('Internal boundary Web stills use full scale.');
+    const file = path.join(opts.outDir, spec.name ?? (spec.comp + '_f' + String(spec.frame).padStart(5, '0') + '.png'));
+    const webRender = await webRenderer(owner.act);
+    const result = await webRender({film: ctx.dir, act: owner.act, scene: owner.scene, from: spec.frame, to: spec.frame,
+      sub: opts.sub, gl: opts.gl, out: file, trace: false, on_blocked: 'report', on_fonts: 'report',
+      ...(args.brand_path ? {brand_path: args.brand_path} : {}),
+      ...(args.load_timeout_ms ? {load_timeout_ms: args.load_timeout_ms} : {})});
+    const bad = (result.gates ?? []).filter((item) => item.status !== 'PASS');
+    if (bad.length) throw refused('The actual Web boundary frame has a failed renderer gate: ' + bad[0].summary,
+      undefined, {gates: bad});
+    made.push({...spec, comp: owner.shot ? 'Web-' + owner.shot : spec.comp, engine: 'web', scene: owner.scene,
+      file, ...(opts.pixels ? {pixels: await pixelHash(file)} : {}), gates: result.gates ?? []});
+  }
+  return made;
+}
+
+function ownedSourceCapture(ctx, args) {
+  const capture = contextCapture(ctx, {brandPath: args.brand_path ?? null});
+  const root = path.join(ctx.dir, 'scenes');
+  for (const rel of listFiles(root)) {
+    if (/\.(tsx?|jsx?|mjs|cjs|html?|json|txt|css|svg)$/i.test(rel)) capture.record(path.join(root, rel));
+  }
+  return capture;
+}
+
 export async function contractsGate(ctx, act, loaded, name, args, bundles = null) {
   const engine = {name: 'remotion renderStill + ffmpeg pixel hash', version: 'swangle'};
   const hold = Math.max(1, Number(args.hold ?? 6));
   const gl = args.contract_gl ?? 'swangle';
+  const sourceRead = ownedSourceCapture(ctx, args);
   const list = await boundaries(ctx, act, loaded);
   const problems = [];
   const unchecked = [];
@@ -612,7 +653,7 @@ export async function contractsGate(ctx, act, loaded, name, args, bundles = null
             specs.push({comp: `Act${n.act}`, frame: r.side === 'in' ? n.frames - 1 : 0});
           }
           if (contractComps.has(r.name)) specs.push({comp: `Contract-${r.name}`, frame: 0});
-          const stills = await renderStills(ctx, b, specs, {outDir, gl, scale: 1, sub: 1, pixels: true, logs});
+          const stills = await renderOwnedStills(ctx, b, specs, {outDir, gl, scale: 1, sub: 1, pixels: true, logs}, args);
           const mineStills = stills.slice(0, myFrames.length);
           const edge = r.side === 'in' ? mineStills[0] : mineStills.at(-1);
           const ok = [];
@@ -647,7 +688,8 @@ export async function contractsGate(ctx, act, loaded, name, args, bundles = null
       if (own) own.release();
     }
   }
-  const inputs = inputsFor(ctx, [...actSources(ctx, act), 'timing/shots.json']);
+  sourceRead.verify();
+  const inputs = {...inputsFor(ctx, [...actSources(ctx, act), 'timing/shots.json']), ...sourceRead.hashes};
   const evidence = [...problems, ...unchecked, ...passed, ...skipped];
   const details = {hold, gl, boundaries: list.length, checked: passed.length, skipped: skipped.length};
   if (problems.length) return {gate: gate(name, 'FAIL', problems[0], {engine, evidence, inputs, details}), fonts};
@@ -696,7 +738,7 @@ function webEventsGate(ctx, act, page, name, inputsBase) {
   const engine = {name: 'slate emit-events (web scene, dry run)', version: 'protocol 1'};
   const file = eventsFile(ctx, act);
   const rel = path.relative(ctx.dir, file);
-  const inputs = inputsFor(ctx, [rel, ...inputsBase, ...(page?.captures?.files ?? [])]);
+  const inputs = {...inputsFor(ctx, [rel, ...inputsBase, ...(page?.captures?.files ?? [])]), ...(page?.composition_inputs ?? {})};
   if (!fs.existsSync(file)) return gate(name, 'FAIL', `no ${rel}: run \`slate emit-events --act ${act}\``, {engine, inputs});
   let data;
   try {
@@ -757,6 +799,8 @@ async function webContractsGate(ctx, act, args, name, inputs, bundles = null) {
     if (unreadable.length) return gate(name, 'UNCHECKED', unreadable[0], {engine, evidence: unreadable, inputs});
     return gate(name, 'PASS', ctx.acts.length > 1 ? 'no pixel contracts at this act\'s boundaries (neither neighbour declares a rest state there)' : 'the film has one act: no boundaries', {engine, inputs});
   }
+  const sourceRead = ownedSourceCapture(ctx, args);
+  Object.assign(inputs, sourceRead.hashes);
   const hold = Math.max(1, Number(args.hold ?? 6));
   const gl = args.contract_gl ?? 'swangle';
   const me = actOf(ctx, act);
@@ -775,7 +819,6 @@ async function webContractsGate(ctx, act, args, name, inputs, bundles = null) {
   const own = bundles ? null : lazyBundle(ctx, args);
   const logs = browserLogCollector();
   try {
-    const webRender = await webRenderer(act);
     for (const bd of list) {
       const others = [];
       if (bd.ready) others.push({comp: `Act${bd.neighbour}`, frame: bd.side === 'in' ? actOf(ctx, bd.neighbour).frames - 1 : 0});
@@ -784,33 +827,21 @@ async function webContractsGate(ctx, act, args, name, inputs, bundles = null) {
         unchecked.push(`${bd.label}: act ${bd.neighbour} isn't built yet and scenes/contracts has no ${bd.name} to compare with`);
         continue;
       }
-      // the web act's frames at this boundary: its first n (meeting the act before) or its last n (the act after)
       const from = bd.side === 'in' ? 0 : me.frames - n;
       const to = from + n - 1;
-      const framesDir = path.join(outDir, `web-${bd.side}`);
-      try {
-        await webRender({film: ctx.dir, act, from, to, samples: 1, gl, out: path.join(outDir, `web-${bd.side}.mkv`), frames_dir: framesDir, trace: false, on_blocked: 'report', on_fonts: 'report', ...(args.brand_path ? {brand_path: args.brand_path} : {}), ...(args.load_timeout_ms ? {load_timeout_ms: args.load_timeout_ms} : {})});
-      } catch (e) {
-        if (!(e instanceof EngineError)) throw e;
-        unchecked.push(`${bd.label}: the web act's boundary frames didn't render (${e.message.split('\n')[0]})`);
-        continue;
-      }
-      const mine = [];
+      let mine;
       let stills;
       try {
-        for (let f = from; f <= to; f++) {
-          const file = path.join(framesDir, `f${String(f).padStart(5, '0')}_s00.png`);
-          mine.push({comp: `Act${act}`, frame: f, file, pixels: await pixelHash(file)});
-        }
         const b = await (bundles ?? own).get();
-        stills = await renderStills(ctx, b, others, {outDir, gl, scale: 1, sub: 1, pixels: true, logs});
+        mine = await renderOwnedStills(ctx, b, Array.from({length: n}, (_, i) => ({
+          comp: 'Act' + act, frame: from + i, name: 'f' + String(from + i).padStart(5, '0') + '_s00.png',
+        })), {outDir: path.join(outDir, 'web-' + bd.side), gl, scale: 1, sub: 1, pixels: true, logs}, args);
+        stills = await renderOwnedStills(ctx, b, others,
+          {outDir, gl, scale: 1, sub: 1, pixels: true, logs}, args);
       } catch (e) {
-        // a frame the renderer didn't write, or a still a face cancelled (the fonts gate says which): not compared
         if (!(e instanceof EngineError) && !/font gate/i.test(String(e?.message ?? e))) throw e;
-        unchecked.push(`${bd.label}: the boundary frames couldn't be compared (${String(e?.message ?? e).split('\n')[0]})`);
+        unchecked.push(bd.label + ': the actual owned boundary frames could not be compared (' + String(e?.message ?? e).split('\n')[0] + ')');
         continue;
-      } finally {
-        fs.rmSync(path.join(outDir, `web-${bd.side}.mkv`), {force: true});
       }
       const edge = bd.side === 'in' ? mine[0] : mine.at(-1);
       let held = true;
@@ -833,6 +864,7 @@ async function webContractsGate(ctx, act, args, name, inputs, bundles = null) {
   } finally {
     if (own) own.release();
   }
+  sourceRead.verify();
   const details = {hold: n, gl, boundaries: list.length, checked: passed.length};
   const evidence = [...problems, ...unchecked, ...passed];
   if (problems.length) return gate(name, 'FAIL', problems[0], {engine, evidence, inputs, details});
@@ -854,13 +886,23 @@ export async function checkWebAct(ctx, act, args, {bundles = null} = {}) {
   const srcInputs = inputsFor(ctx, files);
   const engine = {name: 'slate web renderer (a dry-run emit: nothing written)', version: 'protocol 1'};
   let page = null;
+  let reverseRead = null;
   let failed = null;
   log(`act ${act}: opening its page (a dry run: nothing is written)`);
   try {
     // a network attempt is a gate here, not a refusal; a caller may give a page less time to register itself
     const extra = {on_blocked: 'report', ...(args.load_timeout_ms ? {load_timeout_ms: args.load_timeout_ms} : {})};
-    const out = await emitWebAct(ctx, act, args, captureBeats(ctx), {dryRun: true, extra});
-    page = out.find((a) => Number(a.act) === Number(act)) ?? null;
+    if (mixedScenesForAct(ctx, act).some((sc) => sc.engine === 'remotion')) {
+      reverseRead = await readReverseAct(ctx, act, {...args, ...extra});
+      const now = await computeReverseEvents(ctx, act, {args, evidence: reverseRead});
+      writeReverseMotion(ctx, act, reverseRead, {dryRun: true});
+      page = {...reverseRead.page, events: now.silent ? 0 : now.events.length, silent: Boolean(now.silent), beats: now.silent ? {silent: true, reason: now.reason} : now.events,
+        problems: now.problems, captures: now.captures, composition_inputs: {...reverseRead.capture.hashes}};
+      Object.assign(srcInputs, reverseRead.capture.hashes);
+    } else {
+      const out = await emitWebAct(ctx, act, args, captureBeats(ctx), {dryRun: true, extra});
+      page = out.find((a) => Number(a.act) === Number(act)) ?? null;
+    }
     if (!page) failed = refused('The open web renderer said nothing about the act.');
   } catch (e) {
     if (!(e instanceof EngineError)) throw e;
@@ -895,12 +937,14 @@ export async function checkWebAct(ctx, act, args, {bundles = null} = {}) {
       gates.push({...g, gate: `${p}.${suffix}`, inputs: {...(g.inputs ?? {}), ...srcInputs}, details: {...(g.details ?? {}), stage: STAGE}});
     }
   }
+  gates.push(...await checkRemotionShots(ctx, act, args, {read: reverseRead, bundles}));
   gates.push(bannedWords(ctx, act, args.banned_words, `${p}.banned_words`, null));
   if (args.never_claim !== undefined) gates.push(neverClaim(ctx, act, args.never_claim, `${p}.never_claim`, null));
   gates.push(literalsGate(ctx, act, `${p}.literals`));
   gates.push(webEventsGate(ctx, act, page, `${p}.events`, files));
   log(`act ${act}: boundary contracts`);
   gates.push(await webContractsGate(ctx, act, args, `${p}.contracts`, inputsFor(ctx, [...files, 'timing/shots.json']), bundles));
+  reverseRead?.capture.verify();
   return {act, engine: 'web', gates, status: worstOf(gates), passed: gates.every((g) => g.status === 'PASS')};
 }
 
@@ -945,6 +989,65 @@ export async function checkWebShots(ctx, act, args) {
     out.push(bannedWords(ctx, act, args.banned_words, `${p}.banned_words`, null, {files: copy, shots: [sc.shot]}));
     if (args.never_claim !== undefined) out.push(neverClaim(ctx, act, args.never_claim, `${p}.never_claim`, null, {files: copy, shots: [sc.shot]}));
     out.push(literalsGate(ctx, act, `${p}.literals`, sources));
+  }
+  return out;
+}
+
+/** Remotion replacements retain the act's module/copy/clock checks, scoped to their real scene and owned frames. */
+export async function checkRemotionShots(ctx, act, args, {read = null, bundles = null} = {}) {
+  const out = [];
+  for (const sc of mixedScenesForAct(ctx, act).filter((item) => item.engine === 'remotion')) {
+    const p = 'handin.act' + act + '.shot.' + sc.shot;
+    const capture = read?.capture ?? contextCapture(ctx, {brandPath: args.brand_path ?? null});
+    let loaded = read?.shots.find((item) => item.sc.shot === sc.shot)?.loaded ?? null;
+    const local = listFiles(sc.scene).filter((file) => /\.(tsx?|jsx?|mjs|json|txt)$/i.test(file)).map((file) => path.join(sc.scene, file));
+    let inputs = {...inputsFor(ctx, local), ...capture.hashes};
+    out.push(typecheckWith(ctx, path.join(slateDir(ctx.dir), 'tsconfig.shot-' + sc.shot + '.json'), p + '.typecheck'));
+    try {
+      if (!loaded) loaded = await loadRemotionShot(ctx, sc, {contextSources: capture.hashes});
+      inputs = {...inputs, ...loaded.source_hashes};
+      out.push(gate(p + '.module', loaded.indexLoaded ? 'PASS' : 'REVIEW',
+        loaded.indexLoaded ? 'the actual replacement module loads in Node' : 'only its declarations load; the picture module requires review: ' + loaded.indexError,
+        {inputs, details: {index: sc.index, comp: sc.comp, act: sc.act, frames: sc.frames}}));
+    } catch (error) {
+      if (!(error instanceof EngineError)) throw error;
+      out.push(gate(p + '.module', 'FAIL', String(error.message).split('\n')[0], {inputs, evidence: [error.message]}));
+    }
+    const sourceRoot = canonicalSource(path.join(ctx.dir, 'scenes'));
+    const imported = (loaded?.inputs ?? []).filter((file) => canonicalSource(file).startsWith(sourceRoot + path.sep) &&
+      fs.statSync(file, {throwIfNoEntry: false})?.isFile() && /\.(tsx?|jsx?|mjs|json|txt)$/i.test(file));
+    // One physical source is scanned once, even when local and captured paths use different aliases.
+    const copy = [...new Map([...local, ...imported].map((file) => [canonicalSource(file), file])).values()];
+    // Existing copy helpers accept film-relative paths; their gate inputs still include the full captured closure.
+    const relCopy = copy.map((file) => path.relative(ctx.dir, file));
+    out.push(bannedWords(ctx, act, args.banned_words, p + '.banned_words', null, {files: relCopy, shots: [sc.shot]}));
+    if (args.never_claim !== undefined) out.push(neverClaim(ctx, act, args.never_claim, p + '.never_claim', null, {files: relCopy, shots: [sc.shot]}));
+    out.push(literalsGate(ctx, act, p + '.literals', relCopy.filter((file) => SOURCE_EXT.test(file))));
+    if (loaded) {
+      out.push(wordMisses(loaded, p + '.word_misses', inputs));
+      if (loaded.usesKit) out.push(kitProblems(loaded, p + '.kit_problems', inputs));
+      out.push(await marginsGate(loaded, p + '.margins', inputs));
+      const character = characterGate(ctx, act, loaded, p + '.character', inputs);
+      if (character) out.push(character);
+      if (args.markup) {
+        const {markupGate} = await import('./markup.mjs');
+        out.push(await markupGate(ctx, act, {...args, shot: sc.shot}, p + '.markup', inputs));
+      }
+      if (args.determinism) {
+        const {determinismGate} = await import('./determinism.mjs');
+        out.push(await determinismGate(ctx, act, {...args, shot: sc.shot}, p + '.determinism', inputs, bundles));
+      }
+      loaded.source_capture?.verify();
+    } else {
+      for (const suffix of ['word_misses', 'margins']) out.push(gate(p + '.' + suffix, 'UNCHECKED',
+        'the replacement module did not load', {inputs}));
+      if (args.markup) out.push(gate(p + '.markup', 'UNCHECKED', 'the replacement module did not load', {inputs}));
+      if (args.determinism) out.push(gate(p + '.determinism', 'UNCHECKED', 'the replacement module did not load', {inputs}));
+    }
+    for (const result of out.filter((result) => result.gate.startsWith(p + '.'))) {
+      result.inputs = {...result.inputs, ...inputs};
+    }
+    capture.verify();
   }
   return out;
 }

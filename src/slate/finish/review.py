@@ -326,10 +326,14 @@ def sent_log(film: Film, n: int) -> list[dict]:
 
 
 def already_sent(film: Film, n: int, destination: str) -> bool:
-    """True when this exact packet already went to `destination` (so a re-run doesn't send it twice)."""
+    """True when this exact packet has a successful send, so a default re-run does not repeat it.
+
+    Parking alone is not delivery evidence. A partial send still counts here; explicit retries retain their
+    existing behavior rather than introducing a selective resend policy.
+    """
     sha = _packet_sha(film, n)
     return any(e.get("destination") == destination and e.get("packet_sha256") == sha
-               and (e.get("sent") or e.get("held")) for e in sent_log(film, n))
+               and e.get("sent") for e in sent_log(film, n))
 
 
 def to_downloads(film: Film, n: int, rec: dict, *, dry_run: bool = False) -> dict:

@@ -18,10 +18,11 @@ What's here now, and what each part does:
 - `status()`: the gate's state, for `slate sfx status` and doctor.
 - `palette`: the starting palette (proof 2's levels, kinds, materials, rules and sampled instruments) and a brand's own
   over it. Not gated: the mix, the score planner and the checks use it today.
-- `engine.spot()` / `engine.render()`: the engine's entry points. They pass the gate first; the renderer itself is
-  ported from the approved p3 pass once it's approved (sound_engine.py's wood, air, sub and swell voices; the p3
-  sampler for tonal roles; the p3 mix with its planned silences and split reverb returns), writing
-  `sound/sound_cues.json` (schema: sound_cues) and the ui, fx, tonal and verb stems the mix already reads.
+- `engine.spot()` / `engine.render()`: measured, seeded cues and the approved wood, air, sub, swell and sampled
+  voices, with planned silences and split hall returns. They write sound/sound_cues.json and sound/stems.
+- `engine.balanced()`: family processing, approved cue and ride preservation, and bounded feedback against the
+  actual delivered voice. The master publishes additive family stems, per-hit render records, measured sync and
+  exact before/after ride deltas. A changed input or failed render preserves the previous complete outputs.
 
 ElevenLabs' sound-effects model is never the designed sound. The plan keeps it as "learn from": at most a gap-filler a
 person asks for by name, never something the engine reaches for.

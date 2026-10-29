@@ -46,17 +46,26 @@ def _board_film(film_builder, on_screen: str, reading: dict | None, *, frames_sh
 @needs_ffmpeg
 def test_a_voice_matched_definition_needs_its_floor_not_its_word_count(film_builder):
     line = "Durability is how long a team holds its course"  # 9 words: 0.4 + 2.7 = 3.1 s normally
+    def add_measured_read(fb):
+        words = [{"w": word, "start": i * 0.1, "end": (i + 1) * 0.1}
+                 for i, word in enumerate(line.split())]
+        write_json(fb.path / "timing/vo_words.json", {"shots": {"S01": {"line": line, "words": words}}})
+        write_json(fb.path / "timing/vo_cues.json", {"cues": [{"shot": "S01", "at": 0.0,
+                                                             "file": "voice/fixture.wav"}]})
+
     plain = _board_film(film_builder, line, None, frames_shown=54)  # 1.8 s on screen
     with ocr.use_backend(ScriptedOCR({1: [line]})):
         r = text.readtime(plain.path)
     assert r.status == "FAIL" and "needs 3.10 s" in r.details["short"][0]
     matched = _board_film(film_builder, line, {"voice_matched": True, "reason": "the VO reads it in full as it lands"},
                           frames_shown=54)
+    add_measured_read(matched)
     with ocr.use_backend(ScriptedOCR({1: [line]})):
         r = text.readtime(matched.path)
     assert r.status == "PASS", r.details
     assert "needs 1.50 s, voice-matched" in r.details["rows"][0] and r.details["voice_matched"] == ["S01"]
     short = _board_film(film_builder, line, {"voice_matched": True, "reason": "read along"}, frames_shown=30)
+    add_measured_read(short)
     with ocr.use_backend(ScriptedOCR({1: [line]})):
         assert text.readtime(short.path).status == "FAIL"  # 1.0 s is still under the 1.5 s floor
 

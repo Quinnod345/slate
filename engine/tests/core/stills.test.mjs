@@ -122,6 +122,16 @@ describe('stills', () => {
     });
     const bundles = path.join(data, 'cache', 'bundles');
     const before = fs.readdirSync(bundles).sort();
+    const media = ['captures/demo/frames/f00000.jpg', 'plates/S01/plate/frames/f00000.jpg'];
+    const mediaState = () => media.map((rel) => {
+      const file = path.join(dir, rel);
+      const stat = fs.lstatSync(file, {bigint: true});
+      return {rel, bytes: fs.readFileSync(file), ino: stat.ino, nlink: stat.nlink,
+        size: stat.size, mtime: stat.mtimeNs, ctime: stat.ctimeNs};
+    });
+    const mediaBefore = mediaState();
+    const legacyPublic = path.join(dir, '.slate', 'public');
+    expect(fs.existsSync(legacyPublic)).toBe(false);
     const r = ok('stills', {film: dir, specs: ['Act1:0'], scale: 1, out_dir: path.join(root, 'media-out'), gl: 'swangle'}, {data});
     expect(r.bundle_reused).toBe(false);
     const raw = spawnSync('ffmpeg', ['-v', 'error', '-i', r.stills[0].file, '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'], {maxBuffer: 1 << 24}).stdout;
@@ -129,10 +139,10 @@ describe('stills', () => {
     const near = (a, b) => a.every((v, i) => Math.abs(v - b[i]) <= 16);
     expect(near(px(80, 90), [255, 0, 0]), String(px(80, 90))).toBe(true);
     expect(near(px(240, 90), [0, 0, 255]), String(px(240, 90))).toBe(true);
-    // the render's own bundle is gone; the film's media is where it was, and only links point at it
+    // The render removes its owned bundle and leaves both source frames untouched, without a legacy public view.
     expect(fs.readdirSync(bundles).sort()).toEqual(before);
-    expect(fs.existsSync(path.join(dir, 'captures/demo/frames/f00000.jpg'))).toBe(true);
-    expect(fs.lstatSync(path.join(dir, '.slate/public/captures')).isSymbolicLink()).toBe(true);
+    expect(mediaState()).toEqual(mediaBefore);
+    expect(fs.existsSync(legacyPublic)).toBe(false);
   });
 
   const kitReview = path.join(ENGINE, 'remotion', 'kit', 'review', 'entry.tsx');

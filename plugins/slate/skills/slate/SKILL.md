@@ -46,7 +46,9 @@ generation runs on the Cloud API. Details and edge cases: [routing](references/r
    the connector or the dashboard.
 3. **Read `brief/GOAL.md` and `brief/PRODUCTION.md`.** After any summary or compaction, re-derive the checklist from the
    verbatim request in GOAL.md, never from memory, and assume something was lost until you've checked.
-4. **Do the next thing** `slate status` names, with the skill for that stage (section 4).
+4. **Read selected creative history**, when status points to it: `slate history context`. Preserve each pattern's
+   scope and counterexamples. Missing history does not block work. See [creative history](references/creative-history.md).
+5. **Do the next thing** `slate status` names, with the skill for that stage (section 4).
 
 ## 3. Starting a film: intake
 
@@ -161,15 +163,15 @@ keeps the blocks between its markers current; write anything else around them. S
 **done** is verified with named evidence; a proof is not a finished shot. `slate status --write` refreshes the table.
 See [tracker](references/tracker.md).
 
-## 9. Perfect, don't replace
+## 9. Preserve the baseline and follow the feedback
 
-When the owner approves something and adds notes, the notes are perfecting notes. Apply them to that exact artifact,
-keep everything else as it was, and check the revision against the approved version by measurement (levels against
-the voice, sync, palette). A note that seems to need a new approach gets a question first. Research only fixes a named
-flaw; it never becomes a redesign. (One film's sound went off the rails exactly this way: small notes were answered
-with a new sound system, and the effects that had stood out ended up buried.) `slate revise start <file> --notes …
---by <name>` turns the notes into a checklist of changes to that file, `slate revise check` measures the revision
-against the approved version, and `slate revise done` refuses to close while anything else moved.
+When the owner approves something and adds notes, preserve the approved version and apply the requested changes.
+Keep unrelated work stable and compare the revision by measurement and listening. If they ask for a redesign or
+research, do that within the authorized scope; do not ask the same creative question again. Ask only for information
+that is missing. `slate revise start <file> --notes … --by <name>` snapshots the baseline and records every note,
+`slate revise check` compares it, and `slate revise done` records the result without inventing renewed approval.
+Draft feedback can be recorded with `slate history note` before anything is approved. Preserve the unsuccessful
+attempts as well as the preferred ones: [creative history](references/creative-history.md).
 See [review and correct](references/review-and-correct.md).
 
 ## 10. Resilience

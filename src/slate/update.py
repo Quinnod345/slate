@@ -6,7 +6,7 @@
    has local changes the pull would overwrite, is refused with the way out.
 2. When the pull changed `pyproject.toml` or `uv.lock`, the environment is synced (slate.install.env).
 3. The links are made again by the updated installer itself: new skills get linked, removed ones tidied away.
-4. The Node engine is checked against its pin in registry.json (Remotion moves only after the parity check).
+4. Refresh the installed Node engine's sources and changed dependencies, then check its Remotion pin.
 5. `slate doctor` runs last.
 
 Every agent reaches Slate through symlinks into this checkout and one CLI shim, so there's nothing to copy and
@@ -37,7 +37,7 @@ UPDATE_DESCRIPTION = """Bring this checkout up to date, so every agent gets the 
   1. git pull --ff-only (never a merge; a diverged checkout, or local changes in the way, is refused)
   2. sync the environment when pyproject.toml or uv.lock changed
   3. re-link skills and shims with the updated installer (new skills linked, removed ones tidied)
-  4. check the Node engine against its Remotion pin in registry.json
+  4. refresh the installed Node engine and check its Remotion pin in registry.json
   5. run slate doctor
 
 Agents reach Slate through symlinks into this checkout and one CLI shim, so nothing is copied and nothing is
@@ -125,6 +125,8 @@ def engine_check(repo: Path | None = None) -> dict:
     complete, then the checkout's own engine/. The pin moves only after the render-parity check, and registry.json
     and engine/package.json must move together.
     """
+    from slate.engine import install  # noqa: PLC0415
+
     repo = Path(repo or paths.REPO)
     registry = jsonio.read(repo / "registry.json", default={}) or {}
     pin = str(((registry.get("tools") or {}).get("remotion") or {}).get("version") or "") or None
@@ -140,12 +142,23 @@ def engine_check(repo: Path | None = None) -> dict:
                                "They move together, after the render-parity check.")
     candidates = []
     if os.environ.get("SLATE_ENGINE_DIR"):
-        candidates.append(("env", Path(os.environ["SLATE_ENGINE_DIR"]).expanduser()))
-    candidates += [("installed", paths.engine_home(pin)), ("checkout", repo / "engine")]
+        # The bridge never falls back from an explicit override. Report that selected folder's failure even when
+        # a healthy installed or checkout engine exists, or update would report success for an engine it cannot run.
+        override = Path(os.environ["SLATE_ENGINE_DIR"]).expanduser()
+        candidates.append(("env", override))
+        for relative in ("cli.mjs", "node_modules/remotion/package.json"):
+            if not (override / relative).is_file():
+                out["problems"].append(f"SLATE_ENGINE_DIR selects {override}, which has no {relative}.")
+        if install.marker(override).get("packages_ready", True) is False:
+            out["problems"].append(f"The dependency installation in SLATE_ENGINE_DIR ({override}) did not finish.")
+        if out["problems"]:
+            out["next"].append("Unset SLATE_ENGINE_DIR, or point it at a complete engine with the pinned Remotion.")
+    else:
+        candidates += [("installed", paths.engine_home(pin)), ("checkout", repo / "engine")]
     running = None
     for source, folder in candidates:
         remotion = folder / "node_modules" / "remotion" / "package.json"
-        if (folder / "cli.mjs").is_file() and remotion.is_file():
+        if install.is_complete(folder):
             running = {"source": source, "folder": str(folder), "remotion": _version(remotion)}
             break
     out["engine"] = running
@@ -181,9 +194,40 @@ def _relink(repo: Path, *, dry_run: bool) -> dict:
         from slate.install.output import first_json  # noqa: PLC0415
 
         parsed = first_json(proc.stdout or "")
-        return parsed if isinstance(parsed, dict) else {"exit_code": proc.returncode, "tail": _tail(proc)}
+        return {**parsed, "exit_code": proc.returncode} if isinstance(parsed, dict) else {
+            "exit_code": proc.returncode, "tail": _tail(proc)}
     return core.install(repo=repo, agents=agents, dry_run=dry_run, mcp=False, jobs_agent=False, quinn=False,
                         doctor=False)
+
+
+def _refresh_engine(repo: Path, *, dry_run: bool) -> dict:
+    """Keep an installed engine current even when an update leaves its Remotion version unchanged.
+
+    Compare installed bytes on every run so retrying an interrupted update repairs the copy too. An explicit
+    engine override belongs to its caller; a checkout that has never installed an engine keeps using its checkout.
+    """
+    from slate.engine import install  # noqa: PLC0415
+
+    if os.environ.get("SLATE_ENGINE_DIR"):
+        return {"did": "skipped", "why": "SLATE_ENGINE_DIR selects an explicitly managed engine"}
+    checked = engine_check(repo)
+    if checked["problems"]:
+        return {"did": "refused", "why": "the engine is off its Remotion pin", "ok": False}
+    pin = checked.get("pin")
+    if not pin or not (repo / "engine/cli.mjs").is_file():
+        return {"did": "skipped", "why": "no installable engine source in this checkout"}
+    planned = install.plan(pin, source=repo / "engine")
+    dest = Path(planned["destination"])
+    if not planned["installed"] and not install.is_complete(dest) and not install.installed_versions():
+        return {"did": "skipped", "why": "no installed engine to refresh"}
+    npm_ci = not planned["packages_match_lockfile"] or not planned["packages_installed"]
+    if planned["sources_match"] and not npm_ci:
+        return {"did": "unchanged", "destination": str(dest)}
+    if dry_run:
+        return {"did": "shown", "destination": str(dest), "npm_ci": npm_ci,
+                "why": "refresh changed engine sources and dependencies after the pull"}
+    install.ensure(pin, npm_ci=npm_ci, source=repo / "engine")
+    return {"did": "refreshed", "destination": str(dest), "npm_ci": npm_ci}
 
 
 def run(*, repo: Path | None = None, dry_run: bool = False, doctor: bool = True, sync_env: bool = True,
@@ -211,6 +255,7 @@ def run(*, repo: Path | None = None, dry_run: bool = False, doctor: bool = True,
         for note in (out["links"].get("next_steps") or []):
             if note not in out["next_steps"]:
                 out["next_steps"].append(note)
+    out["engine_refresh"] = _refresh_engine(repo, dry_run=dry_run)
     out["engine"] = engine_check(repo)
     out["next_steps"].extend(out["engine"]["next"])
     if doctor and not dry_run:
@@ -219,8 +264,12 @@ def run(*, repo: Path | None = None, dry_run: bool = False, doctor: bool = True,
         out["doctor"] = core.doctor_step(layout.resolve(repo=repo),
                                          python=str(repo / ".venv" / "bin" / "python")
                                          if (repo / ".venv" / "bin" / "python").exists() else sys.executable)
-    link_failures = (out.get("links") or {}).get("failures")
-    out["ok"] = out["engine"]["status"] in ("ok", "not installed", "unchecked") and not link_failures
+    links = out.get("links") or {}
+    doc = out.get("doctor")
+    links_ok = not links.get("failures") and links.get("ok", True) and links.get("exit_code", 0) == 0
+    doctor_ok = doc is None or (doc.get("status") in ("green", "yellow") and doc.get("exit_code", 0) == 0)
+    out["ok"] = (out["engine"]["status"] in ("ok", "not installed", "unchecked") and links_ok and doctor_ok
+                 and out["engine_refresh"].get("ok", True))
     return out
 
 
@@ -242,6 +291,9 @@ def _lines(res: dict) -> list[str]:
         lk = links_res["links"]
         lines.append(f"Links: {lk.get('changed', 0)} changed, {lk.get('kept', 0)} already right.")
     eng = res["engine"]
+    if res.get("engine_refresh"):
+        refresh = res["engine_refresh"]
+        lines.append(f"Engine sources: {refresh['did']}" + (f" ({refresh['why']})" if refresh.get("why") else ""))
     running = eng.get("engine") or {}
     lines.append(f"Engine: Remotion pinned {eng.get('pin')}; "
                  + (f"{running.get('source')} engine has {running.get('remotion')}" if running else "no engine found")

@@ -67,7 +67,7 @@ A take that fails any gate is out:
 
 | Gate | Rule |
 |---|---|
-| Full voice | two tests, both required, on every span: the statistical rule (breath index over 1 SD, two core measures over 1.5, or the voice dropping out), and no span breathier than the breathiest untagged read of the same words |
+| Full voice, when `tag_policy.avoid_low_effort=true` | two tests on every span: the statistical rule and no span breathier than the breathiest untagged read of the same words. Without this scoped preference the measurements stay in the report and do not disqualify the take. |
 | Words | Whisper hears the script word for word, no repeat, no tag read aloud |
 | Creak | no more creak than the untagged reads, plus one point |
 | Fits | the paced take fits its shot |

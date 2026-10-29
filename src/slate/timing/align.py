@@ -5,7 +5,7 @@ Whisper runs exactly as the films ran it: `whisper <take> --model turbo --langua
 result as evidence). It runs through the voice module's one Whisper runner, `slate.voice.align.transcribe`, so
 SLATE_WHISPER (or slate.toml's [voice] whisper) names the CLI for timing exactly as it does for the voice stages, and
 the job queue's whisper slot keeps it to one at a time. Results are cached per take in
-timing/align/<engine>/<shot>.json and reused while the take's SHA-256, the engine, the model and the language are
+timing/align/<engine>/<shot>.json and reused while the verified pre-polish source's SHA-256, the engine, the model and the language are
 unchanged, so a rebuild never re-transcribes an approved take.
 
 In replay mode (SLATE_FAKE_VENDORS=1: tests, evals, `slate demo`) nothing is transcribed: a recorded fixture answers
@@ -24,7 +24,7 @@ from pathlib import Path
 
 from slate import config, jsonio, log, procs, replay
 from slate.errors import MissingPrerequisite, SlateError
-from slate.timing.takes import Take
+from slate.timing.takes import Take, for_alignment
 
 ENGINES = ("whisper", "elevenlabs")
 WHISPER_TIMEOUT_S = 900  # one take; turbo on this Mac's CPU takes well under a minute for a 10 s line
@@ -172,27 +172,44 @@ def from_voice_stage(film_dir: Path, shot: str, sha: str, engine: str, replaying
         return None
     return {"take_sha256": sha, "language": doc.get("language"), "engine": engine,
             "model": eng.get("model"), "version": eng.get("version") or ("replay" if is_replay else None),
-            "replay": is_replay, "from": str(VOICE_ALIGN / f"{shot}.json"),
+            "replay": is_replay, "from": str(VOICE_ALIGN / f"{shot}.json"), "source_text": doc.get("source_text"),
             "result": {"text": doc.get("text", ""), "segments": doc.get("segments") or [],
                        "language": doc.get("language")}}
 
 
 def reusable(film_dir: Path, shot: str, take: Take, *, engine: str = "whisper", language: str = "en",
-             film: dict | None = None) -> dict | None:
+             film: dict | None = None, line: str | None = None) -> dict | None:
     """The alignment align_take reuses for this take without transcribing anything (the voice stage's own record,
     else timing's cache of the same audio, language and model), or None when it would have to transcribe."""
     if engine not in ENGINES:
         raise SlateError(f"Unknown aligner {engine!r}; use one of: {', '.join(ENGINES)}.")
+    take = for_alignment(film_dir, take)
     sha = take.sha256()
     replaying = replay.fake_vendors()
     model = whisper_model(film) if engine == "whisper" else None
     reused = from_voice_stage(film_dir, shot, sha, engine, replaying)
     if reused is not None:
-        reused["take"] = take.rel
-        return reused
+        if engine == "whisper" and not reused.get("replay"):
+            from slate.voice import lang  # noqa: PLC0415
+
+            aliases = {language.casefold()}
+            try:
+                table = lang.load(language)
+                aliases.update(str(table[k]).casefold() for k in ("name", "whisper_language") if table.get(k))
+            except SlateError:
+                pass
+            if str(reused.get("language") or "").casefold() not in aliases or reused.get("model") != model:
+                reused = None
+        elif engine == "elevenlabs":
+            if line is None or reused.get("source_text") != line:
+                reused = None
+        if reused is not None:
+            reused["take"] = take.rel
+            return reused
     cached = jsonio.read(cache_path(film_dir, engine, shot), default=None)
     if (isinstance(cached, dict) and cached.get("take_sha256") == sha and cached.get("language") == language
-            and (model is None or cached.get("model") == model) and bool(cached.get("replay")) == replaying):
+            and (model is None or cached.get("model") == model) and bool(cached.get("replay")) == replaying
+            and (engine != "elevenlabs" or (line is not None and cached.get("line_sha256") == jsonio.sha256_obj(line)))):
         return cached
     return None
 
@@ -203,9 +220,10 @@ def align_take(film_dir: Path, shot: str, take: Take, line: str, *, engine: str 
     if engine not in ENGINES:
         raise SlateError(f"Unknown aligner {engine!r}; use one of: {', '.join(ENGINES)}.")
     if not force:
-        found = reusable(film_dir, shot, take, engine=engine, language=language, film=film)
+        found = reusable(film_dir, shot, take, engine=engine, language=language, film=film, line=line)
         if found is not None:
             return found
+    take = for_alignment(film_dir, take)
     sha = take.sha256()
     replaying = replay.fake_vendors()
     model = whisper_model(film) if engine == "whisper" else None
@@ -226,6 +244,8 @@ def align_take(film_dir: Path, shot: str, take: Take, line: str, *, engine: str 
     record = {"take": take.rel, "take_sha256": sha, "language": language, **info,
               "made_at": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"),
               "result": {k: v for k, v in result.items() if k not in ("replay", "replay_key")}}
+    if engine == "elevenlabs":
+        record["line_sha256"] = jsonio.sha256_obj(line)
     if write_cache:
         jsonio.write_atomic(path, jsonio.mark_generated(record, "slate timing words"))
     return record

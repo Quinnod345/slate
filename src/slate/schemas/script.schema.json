@@ -89,8 +89,17 @@
                 "properties": {"voice_matched": {"anyOf": [{"type": "boolean"}, {"type": "array", "items": {"type": "string"}}]},
                                "not_for_reading": {"anyOf": [{"type": "boolean"}, {"type": "array", "items": {"type": "string"}}]},
                                "labels": {"type": "boolean"},
-                               "reason": {"type": "string"}}}
+                               "reason": {"type": "string"},
+                               "count_events": {"$ref": "#/$defs/count_events"}}}
    }
+  },
+  "count_events": {
+   "type": "array", "minItems": 1,
+   "description": "Exact literal on_screen display parts and their distinct canonical visual event ids. Metadata needs no exemption reason. The counted final display holds for at least 2 s after its latest declared landing and complete legible onset; the ids remain exact through shot renumbering.",
+   "items": {"type": "object", "required": ["text", "events"], "additionalProperties": false,
+             "properties": {"text": {"type": "string", "minLength": 1, "pattern": "\\S"},
+                            "events": {"type": "array", "minItems": 1, "uniqueItems": true,
+                                       "items": {"type": "string", "minLength": 1, "pattern": "\\S"}}}}
   },
   "source_ref": {
    "oneOf": [

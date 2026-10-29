@@ -1,7 +1,8 @@
 # Sound taste
 
 The owner's taste, as it was stated and as the films proved it. It's the starting point for every brand; a brand's own
-palette can change the materials and the key, never the principles.
+palette can change the materials, key and expressive grammar. The current brief and newer listening feedback take
+priority. Read `slate history context --topic sound` for scoped evidence, reversals and counterexamples.
 
 ## The bar
 
@@ -9,7 +10,7 @@ The approved proof: "intentional", the sound "stuck out but wasn't too loud, and
 on in the video". Sound effects locked to the picture are a signature the owner loves: every visible beat (a card
 landing, a chip flipping, a check, a count) gets a small, quiet sound, within a frame.
 
-## The rules
+## The warm starter's choices
 
 1. **Pads, small soft felt notes, hollow wood clicks and clacks.** No chimes, no bells, nothing metallic or glass, no
    buzzers. (The first proof was "very chime-heavy"; the approved one had none.)
@@ -37,3 +38,8 @@ landing, a chip flipping, a check, a count) gets a small, quiet sound, within a 
 
 By ear: the owner listens to proofs and approves them. Measurements (levels against the voice, brightness, repeats,
 glides, drones) protect an approved sound from drift; they never approve one.
+
+These choices are not universal bans on metallic instruments, synthesis, glides, drones or generated sound. A film
+may need any of them. Choose deliberately, retain the version comparison, and configure the brand's palette for the
+chosen sound. Automatic timbre detectors can misclassify polyphonic notes or slow attacks; keep that uncertainty
+visible and inspect the actual audio before treating the label as an audible defect.

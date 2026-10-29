@@ -5,9 +5,15 @@ logo), it needs its own motion spec. Every rule in it is either sourced (from re
 or computed from the brand's artwork and the film's own word timings. This method was written after a character's
 first version was called "super glitchy"; the second, built to it, was approved as perfect.
 
-**The bar:** playful and fluttery is compatible with perfectly synchronized, as long as the parts move as one system,
-on one clock, a few times, cleanly, with stillness in between. Motion that feels hand-made, where every move has one
-reason and lands with its sound.
+**The bar:** playful and fluttery is compatible with perfectly synchronized. The defect feedback below concerned
+jitter, clipping and overlap; it did not ask every character to become quiet. The earlier radial mark method used
+coordinated gestures with stillness between them. Keep that original direction, feedback and repair together, and use
+the latest brief and authorized feedback for the current character.
+
+This document describes the current kit's radial rig and a product-film choreography recipe, not a universal character
+policy. The kit's channel, phase, lint, calm and clipping contracts still apply when this rig is used; current QA also
+checks waveforms, loop period and applicable speeds. A requested different grammar needs an implementation that can
+meet its applicable checks. Do not claim a supported creative choice automatically overrides those technical limits.
 
 Frame counts below are at about 30 fps and speeds at a 1080-line frame; scale both to the film's own rate and size.
 
@@ -33,7 +39,7 @@ Frame counts below are at about 30 fps and speeds at a 1080-line frame; scale bo
   splits into separate parts, where parts of the same group first touch when pulled in, and where the centre closes.
 - Store the result in the brand's pack (`motif`: parts, shape, sizes, groups, curves, mark ratio, gestures).
 
-## 2. Channels: the only things that move
+## 2. The radial kit's channels
 
 - **The whole mark**: its turn (rests at multiples of its symmetry angle), the whole avatar's scale, the mark's scale
   inside its disc, and the mark's offset from the disc's centre.
@@ -52,7 +58,7 @@ Frame counts below are at about 30 fps and speeds at a 1080-line frame; scale bo
   at time minus index times delay. Biology calls a fixed lag between neighbours a metachronal rhythm; perception calls
   it common fate: parts that move with the same timing read as one object.
 
-## 4. Three phase relationships, and no others
+## 4. The radial kit's three phase relationships
 
 | Mode | Offset for the part in slot k | Symmetry | Typical use |
 |---|---|---|---|
@@ -76,12 +82,14 @@ Frame counts below are at about 30 fps and speeds at a 1080-line frame; scale bo
 - Good radial marks change the whole mark at once: a ring that moves outward to respond and inward to listen, dots
   rooted in consistent paths and timing, a breathing flower driven by one container animation with no per-part delay.
 
-## 6. No high frequencies
+## 6. Loop checks and the earlier gesture recipe
 
-- **Minimum half-period of 8 frames**: consecutive reversals of any channel at least 8 frames apart, so a full swing
-  takes at least 16 frames (under about 2 Hz).
-- **At most one overshoot per gesture**, and only in the one gesture that needs it (a wave's small dip).
-- **Nothing loops except a breath**, with a cycle of at least 44 frames. No idle loop.
+- **Current loop floor:** at least 16 frames and no faster than 1.9 Hz; a brand can demand a slower loop, not loosen
+  this floor. The earlier 30 fps recipe spaced consecutive reversals at least 8 frames apart.
+- **Earlier overshoot recipe:** one small dip in the wave. Other expressive peaks are creative choices, but the chosen
+  curve and brand overshoot policy must support them and the kit's applicable checks must still pass.
+- **Earlier loop recipe:** a breath with a cycle of at least 44 frames and no other idle loop. Sustained motion may
+  serve another brief; preserve current rig symmetry, determinism, loop and hand-in constraints.
 - **A loop that turns** (a thinking loop that turns the mark as it breathes) turns exactly one symmetry step per cycle,
   so every cycle ends on the rest mark. Never turn it linearly and round to rest afterwards.
 - Why: blur length follows speed, so a wobble at f Hz makes the blur pulse at 2f, and flicker sensitivity peaks near
@@ -93,9 +101,10 @@ Frame counts below are at about 30 fps and speeds at a 1080-line frame; scale bo
 - **Zero velocity at both ends** of every move, or hand the exact velocity to the next move. Parts use only rest-to-rest
   curves: a sine in-out for nearly everything, and a zero-bounce-spring shape for a quick turn that settles onto itself.
   Never the entrance, exit, state or linear eases.
-- **At most 30 px a frame** for every point of every part. The renderer spreads 16 samples over a 180-degree shutter, so
+- **The default is at most 30 px a frame** for every point of every part. The renderer spreads 16 samples over a 180-degree shutter, so
   the gap between samples is the speed over 32; 30 px a frame keeps it under 1 px. Up to about 48 only at the crest of
-  a long flight the beat can't afford to slow.
+  a long flight the beat could not afford to slow was an earlier recipe exception, not an automatic QA allowance.
+  Current brand speed configuration or a hash-bound review item must account for a move beyond the default.
 - **At most 8 px a frame squared**: a point's movement per frame changes by no more than 8 px from one frame to the
   next, so its blur length changes by no more than 4 px.
 - **A flight takes at least max(16, chord ÷ 19) frames**, so its crest stays under 30 px a frame.
@@ -135,9 +144,11 @@ Frame counts below are at about 30 fps and speeds at a 1080-line frame; scale bo
 - Drop any per-part motion under 2 px at the current size: it reads as shimmer, not gesture. Hold parts on stable
   sub-pixel positions (a spinner's jitter was cured by keeping successive frames within a fifth of a pixel).
 
-## 11. Stillness is the default
+## 11. Stillness in this kit's choreography
 
-- Between gestures it doesn't move: consecutive frames are identical. No float, no idle, no breathing on its own.
+- The earlier recipe holds between gestures. The current kit's character hand-in checks also require stillness between
+  its gestures and calm after them. That constraint must be reported honestly if a requested sustained treatment does
+  not fit this implementation; it is not a reason to reinterpret the request as a universal preference for stillness.
 - **Nothing is driven by the voice's loudness.** Speech loudness fluctuates mostly between 2 and 8 Hz, right in the
   jitter band, and a film knows every word in advance: key motion to events, never to amplitude.
 - Knowing when not to move matters as much as moving; even audio-first products script their states. Delight means more
@@ -168,8 +179,8 @@ Frame counts below are at about 30 fps and speeds at a 1080-line frame; scale bo
   hello (an entrance and a breath), yes (a turn that lands on itself), attention (a lean), thinking (a breath), answering
   (a pulse), delight (a wave), care (a hold), landing (a ripple), home, goodbye (a turn). A brand defines its own in its
   pack (`motif.gestures`).
-- **Never use a gesture outside its meaning.** When a treatment asks for a feeling the vocabulary doesn't cover, use
-  staging instead.
+- **Keep a gesture's meaning clear.** When the current treatment asks for another feeling, author its vocabulary in the
+  brand's pack or use staging within the kit's supported channels; do not let the default vocabulary veto the brief.
 - **Tempo carries meaning** (a fast pulse reads as an error, a slow one as rest); a small vocabulary on consistent paths
   reads as a character; a defined start and end, anticipation then release, reads as intentional.
 - **Porting a product animation** to the rig: keep its choreography and replace its strong out-ease with the rig's
@@ -208,7 +219,8 @@ Frame counts below are at about 30 fps and speeds at a 1080-line frame; scale bo
 - **Carry it between surfaces on its own curve in screen space**, whatever the camera does. Each carry ends no earlier
   than any camera move it overlaps (a carry that ended first kinked the character's velocity at about 8 px a frame
   squared), and lands on a fixed target, never a moving point.
-- Its sounds are soft felt notes (its motif), a small wood tick and soft pads, never chimes (slate-sound).
+- The earlier warm sound recipe used felt notes, a wood tick and pads. The current sound palette can choose other
+  materials, including chimes when its measured timbre policy allows them (slate-sound).
 
 ## 16. Sending parts away
 
@@ -229,7 +241,11 @@ symmetry (section 5), so it has rules of its own:
   own layer moves faster on screen. Keep a floor so a signature flight stays unhurried, and never shorter than
   max(16, chord ÷ 19) frames (section 7).
 
-## 17. Acceptance tests
+## 17. Acceptance of this method
+
+Keep the original recipe's tests as evidence of what it achieved. The current hard plan acceptance and kit hand-in
+checks still require their own proof; a changed creative direction does not silently waive them. Speed and overshoot
+results must be assessed against the current configured law rather than treating the historical 48 px crest as a pass.
 
 1. **Determinism**: any frame rendered on its own is bit-identical to the same frame rendered in sequence.
 2. **Calm**: at rest the frame after every gesture ends, and at both ends of every act.

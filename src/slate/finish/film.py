@@ -201,27 +201,7 @@ class Film:
 
     def captions(self) -> list[Path]:
         """Every caption file the film has: the machine cues (captions.json), SRT and WebVTT."""
-        out: list[Path] = []
-        mod = deps.module("slate.qa.film")
-        cands = list(getattr(mod, "CAPTION_CANDIDATES", ())) if mod else []
-        dirs = list(getattr(mod, "CAPTION_DIRS", ("voice/captions", "captions"))) if mod else ["voice/captions"]
-        for rel in cands:
-            if not str(rel).startswith(DELIVER_DIR) and self.ctx.exists(rel):
-                out.append(self.path(rel))
-        for d in dirs:
-            if d.startswith(DELIVER_DIR):
-                continue  # never read captions back out of a delivery
-            folder = self.path(d)
-            if folder.is_dir():
-                for p in sorted(folder.iterdir()):
-                    if p.is_file() and p.suffix.lower() in (".srt", ".vtt") and not p.name.startswith("."):
-                        out.append(p)
-        seen, uniq = set(), []
-        for p in out:
-            if p.resolve() not in seen:
-                seen.add(p.resolve())
-                uniq.append(p)
-        return uniq
+        return self.ctx.caption_paths(include_delivery=False)
 
     # ------------------------------------------------------------------ masters
     def master_record(self) -> dict | None:

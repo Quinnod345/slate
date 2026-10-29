@@ -12,8 +12,12 @@
                 motion trace says which element shows the statement (its `text`), a moment counts only while the
                 element is at least 90% opaque and moving under 8 px a frame at 1080p (scaled to the film). A shot may
                 declare exemptions in script.json (`reading`, with a reason): a voice-matched definition needs only
-                the 1.5 s floor, and a surface not meant to be read isn't timed. `labels` (the words name what the
-                picture shows) means what it means to the script gates and buys no read time (reading_declarations);
+                the 1.5 s floor and stays through its measured spoken phrase, and a surface not meant to be read
+                isn't timed. Declared labels name what the picture shows: labels of at most three authored words use
+                a 1 s default floor and keep the per-word requirement; longer labels retain their full requirement.
+                Explicit policies and the stronger number and voice-matched obligations still apply. Declared
+                count_events bind exact final displays to canonical visual events; each holds for 2 s after the
+                latest declared landing and its first complete, legible onset;
 - captions      at most 2 lines of 42 characters, at most 17 characters a second (the format and film.json may
                 tighten these, never loosen them), at least 1 s each, in order and never overlapping, and word for
                 word the booth script (timing/captions.json, the voice module's cues, first);
@@ -24,6 +28,7 @@ from __future__ import annotations
 
 import difflib
 import importlib
+import math
 import re
 from pathlib import Path
 from typing import Any, Iterator
@@ -31,7 +36,7 @@ from typing import Any, Iterator
 from slate import __version__, gates
 from slate.errors import MissingPrerequisite, SlateError
 from slate.gates import GateResult
-from slate.qa import brandinfo, ocr as ocrmod, textmatch
+from slate.qa import brandinfo, ocr as ocrmod, readtime_counts, textmatch
 from slate.qa.checks import Sub, combine, plural
 from slate.qa.film import FilmContext, context, iter_storyboard_shots
 
@@ -255,17 +260,31 @@ READING_FLAGS = ("not_for_reading", "voice_matched", "labels")
 #: Declarations that speak for the whole shot (`true`, never a list of statements), as the script gate reads them.
 #: `labels` means what it means to the script gates (slate.story.gates.reading): the shot's on-screen words name what
 #: the picture shows (a product's own UI, a Simulator label, an end card's name and address), not a second script. It
-#: answers the script's voice-share rule and nothing else, so here it exempts nothing: its words are timed in full.
+#: answers the script's voice-share rule. Labels of at most three authored words use a 1 s default floor, keeping the
+#: per-word calculation; longer labels are timed in full. A declaration never bypasses the number or read-along rule.
 WHOLE_SHOT_FLAGS = ("labels",)
 
 
-def _statements(ctx: FilmContext) -> tuple[list[tuple[str, str]], str | None]:
+def _statements(ctx: FilmContext, decls: dict[str, dict] | None = None, *, all_parts: bool = False) -> tuple[list[tuple[str, str]], str | None]:
     """(shot, statement) pairs to time, and where they came from."""
     for label, shots in (("script/storyboard.json", list(iter_storyboard_shots(ctx.storyboard or {}))),
                          ("timing/shots.json", ctx.shots)):
         # a source counts only if it says what's on screen (an empty on_screen says "nothing"; no key says nothing)
         if any("on_screen" in s for s in shots):
-            items = [(str(s.get("id")), part) for s in shots for part in textmatch.statement_parts(s.get("on_screen"))]
+            items = []
+            for s in shots:
+                sid = str(s.get("id"))
+                parts = textmatch.literal_parts(s.get("on_screen"))
+                if all_parts:
+                    items += [(sid, part) for part in parts]
+                    continue
+                labels = (decls or {}).get(sid, {}).get("labels") is True
+                lang = (ctx.film.get("language") or (ctx.script or {}).get("language") or "en") if labels else "en"
+                generic = textmatch.statement_parts(s.get("on_screen"), labels=labels, lang=lang)
+                bound = {row["text"] for row in (decls or {}).get(sid, {}).get(readtime_counts.KEY, [])}
+                # Exact count declarations opt bare values into timing without broadening generic extraction.
+                items += [(sid, part) for part in generic]
+                items += [(sid, part) for part in parts if part in bound and part not in generic]
             return items, label
     return [], None
 
@@ -280,13 +299,17 @@ def reading_declarations(ctx: FilmContext) -> tuple[dict[str, dict], list[str]]:
     - not_for_reading: a surface shown too small to read on purpose (a report at 0.6 scale as a closing object). Its
       small print isn't timed; only its large elements must read, so a list names exactly which statements are exempt;
     - voice_matched: a definition the voice reads along as it lands. It may run past the on-screen word budget, and
-      must stay complete for 1.5 s (the floor) rather than 0.4 s + 0.3 s a word;
+      must stay complete for 1.5 s (the floor) rather than 0.4 s + 0.3 s a word, and remain through the matching
+      phrase's measured final word;
     - labels: the on-screen words name what the picture shows (a product's UI, a Simulator label, an end card), the
-      script gates' meaning exactly. It answers their voice-share rule only, so it buys no read time: its statements
-      are timed in full, like any other. It covers the whole shot (`true`), as the script gates read it.
+      script gates' meaning exactly. It answers their voice-share rule and lowers the default floor to 1 s only for
+      labels of at most three authored words. Base and per-word requirements remain; longer labels are timed in
+      full. Explicit reading policies, numbers and measured read-along obligations retain their requirements. It
+      covers the whole shot (`true`), as the script gates read it.
 
     An exemption says why (`reason`), and names statements the shot really shows: otherwise it's a problem, never a
-    quiet pass. Returns ({shot: {flag: True | set of squashed statements, "reason": str}}, problems).
+    quiet pass. count_events is metadata, not an exemption: [{text: exact display part, events: exact visual ids}]
+    needs no reason. It is retained independently of the flags. Returns declarations by shot and their problems.
     """
     out: dict[str, dict] = {}
     problems: list[str] = []
@@ -297,6 +320,7 @@ def reading_declarations(ctx: FilmContext) -> tuple[dict[str, dict], list[str]]:
         problems.append(f"script/script.json can't be read, so its read-time exemptions can't be either: {exc}")
     script_shots_by_id = {str(shot.get("id")): shot for _w, shot in script_shots(script)}
     board = {str(s.get("id")): s for s in iter_storyboard_shots(ctx.storyboard or {})}
+    timed_shots = {str(s.get("id")): s for s in ctx.shots}
     # a renumbered storyboard names its script shot in source_id: that script shot is read through it, not again
     through_board = {str(s.get("source_id") or sid) for sid, s in board.items()}
     others = [sid for sid in script_shots_by_id if sid not in through_board and sid not in board]
@@ -307,15 +331,17 @@ def reading_declarations(ctx: FilmContext) -> tuple[dict[str, dict], list[str]]:
             src = script_shots_by_id.get(str(shot.get("source_id") or sid)) or {}
             raw = src.get(READING_KEY)
         if raw is None:
+            raw = timed_shots.get(sid, {}).get(READING_KEY)
+        if raw is None:
             continue
         if not isinstance(raw, dict):
             problems.append(f"{sid}: \"{READING_KEY}\" should be an object like "
                             '{"not_for_reading": true, "reason": "…"}')
             continue
-        unknown = sorted(set(raw) - {*READING_FLAGS, "reason"})
+        unknown = sorted(set(raw) - {*READING_FLAGS, "reason", readtime_counts.KEY})
         if unknown:
             problems.append(f"{sid}: \"{READING_KEY}\" has {', '.join(unknown)}; it takes not_for_reading, "
-                            "voice_matched, labels and reason")
+                            "voice_matched, labels and reason; count_events binds exact displays to visual ids")
         decl: dict = {}
         for flag in READING_FLAGS:
             v = raw.get(flag)
@@ -327,16 +353,24 @@ def reading_declarations(ctx: FilmContext) -> tuple[dict[str, dict], list[str]]:
                 problems.append(f"{sid}: {flag} is true or left out: it speaks for every on-screen word in the shot")
             elif isinstance(v, list) and v and all(isinstance(x, str) and x.strip() for x in v):
                 decl[flag] = {textmatch.squash(p) for x in v for p in (textmatch.statement_parts(x) or [x])}
+                if flag == "not_for_reading":
+                    decl[readtime_counts.EXACT_EXEMPT] = {p for x in v for p in textmatch.literal_parts(x)}
             else:
                 problems.append(f"{sid}: {flag} should be true or a list of the statements it covers")
-        if not decl:
-            continue
-        reason = raw.get("reason")
-        if not (isinstance(reason, str) and reason.strip()):
-            problems.append(f"{sid}: declares {' and '.join(decl)} without a reason; an exemption says why")
-            continue
-        decl["reason"] = reason.strip()
-        out[sid] = decl
+        flags = [flag for flag in READING_FLAGS if flag in decl]
+        if flags:
+            reason = raw.get("reason")
+            if not (isinstance(reason, str) and reason.strip()):
+                problems.append(f"{sid}: declares {' and '.join(flags)} without a reason; an exemption says why")
+                continue
+            decl["reason"] = reason.strip()
+        if readtime_counts.KEY in raw:
+            count_bindings, count_problems = readtime_counts.bindings(raw[readtime_counts.KEY], sid)
+            problems += count_problems
+            if count_bindings:
+                decl[readtime_counts.KEY] = count_bindings
+        if decl:
+            out[sid] = decl
     return out, problems
 
 
@@ -404,20 +438,188 @@ def _declared(decl: dict | None, flag: str, text: str) -> bool:
     return v is True or (isinstance(v, set) and textmatch.squash(text) in v)
 
 
+def _voice_phrase_end(ctx: FilmContext, sid: str, statement: str) -> tuple[float | None, str | None]:
+    """Resolve the declared statement against measured take words, then place its end on the film clock.
+
+    The timing resolver understands spoken numbers, symbols and repeats. Its estimates cannot prove read-along
+    coverage, and calling the film lookup would write misses from a QA check, so use the pure token resolver.
+    """
+    from slate.timing import words as wordtiming  # noqa: PLC0415
+
+    def measured(value: Any) -> float | None:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return None
+        return float(value) if math.isfinite(value) else None
+
+    try:
+        record = ctx.vo_words.get(sid)
+        heard = record.get("words") if record else None
+        if not isinstance(heard, list) or not heard:
+            return None, "has no measured words in timing/vo_words.json"
+        previous_start = previous_end = -math.inf
+        for word in heard:
+            if not isinstance(word, dict) or not isinstance(word.get("w"), str) or not word["w"].strip():
+                return None, "has malformed measured words in timing/vo_words.json"
+            start, end = measured(word.get("start")), measured(word.get("end"))
+            # Words may overlap, but ordered boundaries keep the last token from understating the phrase end.
+            if (start is None or end is None or start < 0 or end <= start
+                    or start < previous_start or end < previous_end):
+                return None, "has invalid or nonfinite measured word times in timing/vo_words.json"
+            previous_start, previous_end = start, end
+        cues = [cue for cue in ctx.vo_cues if str(cue.get("shot")) == sid]
+        if len(cues) != 1:
+            return None, "needs one voice placement in timing/vo_cues.json"
+        at = measured(cues[0].get("at"))
+        if at is None:
+            return None, "has an invalid or nonfinite voice placement in timing/vo_cues.json"
+        lang = ctx.film.get("language") or "en"
+        tokens = wordtiming.resolve_tokens(statement, heard, (0.0, 0.0), lang=lang)
+        if not tokens or not all(token.get("exact") is True for token in tokens):
+            return None, "is not fully matched to measured narration words"
+        end = measured(tokens[-1].get("end"))
+        if end is None:
+            return None, "has no finite measured phrase end"
+        placed = ctx.secs_of(int(ctx.shot_by_id[sid]["frame_in"])) + at + end
+        if not math.isfinite(placed):
+            return None, "has a nonfinite phrase end on the film clock"
+        return placed, None
+    except (KeyError, TypeError, ValueError, OverflowError, SlateError) as exc:
+        return None, f"couldn't resolve measured narration ({exc})"
+
+
+def _readable_span(times: list[float], every: float, need: float) -> tuple[float, float] | None:
+    """First continuous complete-text run that meets the existing sampled read-time floor.
+
+    A later reappearance cannot erase a line that left before the voice finished. Short OCR fragments still cannot
+    borrow an earlier run's duration. The next sample bounds the disappearance with the existing interval slack.
+    """
+    span = None
+    start = 0.0
+    run, previous = 0.0, None
+    for at in times:
+        if previous is not None and abs(at - previous - every) < 1e-6:
+            run += every
+        else:
+            if span is not None:
+                return span
+            run = every
+            start = at
+        if run + every >= need:
+            span = (start, at + every)
+        previous = at
+    return span
+
+
+def _label_policy_file(ctx: FilmContext, source: str) -> Path | None:
+    """The raw format file behind the film's label policy. A `.json` source is a format file the film points at; any
+    other source ("slate.formats", what `slate new` writes) names Slate's own format library, the way the caption
+    gates read it, so the policy is that library's file for the film's format (None when the format isn't one)."""
+    if source.lower().endswith(".json"):
+        return ctx.path(Path(source).expanduser())
+    name = ctx.film.get("format")
+    try:
+        from slate import formats  # noqa: PLC0415
+    except ImportError:  # pragma: no cover - the formats module is part of every install
+        return None
+    lib = formats.formats_dir() / f"{name}.json" if isinstance(name, str) and name else None
+    return lib if lib is not None and lib.is_file() else None
+
+
+def _label_policy_problems(ctx: FilmContext) -> list[str]:
+    """A declared format source must prove the raw reading policy consumed by the label-specific rule.
+
+    The generic format resolver may fall back for other callers. That fallback cannot justify a shorter label hold.
+    Valid script overrides keep their precedence; a cached resolved format still supplies conservative requirements
+    while this independent subcheck records the damaged source.
+    """
+    source = ctx.film.get("format_source")
+    if not isinstance(source, str):
+        return []
+    path = _label_policy_file(ctx, source)
+    if path is None:
+        return []
+    try:
+        raw = ctx.read_json(path)
+    except (SlateError, OSError, TypeError, ValueError) as exc:
+        return [f"{path}: the declared label reading policy can't be read ({str(exc).splitlines()[0]}); "
+                "next: repair this format_source file"]
+    if not isinstance(raw, dict):
+        return [f"{path}: the declared label format is missing or isn't an object; next: repair this format_source file"]
+    if "read_time" not in raw:
+        return []  # A valid format may intentionally inherit the shared policy.
+    block = raw["read_time"]
+    if not isinstance(block, dict):
+        return [f"{path}: read_time must be an object; next: repair this format_source reading policy"]
+    rules = (ctx.script or {}).get("rules") or {}
+    script_policy = rules.get("read_time") if isinstance(rules, dict) else None
+    problems = []
+    for key in ("floor", "base", "per_word"):
+        override = script_policy.get(key) if isinstance(script_policy, dict) else None
+        if (not isinstance(override, bool) and isinstance(override, (int, float))
+                and math.isfinite(override) and override >= 0):
+            continue
+        if key not in block:
+            continue
+        value = block[key]
+        if (isinstance(value, bool) or not isinstance(value, (int, float))
+                or not math.isfinite(value) or value < 0):
+            problems.append(f"{path}: consumed read_time.{key} needs a finite nonnegative number; "
+                            "next: repair this format_source reading policy")
+    return problems
+
+
 def readtime(film_dir: Path) -> GateResult:
     """Every on-screen statement stays readable for max(1.5 s, 0.4 s + 0.3 s per word) once fully built (a declared
-    voice-matched definition for 1.5 s; a surface declared not for reading isn't timed)."""
+    voice-matched definition for 1.5 s and through its measured spoken phrase; a surface declared not for reading
+    isn't timed). Declared labels of at most three words use a 1 s default floor while retaining the per-word
+    calculation and explicit reading policy; numeric labels still need 2 s. Explicit count_events bind literal
+    final displays to visual landings, then require one continuous 2 s hold after the later landing/legible onset.
+    """
     ctx = context(film_dir)
     ok, info = ocrmod.available()
-    engine = gates.engine("slate read-time matcher", __version__, ocr=info)
-    items, source = _statements(ctx)
-    read = ["script/storyboard.json", ctx.SHOTS, "script/script.json"]
+    revision = gates.rule_revision("readtime")
+    engine = gates.engine("slate read-time matcher", __version__, ocr=info, rule_revision=revision)
+    decls, decl_problems = reading_declarations(ctx)
+    items, source = _statements(ctx, decls)
+    displays, _ = _statements(ctx, decls, all_parts=True)
+    count_plan = readtime_counts.prepare(ctx, decls, displays)
+    decl_problems += count_plan.problems
+    read = ["script/storyboard.json", ctx.SHOTS, "script/script.json", *count_plan.inputs]
     if source is None:
         return GateResult.unchecked("readtime", "there's no storyboard or shot list with on-screen text yet",
                                     evidence=["next: slate script build"], engine=engine, inputs=ctx.inputs(read))
-    decls, decl_problems = reading_declarations(ctx)
-    exempt = [(sid, text) for sid, text in items if _declared(decls.get(sid), "not_for_reading", text)]
+    exempt = [(sid, text) for sid, text in items
+              if decls.get(sid, {}).get("not_for_reading") is True
+              or ((sid, text) in count_plan.anchors and readtime_counts.exempt(decls.get(sid), text))
+              or ((sid, text) not in count_plan.claimed and _declared(decls.get(sid), "not_for_reading", text))]
+    count_plan.discovery["bound_exemptions"] = [
+        {**count_plan.anchors[key], "reason": decls[key[0]]["reason"]}
+        for key in exempt if key in count_plan.anchors]
     timed = [(sid, text) for sid, text in items if (sid, text) not in exempt]
+    matched_items = [(sid, text) for sid, text in timed if _declared(decls.get(sid), "voice_matched", text)]
+    labeled_items = [(sid, text) for sid, text in timed if _declared(decls.get(sid), "labels", text)]
+    label_rules = None
+    label_policy_problems = []
+    if labeled_items:
+        from slate import formats  # noqa: PLC0415 - declared labels consume the resolved format policy
+        from slate.story import inputs as story_inputs  # noqa: PLC0415
+
+        fmt = _film_format(ctx) or {}
+        label_rules = story_inputs.read_time_settings(ctx.script or {}, fmt)
+        label_policy_problems = _label_policy_problems(ctx)
+        read += ["film.json"]
+        format_source = ctx.film.get("format_source")
+        if isinstance(format_source, str):
+            read.append(format_source)
+            policy_file = _label_policy_file(ctx, format_source)
+            if policy_file is not None:
+                read.append(str(policy_file))
+        if fmt.get("path"):
+            # The loader consulted the shared defaults while resolving this format. Both those defaults and the
+            # raw format's floor provenance affect the label policy and must make a saved result stale on change.
+            read += [str(fmt["path"]), str(formats.formats_dir() / formats.SHARED_FILE)]
+    if matched_items:
+        read += ["film.json", "timing/vo_words.json", "timing/vo_cues.json"]
     for sid, decl in decls.items():
         for flag in READING_FLAGS:
             listed = decl.get(flag)
@@ -429,13 +631,20 @@ def readtime(film_dir: Path) -> GateResult:
     if decl_problems:
         subs.append(Sub("declarations", "FAIL", f"{plural(len(decl_problems), 'read-time exemption')} can't be "
                         f"honoured: {decl_problems[0]}", decl_problems))
+    if count_plan.unknown:
+        subs.append(Sub("count_timing", "UNCHECKED", "readable counts need exact final-display event bindings",
+                        count_plan.unknown))
+    if label_policy_problems:
+        subs.append(Sub("label_policy", "UNCHECKED", "the declared label reading policy is unproved",
+                        label_policy_problems))
     exempt_rows = [f"{sid} '{text}': not for reading ({decls[sid]['reason']})" for sid, text in exempt]
     if exempt_rows:
         subs.append(Sub("exempt", "PASS", f"{plural(len(exempt_rows), 'statement')} declared not for reading, so not "
                         "timed", exempt_rows))
     details = {"statements": len(items), "source": source, "exempt": exempt_rows,
                "voice_matched": sorted({sid for sid, d in decls.items() if "voice_matched" in d}),
-               "labels": sorted({sid for sid, d in decls.items() if "labels" in d})}  # declared, and timed in full
+               "labels": sorted({sid for sid, d in decls.items() if "labels" in d}),
+               "count_checks": [], "count_discovery": count_plan.discovery}  # declared, with every word timed
     if not items:
         subs.append(Sub("statements", "PASS", f"{source} has no on-screen statements to time"))
         return combine("readtime", subs, engine=engine, inputs=ctx.inputs(read), details=details)
@@ -444,19 +653,22 @@ def readtime(film_dir: Path) -> GateResult:
     if not ok:
         subs.append(Sub("ocr", "UNCHECKED", f"{ocrmod.ENGINE_NAME} isn't available here: {info.get('reason')}",
                         [f"next: {info.get('hint')}"]))
-        return combine("readtime", subs, engine=info, inputs=ctx.inputs(read), details=details)
+        return combine("readtime", subs, engine={**info, "rule_revision": revision}, inputs=ctx.inputs(read),
+                       details=details)
     try:
         sw = ocrmod.sweep(ctx)
     except (ocrmod.OcrUnavailable, MissingPrerequisite, SlateError) as exc:
         hint = getattr(exc, "hint", None)
         subs.append(Sub("ocr", "UNCHECKED", str(exc).splitlines()[0], [f"next: {hint}"] if hint else []))
-        return combine("readtime", subs, engine=ocrmod.unavailable_engine(exc), inputs=ctx.inputs(read),
+        return combine("readtime", subs, engine={**ocrmod.unavailable_engine(exc), "rule_revision": revision},
+                       inputs=ctx.inputs(read),
                        details=details)
     every = sw.every
     texts = [(s["t"], textmatch.squash(sw.text_at(s))) for s in sw.samples]
     shots = ctx.shot_by_id
     legible, untraced = legibility(ctx, timed)
     rows, short, unplaced, missing_picture = [], [], [], []
+    voice_rows, voice_short, voice_unknown = [], [], []
     rendered = {a["index"] for a in ctx.acts} - set(sw.missing_acts)
     for sid, text in timed:
         s = shots.get(sid)
@@ -474,12 +686,48 @@ def readtime(film_dir: Path) -> GateResult:
         longest = textmatch.longest_run(hit_times, every)
         matched = _declared(decls.get(sid), "voice_matched", text)
         need = textmatch.need_seconds(text, per_word=0.0, base=0.0) if matched else textmatch.need_seconds(text)
+        labeled = _declared(decls.get(sid), "labels", text)
+        if labeled:
+            from slate.story import numbers  # noqa: PLC0415 - the script's existing numeric classification
+            from slate.timing import spoken  # noqa: PLC0415
+
+            lang = ctx.film.get("language") or (ctx.script or {}).get("language") or "en"
+            words = spoken.word_count(text, lang)
+            if not matched:
+                floor = label_rules["label_floor"] if 0 < words <= 3 else label_rules["floor"]
+                need = textmatch.need_seconds(text, floor=float(floor), base=float(label_rules["base"]),
+                                              per_word=float(label_rules["per_word"]), words=words)
+            else:
+                need = max(need, float(label_rules["floor"]))
+            if any(mention.counts for mention in numbers.mentions(text, lang)):
+                need = max(need, 2.0)
         since = f" from {hit_times[0]:.2f} s" if hit_times else ""
         row = (f"{sid} '{text}' {longest:.2f} s{since} (needs {need:.2f} s{', voice-matched' if matched else ''}"
                + (", counted only while ≥ 90% opaque and under 8 px a frame" if test is not None else "") + ")")
         rows.append(row)
-        if longest + every < need:  # one OCR interval of slack: the run is sampled, not exact
+        # The label/read-along intersection retains its measured floor. longest already includes the exit interval;
+        # adding another interval here would let an explicit 1.5 s spoken-text floor become a 1.25 s hold.
+        allowance = 0.0 if labeled and matched else every
+        if longest + allowance < need:  # keep the established generic OCR allowance unchanged
             short.append(row)
+        if matched:
+            voice_end, problem = _voice_phrase_end(ctx, sid, text)
+            if problem:
+                voice_unknown.append(f"{sid} '{text}': {problem}; next: slate timing")
+                continue
+            visible_span = _readable_span(hit_times, every, need)
+            visible_start, visible_end = visible_span if visible_span else (None, None)
+            voice_row = {"shot": sid, "text": text, "voice_end_seconds": voice_end,
+                         "readable_start_seconds": visible_start, "readable_end_seconds": visible_end,
+                         "sample_slack_seconds": every}
+            voice_rows.append(voice_row)
+            if visible_end is None or visible_end < voice_end:
+                observed = f"{visible_end:.2f} s" if visible_end is not None else "no complete readable run"
+                voice_short.append(f"{sid} '{text}': {observed} ends before its spoken phrase at {voice_end:.2f} s")
+            elif visible_start > voice_end + every:
+                # Progressive builds may first read in the next OCR sample, but a later reveal isn't read along.
+                voice_short.append(f"{sid} '{text}': becomes readable at {visible_start:.2f} s, after its spoken "
+                                   f"phrase at {voice_end:.2f} s")
     if unplaced:
         subs.append(Sub("unplaced", "FAIL", f"statements in shots that don't exist: {unplaced[0]}", unplaced))
     if short:
@@ -487,16 +735,30 @@ def readtime(film_dir: Path) -> GateResult:
                         short + ["—"] + rows))
     if missing_picture:
         subs.append(Sub("picture", "UNCHECKED", f"shots {', '.join(sorted(set(missing_picture)))} aren't rendered yet",
-                        ["next: slate render"]))
+                         ["next: slate render"]))
+    if voice_unknown:
+        subs.append(Sub("voice_timing", "UNCHECKED", f"{plural(len(voice_unknown), 'read-along statement')} need "
+                        "measured narration timing", voice_unknown))
+    if voice_short:
+        subs.append(Sub("voice_end", "FAIL", f"{plural(len(voice_short), 'read-along statement')} do not cover "
+                        "their measured spoken phrase end", voice_short))
+    elif voice_rows:
+        subs.append(Sub("voice_end", "PASS", f"{plural(len(voice_rows), 'read-along statement')} remain through "
+                        "their measured spoken phrase"))
     if not short and not unplaced and rows:
         subs.append(Sub("statements", "PASS", f"all {plural(len(rows), 'statement')} stay readable long enough "
-                        f"(OCR every {every} s)", rows))
+                         f"(OCR every {every} s)", rows))
+    count_subs, count_rows = readtime_counts.measure(ctx, count_plan, sw, legible, set(exempt))
+    subs += count_subs
+    details["count_checks"] = count_rows
     trace_files = [f"timing/motion/act{a['index']}.json" for a in ctx.acts]
     if untraced and legible:
         details["untraced"] = untraced
-    return combine("readtime", subs, engine=gates.engine("slate read-time matcher", __version__, ocr=sw.engine),
+    return combine("readtime", subs, engine=gates.engine("slate read-time matcher", __version__, ocr=sw.engine,
+                                                       rule_revision=revision),
                    inputs=ctx.inputs(read + trace_files + _sweep_inputs(ctx, sw)),
-                   details={**details, "short": short, "rows": rows, "traced": len(legible),
+                    details={**details, "short": short, "rows": rows, "traced": len(legible),
+                             **({"voice_matched_checks": voice_rows} if matched_items else {}),
                             "legible_rule": {"opacity": LEGIBLE_OPACITY, "speed_share_of_short_side": LEGIBLE_SPEED}})
 
 
@@ -572,7 +834,7 @@ def captions(film_dir: Path) -> GateResult:
     """At most 2 lines of 42 characters and 17 characters a second, at least 1 s each, ordered, never overlapping,
     and word for word the booth script."""
     ctx = context(film_dir)
-    engine = gates.engine("slate captions check", __version__)
+    engine = gates.engine("slate captions check", __version__, rule_revision=gates.rule_revision("captions"))
     cap = ctx.captions_path()
     spoken = ctx.spoken_lines()
     from slate.qa import film as filmmod  # noqa: PLC0415

@@ -19,6 +19,7 @@ import {FontGate} from '../fonts';
 import {KineticWords} from '../kinetic';
 import {LogoSting, stingLength} from '../logo';
 import {Ground} from '../paper';
+import {BookReview, BOOK_REVIEW_SECONDS} from './book';
 import {PlaceholderAct} from '../placeholder';
 import {EXTRA_REVIEW_SECTIONS, GESTURE_SHEET_S, GestureSheet, gestureSheetLayout, KitReviewSheet, REVIEW_SECTIONS, ReviewSection} from '../review';
 
@@ -44,6 +45,8 @@ function Sheet({children, fonts = true, speed = 1}: {children?: React.ReactNode;
     </FontGate>
   );
 }
+
+const BookProof: React.FC<{raster?: 'hint' | 'tilt'}> = ({raster}) => <Sheet><BookReview raster={raster} /></Sheet>;
 
 const Review: React.FC = () => (
   <Sheet>
@@ -126,6 +129,8 @@ export const KitReviewRoot: React.FC = () => {
   const act = first !== undefined ? actComposition(first, {id: 'Kit-Placeholder'}) : null;
   return (
     <>
+      <Composition id="Kit-Book" component={BookProof} defaultProps={{raster: 'tilt'}} durationInFrames={Math.ceil(rate * BOOK_REVIEW_SECONDS)} fps={rate} width={size.width} height={size.height} />
+      <Composition id="Kit-Book-Hint" component={BookProof} defaultProps={{raster: 'hint'}} durationInFrames={Math.ceil(rate * BOOK_REVIEW_SECONDS)} fps={rate} width={size.width} height={size.height} />
       <Composition id="Kit-Review" component={Review} durationInFrames={long} fps={rate} width={size.width} height={size.height} />
       <Composition id="Kit-Review-Vertical" component={Review} durationInFrames={long} fps={rate} width={size.height} height={size.width} />
       {[...REVIEW_SECTIONS, ...EXTRA_REVIEW_SECTIONS].map((id) => (

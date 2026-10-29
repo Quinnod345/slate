@@ -2,7 +2,8 @@
 
 Demucs is part of the optional analyze extra and runs through uvx, pinned (demucs 4.1.0 on Python 3.11, with numpy
 below 2 and soundfile), so nothing is installed into Slate's own environment or globally. It runs offline by
-default: uvx uses only its cache, and the htdemucs weights must already be in torch's cache. When either is missing
+default: uvx uses only its cache, and Demucs reads a local repository pointing at the cached htdemucs checkpoint.
+The local repository bypasses Demucs's Hugging Face and remote model loaders. When either dependency is missing
 the step is UNCHECKED with the one command that fixes it; `--allow-download` lets uvx and Demucs fetch what they need
 (about a gigabyte of Python packages the first time, and about 80 MB of weights).
 """
@@ -11,6 +12,7 @@ from __future__ import annotations
 
 import contextlib
 import os
+import tempfile
 from pathlib import Path
 from typing import Callable
 
@@ -24,6 +26,7 @@ WITH = ("numpy<2", "soundfile")
 MODEL = "htdemucs"
 # htdemucs's weights for demucs 4.1.0 (demucs/remote/files.txt), fetched by torch.hub into its checkpoints folder.
 CHECKPOINT = "955717e8-8726e21a.th"
+MODEL_BAG = "models: ['955717e8']\n"
 TIMEOUT_PER_AUDIO_SECOND = 6.0
 
 
@@ -37,14 +40,27 @@ def weights_cached() -> bool:
     return (torch_checkpoints() / CHECKPOINT).is_file()
 
 
-def command(wav: Path, out_dir: Path, *, offline: bool = True) -> list[str]:
+def command(wav: Path, out_dir: Path, *, offline: bool = True, repo: Path | None = None) -> list[str]:
     argv = ["uvx"]
     if offline:
         argv.append("--offline")
     argv += ["--python", PYTHON, "--from", DEMUCS]
     for pkg in WITH:
         argv += ["--with", pkg]
-    return argv + ["demucs", "--two-stems=vocals", "-n", MODEL, "-d", "cpu", "-o", str(out_dir), str(wav)]
+    args = ["demucs", "--two-stems=vocals", "-n", MODEL, "-d", "cpu"]
+    if repo is not None:
+        args += ["--repo", str(repo)]
+    return argv + args + ["-o", str(out_dir), str(wav)]
+
+
+@contextlib.contextmanager
+def _cached_repo():
+    """Provide the pinned model bag and a checkpoint alias in an owned local-only repository."""
+    with tempfile.TemporaryDirectory(prefix="slate-demucs-") as folder:
+        repo = Path(folder)
+        (repo / f"{MODEL}.yaml").write_text(MODEL_BAG, encoding="utf-8")
+        (repo / CHECKPOINT).symlink_to((torch_checkpoints() / CHECKPOINT).absolute())
+        yield repo
 
 
 def _lock():
@@ -82,22 +98,31 @@ def run(wav: Path, out_dir: Path, *, duration_s: float, allow_download: bool = F
                       f"looked for {torch_checkpoints() / CHECKPOINT}"], engine=engine), {}
     argv = command(wav, out_dir, offline=not allow_download)
     try:
-        with _lock():
+        with _lock(), contextlib.ExitStack() as stack:
+            if not allow_download:
+                repo = stack.enter_context(_cached_repo())
+                argv = command(wav, out_dir, offline=True, repo=repo)
             proc = runner(argv, timeout=max(600.0, TIMEOUT_PER_AUDIO_SECOND * duration_s))
     except MissingPrerequisite as exc:
         return GateResult.unchecked("analyze.stems", f"no stem split: {exc.message}", engine=engine), {}
     except SlateError as exc:
         return GateResult.unchecked("analyze.stems", f"Demucs didn't finish: {exc.message}", engine=engine), {}
+    except OSError as exc:
+        return GateResult.unchecked("analyze.stems", f"could not prepare or run Demucs: {exc}",
+                                    engine=engine), {}
+    returncode = getattr(proc, "returncode", 0)
+    if returncode:
+        err = getattr(proc, "stderr", "") or ""
+        tail = err.strip().splitlines()[-1] if err.strip() else ""
+        hint = ("uv's cache doesn't hold Demucs yet: add --allow-download once" if "offline" in tail.lower()
+                or "no solution" in tail.lower() else tail)
+        return GateResult.unchecked(
+            "analyze.stems", f"Demucs exited with status {returncode}" + (f" ({hint})" if hint else ""),
+            evidence=[" ".join(argv)], engine=engine), {}
     folder = out_dir / MODEL / wav.stem
     vocals, music = folder / "vocals.wav", folder / "no_vocals.wav"
     if not (vocals.is_file() and music.is_file()):
-        tail = ""
-        if getattr(proc, "returncode", 0):
-            err = getattr(proc, "stderr", "") or ""
-            tail = err.strip().splitlines()[-1] if err.strip() else ""
-        hint = ("uv's cache doesn't hold Demucs yet: add --allow-download once" if "offline" in tail.lower()
-                or "no solution" in tail.lower() else tail)
-        return GateResult.unchecked("analyze.stems", "Demucs ran but wrote no stems" + (f" ({hint})" if hint else ""),
+        return GateResult.unchecked("analyze.stems", "Demucs ran but wrote no stems",
                                     evidence=[" ".join(argv)], engine=engine), {}
     def rel(path: Path) -> str:  # stems are recorded relative to the analysis folder
         return str(path.relative_to(out_dir.parent))

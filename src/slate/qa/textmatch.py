@@ -10,8 +10,11 @@ from __future__ import annotations
 
 import difflib
 import json
+import math
 import re
 from pathlib import Path
+
+from slate.timing import spoken
 
 SEPARATOR = re.compile(r"\s+·\s+")  # the storyboard joins several on-screen items with " · "
 _SQUASH = re.compile(r"[^\w%]", re.UNICODE)
@@ -86,10 +89,55 @@ def name_hit(hit: str, forms: dict[str, dict]) -> str:
 
 
 # ---------------------------------------------------------------------------------------------- read time
-def statement_parts(on_screen) -> list[str]:
+def literal_parts(on_screen) -> list[str]:
+    """Every literal display part, before generic statement filtering or punctuation removal."""
+    items = on_screen if isinstance(on_screen, list) else [on_screen]
+    return [part.strip() for item in items if isinstance(item, str)
+            for part in SEPARATOR.split(item) if part.strip()]
+
+
+def count_present(statement: str, lines, *, lang: str = "en") -> tuple[bool, str | None]:
+    """Exact complete counted display in one OCR line, without fuzzy numeric or punctuation allowances.
+
+    OCR line identity is the available spatial boundary. Duplicated witnesses, malformed lines and a bare value
+    among several numeric surfaces cannot prove which count is visible. Whitespace may vary; case, numeric
+    punctuation, signs and units must remain. Wrapped or misread values require better evidence, never a fuzzy pass.
+    """
+    from slate.story import numbers  # noqa: PLC0415 - use the script's existing numeric classification
+
+    if not isinstance(lines, list):
+        return False, "OCR has no line records for the exact counted display"
+    if any(not isinstance(line, dict) or not isinstance(line.get("text"), str) for line in lines):
+        return False, "OCR has malformed exact line evidence"
+    def normalize(value: str) -> tuple[str, ...]:
+        # OCR spacing may vary, but separate digit tokens cannot become one final counted number.
+        return tuple("".join(part.split()) for part in re.split(r"(?<=\d)\s+(?=\d)", value))
+
+    wanted = normalize(statement)
+    # The authored middle-dot separator is an explicit display boundary even when OCR reports one physical line.
+    parts = [part for line in lines for part in literal_parts(line["text"])]
+    witnesses = [part for part in parts if normalize(part) == wanted]
+    if len(witnesses) > 1:
+        return False, "OCR repeats the exact counted display at more than one location"
+    if not witnesses:
+        return False, None
+    # A value without its descriptive words cannot borrow a different counter's matching number elsewhere.
+    mentions = numbers.mentions(statement, lang)
+    bare = bool(mentions) and not re.search(r"[A-Za-z]", statement)
+    if bare and sum(any(m.counts for m in numbers.mentions(part, lang)) for part in parts) > 1:
+        return False, "OCR shows several numeric surfaces without an exact display location"
+    return True, None
+
+
+def statement_parts(on_screen, *, labels: bool = False, lang: str = "en") -> list[str]:
     """The on-screen statements to time: each " · "-separated part with parentheses removed, skipping parts that
     describe rather than quote ("then → now"), logo lockups (™ / ®: recognised, not read), bare numbers and single
-    words (labels are left to the contact-sheet review)."""
+    words (labels are left to the contact-sheet review).
+
+    A validated whole-shot labels declaration opts into timing its single words and numeric labels too. That scoped
+    path counts authored words with the shared language table; the default extraction and logo review boundary stay
+    unchanged. Callers must resolve the declaration and its reason before opting in.
+    """
     items = on_screen if isinstance(on_screen, list) else [on_screen]
     out = []
     for item in items:
@@ -97,17 +145,25 @@ def statement_parts(on_screen) -> list[str]:
             continue
         for part in SEPARATOR.split(item):
             part = re.sub(r"\s*\(.*?\)", "", part).strip()
-            if len(part.split()) < 2 or "→" in part or re.search(r"[™®]", part):
+            if "→" in part or re.search(r"[™®]", part):
                 continue
-            if re.fullmatch(r"[\d,.+%\s]+", part):
+            if labels:
+                if not spoken.word_count(part, lang):
+                    continue
+            elif len(part.split()) < 2 or re.fullmatch(r"[\d,.+%\s]+", part):
                 continue
             out.append(part)
     return out
 
 
-def need_seconds(text: str, *, floor: float = 1.5, base: float = 0.4, per_word: float = 0.3) -> float:
-    """How long a statement must stay readable: max(1.5 s, 0.4 s + 0.3 s per word)."""
-    return max(floor, base + per_word * len(text.split()))
+def need_seconds(text: str, *, floor: float = 1.5, base: float = 0.4, per_word: float = 0.3,
+                 words: int | None = None) -> float:
+    """How long a statement must stay readable: max(floor, base + per_word × words).
+
+    Defaults preserve the established 1.5 s floor and whitespace word count. A declared label supplies its authored
+    word count and reading policy explicitly; lowering its default floor does not remove the per-word requirement.
+    """
+    return max(floor, base + per_word * (len(text.split()) if words is None else words))
 
 
 def near(sub: str, text: str, thr: float) -> bool:
@@ -206,7 +262,11 @@ def parse_srt_vtt(text: str) -> list[dict]:
 
 
 def load_cues(path: str | Path) -> list[dict]:
-    """Caption cues from captions.json ([{text, lines, start, end}] or {"cues": […]}), .srt or .vtt."""
+    """Caption cues from captions.json ([{text, lines, start, end}] or {"cues": […]}), .srt or .vtt.
+
+    JSON timestamps retain their numeric conversion, but nonfinite values cannot establish caption timing and raise
+    ValueError for the callers' invalid-input handling.
+    """
     p = Path(path)
     if p.suffix.lower() == ".json":
         data = json.loads(p.read_text(encoding="utf-8"))
@@ -218,7 +278,11 @@ def load_cues(path: str | Path) -> list[dict]:
             lines = c.get("lines")
             if not isinstance(lines, list) or not lines:
                 lines = str(c.get("text") or "").split("\n")
-            cues.append({"index": i, "start": float(c["start"]), "end": float(c["end"]),
+            start, end = float(c["start"]), float(c["end"])
+            for name, timestamp in (("start", start), ("end", end)):
+                if not math.isfinite(timestamp):
+                    raise ValueError(f"caption cue {i} has a nonfinite {name} time")
+            cues.append({"index": i, "start": start, "end": end,
                          "lines": [str(x) for x in lines], "text": str(c.get("text") or " ".join(lines)),
                          "shot": c.get("shot")})
         return cues

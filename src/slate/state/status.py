@@ -5,16 +5,18 @@ For each stage (brief, truth, script, voice, timing, look, scenes, captures, gen
 qa, deliver, review) status reports one state:
 
 - **fresh**: made, recorded, and nothing it was made from has changed;
-- **stale**: something it was made from changed (film.lock.json hashes, a STALE gate, an approval that no longer
-  matches, or a derived film's re-staging and sound re-plan still to do);
+- **stale**: an input changed, or current render inputs cannot be proved (film.lock.json hashes, a STALE gate,
+  an approval that no longer matches, or a derived film's re-staging and sound re-plan still to do);
 - **missing**: not made yet;
 - **locked**: approved and unchanged, or held on purpose (the timeline once act renders exist);
 - **skipped**: not needed for this film, with the reason (no captures planned, generation off, the brand's look
   already approved).
 
 It reads film.lock.json (what made each file), qa/gates.json (gates turn STALE when their inputs change), approvals and
-the files present. Gates can name their stage in `details.stage`; otherwise the gate's name places it. A parked film
-shows its question first, because nothing moves until a person answers.
+the files present. Cast selection and narration are distinct: a standing brand cast approval does not create a read,
+and a casting reel or direction file cannot answer a missing narrated line. Once a narrator is chosen, supervised
+preproduction precedes narration. Gates can name their stage in `details.stage`; otherwise the gate's name places it.
+A parked film shows its question first, because nothing moves until a person answers.
 """
 
 from __future__ import annotations
@@ -25,7 +27,7 @@ from pathlib import Path
 from typing import Any
 
 from slate import gates, jsonio, paths
-from slate.errors import UsageError
+from slate.errors import SlateError, UsageError
 from slate.state import _util, approvals, film, lock, production
 
 
@@ -92,7 +94,7 @@ STAGES: tuple[Stage, ...] = (
 )
 BY_KEY = {s.key: s for s in STAGES}
 # The order the work happens in, for the next command (the display keeps the order above).
-PIPELINE = ("brief", "script", "truth", "voice", "look", "@preproduction", "timing", "scenes", "captures",
+PIPELINE = ("brief", "script", "truth", "voice", "look", "@preproduction", "@narration", "timing", "scenes", "captures",
             "generated", "sound", "render", "master", "qa", "deliver", "review", "@final_cut")
 # Where a gate goes when it doesn't say (details.stage): first match wins, in this order.
 GATE_ORDER = ("truth", "script", "voice", "look", "captures", "generated", "render", "master", "sound", "timing",
@@ -142,6 +144,10 @@ def _gate_stage(result: gates.GateResult) -> str:
     if declared in BY_KEY:
         return declared
     name = result.gate.lower()
+    # The bare readtime gate measures rendered picture and matched narration. A script build only reruns
+    # script.read_time, so the stored measured result must be refreshed through QA.
+    if name == "readtime":
+        return "qa"
     for key in GATE_ORDER:
         if any(word in name for word in BY_KEY[key].gate_words):
             return key
@@ -242,6 +248,261 @@ def _own_since_derivation(ctx: _Ctx, rels: list[str]) -> bool:
     return False
 
 
+def _narration_lines(ctx: _Ctx) -> dict[str, str] | None:
+    """The built storyboard's narrated lines; None means its narration contract is not known yet.
+
+    Empty placeholder objects do not invent a narration requirement. Explicit shots with empty voice text are
+    silent. Normalization follows the voice producer, including stripping delivery tags, so a text-bound take can
+    be compared without decoding audio, running a recognizer or falling back to the hand-edited script.
+    """
+    from slate.voice import tags  # noqa: PLC0415
+
+    storyboard = _read(ctx.film_dir, "script/storyboard.json")
+    if not isinstance(storyboard, dict) or not isinstance(storyboard.get("acts"), list) or not storyboard["acts"]:
+        return None
+    lines = {}
+    for act in storyboard["acts"]:
+        if not isinstance(act, dict) or not isinstance(act.get("shots"), list):
+            raise UsageError("the storyboard's narration cannot be checked: an act has no shot list")
+        for shot in act["shots"]:
+            if not isinstance(shot, dict):
+                raise UsageError("the storyboard's narration cannot be checked: a shot is not an object")
+            text = shot.get("vo") or shot.get("line") or ""
+            if not isinstance(text, str):
+                raise UsageError("the storyboard's narration cannot be checked: a voice line is not text")
+            text = " ".join(tags.strip(text).split())
+            if text:
+                sid = shot.get("id")
+                if not isinstance(sid, str) or not sid or sid in lines:
+                    raise UsageError("the storyboard's narration cannot be checked: narrated shot ids are ambiguous")
+                lines[sid] = text
+    return lines
+
+
+def _voice_progress(ctx: _Ctx) -> dict:
+    """Read cast readiness and selected narration evidence as separate facts.
+
+    The shared take resolver handles modern selections, legacy files and inherited paths. Only current selected
+    audio with a matching script record, source hash and actual synthesis pins establishes a recorded read here.
+    Missing or legacy identity evidence needs a voice check; status never silently regenerates an existing take.
+    This is file and record coverage, not an audible-quality verdict or a person's take approval.
+    """
+    from slate.state import deps  # noqa: PLC0415
+    from slate.timing import takes  # noqa: PLC0415
+    from slate.voice import profile, tags, tts  # noqa: PLC0415
+
+    out = {"selection": {"ready": False}, "narration": None, "problems": [], "command": ("voice", "cast")}
+    try:
+        lines = _narration_lines(ctx)
+        if lines == {}:
+            out["narration"] = {"required": [], "present": [], "missing": [], "unproved": []}
+            return out
+        raw = ctx.fj.get("voice")
+        if raw is not None and not isinstance(raw, (dict, str)):
+            raise UsageError("the film's voice entry is not a profile object")
+        if isinstance(raw, dict) and "profile" in raw and not isinstance(raw["profile"], dict):
+            raise UsageError("the film's voice profile is not an object")
+        prof = profile.load(deps.brand_load(ctx.fj["brand"]), film=ctx.fj)
+        out["selection"] = {"ready": bool(prof.get("speaker") if prof["provider"] == "recording" else
+                                           prof.get("voice_id")), "source": prof["source"],
+                            "provider": prof["provider"]}
+        policy = profile.policy_problems(prof, mode=ctx.mode)
+        if policy:
+            out["selection"]["ready"] = False
+            out["problems"].extend(policy)
+            out["command"] = ("voice", "profile")
+        if lines is None:
+            return out
+        narration = {"required": list(lines), "present": [], "missing": [], "unproved": []}
+        out["narration"] = narration
+        selected = takes.find_takes(ctx.film_dir, list(lines))
+        manifest = _read(ctx.film_dir, "voice/takes.json")
+        requested = tts.requested_pin(prof, ctx.fj)
+        actual = ctx.fj.get("pins", {})
+        if not isinstance(actual, dict):
+            out["selection"]["ready"] = False
+            raise UsageError("the film's TTS pins cannot be read")
+        used = {field: actual.get(key) if actual.get(key) is not None else requested[key]
+                for key, field in tts.PIN_KEYS.items()}
+        if jsonio.validate({**prof, **used}, "voice_profile"):
+            out["selection"]["ready"] = False
+            raise UsageError("the film's actual TTS pins do not form a valid voice profile")
+        for sid, text in lines.items():
+            take = selected.get(sid)
+            entry = (manifest.get("shots") or {}).get(sid) if isinstance(manifest, dict) and \
+                isinstance(manifest.get("shots"), dict) else None
+            if take is None:
+                narration["missing"].append(sid)
+                if isinstance(entry, dict) and entry.get("selected"):
+                    narration["unproved"].append(sid)
+                    out["problems"].append(f"{sid}'s selected take has no readable audio; check or repair the selection")
+                continue
+            narration["present"].append(sid)
+            doc = _read(ctx.film_dir, f"voice/takes/{sid}/{take.take_id}.json") if take.take_id else take.meta
+            failures = []
+            selected_state = ctx.explain(take.rel)
+            if selected_state["state"] not in ("fresh", "locked") or selected_state["reasons"]:
+                failures.append("its selected audio provenance is missing or changed")
+            if not isinstance(doc, dict) or not isinstance(doc.get("text"), str) or not doc.get("text") or \
+                    " ".join(tags.strip(str(doc.get("text") or "")).split()) != text:
+                failures.append("its script text binding is missing or changed")
+            if not isinstance(doc, dict) or not doc.get("file") or not doc.get("sha256"):
+                failures.append("its source audio hash is unproved")
+            else:
+                source = lock.resolve(ctx.film_dir, str(doc["file"]))
+                if not source.is_file() or ctx.hasher.sha(source) != doc["sha256"]:
+                    failures.append("its source audio changed or is missing")
+                if take.take_id:
+                    info = ((entry.get("takes") or {}).get(take.take_id) or {}) if isinstance(entry, dict) else {}
+                    raw_audio = lock.resolve(ctx.film_dir, str(info.get("raw"))) if info.get("raw") else None
+                    if doc.get("shot") != sid or doc.get("take") != take.take_id or raw_audio is None or \
+                            source.resolve() != raw_audio.resolve():
+                        failures.append("its script record does not identify the selected take's raw audio")
+            if prof["provider"] != "recording":
+                if any(key not in actual or actual[key] is None for key in tts.PIN_KEYS):
+                    failures.append("its TTS pins are incomplete")
+                if not isinstance(doc, dict) or any(doc.get(key) != used[field] for key, field in
+                                                  (("voice_id", "voice_id"), ("model", "model"),
+                                                   ("voice_settings", "settings"))):
+                    failures.append("its recorded voice does not match the film's TTS pins")
+                seed = doc.get("seed") if isinstance(doc, dict) else None
+                wanted_seed = actual.get(f"seed.{sid}", prof.get("seed"))
+                if not isinstance(seed, int) or isinstance(seed, bool) or not 0 <= seed <= 4294967295 or \
+                        (wanted_seed is not None and (not isinstance(wanted_seed, int) or
+                                                      isinstance(wanted_seed, bool))) or \
+                        (wanted_seed is not None and seed != wanted_seed):
+                    failures.append("its narration seed is unproved or changed")
+            if failures:
+                narration["unproved"].append(sid)
+                out["problems"].append(f"{sid}'s selected narration is unproved: " + "; ".join(failures))
+        if out["selection"]["ready"]:
+            out["command"] = ("voice", "check") if narration["unproved"] else \
+                (("voice", "profile") if prof["provider"] == "recording" else ("voice", "tts"))
+        return out
+    except (SlateError, OSError, TypeError, ValueError, KeyError, AttributeError) as exc:
+        out["problems"].append(f"voice handoff cannot be proved: {exc}")
+        out["command"] = ("voice", "check") if out["selection"]["ready"] else ("voice", "profile")
+        return out
+
+
+def _render_stage(ctx: _Ctx) -> dict:
+    """Check actual registered acts and their recorded render inputs.
+
+    A timing gate or an unregistered movie cannot stand in for an act render. The shared render hashes define the
+    input contract here; status does not open an engine or invent a second source walk. Legacy entries remain
+    readable, but missing hashes leave freshness unproved rather than reporting a current picture.
+    """
+    from slate.render import engines, install_checks, registry  # noqa: PLC0415
+    from slate.render.plan import acts_from_shots  # noqa: PLC0415
+
+    result: dict[str, Any] = {"present": False, "summary": "nothing rendered yet", "reasons": [], "problems": [],
+                              "acts": []}
+    try:
+        entries = registry.entries(ctx.film_dir)
+    except (UsageError, OSError) as exc:
+        result.update(present=ctx.exists(str(registry.REGISTRY)), summary="render registration is unproved")
+        result["reasons"].append(f"render freshness is unproved: renders/registry.json cannot be read ({exc})")
+        result["problems"].append("renders/registry.json doesn't parse or match its schema")
+        return result
+    result["present"] = bool(entries)
+    result["summary"] = f"{len(entries)} act renders registered" if entries else "nothing rendered yet"
+    if not entries:
+        return result
+
+    # The registry schema permits repeated act IDs, but registry.status keeps only one entry per act. Detect that
+    # ambiguity before asking for its collapsed view: neither duplicate may silently stand in for the other.
+    counts: dict[int, int] = {}
+    for entry in entries:
+        counts[entry["act"]] = counts.get(entry["act"], 0) + 1
+    duplicates = {act: count for act, count in counts.items() if count > 1}
+    if duplicates:
+        for act, count in sorted(duplicates.items()):
+            result["reasons"].append(
+                f"act {act} render freshness is unproved: {count} registry entries share this act")
+        result["acts"] = [{"act": entry["act"], "frames": entry["frames"], "file": entry["file"],
+                           "state": "unproved", "source_freshness": "unproved",
+                           "duplicate_registration": entry["act"] in duplicates} for entry in entries]
+        return result
+
+    try:
+        timing = _read(ctx.film_dir, "timing/shots.json")
+        if not isinstance(timing, dict):
+            raise UsageError("timing/shots.json is missing or doesn't parse")
+        acts = acts_from_shots(timing)
+        rows = registry.status(ctx.film_dir, acts)
+    except (SlateError, OSError, ValueError, TypeError, KeyError, AttributeError) as exc:
+        result["reasons"].append(f"render coverage is unproved: the expected acts cannot be checked ({exc})")
+        return result
+
+    # Hash each content set and each engine once per status computation. These are the same functions the renderer
+    # uses when it writes content_hash and source_hash into the registry; neither one bundles or renders a film.
+    content: tuple[str | None, str | None] | None = None
+    sources: dict[str, tuple[str | None, str | None]] = {}
+
+    def current_hash(kind: str, engine: str) -> tuple[str | None, str | None]:
+        nonlocal content
+        if kind == "content_hash" and content is not None:
+            return content
+        if kind == "source_hash" and engine in sources:
+            return sources[engine]
+        try:
+            digest = (install_checks.content_hash(ctx.film_dir, ctx.fj) if kind == "content_hash" else
+                      engines.sources_hash(ctx.film_dir, ctx.fj, engine))
+            answer = (digest, None)
+        except (SlateError, OSError, ValueError, TypeError, KeyError) as exc:
+            answer = (None, str(exc))
+        if kind == "content_hash":
+            content = answer
+        else:
+            sources[engine] = answer
+        return answer
+
+    for row in rows:
+        entry = row.get("entry")
+        item: dict[str, Any] = {k: row[k] for k in ("act", "frames", "state")}
+        result["acts"].append(item)
+        if entry is None:
+            result["reasons"].append(f"act {row['act']} is not rendered")
+            continue
+        item["file"] = entry["file"]
+        if row["state"] != "rendered":
+            result["reasons"].append(f"act {row['act']}: {row['state']} ({entry['file']})")
+            continue
+        path = ctx.film_dir / entry["file"]
+        try:
+            same_movie = ctx.hasher.sha(path) == entry["sha256"]
+        except OSError as exc:
+            item["state"] = "unproved"
+            result["reasons"].append(f"act {row['act']} movie bytes are unproved ({exc})")
+            continue
+        if not same_movie:
+            item["state"] = "changed on disk"
+            result["reasons"].append(f"{entry['file']} changed since it was registered")
+            continue
+
+        item["source_freshness"] = "current"
+        item["hashes"] = {}
+        for kind in ("content_hash", "source_hash"):
+            recorded = entry.get(kind)
+            evidence = {"recorded": recorded, "current": None}
+            item["hashes"][kind] = evidence
+            if not recorded:
+                if item["source_freshness"] != "changed":
+                    item["source_freshness"] = "unproved"
+                result["reasons"].append(f"act {row['act']} input freshness is unproved: its registry has no {kind}")
+                continue
+            current, error = current_hash(kind, entry["engine"])
+            evidence["current"] = current
+            if error is not None or current is None:
+                if item["source_freshness"] != "changed":
+                    item["source_freshness"] = "unproved"
+                result["reasons"].append(f"act {row['act']} {kind} freshness is unproved ({error or 'no hash'})")
+            elif current != recorded:
+                item["source_freshness"] = "changed"
+                result["reasons"].append(f"act {row['act']} {kind} changed since it was rendered")
+    return result
+
+
 def _stage(ctx: _Ctx, stage: Stage, sit: dict) -> dict:
     film_dir, fj = ctx.film_dir, ctx.fj
     out: dict[str, Any] = {"stage": stage.key, "label": stage.label, "state": "fresh", "ok": True, "summary": "",
@@ -330,6 +591,25 @@ def _stage(ctx: _Ctx, stage: Stage, sit: dict) -> dict:
             command = stage.command
         elif stale:
             command = stage.stale_command or stage.command
+        progress = _voice_progress(ctx)
+        out["voice_selection"] = {**progress["selection"],
+                                  "approved_by_brand": "voice_shortlist" in sit.get("covered", {})}
+        problems.extend(progress["problems"])
+        narration = progress["narration"]
+        if narration is not None:
+            out["narration"] = narration
+            if not narration["required"]:
+                skipped = "the built storyboard has no narrated lines"
+            else:
+                present = not narration["missing"] and bool(narration["present"])
+                summary = f"selected audio for {len(narration['present'])} of {len(narration['required'])} narrated lines"
+                if narration["missing"]:
+                    summary += "; narration missing for " + ", ".join(narration["missing"][:5])
+                command = progress["command"]
+                if reasons or gate_stale:
+                    command = ("voice", "check")
+        elif progress["problems"]:
+            command = progress["command"]
     elif stage.key == "timing":
         summary = f"{len(present_files)} of {len(stage.files)} timing files" if present else "no timing yet"
         if lock.timeline_locked(film_dir):
@@ -358,24 +638,11 @@ def _stage(ctx: _Ctx, stage: Stage, sit: dict) -> dict:
             skipped = "no generated shots planned (generation is rare by default)"
         summary = f"{len(rels)} generated files" if present else "none yet"
     elif stage.key == "render":
-        entries = lock.registered_act_renders(film_dir)
-        reg = _read(film_dir, lock.RENDER_REGISTRY)
-        if reg is None and (film_dir / lock.RENDER_REGISTRY).exists():
-            problems.append("renders/registry.json doesn't parse")
-        all_entries = (reg or {}).get("entries") or [] if isinstance(reg, dict) else []
-        bad = []
-        for e in all_entries:
-            f = e.get("file")
-            if not f:
-                continue
-            p = Path(f) if Path(f).is_absolute() else film_dir / f
-            if not p.exists():
-                bad.append(f"{f} is missing")
-            elif e.get("sha256") and ctx.hasher.sha(p) != e.get("sha256"):
-                bad.append(f"{f} changed since it was registered")
-        if bad:
-            reasons.append("; ".join(bad[:3]))
-        summary = f"{len(entries)} act renders registered" if present else "nothing rendered yet"
+        rendered = _render_stage(ctx)
+        present, summary = rendered["present"], rendered["summary"]
+        reasons.extend(rendered["reasons"])
+        problems.extend(rendered["problems"])
+        out["acts"] = rendered["acts"]
     elif stage.key == "qa":
         present = bool(stage_gates) or bool(ctx.problems)
         if present:
@@ -411,7 +678,7 @@ def _stage(ctx: _Ctx, stage: Stage, sit: dict) -> dict:
         state = "missing"
     elif reasons:
         state = "stale"
-        if stage.stale_command:
+        if stage.stale_command and "narration" not in out:
             command = stage.stale_command
     elif (appr and appr["approved"]) or (locked and len(locked) == len(rels)) or out.get("timeline_locked"):
         state = "locked"
@@ -446,7 +713,12 @@ def _next(ctx: _Ctx, stages: dict[str, dict], sit: dict, parked: list[dict], rev
                 "why": f"revision {revision['id']} of {revision['artifact']} is open: make the checklist's changes "
                        "to that exact artifact, check them, then `slate revise done`."}
     for step in PIPELINE:
-        if step.startswith("@"):
+        narration_step = step == "@narration"
+        if narration_step:
+            step = "voice"
+            if "narration" not in stages[step] or not stages[step].get("voice_selection", {}).get("ready"):
+                continue
+        elif step.startswith("@"):
             name = step[1:]
             s = sit.get(name) or {}
             if s.get("blocking") and s.get("pending"):
@@ -462,6 +734,10 @@ def _next(ctx: _Ctx, stages: dict[str, dict], sit: dict, parked: list[dict], rev
         st = stages[step]
         if st["ok"]:
             continue
+        # Casting precedes the sitting; selected narration follows it. Deferring the next command does not mark
+        # voice done, and it leaves every pending script, checklist and claims approval in the sitting intact.
+        if step == "voice" and not narration_step and "narration" in st and st.get("voice_selection", {}).get("ready"):
+            continue
         argv = tuple(st["command"] or ())
         available = command_available(argv) if argv else False
         why = st["summary"]
@@ -470,6 +746,9 @@ def _next(ctx: _Ctx, stages: dict[str, dict], sit: dict, parked: list[dict], rev
         if st["problems"]:
             why = st["problems"][0]
         hint = BY_KEY[step].hint
+        if step == "voice" and "narration" in st and st.get("voice_selection", {}).get("ready"):
+            hint = ("record the missing narrated lines with the selected voice" if argv == ("voice", "tts") else
+                    "check the selected takes against the current script, audio files and voice pins")
         text = f"{st['label']} is {st['state']}: {why}. Next: {hint}."
         if argv and not available:
             text += f" (`{_cmd(argv)}` isn't built in this Slate yet.)"
@@ -539,6 +818,11 @@ def compute(film_dir: Path) -> dict:
         }
         result["next"] = _next(ctx, stages, sit, parked, result["revision"], tampered)
         result["ok"] = all(s["ok"] for s in result["stages"]) and not parked
+        from slate import history  # noqa: PLC0415
+
+        creative = history.context()
+        result["creative_history"] = {"source": creative["source"], "patterns": len(creative["patterns"]),
+                                      "read": "slate history context", "note": creative["note"]}
         return result
     finally:
         ctx.hasher.save()
@@ -611,6 +895,9 @@ def format_human(st: dict) -> str:
     if st.get("revision"):
         r = st["revision"]
         lines.append(f"{'revision':<15} {r['id']} of {r['artifact']} is open ({r['items']} changes)")
+    creative = st.get("creative_history") or {}
+    if creative.get("source"):
+        lines.append(f"{'creative history':<15} {creative['patterns']} sourced patterns; read {creative['read']}")
     nxt = st["next"]
     lines.append("")
     if nxt.get("command"):

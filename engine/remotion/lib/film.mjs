@@ -6,6 +6,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {readJson, usage} from './common.mjs';
+import {mixedScenesForAct} from './shot_scenes.mjs';
 
 /** Timing files the scenes read through '@film/data' (shots is required; the rest appear as they're made). */
 export const TIMING_FILES = {
@@ -182,6 +183,15 @@ export const FILM_COMP = 'Film';
 export function parseTarget(ctx, target) {
   if (target === undefined || target === null || target === '') throw usage('Say which act to use ("act": N) or "film".');
   if (target === 'film' || target === FILM_COMP) return {kind: 'film', comp: FILM_COMP, frameIn: ctx.acts[0].frameIn, frames: ctx.acts.at(-1).frameOut - ctx.acts[0].frameIn};
+  if (String(target).startsWith('Shot-')) {
+    const id = String(target).slice('Shot-'.length);
+    const record = (ctx.shots?.shots ?? []).find((row) => row.id === id);
+    const sc = record ? mixedScenesForAct(ctx, record.act).find((item) => item.comp === String(target)) : null;
+    if (!sc) throw usage('No declared Remotion replacement composition ' + target + '.');
+    const a = actOf(ctx, sc.act);
+    return {kind: 'shot', act: sc.act, shot: sc.shot, comp: sc.comp, frameIn: a.frameIn, frames: a.frames,
+      first: sc.frames[0], last: sc.frames[1], info: a, scene: sc};
+  }
   const m = /^Act(\d+)$/.exec(String(target));
   const n = m ? Number(m[1]) : Number(target);
   const a = actOf(ctx, n);

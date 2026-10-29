@@ -60,8 +60,11 @@ NODES: dict[str, Node] = {n.name: n for n in (
          ("timing/visual_events",), ("slate emit-events",), "engine"),
     Node("render", ("render",), ("timing", "events"), ("timing/shots.json", "timing/timeline.json"),
          ("renders/registry.json",), (), ("slate render",), "render"),
+    Node("sfx", ("sfx", "run"), ("timing", "events"), ("timing/shots.json", "timing/vo_cues.json"),
+         ("sound/sound_cues.json", "sound/stems/stems.json"), (), ("slate sfx",), "sound",
+         tracked=("timing/visual_events", "film:sound", "brand:{brand}#sound", "brand:{brand}#motion")),
     # The palette and the effect cues are the mix's inputs too: a palette change re-spots the effects and remakes it.
-    Node("mix", ("mix",), ("timing", "events"), ("timing/vo_cues.json",), (), (), ("slate mix",), "sound",
+    Node("mix", ("mix",), ("timing", "events", "sfx"), ("timing/vo_cues.json",), (), (), ("slate mix",), "sound",
          tracked=("sound/sound_cues.json", "brand:{brand}#sound")),
     Node("master", ("master",), ("render", "mix"), ("renders/registry.json",), (), ("masters",),
          ("slate master",), "finish"),
@@ -86,15 +89,30 @@ def resolve_target(name: str) -> str:
     return key
 
 
-def plan(target: str) -> list[str]:
-    """The target and everything upstream of it, in build order."""
+def effects_enabled(film_dir: Path | None) -> bool:
+    """Effects join the build only when requested or when the film already uses generated effect stems."""
+    if film_dir is None:
+        return False
+    data = film.load(film_dir)
+    if (data.get("sound") or {}).get("effects") is True:
+        return True
+    manifest = lock.resolve(film_dir, "sound/stems/stems.json")
+    contents = jsonio.read(manifest, default={}) or {}
+    return str(contents.get("producer", "")).startswith("slate sfx")
+
+
+def plan(target: str, film_dir: Path | None = None) -> list[str]:
+    """The target and its active prerequisites. Score-and-voice films keep their existing route."""
     want: set[str] = set()
+    effects = effects_enabled(film_dir)
 
     def visit(name: str) -> None:
         if name in want:
             return
         want.add(name)
         for up in NODES[name].after:
+            if up == "sfx" and not effects:
+                continue
             visit(up)
 
     visit(resolve_target(target))
@@ -290,7 +308,7 @@ def run(film_dir: Path, target: str, *, force: bool = False, dry_run: bool = Fal
     """Bring `target` up to date. Returns {target, film, plan, results, exit_code}; runs nothing that's fresh."""
     film_dir = Path(film_dir)
     target = resolve_target(target)
-    order = plan(target)
+    order = plan(target, film_dir)
     runner = runner or _default_runner
     results: list[dict] = []
     blocked: dict[str, str] = {}

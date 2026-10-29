@@ -90,11 +90,13 @@ def _sec(s: dict, film: Film, key: str) -> float:
 
 
 def _event_time(film: Film, event_id: str) -> float | None:
-    # "S39:keystone" names the event in one shot, for an id two shots share (a film's two keystones); a bare id is the
-    # first in order.
+    # Resolve each timed act independently: a derived film may override one and inherit the others. "S39:keystone"
+    # names the event in one shot, for an id two shots share (a film's two keystones); a bare id is the first in order.
     shot, _, bare = event_id.rpartition(":") if ":" in event_id else ("", "", event_id)
-    folder = film.path("timing/visual_events")
-    for p in sorted(folder.glob("act*.json")) if folder.exists() else []:
+    acts = {str(s.get("act", 1)) for s in film.shots.get("shots") or []}
+    acts.update(str(a["index"]) for a in film.shots.get("acts") or [] if "index" in a)
+    for act in sorted(acts):
+        p = film.source(f"timing/visual_events/act{act}.json")
         try:
             data = jsonio.read(p)
         except Exception:  # noqa: BLE001 - an unreadable act file is skipped (and reported by the events gate)

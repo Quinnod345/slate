@@ -3,7 +3,7 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/Quinnod345/slate/main/install.sh | bash
 #   ~/code/slate/install.sh [--dry-run] [--yes] [--agents claude,codex,openclaw] [--home PATH]
-#                           [--exclude-agent ID] [--no-quinn-skills] [--no-jobs-agent] ...
+#                           [--exclude-agent ID] [--no-quinn-skills] [--no-jobs-agent] [--no-doctor] ...
 #
 # What it does, in order:
 #   1. finds the Slate checkout: the folder this script lives in, or ~/code/slate when it's piped in from curl
@@ -13,7 +13,8 @@
 #      (~/.agents/skills, never ~/.codex/skills), Higgsfield's skills shared with Codex and OpenClaw, the CLI shim in
 #      ~/.local/bin and /opt/homebrew/bin, the MCP server registered with each agent that's here, the launchd job
 #      runner (a login item, so only with a yes), and the offer to set up visionary and goal-fidelity;
-#   4. ends with `slate doctor`. In a real Terminal it offers `slate doctor --install`, which asks before each tool.
+#   4. ends with `slate doctor`, unless --no-doctor explicitly skips those host checks. In a real Terminal it offers
+#      `slate doctor --install`, which asks before each tool. Skipping doctor does not prove tools, keys, clients or AE.
 #
 # Anything in the way that isn't Slate's is moved to a dated backup folder and reported, never deleted. Every other
 # skill stays exactly as it is. In an agent (Claude Code, Codex, OpenClaw) nothing prompts: each question becomes a
@@ -27,6 +28,7 @@ export BROWSER=none
 
 REPO_URL="${SLATE_REPO:-https://github.com/Quinnod345/slate.git}"
 DRY_RUN=0
+NO_DOCTOR=0
 HOME_ARG=""
 PASS=()
 
@@ -40,6 +42,7 @@ usage() { sed -n '2,26p' "${BASH_SOURCE[0]:-/dev/null}" 2>/dev/null | sed 's/^# 
 while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run) DRY_RUN=1; PASS+=("$1") ;;
+    --no-doctor) NO_DOCTOR=1; PASS+=("$1") ;;
     --home) [ $# -ge 2 ] || die 2 "--home needs a folder"; HOME_ARG="$2"; PASS+=("$1" "$2"); shift ;;
     --home=*) HOME_ARG="${1#--home=}"; PASS+=("$1") ;;
     -h|--help) usage; exit 0 ;;
@@ -185,6 +188,11 @@ fi
 "$PY" -m slate install --no-doctor ${EXTRA[@]+"${EXTRA[@]}"} ${PASS[@]+"${PASS[@]}"} || RC=$?
 
 # --- 4. slate doctor ----------------------------------------------------------------------------------------------
+
+if [ "$NO_DOCTOR" = 1 ]; then
+  say "Doctor skipped (--no-doctor); run \`slate doctor\` separately when you want its checks."
+  exit "$RC"
+fi
 
 if [ "$DRY_RUN" = 1 ]; then
   say "  then: slate doctor"

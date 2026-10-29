@@ -362,14 +362,21 @@ def test_an_approved_span_without_its_clip_is_unchecked_and_no_spans_pass(mix_fi
 def test_the_listening_file_plays_each_ridden_accent_as_mixed_before_and_now(mix_film, helpers):
     """Each excerpt plays twice: the mix plus exactly what that hit's ride took off (nothing else), then the mix as it
     is. Black with labels here, where the film has no master."""
-    from slate import procs
+    from slate import jsonio, procs
     from slate.sound import audio, listen
 
     if not procs.which("ffmpeg"):
         pytest.skip("the listening file is made with ffmpeg")
     f = _film(mix_film, helpers, families=True, accent_amp=0.2)
-    f.rides({"rides": [{"hit": "tick", "t": 1.25, "end": 1.37, "family": "accents", "depth_db": -7.5,
-                        "half_depth": True}]})
+    # This fixture contains one isolated accent. A real mixer writes its exact per-hit, post-master difference.
+    acc, _ = audio.read_wav(f.path / "sound/mix/family_stems/accents.wav")
+    a, b = int(1.25 * helpers.SR), int(1.37 * helpers.SR)
+    delta = audio.write_wav(f.path / "sound/mix/ride_deltas/tick.wav", acc[a:b] * (10 ** (7.5 / 20) - 1),
+                            helpers.SR, 32)
+    f.rides({"mix_sha256": jsonio.sha256(f.path / "sound/mix/final_mix.wav"),
+             "rides": [{"hit": "tick", "t": 1.25, "end": 1.37, "family": "accents", "depth_db": -7.5,
+                        "half_depth": True, "delta": {"file": "sound/mix/ride_deltas/tick.wav", "start_sample": a,
+                                                       "sha256": jsonio.sha256(delta)}}]})
     rec = listen.ridden_accents(f.path, size=(320, 180))
     assert rec["rides_heard"] == 1 and len(rec["excerpts"]) == 1 and rec["picture"].startswith("black")
     ex = rec["excerpts"][0]
@@ -397,7 +404,7 @@ def test_the_listening_file_says_what_it_needs(mix_film, helpers):
     with pytest.raises(MissingPrerequisite, match="Nothing was ridden"):
         listen.ridden_accents(f.path)
     f.rides({"rides": [{"hit": "tick", "t": 1.25, "end": 1.37, "family": "accents", "depth_db": -6.0}]})
-    with pytest.raises(MissingPrerequisite, match="family stem"):
+    with pytest.raises(MissingPrerequisite, match="deltas"):
         listen.ridden_accents(f.path)
     code, _out, err = run_cli(["mix", "--listen", "--film", str(f.path)])
-    assert code == 3 and "family stem" in err
+    assert code == 3 and "deltas" in err

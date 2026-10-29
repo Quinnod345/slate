@@ -31,9 +31,12 @@ ae-qa-delivery.md, process-lessons.md, agents-wiring.md, packaging-research.md, 
    for tests, evals and `slate demo`; `--live` spends.
 8. **Gates, not vibes:** every check returns a `GateResult` (§6). Only PASS counts as passed. Unchecked is never passed.
 9. **Never render on the WORK Mac.** Rendering is local.
-10. **Perfect, don't replace:** code that revises approved work edits that artifact; it never swaps the approach.
-11. **Voice:** never use whisper/soft/quiet/gentle v4 audio tags. Clones only of Quinn's own voice (professional clone
-    he verified), never anyone else's.
+10. **Preserve iteration history:** snapshot approved work, retain the person's exact feedback and compare the
+    revision. Requested redesigns are work, not automatic questions. A creative preset or historical preference is
+    contextual guidance; the current brief and newer feedback take priority. Private histories stay outside the core.
+11. **Voice:** tag restrictions are explicit per voice. `tag_policy.avoid_low_effort` defaults to false; opting in
+    restricts low-effort tags and enables the corresponding breath comparison gate. Measurements remain available
+    when that preference is not required. Clones remain limited to Quinn's own verified professional voice.
 12. **Portable text:** agent-facing text (skills, `--help`, errors) never names Claude-only tools.
 13. **Quinn's voice** in docs, comments and messages: clear, specific, warm, no filler.
 
@@ -125,8 +128,8 @@ builders; if one needs a change, the builder says so in its report instead of ed
 - `slate.jsonio`: `read(path)`, `write_atomic(path, obj)` (temp + rename, sorted keys off, 1-space indent, trailing
   newline), `sha256(path)`, `validate(obj, schema_name)`.
 - `slate.gates`: `GateResult` (§6), `inputs_for(film_dir, paths)`, `write_report(film_dir, results)`,
-  `load_report(film_dir)` (STALE when an input changed), `summarize(results)`. Inputs may be named
-  (`film:<dotted.key>`, `film:*`, `brand:<name>` or one block of it, `brand:<name>#<dotted.key>`, `format:<name>`,
+  `load_report(film_dir)` (STALE when an input or a registered rule revision changed), `summarize(results)`. Inputs may be named
+  (`film:<dotted.key>`, `film:*`, `brand:<name>` or one block of it, `brand:<name>#<dotted.key>`, `voice:<shot>#timing`, `format:<name>`,
   hashed through `slate.state.lock.hash_inputs`);
   listing `film.json` records `film:*` (film.json without its bookkeeping), so a pin, a version or a budget raise
   doesn't turn gates STALE.
@@ -177,12 +180,13 @@ of them.
 | `slate approve <what> <path> --by NAME` | records a person's approval of exactly this file (sha256); `slate approve proof3 <file> --by NAME` needs no film and writes DATA/approvals.json; `slate approve grant --scope "<the owner's words>" --by NAME` records an autonomy grant with its scope (no file) | state |
 | `slate film show\|set\|input\|icloud\|pin\|repin\|ask\|mark\|direction\|questions\|answer\|park` | film.json, supplied inputs (copied to brief/inputs/, verified and locked), a film in iCloud Drive kept out of sync, pins, the brief's asks and directions, questions for a person; `set mode` away from autonomous needs a person at their own Terminal (`--by NAME --reason TEXT`) | state |
 | `slate variant <parent> <child> [--aspect A] [--cut S] [--language L] [--format F] [--by NAME --reason TEXT]` | a derived film that reuses its parent's work by reference (it starts in its parent's mode) | state |
-| `slate revise start\|check\|done\|list` | perfect, don't replace: revise approved work by its notes | state |
+| `slate revise start\|check\|done\|list` | snapshots approved work, applies scoped notes and redesigns, and records the comparison | state |
+| `slate history recover\|use\|context\|note` | recovers private chat history, selects sourced preferences, reads their scope and counterexamples, and records draft feedback with before/after hashes | state |
 | `slate script build\|lint` | script.json → storyboard.json + SCRIPT.md, refuses on failed gates | story-timing |
 | `slate timing [words\|misses\|show\|pin\|stress]` | shots.json, vo_cues.json, vo_words.json, events.json, timeline.json; `pin` keeps a shot's delivered word times through a re-voice; `stress <shot> <word>` measures where the word's stressed syllable starts (S, C = S + 2) and writes nothing | story-timing |
 | `slate voice profile\|account\|cast\|design\|tags\|tts\|clean\|pace\|polish\|analyze\|align\|captions\|check\|approve\|comp\|preview\|swap\|trim` | the voice stages, from casting to the studio polish, measured inflection and captions; re-voicing: a one-word pickup (`comp`), the re-voiced narration on the timeline (`preview`), an approved set swapped in (`swap`), a leaked tail trimmed off a take's play length (`trim`) | voice |
 | `slate score plan\|compose\|assemble\|qa` / `slate mix [--listen [N]]` / `slate verify [gate ...]` | score, mix (and the listening file of the hardest-ridden accents), the sound gates (with slate.sound.balance's) | sound |
-| `slate sfx [status\|spot\|render]` | effects engine; refuses until the proof-3 gate is cleared | sound |
+| `slate sfx [status\|spot\|render\|run] [--seed N] [--detach]` | designed effects; hash-bound proof gate, measured spotting and balanced stems | sound |
 | `slate sound instruments\|loudness\|balance` | sound tools: tonal instruments, BS.1770-4 loudness, the balance against the voice | sound |
 | `slate gen estimate\|run\|takes\|judge\|pick\|cancel\|request-approval\|approve\|probe` | Higgsfield generations with estimate, ledger, takes | gen-capture |
 | `slate plates plan\|conform\|matte\|track\|repair` | generated plates: the plan, the conform of an approved take, mattes, and the timing repair of a plate that hitches (staged with its report, then `--install`) | gen-capture |
@@ -258,9 +262,17 @@ Generated files carry `"generated": "do not edit by hand: <command>"`.
  "inputs": {"<path or named input>": "<sha256>"}, "checked_at": "ISO-8601", "details": {}}
 ```
 
+Gate exports project Python float values that are not finite to diagnostic text: `NaN`, `Infinity` and `-Infinity`. `GateResult.to_dict()` applies this recursively without changing the in-memory result, status, inputs or rule revision. `write_report()` also projects cached latest rows before merging, retaining unknown fields. Original producer reports and earlier `qa/history.jsonl` bytes remain untouched; the latest document and newly appended gate rows use the projection. Shared JSON serializers and `sha256_obj` retain their existing behavior. This is a one-way export representation; those labels are not decoded as measurements.
+
 `qa/gates.json` holds the latest result per gate. A result turns STALE when any input's hash changes. Named inputs
-(`film:<dotted.key>`, `film:*`, `brand:<name>`, `brand:<name>#<dotted.key>`, `format:<name>`) are hashed by value, so
-a pin or a new version in film.json doesn't make a gate STALE; changing what the gate read does. A stage names the
+(`film:<dotted.key>`, `film:*`, `brand:<name>`, `brand:<name>#<dotted.key>`, `voice:<shot>#timing`, `format:<name>`) are hashed by value, so
+a pin or a new version in film.json doesn't make a gate STALE; changing what the gate read does.
+A gate can register an acceptance revision through `slate.gates.rule_revision(name)` and record that integer in `engine.rule_revision`. `sound.voice_limiter` and `access` currently require it. Missing, malformed or mismatched revisions make their saved results STALE on readback; the report and history files are not rewritten, and `details.was` preserves the prior status. Other gates retain their existing input-based behavior. The voice-limiter check records its mix report and dialogue dependencies even for a no-voice PASS. An absent file is recorded as null, so its later creation invalidates that result.
+
+The access type-size check records eligible OCR lines, unique witnesses, measured witnesses and omissions. It retains one witness per normalized text and rounded OCR box, with a 400-candidate decoding bound. An omitted candidate, missing picture frame, empty crop or unavailable cap-height measurement prevents PASS; a measured undersized line remains FAIL even when other witnesses are missing. These counts describe the selected OCR witnesses, not every glyph or frame in the film. Access revision 1 prevents older results that silently omitted body-text measurements from remaining fresh.
+Picture timing reads the verified pre-polish source for transcription and onset snapping while cues retain the
+polished playback. Source bytes and the narrow voice selector are inputs; equal sample rate and frame count are
+required, and explicit source/output hashes must match before an alignment cache is reused. A stage names the
 brand blocks it reads, not the whole pack: the script its `truth` and duration scale, the timing
 `brand:<name>#motion.eases`, the mix its `sound`. Approving a reference or editing the look stales none of them. Gates whose names don't say which stage they
 check add `details.stage`.
@@ -291,15 +303,36 @@ with this kit and compared with their approved renders), `web-render` (the open 
 16-bit sub-frame average (render_mb), lossless intermediates for chunks, splices proven by frame hashes and PSNR. A
 derived film's reused files reach the engine through `.slate/refs.json` (written from `slate.state.lock.resolve`).
 
-**Per-shot engines (P074).** The brand picks the engine for its scenes (`look.engine`); a shot may name its own `engine`
-in script.json (carried through storyboard.json into timing/shots.json, where render and check read it), and by
-default it's drawn by its act's. Built: a web shot inside a
-Remotion act. Its page lives in `scenes/shots/<SHOT>/web/`, its beats join the act's events, `slate check` hands it in
-(`handin.act<N>.shot.<ID>.*` and `handin.act<N>.shots`), and `slate render` renders it over exactly its frames at the
-act's samples and splices it in with proof before the act is registered (the registry entry lists `shot_engines`). A
-seam between engines is always a cut, so a patch never crosses one. Refused by name until built: an AE shot in a code
-act or a code shot in an AE act (After Effects builds and renders whole acts), a Remotion shot in a web act, and a web
-shot's tweens in the act's motion trace. engine/README.md holds the rules; `slate.render.shot_engines` enforces them.
+**Per-shot engines (P074).** The brand picks its act's engine (`look.engine`); a shot may declare another engine in
+script.json, carried through storyboard.json and timing/shots.json. Built code combinations work in both directions:
+a Web shot inside a Remotion act and a Remotion shot inside a Web act. Web replacements use
+`scenes/shots/<SHOT>/web/index.html`; Remotion replacements use `scenes/shots/<SHOT>/index.tsx` (or .ts, .jsx or .js).
+The generated `Shot-<ID>` composition retains the owning act's clock and full duration, while render requests select
+only the shot's exact film frames.
+
+Each replacement contributes actual beats and motion evidence and gets its own hand-in gates
+(`handin.act<N>.shot.<ID>.*`). The owning act renders whole, then replacements render at its samples and splice in
+with proof before registration; the registry lists `shot_engines`. Engine seams are cuts, so patches cannot cross one.
+Review stills use the same boundaries and scenes. An omitted render engine selects each built mixed act's owner, including films whose acts have different base
+engines; a conflicting explicit render engine is refused before a child starts. Omitted previews follow the mixed
+owner, while explicit preview choices remain available for uncovered base frames. Pure omitted previews use Remotion.
+
+Raw base events and motion rows are validated before replaced-shot evidence leaves the visible composition.
+Hidden malformed rows and duplicate ids remain problems. The final list retains the existing act-wide event limits
+and independently placed capture beats from one captured input generation. Pure acts and whole-act silence retain
+their behavior.
+
+The active motion trace combines visible base rows with actual replacement rows in film frames. Web read-only
+responses bind consumed HTML, imported scripts, CSS and the real virtual context, including brand data and embedded
+SVGs; relative and absolute aliases must agree. Remotion replacements contribute their actual kit registrations.
+Complete base rows and composition details remain under `timing/motion/sources/`. Isolated patches refresh the
+whole owning act once. Failed refreshes archive previous bytes and the reason under `timing/motion/failures/`,
+then remove the current trace so missing evidence remains UNCHECKED.
+
+The composer refuses base curves with ambiguous ownership across a replacement. It does not crop, resample or rename
+their ease; this remains a composition limit, not a creative rule. AE shots in code acts and code shots in AE acts
+remain unsupported because After Effects builds and renders whole acts. engine/README.md documents the scene and
+consumer contracts; `slate.render.shot_engines` resolves them.
 
 ## 9. Jobs
 
@@ -331,7 +364,7 @@ twice on the way (`slate.jobs.resume`).
 
 Python: stdlib + numpy/scipy/Pillow unless the module says otherwise; type hints; small functions; docstrings that say
 why. TypeScript: strict. Comments and docs in Quinn's voice. No TODO stubs presented as done: if something can't be
-built yet (e.g. the effects engine before proof 3), it refuses with a clear message and a test proves the refusal.
+built yet, it refuses with a clear message and a test proves the refusal.
 
 ## 12. Module interfaces (call these across modules)
 
@@ -346,7 +379,8 @@ its own tests, and says so in its report. Film paths are always the film folder 
 - `lock.record(film_dir, rel_path, *, producer, inputs, tool_version=None) -> dict` (a film.lock.json entry; inputs are
   paths or named inputs: `film:<dotted.key>`, `film:*` (film.json without pins, the pin log, versions, budgets, model
   overrides and stamps), `brand:<name>#<dotted.key>` (one block of brand.json; `brand:<name>` whole is still read for
-  locks made before stages named their blocks), `format:<name>`) · `lock.hash_inputs(film_dir, inputs) -> dict`
+  locks made before stages named their blocks), `voice:<shot>#timing` (selected voice paths, read length and polish
+  provenance, excluding approval and QA bookkeeping), `format:<name>`) · `lock.hash_inputs(film_dir, inputs) -> dict`
 - `lock.is_stale(film_dir, rel_path) -> bool` · `lock.lock_asset(film_dir, rel_path, *, reason) -> None` · `lock.is_locked(film_dir, rel_path) -> bool`
 - `lock.resolve(film_dir, rel_path) -> Path` (a derived film's reused file: its own first, then its parent's)
 - `lock.freeze_shot_ids(film_dir, ids, *, source=...) -> dict` · `lock.scene_references(film_dir, ids) -> dict[str, list[str]]`
@@ -433,6 +467,39 @@ for, written silent on purpose)
 · `verify.run(film_dir, names=None, *, write=True) -> list[GateResult]` · `verify.GATE_NAMES` (the core gates)
 · `verify.gate_names()` (with every gate merged in from `slate.sound.balance`, which deliver requires)
 · `effects.require_proof3()` (raises Refused until proof 3 is approved)
+· `effects.engine.plan(film_dir, *, stage="run") -> dict` (read-only: no audio decoding, locks or writes)
+· `effects.engine.spot(film_dir, *, seed=0) -> Path` (`sound/sound_cues.json`)
+· `effects.engine.render(film_dir) -> dict` (balanced effect stems and `sound/stems/stems.json`)
+· `effects.engine.render_cue(cue, film_dir=None, sample_rate=48000) -> (stereo_samples, start_offset_samples)`
+
+`slate sfx status|spot|render|run` exposes those stages; omitted stage means `run`. Spot writes cues only, render reads
+the existing cues, and run does both. `--dry-run` plans without writing or queuing. `--detach` queues the requested
+stage in the render slot; MCP exposes status inline and spot/render/run through `job_submit`. Runtime proof approval
+is checked before execution, and a changed or revoked proof closes the gate.
+
+The spotter reads every expected act through `Film.source`, including inherited events. Missing, unreadable,
+malformed or empty arrays are failed inputs with a per-file report. A silent act is explicitly
+`{"silent": true, "reason": "..."}`. Generic interactions keep one logical cue; a count has independently measured
+clicks in `notes`. The film clock supplies frame/sample rates and frame width. Palette kind data supplies the voice,
+material, stem, processing family and anchor. Palette `family` names the material; `balance_family` selects the
+processing bus, which becomes the cue's `family`. Variation seeds use stable event identities, so inserting an earlier
+event does not reroll later sounds. Anchors and duration are measured after variation and layer placement. Cue
+provenance records event, palette, brand sound/motion, shot-clock and authored-span hashes. Musical pitches come from
+a supplied key or explicit notes; a character needs its supplied motif. Apple samples are read in place, never copied
+or replaced with synthesis.
+
+`film.json` `sound.music.kind="bed"` enables authored sampled beds from `sound.beds`: each span gives `from`, `to`,
+optional `id`, `gain` and `pan`, and explicit chord notes in `params.notes`. Other params select the sampled voice's
+velocity, attack, release and ease. Overlapping beds on the same chord receive the approved measured 0.3-second
+handoff as absolute `clip_gain` knots; consecutive handoffs compose instead of overwriting one another. In score mode,
+bed spans remain metadata and generate no pad cues. A plain `beds` span documents an allowed bed; it invents no chord.
+
+Approved same-clock spans use `sound.music.match` entries (`clip`, `from`, `to`, `core`, `pin_cues`, `pin_rides`). The
+reference loader rechecks a person's hash-bound `sound_proof` approval of the bundle before reading cues, rides and
+audio. Pinned cues retain exact timing, gain, seeds, pitches, reverb and legacy layers. Deleted or moved picture events
+refuse; a sibling layer identifies its picture owner explicitly with `visual_event`, never by a guessed suffix.
+Approved spans are not recalibrated or relocated automatically.
+
 - `slate.sound.balance` [stability]: `GATES` (`sound.balance.*`, `sound.planned_stops`, each taking verify's context
   or a film folder), `run(film_dir, names=None)`, `register(sub)` (`slate sound balance`)
 

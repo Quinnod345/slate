@@ -22,7 +22,7 @@ the hand-in check.
 | Motion law | named eases with exact endpoints, `tw()`, `dur()`, capped staggers, `landOn()`, `startFor()`, `defineMotion()` (the motion trace), monotone splines, `chain()` |
 | Tokens and fonts | typed tokens and CSS variables (`TokenScope`), the type scale as fractions of the frame's short side, the font plan and its gate (a missing face fails the render) |
 | Looks | `flat` (default), `paper-2.5d` (papery brands only), `editorial`, `blueprint`, and the AE bridge's looks by name |
-| Surfaces | `Card`, `FadeCard` (fades as one sheet), `Ground`, `Grain` |
+| Surfaces | `Card`, `FadeCard` (fades as one sheet), `Ground`, `Grain`, `HingedBook`, `PageLeaf` ([book API](hinged-books.md)) |
 | Cameras | `Camera` (look-at, dolly in z), `WorldLayer` (2D, identity at rest), `camAt`, `lerpCam`, `drift2D` |
 | Type | `PerChar` (capped), `PerWord`, `Arrive`, `CountUp` (each figure held three frames), `KineticWords` |
 | Product UI | surfaces, buttons, fields, chips, pills, progress, avatars, streaming text (`ui.tsx`) |

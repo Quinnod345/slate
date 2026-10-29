@@ -13,13 +13,20 @@ import os from 'node:os';
 import path from 'node:path';
 import {renderStill, selectComposition} from '@remotion/renderer';
 import {EngineError, log, requireTool, run, sha256Buffer, sha256File, timecode, usage} from './lib/common.mjs';
-import {FILM_COMP, shotAtFrame} from './lib/film.mjs';
+import {FILM_COMP, parseTarget, shotAtFrame} from './lib/film.mjs';
 import {browserExecutable, chromiumOptions, renderTimeoutMs} from './browser.mjs';
 import {useBundle} from './bundle.mjs';
 import {ensureEntry, refuseBroken} from './entry.mjs';
 import {browserLogCollector, fontGate} from './kit_bridge.mjs';
 
 function parseSpec(spec) {
+  if (spec && typeof spec === 'object' && !Array.isArray(spec)) {
+    if (typeof spec.comp !== 'string' || !spec.comp || !Number.isInteger(spec.frame) || spec.frame < 0 ||
+        spec.name !== undefined && (typeof spec.name !== 'string' || !spec.name.endsWith('.png') || path.basename(spec.name) !== spec.name || spec.name.includes('\\'))) {
+      throw usage('A structured still needs a composition, whole frame and optional PNG basename.');
+    }
+    return {...spec};
+  }
   const m = /^([A-Za-z0-9-]+):(\d+)$/.exec(String(spec));
   if (!m) throw usage(`A still is "<composition>:<frame>", e.g. "Act2:120" (got ${JSON.stringify(spec)}).`);
   return {comp: m[1], frame: Number(m[2])};
@@ -28,15 +35,16 @@ function parseSpec(spec) {
 const stillName = (comp, frame) => `${comp}_f${String(frame).padStart(5, '0')}.png`;
 
 /** A composition's first film frame, for labels: Act<N> starts at its act, Film at the first act. */
-function filmFrameOf(ctx, comp, frame) {
+function filmFrameOf(ctx, comp, frame, {customEntry = false} = {}) {
+  if (comp.startsWith('Shot-')) return customEntry ? null : parseTarget(ctx, comp).frameIn + frame;
   if (comp === FILM_COMP) return (ctx.acts[0]?.frameIn ?? 0) + frame;
   const m = /^Act(\d+)$/.exec(comp);
   const a = m ? ctx.acts.find((x) => x.act === Number(m[1])) : null;
   return a ? a.frameIn + frame : null;
 }
 
-export function labelFor(ctx, comp, frame) {
-  const ff = filmFrameOf(ctx, comp, frame);
+export function labelFor(ctx, comp, frame, options = {}) {
+  const ff = filmFrameOf(ctx, comp, frame, options);
   if (ff === null) return `${comp} · f${frame}`;
   const shot = shotAtFrame(ctx, ff);
   return `${comp} · f${frame} · ${shot ? `${shot.id} · ` : ''}${timecode(ff, ctx.fps.value)}`;
@@ -139,17 +147,20 @@ async function tile(cells, {columns, outFile, pad}) {
   }
 }
 
-function sheetFrames(ctx, comp, frames, spec) {
+function sheetFrames(ctx, comp, frames, spec, {customEntry = false} = {}) {
+  const target = !customEntry && comp.startsWith('Shot-') ? parseTarget(ctx, comp) : null;
+  const first = target ? target.first : 0;
+  if (target) frames = target.last - target.first + 1;
   if (Array.isArray(spec.frames) && spec.frames.length) return spec.frames.map(Number);
   if (spec.count) {
     const n = Math.max(1, Number(spec.count));
-    return [...new Set(Array.from({length: n}, (_, i) => Math.round((i * (frames - 1)) / Math.max(1, n - 1))))];
+    return [...new Set(Array.from({length: n}, (_, i) => first + Math.round((i * (frames - 1)) / Math.max(1, n - 1))))];
   }
   const every = Number(spec.every_s ?? 0.5);
   if (!(every > 0)) throw usage('contact_sheet.every_s must be a positive number of seconds.');
   const step = every * ctx.fps.value;
   const out = [];
-  for (let f = 0; Math.round(f) < frames; f += step) out.push(Math.round(f));
+  for (let f = 0; Math.round(f) < frames; f += step) out.push(first + Math.round(f));
   return [...new Set(out)];
 }
 
@@ -162,6 +173,12 @@ export async function stillsCommand(ctx, args) {
   if (!(scale > 0 && scale <= 4)) throw usage(`scale must be between 0 and 4 (got ${args.scale}).`);
   if (!args.specs?.length && !args.contact_sheet) throw usage('Ask for stills ("specs": ["Act1:0", …]) or a contact sheet ("contact_sheet": {"comp": "Act1"}).');
   const specs = (args.specs ?? []).map(parseSpec);
+  const validateOwned = (spec) => {
+    if (args.entry || !spec.comp.startsWith('Shot-')) return;
+    const target = parseTarget(ctx, spec.comp);
+    if (!Number.isInteger(spec.frame) || spec.frame < target.first || spec.frame > target.last) throw usage('Still frame is outside ' + spec.comp + "'s owned act interval.");
+  };
+  specs.forEach(validateOwned);
   if (!args.entry) {
     // the film's own compositions: one whose act doesn't build is refused by name, before any bundling
     const info = await ensureEntry(ctx, {brandPath: args.brand_path ?? null});
@@ -179,14 +196,15 @@ export async function stillsCommand(ctx, args) {
       const cs = args.contact_sheet;
       const comp = cs.comp ?? FILM_COMP;
       const composition = await selectComposition({serveUrl: b.serve_url, id: comp, inputProps: {sub: 1}, chromiumOptions: chromiumOptions(gl), browserExecutable: browserExecutable(), timeoutInMilliseconds: renderTimeoutMs(), logLevel: 'warn'});
-      const frames = sheetFrames(ctx, comp, composition.durationInFrames, cs);
+      const frames = sheetFrames(ctx, comp, composition.durationInFrames, cs, {customEntry: Boolean(args.entry)});
+      frames.forEach((frame) => validateOwned({comp, frame}));
       const labels = cs.labels ?? !args.entry; // the generated Root draws labels; another entry may not
       const cellDir = fs.mkdtempSync(path.join(os.tmpdir(), 'slate-cells-'));
       try {
         const cells = await renderStills(
           ctx,
           b,
-          frames.map((frame) => ({comp, frame, label: labels ? labelFor(ctx, comp, frame) : undefined})),
+          frames.map((frame) => ({comp, frame, label: labels ? labelFor(ctx, comp, frame, {customEntry: Boolean(args.entry)}) : undefined})),
           {outDir: cellDir, gl, scale: Number(cs.scale ?? 0.25), sub: 1, props: args.props, logs},
         );
         const name = cs.name ?? `${comp}_sheet`;
@@ -206,7 +224,7 @@ export async function stillsCommand(ctx, args) {
           margin: pad,
           labels: Boolean(labels),
           cells: frames.map((frame, i) => {
-            const ff = filmFrameOf(ctx, comp, frame);
+            const ff = filmFrameOf(ctx, comp, frame, {customEntry: Boolean(args.entry)});
             const shot = ff === null ? null : shotAtFrame(ctx, ff);
             return {cell: i, frame, film_frame: ff, shot: shot?.id ?? null, timecode: ff === null ? null : timecode(ff, ctx.fps.value)};
           }),

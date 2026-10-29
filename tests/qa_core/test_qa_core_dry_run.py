@@ -115,8 +115,11 @@ def test_a_dry_run_psnr_compares_nothing(film, nothing_runs, tmp_path):
 
 
 def test_dry_run_accept_and_unpark_record_nothing(film, nothing_runs):
-    gates.write_report(film, [GateResult("motion", "REVIEW", "one item", details={
-        "review_items": [{"key": "speed:card", "what": "the card whips", "basis": {}}]})])
+    # A current synthetic review fixture; this dry run neither measures pixels nor writes a scan.
+    gates.write_report(film, [GateResult("motion", "REVIEW", "one item",
+        engine=gates.engine("neutral motion review fixture", "fixture",
+                            rule_revision=gates.rule_revision("motion")),
+        details={"review_items": [{"key": "speed:card", "what": "the card whips", "basis": {}}]})])
     before = _snapshot(film)
     code, out = qa_dry(film, "triage", "--accept", "motion:speed:card", "--by", "A Person", "--reason", "by design")
     assert code == 0 and out["accepted"]["dry_run"] is True and out["accepted"]["key"] == "speed:card"

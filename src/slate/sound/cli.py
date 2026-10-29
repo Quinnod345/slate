@@ -6,7 +6,7 @@
     slate score qa [FILE ...]             silence and noise in the takes (or given files)
     slate mix                             the delivery mix and its four stems
     slate verify [GATE ...]               the sound gates, recorded in qa/gates.json
-    slate sfx [status|spot|render]        the effects engine: refuses until proof 3 is approved
+    slate sfx [status|spot|render|run]    designed effects, gated on the approved sound proofs
     slate sound instruments               the sampled instruments for tonal roles: installed, where, what to download
     slate sound loudness FILE ...         BS.1770-4 loudness, true peak and LRA (with ffmpeg's meter beside it)
 
@@ -185,12 +185,33 @@ def _sfx(args: argparse.Namespace) -> int:
                  "The effects engine waits for a person's approval of proof 3: " + "; ".join(st["problems"]) + ".")
         log.result(st, human)
         return 0
-    effects.require_proof3()  # Refused (exit 1) until a person has approved proof 3
     from slate.sound.effects import engine  # noqa: PLC0415
 
+    folder = film(args)
+    if bool(getattr(args, "dry_run", False)):
+        planned = engine.plan(folder, stage=stage)
+        log.result({"dry_run": True, "stage": stage, "seed": args.seed,
+                    "queued": bool(args.detach), "plan": planned},
+                   f"Would {stage} effects for {folder.name}" + (" as a job" if args.detach else "")
+                   + ". Nothing written or queued (--dry-run).")
+        return 0
+    effects.require_proof3()
+    if args.detach:
+        from slate.jobs import client  # noqa: PLC0415
+
+        command = ["sfx", stage, "--film", str(folder), "--seed", str(args.seed), "--json"]
+        job = client.detach_current("sfx", ("render",), film=str(folder), argv=command)
+        log.result({"stage": stage, "job": job, "queued": True, "resources": ["render"]},
+                   f"Queued effects {stage} as {job}: slate job status {job}")
+        return 0
+    result = {"stage": stage, "film": str(folder)}
     if stage in ("spot", "run"):
-        engine.spot(film(args))
-    engine.render(film(args))
+        result["cue_sheet"] = str(engine.spot(folder, seed=args.seed))
+        result["seed"] = args.seed
+    if stage in ("render", "run"):
+        result["render"] = engine.render(folder)
+    log.result(result, (f"Spotted effects: {result['cue_sheet']}" if stage == "spot" else
+                        f"Rendered effects for {folder.name}. Next: slate mix."))
     return 0
 
 
@@ -292,11 +313,13 @@ def register(sub) -> None:
     p.add_argument("gates", nargs="*", help="only these gates (e.g. loudness gap)")
     p.add_argument("--no-write", dest="no_write", action="store_true", help="don't record the results")
 
-    p = add_command(sub, "sfx", _sfx, help="the effects engine: refuses until proof 3 is approved",
+    p = add_command(sub, "sfx", _sfx, help="spot or render designed effects after sound-proof approval",
                     description="Designed, event-tied effects from the picture's beats. It waits for a person's "
                                 "approval of proof 3 (`slate approve proof3`); `slate sfx status` shows the gate.")
-    p.add_argument("stage", nargs="?", choices=("status", "spot", "render"), default=None,
-                   help="status (the gate), spot (beats to cues) or render (cues to stems)")
+    p.add_argument("stage", nargs="?", choices=("status", "spot", "render", "run"), default=None,
+                   help="status (the gate), spot (beats to cues), render (cues to stems), run (both; default)")
+    p.add_argument("--seed", type=int, default=0, help="stable variation seed for spot or run (default: 0)")
+    p.add_argument("--detach", action="store_true", help="queue spot, render or run in the render slot")
 
     snd = add_group(sub, "sound", help="sound tools: instruments, loudness, balance")
     p = add_command(snd, "instruments", _instruments, help="the sampled instruments for tonal roles, and what's missing",

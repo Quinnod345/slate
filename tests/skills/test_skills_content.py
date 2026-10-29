@@ -30,6 +30,18 @@ def missing(text: str, phrases: list[str]) -> list[str]:
     return [p for p in phrases if _norm(p) not in text]
 
 
+def test_capture_reference_example_validates_against_the_live_capture_spec():
+    """A copied capture example must pass the schema and semantic checks before a device is touched."""
+    from slate.capture import spec
+
+    path = L.skill_dir("slate-build") / "references" / "captures.md"
+    examples = re.findall(r"```json\n(.*?)\n```", L.read(path), re.DOTALL)
+    assert examples, "The capture reference must retain its runnable JSON example."
+    for example in examples:
+        problems = spec.validate(json.loads(example))
+        assert not problems, (path, problems)
+
+
 # --------------------------------------------------------------------------------------------- the front door
 
 def test_front_door_routing_is_in_skill_md_itself():
@@ -75,7 +87,9 @@ def test_front_door_covers_the_brief():
         "Budgets and spend", "never buys credits",
         "Supervised", "Express", "Draft", "Autonomous",
         "brief/GOAL.md", "brief/PRODUCTION.md",
-        "Perfect, don't replace",
+        "Preserve the baseline and follow the feedback",
+        "do not ask the same creative question again",
+        "`slate history note`",
         "detached jobs", "Nothing prompts",
         "Voices:", "People and claims:", "AI labels:", "Company material:", "Spend:", "Browsers:",
         "ponder", "asset-creator", "canvas-design", "frontend-design", "avoid-ai-writing",
@@ -146,7 +160,7 @@ REQUIRED = {
                     "slate voice cast", "slate voice design", "slate voice tts", "slate voice clean",
                     "slate voice pace", "slate voice align", "slate voice captions", "professional clone",
                     "never a clone", "public figure", "by ear"],
-    "slate-sound": ["proof 2", "starting point", "its own palette", "one deliberate sound per kind of interaction",
+    "slate-sound": ["proof 2", "starting point", "its own palette", "one deliberate sound per kind",
                     "composed score", "Eleven Music", "slate score plan", "slate mix", "slate verify",
                     "slate sfx", "proof 3", "No chimes", "3-second pre-roll", "90 seconds", "equal-power",
                     "freeze", "gap check", "the voice first"],
@@ -171,16 +185,21 @@ def test_each_craft_skill_carries_its_rules(name):
     assert not gaps, f"skills/{name} no longer says: {gaps}"
 
 
-def test_the_effects_engine_is_described_as_gated_not_built():
-    text = skill_text("slate-sound")
-    assert "refuses until" in text and "proof 3" in text
+def test_the_built_effects_engine_keeps_its_runtime_approval_and_sample_guards():
+    text = skill_text("slate-sound", refs=False)
+    assert not missing(text, [
+        "effects engine is built", "hash-bound proof 3 approval", "refuses until",
+        "present and current", "slate sfx status", "slate sfx spot", "slate sfx render", "slate sfx run",
+        "Missing samples and malformed event files stop", "never turn into a synthesized stand-in or a silent act",
+    ])
 
 
 def test_character_motion_generalizes_the_mark_as_character_method():
     text = _norm(L.read(L.skill_dir("slate-motion") / "references" / "character-and-motif-motion.md"))
     assert not missing(text, ["one clock", "unison", "pairs", "wave", "spoke lock", "whole frames", "8 frames",
                               "at most 30 px a frame", "8 px a frame squared", "two sheets", "split point",
-                              "stillness is the default", "c = s + 2", "gesture vocabulary", "acceptance tests"])
+                              "stillness in this kit's choreography", "c = s + 2", "gesture vocabulary",
+                              "acceptance of this method"])
 
 
 # --------------------------------------------------------------------------------------------- voice tags
@@ -189,7 +208,7 @@ TAGGED = re.compile(r"`([^`\n]*\[[^\]\n]+\][^`\n]*)`")
 
 
 def test_every_tag_example_passes_the_voice_modules_own_rules():
-    """No skill ever shows a whisper, soft, quiet or gentle tag as an example (slate.voice.tags decides)."""
+    """Examples follow the voice module's default policy; explicit profile restrictions are checked per film."""
     tags = pytest.importorskip("slate.voice.tags")
     bad = []
     for path in L.all_docs():

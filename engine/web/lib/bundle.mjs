@@ -43,9 +43,15 @@ function resolveModule(base) {
  *   nodeModules  engine/node_modules (bare imports)
  *   filmData     () => {contents, resolveDir}: the '@film/data' module's TypeScript source
  *   urlFor       (absPath) => the URL the local server serves that file at, or null
+ *   recordSource optional (absPath, actualBytes) observer for a motion-provenance read
  */
-export function createBundler({runtimeDir, kitDir, nodeModules, filmData, urlFor}) {
+export function createBundler({runtimeDir, kitDir, nodeModules, filmData, urlFor, recordSource = null}) {
   const cache = new Map();
+  const readSource = (file) => {
+    const bytes = fs.readFileSync(file);
+    recordSource?.(file, bytes);
+    return bytes;
+  };
 
   const plugin = {
     name: 'slate-web',
@@ -78,14 +84,21 @@ export function createBundler({runtimeDir, kitDir, nodeModules, filmData, urlFor
         }
         return {contents: `export default ${JSON.stringify(url)};`, loader: 'js'};
       });
-      b.onLoad({filter: TEXT_RE}, (args) => ({contents: fs.readFileSync(args.path, 'utf8'), loader: 'text'}));
+      b.onLoad({filter: TEXT_RE}, (args) => ({contents: readSource(args.path).toString('utf8'), loader: 'text'}));
       b.onLoad({filter: /\.css$/i}, (args) => {
-        const css = fs.readFileSync(args.path, 'utf8');
+        const css = readSource(args.path).toString('utf8');
         return {
           contents: `const s = document.createElement('style'); s.dataset.slateSource = ${JSON.stringify(path.basename(args.path))}; ` +
             `s.textContent = ${JSON.stringify(css)}; document.head.appendChild(s); export default s;`,
           loader: 'js',
         };
+      });
+      // Capture the same bytes esbuild consumes, including transitive imports. A metafile followed by a
+      // filesystem reread can instead describe a newer module that the page never loaded.
+      if (recordSource) b.onLoad({filter: /\.(?:[cm]?[jt]s|jsx|tsx|json)$/i, namespace: 'file'}, (args) => {
+        const ext = path.extname(args.path).slice(1).toLowerCase();
+        const loader = ext === 'mjs' || ext === 'cjs' ? 'js' : ext === 'mts' || ext === 'cts' ? 'ts' : ext;
+        return {contents: readSource(args.path), loader, resolveDir: path.dirname(args.path)};
       });
     },
   };

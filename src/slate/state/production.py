@@ -137,7 +137,7 @@ def mark(film_dir: Path, n: int, *, status: str, evidence: str | None = None) ->
 
 def add_direction(film_dir: Path, text: str, *, source: str, supersedes: str | None = None,
                   kind: str | None = None) -> int:
-    """Log a direction change verbatim, numbered. The latest approval governs, so each one says what it supersedes.
+    """Log a direction change verbatim and numbered, recording what it supersedes.
 
     Returns its number. Review notes, revision notes and mid-production calls all come through here.
     """
@@ -231,7 +231,8 @@ def _production_template(fj: dict) -> str:
     return (
         f"# {fj.get('title')}: production tracker\n\n"
         f"The live tracker for film `{fj.get('id')}`: every ask in the requester's words, every direction change "
-        "(numbered, verbatim; the latest approval governs), the questions waiting for a person, revisions, approvals, "
+        "(numbered, verbatim; the latest authorized direction governs within its scope), "
+        "the questions waiting for a person, revisions, approvals, "
         "and where each stage stands. **done** means verified, with the evidence named. Proofs are not finished "
         "shots.\n\n"
         "Status keys: **done** (verified, with evidence) · **built** (made, not yet through the gates) · "
@@ -240,9 +241,10 @@ def _production_template(fj: dict) -> str:
         f"## Direction changes\n\nEach one is quoted exactly and says what it supersedes. Log one with "
         f"`slate film direction \"…\" --source NAME`.\n\n{b['directions']}\n\n"
         f"## Questions waiting for a person\n\n{b['questions']}\n\n"
-        "## Revisions (perfect, don't replace)\n\n"
-        "Notes on approved work are changes to that exact artifact, and everything else stays as it was. A note that "
-        "needs a new approach is a question first.\n\n"
+        "## Revisions (preserve baseline and requested scope)\n\n"
+        "Preserve the approved baseline and record every requested change, including a redesign. Work within the "
+        "request's scope and keep unrelated work stable. Ask only when missing or conflicting information "
+        "prevents the next step.\n\n"
         f"{b['revisions']}\n\n"
         f"## Approvals\n\n{b['approvals']}\n\n"
         f"## Status\n\n{b['status']}\n"
@@ -336,7 +338,7 @@ def _revisions_block(film_dir: Path) -> str:
                           for i in r["items"]) or "- (none: every note became a question)"
         tail = [f"\n\n{r.get('keep') or 'Everything else stays as it was.'}"]
         if r.get("questions"):
-            tail.append(f" Questions first (a new approach needs a yes): {', '.join(r['questions'])}.")
+            tail.append(f" Unresolved questions: {', '.join(r['questions'])}.")
         if r.get("checks"):
             flagged = [c for c in r["checks"] if c.get("status") in ("FAIL", "REVIEW", "UNCHECKED")]
             tail.append(f" Last check {str(r.get('checked_at', ''))[:16]}: "

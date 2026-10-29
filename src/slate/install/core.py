@@ -283,6 +283,15 @@ def uninstall(*, home: str | os.PathLike | None = None, dry_run: bool = False, y
     """
     lay = layout_mod.resolve(home, repo=repo, root=root)
     data = manifest_mod.load(lay)
+    mcp_results = None
+    if mcp:
+        run = (not dry_run and not lay.sandbox) if run_clients is None else (run_clients and not dry_run)
+        # Check registration ownership while its launcher still exists, before removing Slate's own shims.
+        mcp_results = mcp_register.unregister(list(mcp_register.CLIENTS), lay, run=run, path=client_path)
+        # unregister saves its own snapshot; retain successful removals in the link/backup snapshot too.
+        for entry in mcp_results:
+            if entry["did"] == "removed":
+                manifest_mod.drop_mcp(data, entry["client"])
     removed: list[dict] = []
     left: list[dict] = []
     targets: list[tuple[Path, str]] = []
@@ -336,9 +345,8 @@ def uninstall(*, home: str | os.PathLike | None = None, dry_run: bool = False, y
             restored.append(item)
     out: dict = {"layout": lay.to_dict(), "dry_run": dry_run, "removed": removed, "left_alone": left,
                  "restored": restored}
-    if mcp:
-        run = (not dry_run and not lay.sandbox) if run_clients is None else (run_clients and not dry_run)
-        out["mcp"] = mcp_register.unregister(list(mcp_register.CLIENTS), lay, run=run, path=client_path)
+    if mcp_results is not None:
+        out["mcp"] = mcp_results
     if jobs_agent:
         out["jobs_agent"] = _jobs_agent_uninstall(lay, dry_run=dry_run, yes=yes)
     if not dry_run:

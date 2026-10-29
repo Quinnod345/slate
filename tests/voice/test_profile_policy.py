@@ -127,3 +127,71 @@ def test_profile_command(voice_film, brand, tmp_path):
     assert code == 1 and not json.loads(out)["allowed"]
     code, out, err = run_cli(["voice", "tts", "--film", str(voice_film)])
     assert code == 1 and "only clone" in err
+
+
+# -- owner-approved Voice Library voices (Quinn, 2026-10-12) ----------------------------------------------------------
+
+APPROVED_LIBRARY = {"source": "library", "voice_id": "lib-pro-1",
+                    "library_approval": {"voice_id": "lib-pro-1", "vendor_category": "professional",
+                                         "approved_by": "Quinn", "approved_at": "2026-10-12",
+                                         "ruling": "brief/sources/voice-ruling-2026-10-12.md"}}
+
+
+def test_professional_library_voice_is_refused_without_an_approval():
+    problems = profile.vendor_problems({"category": "professional", "name": "Adam", "voice_id": "lib-pro-1"},
+                                       {"source": "library", "voice_id": "lib-pro-1"})
+    assert problems and "cloned voice" in problems[0]
+
+
+def test_owner_approved_professional_library_voice_is_allowed():
+    info = {"category": "professional", "name": "Adam", "voice_id": "lib-pro-1"}
+    for mode in ("supervised", "express", "draft"):
+        assert profile.policy_problems(APPROVED_LIBRARY, mode=mode) == []
+        assert profile.vendor_problems(info, APPROVED_LIBRARY, mode=mode) == []
+    loaded = profile.load({"name": "b", "voice": APPROVED_LIBRARY})
+    assert loaded["library_approval"]["approved_by"] == "Quinn"
+    assert "approved by Quinn" in profile.summary(loaded)
+
+
+def test_an_approval_covers_only_the_voice_it_names():
+    info = {"category": "professional", "name": "Someone", "voice_id": "lib-pro-2"}
+    entry = {**APPROVED_LIBRARY, "voice_id": "lib-pro-2"}
+    assert any("covers the one voice it names" in p for p in profile.policy_problems(entry))
+    assert profile.vendor_problems(info, entry)
+
+
+def test_an_approval_never_covers_instant_clones_famous_voices_or_named_people():
+    assert profile.vendor_problems({"category": "cloned", "voice_id": "lib-pro-1"}, APPROVED_LIBRARY)
+    assert profile.vendor_problems({"category": "famous", "voice_id": "lib-pro-1"}, APPROVED_LIBRARY)
+    named = {**APPROVED_LIBRARY, "clone_of": "a colleague"}
+    assert profile.policy_problems(named)
+    assert profile.vendor_problems({"category": "professional", "voice_id": "lib-pro-1"}, named)
+    with pytest.raises(UsageError):
+        profile.load({"name": "x", "voice": {**APPROVED_LIBRARY, "library_approval": {
+            **APPROVED_LIBRARY["library_approval"], "vendor_category": "cloned"}}})
+
+
+def test_an_approval_must_be_complete_and_on_a_library_voice():
+    incomplete = {**APPROVED_LIBRARY, "library_approval": {"voice_id": "lib-pro-1", "vendor_category": "professional"}}
+    assert any("is missing approved_by, approved_at, ruling" in p for p in profile.policy_problems(incomplete))
+    on_clone = {**OWNER_CLONE, "library_approval": APPROVED_LIBRARY["library_approval"]}
+    assert any("belongs to a library voice" in p for p in profile.policy_problems(on_clone))
+
+
+def test_autonomous_films_need_the_approval_to_say_so():
+    info = {"category": "professional", "voice_id": "lib-pro-1"}
+    assert any("autonomous: true" in p for p in profile.policy_problems(APPROVED_LIBRARY, mode="autonomous"))
+    assert profile.vendor_problems(info, APPROVED_LIBRARY, mode="autonomous")
+    yes = {**APPROVED_LIBRARY, "library_approval": {**APPROVED_LIBRARY["library_approval"], "autonomous": True}}
+    assert profile.policy_problems(yes, mode="autonomous") == []
+    assert profile.vendor_problems(info, yes, mode="autonomous") == []
+
+
+def test_a_films_own_voice_carries_its_approval_with_it():
+    brand = {"name": "b", "voice": {"source": "library", "voice_id": "brand-voice"}}
+    film = {"voice": {**APPROVED_LIBRARY}}
+    p = profile.load(brand, film=film)
+    assert p["voice_id"] == "lib-pro-1" and p["library_approval"]["voice_id"] == "lib-pro-1"
+    # a film note can't borrow an approval for the brand's own voice
+    p = profile.load({"name": "b", "voice": APPROVED_LIBRARY}, film={"voice": {"source": "brand", "voice_id": "lib-pro-1"}})
+    assert p["library_approval"]["approved_by"] == "Quinn"

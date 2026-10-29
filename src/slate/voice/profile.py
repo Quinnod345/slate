@@ -10,6 +10,11 @@ clean-up, the studio polish tuned for the voice (`polish`), fit and the measured
   (`source: clone`, `clone_of: owner`, `clone_kind: professional`, `verified_by_owner: true`). Slate never creates
   a clone and never takes part in that verification.
 - Anyone else's voice only as a real recording (`source: recording`), never a clone, and never a public figure.
+- A shared Voice Library voice that ElevenLabs labels "professional" is a library voice once the owner has approved
+  it by name (`library_approval`: the voice id, who approved it, when, and the ruling). The owner's restriction is on
+  clones of people he works with, not on voices their owners share in the vendor's library (Quinn, 2026-10-12). It
+  never covers an instant clone, a famous voice or a clone of a named person, and autonomous films need the approval
+  to say `autonomous: true`.
 - Autonomous films may use the owner's clone and no other clone; they're still held for the owner's approval.
 
 `enforce()` refuses a profile that breaks any of this before a single request is sent, and
@@ -42,12 +47,14 @@ DEFAULTS: dict[str, Any] = {
     "output_format": "pcm_48000",
     "language": "en",
     "lexicon": [],
-    "tag_policy": {"banned_extra": [], "allowed": None, "max_tags_per_line": None},
+    "tag_policy": {"banned_extra": [], "allowed": None, "max_tags_per_line": None, "avoid_low_effort": False},
     "clone_of": None,
     "clone_kind": None,
     "verified_by_owner": False,
     "public_figure": False,
     "speaker": None,
+    # The owner's recorded yes for one shared Voice Library voice the vendor labels "professional" (policy_problems).
+    "library_approval": None,
     # vo_pace.py's proven defaults: pauses over 0.25 s kept at 80 %, then Rubber Band R3 at tempo 1.06.
     "pace": {"tempo": 1.06, "pause_keep": 0.8, "min_pause": 0.25, "threshold_db": -45.0},
     "clean": {"chain": None},
@@ -135,7 +142,8 @@ def load(brand_pack: dict | str | Path | None, *, film: dict | None = None) -> d
 
 FILM_FIELDS = ("voice_id", "voice_name", "model", "settings", "seed", "output_format", "lexicon", "tag_policy",
                "pace", "clean", "fit", "targets", "polish")
-CLAIMS = ("source", "provider", "clone_of", "clone_kind", "verified_by_owner", "public_figure", "speaker")
+CLAIMS = ("source", "provider", "clone_of", "clone_kind", "verified_by_owner", "public_figure", "speaker",
+          "library_approval")
 
 
 def film_overrides(film_voice: dict, brand_profile: dict) -> dict:
@@ -218,6 +226,42 @@ def policy_problems(entry: dict, *, mode: str = "supervised") -> list[str]:
                                 "in the brand's voice profile.")
     if source == "recording" and entry.get("clone_of"):
         problems.append("A recording can't also be a clone: real recordings only.")
+    problems += library_approval_problems(entry, mode=mode)
+    return problems
+
+
+APPROVAL_FIELDS = ("voice_id", "vendor_category", "approved_by", "approved_at", "ruling")
+
+
+def library_approval_problems(entry: dict, *, mode: str = "supervised") -> list[str]:
+    """What's wrong with a profile's `library_approval` (empty when it has none, or a sound one).
+
+    The approval lets one shared Voice Library voice that ElevenLabs labels "professional" be used as a library voice.
+    It must name that exact voice id, who approved it, when and the ruling; it belongs to a library voice only; and an
+    autonomous film can use it only when the approval says `autonomous: true`.
+    """
+    approval = entry.get("library_approval")
+    if not approval:
+        return []
+    if not isinstance(approval, dict):
+        return ["library_approval must be an object: voice_id, vendor_category, approved_by, approved_at, ruling."]
+    problems: list[str] = []
+    missing = [k for k in APPROVAL_FIELDS if not str(approval.get(k) or "").strip()]
+    if missing:
+        problems.append(f"library_approval is missing {', '.join(missing)}: the owner's yes has to name the voice, "
+                        "who approved it, when, and the ruling it rests on.")
+    if (entry.get("source") or "library") != "library":
+        problems.append("library_approval belongs to a library voice (source: library); a clone, designed voice or "
+                        "recording follows its own rules.")
+    if approval.get("vendor_category") not in (None, "", "professional"):
+        problems.append(f"library_approval covers ElevenLabs' \"professional\" Voice Library voices only, not "
+                        f"{approval.get('vendor_category')!r} (an instant clone or a famous voice is never approved).")
+    if entry.get("voice_id") and approval.get("voice_id") and approval.get("voice_id") != entry.get("voice_id"):
+        problems.append(f"library_approval names voice {approval.get('voice_id')!r}, but this profile uses "
+                        f"{entry.get('voice_id')!r}: an approval covers the one voice it names.")
+    if mode == "autonomous" and approval.get("autonomous") is not True:
+        problems.append("Autonomous films can use an owner-approved Voice Library voice only when its approval says "
+                        "autonomous: true.")
     return problems
 
 
@@ -238,6 +282,8 @@ def vendor_problems(info: dict, entry: dict, *, mode: str = "supervised") -> lis
     name = info.get("name") or info.get("voice_id") or entry.get("voice_id")
     if kind == "public_figure":
         return [f"ElevenLabs lists {name!r} as a famous voice. Slate never uses a public figure's voice."]
+    if kind == "clone" and category == "professional" and _approved_library_voice(info, entry, mode=mode):
+        return []
     if kind == "clone":
         claimed = {**entry, "source": "clone"}
         if category == "cloned" and entry.get("clone_of") == OWNER:
@@ -248,6 +294,17 @@ def vendor_problems(info: dict, entry: dict, *, mode: str = "supervised") -> lis
                                f"{entry.get('source') or 'library'}.")
         return problems
     return []
+
+
+def _approved_library_voice(info: dict, entry: dict, *, mode: str) -> bool:
+    """True when the owner approved exactly this shared Voice Library voice (a "professional" one) for this use."""
+    approval = entry.get("library_approval")
+    if not isinstance(approval, dict) or (entry.get("source") or "library") != "library":
+        return False
+    if entry.get("clone_of") or entry.get("public_figure") or info.get("is_famous"):
+        return False
+    vid = str(info.get("voice_id") or entry.get("voice_id") or "")
+    return approval.get("voice_id") == vid and not library_approval_problems(entry, mode=mode)
 
 
 def summary(profile: dict) -> str:
@@ -261,4 +318,8 @@ def summary(profile: dict) -> str:
     if src == "clone":
         lines.append(f"clone of {profile.get('clone_of')} ({profile.get('clone_kind')}), "
                      f"verified by owner: {bool(profile.get('verified_by_owner'))}")
+    approval = profile.get("library_approval")
+    if isinstance(approval, dict):
+        lines.append(f"Voice Library {approval.get('vendor_category')} voice, approved by {approval.get('approved_by')} "
+                     f"on {approval.get('approved_at')} ({approval.get('ruling')})")
     return "\n".join(lines)

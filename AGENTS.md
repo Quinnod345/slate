@@ -35,8 +35,12 @@ These hold for every change and every test. Most are enforced in code; the rest 
   a pass, and no gate quietly falls back to another engine.
 - **Long work is a job.** Renders, masters, alignment, generation batches and anything else that outlasts a session go
   through the job queue (`slate.jobs.client.submit`, or a command's `--detach`).
-- **Perfect, don't replace.** Code that revises approved work edits that artifact; it never swaps the approach.
-- **Voices.** Never whisper, soft, quiet or gentle audio tags. Clones only of the owner's own verified voice.
+- **Preserve iteration history.** Keep the approved baseline, exact feedback and revised version. Follow requested
+  redesigns within their scope; do not turn a request for exploration into another approval question. Creative
+  presets are starting guidance, not universal bans. Read `slate history context` when a private history is selected.
+- **Voices.** Delivery restrictions belong to an explicit voice policy. Quiet and gentle tags are available by default;
+  `tag_policy.avoid_low_effort` opts a particular voice into full-voice restrictions. Clones remain limited to the
+  owner's own verified voice.
 - **Portable text.** Skills, `--help` and error messages never name one agent's own tools; say it in words any agent
   understands.
 - **No stubs presented as done.** If something can't be built yet, build everything up to that point, make the command

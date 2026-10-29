@@ -6,7 +6,7 @@ States (docs/PLAN.md, "Quality"):
 - FAIL       the check ran and the thing is wrong;
 - REVIEW     a person has to judge it (the look, hero moments, the final cut);
 - UNCHECKED  the check couldn't run (a tool missing, an engine unavailable);
-- STALE      an input changed since the check ran.
+- STALE      an input or a check's rule revision changed since the check ran.
 
 Only PASS counts as passed. UNCHECKED is never reported as a pass, and no gate quietly falls back to another engine:
 each result names the engine and version it used (OCR engine and level, Whisper model, ffmpeg build).
@@ -14,7 +14,7 @@ each result names the engine and version it used (OCR engine and level, Whisper 
 `qa/gates.json` in the film folder keeps the latest result per gate; `qa/history.jsonl` keeps every result.
 
 A result's `inputs` are what it read, each with its hash then: film-relative or absolute paths, and named inputs that
-aren't whole files (`film:<dotted.key>`, `film:*`, `brand:<name>`, `format:<name>`, hashed through
+aren't whole files (`film:<dotted.key>`, `film:*`, `brand:<name>`, `voice:<shot>#timing`, `format:<name>`, hashed through
 slate.state.lock.hash_inputs). Listing `film.json` itself records `film:*`: all of film.json except its bookkeeping
 (pins, the pin log, versions, budgets, model overrides), so a new pin, a version number or a budget raise doesn't
 turn every gate STALE, while a change to the clock, the size, the targets, the captions or the brand still does.
@@ -23,6 +23,7 @@ turn every gate STALE, while a change to the clock, the size, the targets, the c
 from __future__ import annotations
 
 import datetime as _dt
+import math
 import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -32,6 +33,29 @@ from slate import jsonio
 
 STATUSES = ("PASS", "FAIL", "REVIEW", "UNCHECKED", "STALE")
 _SEVERITY = {"FAIL": 4, "STALE": 3, "UNCHECKED": 2, "REVIEW": 1, "PASS": 0}
+_RULE_REVISIONS = {"sound.voice_limiter": 1, "access": 1, "motion": 1, "readtime": 2, "captions": 1}
+
+
+def rule_revision(name: str) -> int | None:
+    """The current acceptance rule for a gate, or None when it has no revision requirement."""
+    if re.fullmatch(r"handin\.act[1-9]\d*\.shots", name):
+        return 1
+    return _RULE_REVISIONS.get(name)
+
+
+def _json_safe_diagnostics(value):
+    """Project nonfinite measurements as explicit text without changing the original evidence."""
+    if isinstance(value, float) and not math.isfinite(value):
+        if math.isnan(value):
+            return "NaN"
+        return "Infinity" if value > 0 else "-Infinity"
+    if isinstance(value, dict):
+        return {key: _json_safe_diagnostics(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_json_safe_diagnostics(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_json_safe_diagnostics(item) for item in value)
+    return value
 
 
 def now_iso() -> str:
@@ -58,7 +82,7 @@ class GateResult:
         return self.status == "PASS"
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        return _json_safe_diagnostics(asdict(self))
 
     @classmethod
     def from_dict(cls, data: dict) -> "GateResult":
@@ -130,6 +154,22 @@ def expand_film_json(film_dir: Path, paths: Iterable[str | Path]) -> list[str | 
     return out
 
 
+def _input_file(film_dir: Path, path: str | Path) -> Path:
+    """The current input behind a path, including inherited files and later child overrides."""
+    path = Path(path)
+    if path.is_absolute():
+        return path
+    try:
+        from slate.state import lock  # noqa: PLC0415 - same reference resolver as derived-file state
+        from slate.errors import SlateError  # noqa: PLC0415
+    except ImportError:  # pragma: no cover - state is present in every install
+        return film_dir / path
+    try:
+        return lock.resolve(film_dir, path.as_posix())
+    except SlateError:
+        return film_dir / path
+
+
 def inputs_for(film_dir: Path, paths: Iterable[str | Path]) -> dict:
     """{film-relative path or named input: sha256} for what a gate read, so the result can turn STALE later."""
     film_dir = Path(film_dir)
@@ -145,17 +185,28 @@ def inputs_for(film_dir: Path, paths: Iterable[str | Path]) -> dict:
             key = str(full.resolve().relative_to(film_dir.resolve()))
         except ValueError:
             key = str(full)
-        out[key] = jsonio.sha256(full) if full.is_file() else None
+        current = _input_file(film_dir, p)
+        out[key] = jsonio.sha256(current) if current.is_file() else None
     out.update(_named_hashes(film_dir, named))
     return out
 
 
+def _rule_is_stale(result: GateResult) -> bool:
+    expected = rule_revision(result.gate)
+    if expected is None:
+        return False
+    recorded = result.engine.get("rule_revision") if isinstance(result.engine, dict) else None
+    return type(recorded) is not int or recorded != expected
+
+
 def _is_stale(film_dir: Path, result: GateResult) -> bool:
+    if _rule_is_stale(result):
+        return True
     named = {k: v for k, v in (result.inputs or {}).items() if is_named(k, film_dir)}
     for rel, digest in (result.inputs or {}).items():
         if rel in named:
             continue
-        full = Path(rel) if Path(rel).is_absolute() else Path(film_dir) / rel
+        full = _input_file(Path(film_dir), rel)
         current = jsonio.sha256(full) if full.is_file() else None
         if current != digest:
             return True
@@ -171,7 +222,7 @@ def write_report(film_dir: Path, results: Iterable[GateResult]) -> Path:
     film_dir = Path(film_dir)
     report_path = film_dir / "qa" / "gates.json"
     current = jsonio.read(report_path, default={}) or {}
-    gates = current.get("gates", {})
+    gates = _json_safe_diagnostics(current.get("gates", {}))
     history = film_dir / "qa" / "history.jsonl"
     history.parent.mkdir(parents=True, exist_ok=True)
     with history.open("a", encoding="utf-8") as fh:
@@ -183,16 +234,19 @@ def write_report(film_dir: Path, results: Iterable[GateResult]) -> Path:
 
 
 def load_report(film_dir: Path) -> dict[str, GateResult]:
-    """The latest result per gate, with any result whose inputs changed since reported as STALE."""
+    """The latest results, with changed inputs or a missing, invalid or changed check revision reported as STALE."""
     film_dir = Path(film_dir)
     data = jsonio.read(film_dir / "qa" / "gates.json", default={}) or {}
     out: dict[str, GateResult] = {}
     for name, raw in (data.get("gates") or {}).items():
         result = GateResult.from_dict(raw)
-        if result.status != "STALE" and _is_stale(film_dir, result):
+        rule_stale = _rule_is_stale(result)
+        if result.status != "STALE" and (rule_stale or _is_stale(film_dir, result)):
             result.details = {**(result.details or {}), "was": result.status}
             result.status = "STALE"
-            result.summary = f"inputs changed since this was checked ({result.summary})"
+            reason = ("check rule revision is missing, invalid or changed" if rule_stale
+                      else "inputs changed since this was checked")
+            result.summary = f"{reason} ({result.summary})"
         out[name] = result
     return out
 

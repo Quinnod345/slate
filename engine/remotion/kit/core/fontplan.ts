@@ -11,6 +11,7 @@
 //
 // This file is the pure part (plan, check, report); fonts.tsx runs it in the page.
 import {brandPack} from './brand';
+import {fontWeights} from './font-weights';
 import type {BrandPack, FamilyInput, FontSourceInput} from './types';
 import {KIT_VERSION} from './version';
 
@@ -30,7 +31,12 @@ export type FaceDecl = {
   fallback: 'sans-serif' | 'serif' | 'monospace';
 };
 
-export type FontPlan = {faces: FaceDecl[]; problems: string[]};
+export type FontPlan = {
+  faces: FaceDecl[];
+  problems: string[];
+  /** Conflicting family sources are fatal; ordinary onboarding problems remain warnings. */
+  errors?: string[];
+};
 
 const FONT_FILE = /\.(woff2?|otf|ttf)(\?.*)?$/i;
 
@@ -66,12 +72,27 @@ function families(pack: BrandPack): FamilyInput[] {
   return Object.entries(f).map(([role, v]) => ({role, ...(v as FamilyInput)}));
 }
 
-/** Every face a brand declares, with where it comes from. */
+/** A family may share a source across roles; two explicit file formats must also agree. */
+function sameSource(a: FontSource, b: FontSource): boolean {
+  if (a.kind !== b.kind) return false;
+  if (a.kind === 'installed' && b.kind === 'installed') return a.name.trim().toLowerCase() === b.name.trim().toLowerCase();
+  if (a.kind === 'google' && b.kind === 'google') return a.family.trim().toLowerCase() === b.family.trim().toLowerCase();
+  if (a.kind === 'url' && b.kind === 'url') return a.url === b.url;
+  if (a.kind === 'file' && b.kind === 'file') {
+    return a.url === b.url && (!a.format || !b.format || a.format.trim().toLowerCase() === b.format.trim().toLowerCase());
+  }
+  return false;
+}
+
+/** Every requested weight/style pair, grouped without checking combinations no role declared. */
 export function fontPlan(pack?: BrandPack): FontPlan {
   const p = pack ?? brandPack();
   const problems: string[] = [];
+  const errors: string[] = [];
   const faces: FaceDecl[] = [];
-  const seen = new Set<string>();
+  type Style = FaceDecl['styles'][number];
+  const groups = new Map<string, {face: FaceDecl; weights: Map<Style, Set<number>>}>();
+  const conflicts = new Set<string>();
   for (const f of families(p)) {
     const family = String(f.family ?? f.name ?? '').trim();
     const role = String(f.role ?? f.id ?? family).toLowerCase();
@@ -79,29 +100,63 @@ export function fontPlan(pack?: BrandPack): FontPlan {
       problems.push(`type family "${role}" has no family name`);
       continue;
     }
-    if (seen.has(family.toLowerCase())) continue; // one family declared for two roles loads once
-    seen.add(family.toLowerCase());
     const source = parseSource(f.source, family);
     if (!source) {
       problems.push(`${family}: no usable source (installed, google, a CSS kit URL or a font file URL); it can't be loaded or checked`);
       continue;
     }
-    const weights = (f.weights ?? [400]).map((w) => Number(w)).filter((w) => Number.isFinite(w) && w > 0);
+    const weights = fontWeights(f.weights);
     const styles = (f.styles ?? ['normal']).map((s) => (String(s).toLowerCase() === 'italic' ? 'italic' : 'normal')) as ('normal' | 'italic')[];
     const licence = (f.licence ?? f.license ?? null) as string | null;
     if (!licence) problems.push(`${family}: no licence noted (brand packs record the licence of every family)`);
     const fb = String(f.fallback ?? (role === 'mono' ? 'monospace' : role === 'serif' ? 'serif' : 'sans-serif'));
-    faces.push({
-      role,
-      family,
-      weights: weights.length ? [...new Set(weights)].sort((a, b) => a - b) : [400],
-      styles: styles.length ? [...new Set(styles)] : ['normal'],
-      source,
-      licence,
-      fallback: fb === 'serif' || fb === 'monospace' ? fb : 'sans-serif',
-    });
+    const key = family.toLowerCase();
+    const existing = groups.get(key);
+    if (existing && !sameSource(existing.face.source, source)) {
+      errors.push(`${family}: conflicting font sources for roles "${existing.face.role}" and "${role}"; use one source per family or separate family names.`);
+      conflicts.add(key);
+      continue;
+    }
+    const group: {face: FaceDecl; weights: Map<Style, Set<number>>} = existing ?? {
+      face: {
+        role,
+        family,
+        weights: [],
+        styles: [],
+        source,
+        licence,
+        fallback: fb === 'serif' || fb === 'monospace' ? fb : 'sans-serif',
+      },
+      weights: new Map<Style, Set<number>>(),
+    };
+    if (!group.face.licence && licence) group.face.licence = licence;
+    if (group.face.source.kind === 'file' && source.kind === 'file' && !group.face.source.format && source.format) {
+      group.face.source = {...group.face.source, format: source.format};
+    }
+    const requestedStyles: Style[] = styles.length ? [...new Set(styles)] : ['normal'];
+    for (const style of requestedStyles) {
+      const required = group.weights.get(style) ?? new Set<number>();
+      weights.forEach((weight) => required.add(weight));
+      group.weights.set(style, required);
+    }
+    groups.set(key, group);
   }
-  return {faces, problems};
+  for (const [key, group] of groups) {
+    if (conflicts.has(key)) continue;
+    const byWeights = new Map<string, FaceDecl>();
+    for (const [style, required] of group.weights) {
+      const weights = [...required].sort((a, b) => a - b);
+      const weightKey = weights.join(',');
+      const existing = byWeights.get(weightKey);
+      if (existing) existing.styles.push(style);
+      else {
+        const face = {...group.face, weights, styles: [style]};
+        faces.push(face);
+        byWeights.set(weightKey, face);
+      }
+    }
+  }
+  return {faces, problems, ...(errors.length ? {errors} : {})};
 }
 
 // --------------------------------------------------------------------------------------------------------- checking
@@ -173,12 +228,14 @@ export type FontGateReport = {
 };
 
 /** The gate's verdict: PASS only when every declared face loaded and measured as itself. */
-export function gateReport(checks: FaceCheck[], loadErrors: string[] = [], planProblems: string[] = []): FontGateReport {
-  const failures = [...loadErrors, ...checks.filter((c) => !c.ok).map((c) => c.reason)];
+export function gateReport(checks: FaceCheck[], loadErrors: string[] = [], planProblems: string[] = [], planErrors: string[] = []): FontGateReport {
+  const failures = [...planErrors, ...loadErrors, ...checks.filter((c) => !c.ok).map((c) => c.reason)];
   const warnings = [...planProblems, ...checks.filter((c) => c.ok && c.synthetic).map((c) => c.reason)];
   const families = [...new Set(checks.map((c) => c.family))];
   const status = failures.length ? 'FAIL' : 'PASS';
-  const summary = failures.length
+  const summary = planErrors.length
+    ? `the font plan has ${planErrors.length} source conflict${planErrors.length > 1 ? 's' : ''}: ${planErrors[0]}`
+    : failures.length
     ? `${failures.length} face${failures.length > 1 ? 's' : ''} didn't render as declared: ${failures[0]}`
     : checks.length
       ? `${checks.length} face${checks.length > 1 ? 's' : ''} of ${families.join(', ')} rendered as declared`

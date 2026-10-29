@@ -7,8 +7,8 @@ the pack that every film starts from.
 
 1. **Cast or design** (slate-voice): a shootout of library voices, or a designed voice from a brief grounded in the
    brand's own words.
-2. **Direct it** with the full-voice rule (never whisper, soft, quiet or gentle tags) and a small tag vocabulary that
-   fits the voice's character.
+2. **Direct it** for the brand and the voice. Quiet or gentle tags are available unless its explicit policy restricts
+   them; use a vocabulary that fits the intended character and compare key readings by ear.
 3. **Clean it** the way the owner picks by ear, and record the chain.
 4. **Approve one take** by ear, the one that sounds like the brand, and record it with its SHA-256.
 

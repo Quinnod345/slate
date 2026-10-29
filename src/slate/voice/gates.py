@@ -7,9 +7,8 @@
 - voice_tails      nothing leaked in from a neighbouring line (extra words from the line before or after, or voiced
                    audio after the last word)
 - voice_fit        each read fits its shot: it starts `lead` in and ends at least `tail` before the cut
-- voice_inflection emotion through a full voice, by measurement: no whisper-like read (the voice dropping out), no
-                   tagged read breathier than the voice's own untagged reads of the same words, no statement ending
-                   that rises like a question, no read that stops mid-word
+- voice_inflection measured delivery: full-voice comparisons when this voice explicitly requires them, no statement
+                   ending that rises like a question, no read that stops mid-word; other breath measurements stay notes
 - voice_polish     every polished take verified by measurement: length identical, loudness back within 0.5 LU,
                    sibilance and edge reduced within the chain's reach, not over-processed, made with the film's
                    pinned polish (a film that doesn't use the polish passes with that said); an edge that rose is
@@ -313,6 +312,7 @@ def tails_gate(vf: VoiceFilm) -> GateResult:
 
 
 def fit_gate(vf: VoiceFilm) -> GateResult:
+    from slate.voice import trim as trim_mod  # noqa: PLC0415
     from slate.voice.tts import fit_of  # noqa: PLC0415
 
     fails, unchecked, files, fits = [], [], [], {}
@@ -326,7 +326,8 @@ def fit_gate(vf: VoiceFilm) -> GateResult:
         if vf.take_json(ln.shot, take).get("replay"):
             unchecked.append(f"{ln.shot}: a replayed stand-in; its length says nothing about the real read")
             continue
-        fit = fit_of(vf, ln.shot, audio_mod.duration(audio))
+        # A trimmed take plays to its play length (slate voice trim), and timing places it by that length too.
+        fit = fit_of(vf, ln.shot, trim_mod.current(vf, ln.shot) or audio_mod.duration(audio))
         fits[ln.shot] = fit
         files.append(audio)
         if fit["fits"] is None:
@@ -376,6 +377,7 @@ def inflection_gate(vf: VoiceFilm) -> GateResult:
     from slate.voice import analyze, breath  # noqa: PLC0415
 
     fails, unchecked, reviews, notes, files = [], [], [], [], []
+    full_voice_required = bool((vf.profile.get("tag_policy") or {}).get("avoid_low_effort", False))
     measured: dict[str, dict] = {}
     tagged: dict[str, bool] = {}
     for ln in vf.lines:
@@ -423,10 +425,10 @@ def inflection_gate(vf: VoiceFilm) -> GateResult:
             vf.dir / rnd.get("file", "")) else None
         if same_words is not None:
             row["same_words"] = {"round": rnd.get("round"), "key": rnd.get("key"), "gates": same_words}
-            if same_words.get("full_voice") is False:
+            if full_voice_required and same_words.get("full_voice") is False:
                 fails.append(f"{shot}: breathier than the voice's own untagged reads of the same words "
                              f"(tag round {rnd.get('round')}, take {rnd.get('key')})")
-        if verdict and verdict.get("whisper"):
+        if full_voice_required and verdict and verdict.get("whisper"):
             fails.append(f"{shot}: whisper-like: the voice drops out (voicing z {verdict['z'].get('voiced_frac')}, "
                          f"CPPS z {verdict['z'].get('cpps_db')} against the film's other lines)")
         elif verdict and verdict.get("breathier"):
@@ -468,8 +470,9 @@ def inflection_gate(vf: VoiceFilm) -> GateResult:
         return GateResult.unchecked("voice_inflection", f"{len(unchecked) or total} line(s) unchecked: {why}", **kw)
     if reviews:
         return GateResult.review("voice_inflection", f"{len(reviews)} line(s) for a person's ear: {reviews[0]}", **kw)
-    return GateResult.pass_("voice_inflection", f"full voice on {len(measured)} line(s): nothing whisper-like, no "
-                            "question rises, clean endings", **kw)
+    delivery = "full-voice policy satisfied; " if full_voice_required else "delivery follows this voice's policy; "
+    return GateResult.pass_("voice_inflection", f"{len(measured)} line(s): {delivery}no question rises, clean endings",
+                            **kw)
 
 
 # ---------------------------------------------------------------------------------------------------------------

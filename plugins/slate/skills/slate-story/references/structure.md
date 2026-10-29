@@ -19,6 +19,20 @@ fill in regardless of the brief.
 - **Answer the viewer's "what does it do for me?"** in one object they can hold, with a page for every door it opens.
 - **Leave a decision visibly to the viewer**: the last box stays empty, and nobody on screen touches it.
 
+## One object carries the answer
+
+Give an abstract promise a physical carrier when that makes the promise clearer: a book that gathers evidence, a
+record that keeps a choice, or another object the viewer understands at once. Establish it early enough that its
+return has meaning. Keep its identity while its contents answer successive questions.
+
+A book can make that progression concrete: a familiar seal resolves into its cover emblem; a contact leaves an
+impression; a spread makes a comparison; a later view shows who the result reaches. Each step adds meaning to the
+same object. Choose the sequence for the brief, write its claim and payoff in the treatment, and give each settled
+idea enough time to read. The mark, copy, data and page design come from the film's own truth and brand pack.
+
+The reusable mechanism is a hinged book with physical pages and continuous shadows. The authored sequence belongs
+to the film. See slate-motion's physical-books.md for the craft and slate-build's hinged-books.md for the API.
+
 ## Making a process into a story
 
 - Turn a product's steps into a story about one person (the sample user decides, commits, discovers), so a process

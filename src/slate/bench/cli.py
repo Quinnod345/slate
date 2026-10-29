@@ -61,7 +61,7 @@ def cmd_higgsedit(args: argparse.Namespace) -> int:
 
             raise UsageError("review needs --arm, --verdict and --by.",
                              hint="slate bench higgsedit review --arm higgsedit --verdict acceptable --by <name>")
-        row = bench.record_review(folder, arm=args.arm, verdict=args.verdict, by=args.by, note=args.note)
+        row = bench.record_review(folder, arm=args.arm, verdict=args.verdict, by=args.by, note=args.note, cut=args.cut)
         verdict = bench.report(folder)
         log.result({"review": row, "verdict": verdict["verdict"], "missing": verdict["missing"]},
                    f"Recorded {row['by']}'s review of the {row['arm']} cut: {row['verdict']}. "
@@ -88,12 +88,12 @@ def register(sub) -> None:
                                     "  run      refuses: the Higgsedit arm bills unfunded Higgsfield app credits and "
                                     "needs Quinn's go\n"
                                     "  measure  record a finished cut: wall time, PSNR and SSIM against the master\n"
-                                    "  review   record a person's judgement of an arm's channel cut\n"
+                                    "  review   record a person's judgement of an exact measured cut (latest by default)\n"
                                     "  report   recompute the verdict (keep, drop or not decided) and the report")
     p.add_argument("action", nargs="?", choices=ACTIONS, default="plan", help="what to do (default: plan)")
     p.add_argument("--channel", default="tiktok", help="the social channel (tiktok, instagram_reels, youtube_shorts, linkedin)")
     p.add_argument("--length", type=float, help="plan: the cut's length in seconds (default: the channel format's target)")
-    p.add_argument("--cut", help="measure: the finished cut to compare with the master")
+    p.add_argument("--cut", help="measure: the finished cut; review: the exact measured cut (default: latest in the arm)")
     p.add_argument("--ranges", help="the master's frames for the cut, like 0-900,1800-2250 (default: from the start)")
     p.add_argument("--master", help="the master to compare against (default: the film's newest in masters/)")
     p.add_argument("--out", help="where the benchmark lives (default: <film>/bench/higgsedit)")

@@ -13,6 +13,10 @@
 
 A take's request id is on disk (and on the ledger's in-flight row) before Slate waits on it, so a restart polls the
 same request and never pays for it twice.
+
+Derived films read generation records and media through their parent's lock references. Judging writes a local
+record in the child; conforming writes its own sequence. Vendor requests remain owned by the film that submitted
+them, even when the child has written local judgment metadata.
 """
 
 from __future__ import annotations
@@ -21,7 +25,7 @@ import re
 from pathlib import Path
 
 from slate import jsonio
-from slate.errors import UsageError
+from slate.errors import Refused, UsageError
 from slate.gen import deps
 
 _SHOT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
@@ -57,7 +61,21 @@ def take_dir(film_dir: Path, shot_id: str, take_id: str) -> Path:
 
 
 def load_record(film_dir: Path, shot_id: str) -> dict | None:
-    return jsonio.read(record_path(film_dir, shot_id), default=None)
+    path = record_path(film_dir, shot_id)
+    return jsonio.read(deps.resolve_file(film_dir, path.relative_to(film_dir)), default=None)
+
+
+def require_owned_requests(film_dir: Path, shot_id: str) -> None:
+    """A child may judge or conform inherited media; its parent's vendor requests belong to the parent."""
+    path = record_path(film_dir, shot_id)
+    source = deps.resolve_file(film_dir, path.relative_to(film_dir))
+    rec = jsonio.read(source, default=None)
+    film_id = deps.load_film(film_dir).get("id")
+    if source != path or (rec and rec.get("film") and rec["film"] != film_id):
+        raise Refused(f"{shot_id}'s takes belong to the parent film. A derived film reuses their media without "
+                      "submitting, refreshing or cancelling the parent's vendor requests.",
+                      hint="Resume or cancel those takes in the parent film; use a new shot id for this film's "
+                           "own generation. Judging and conforming the inherited takes are available here.")
 
 
 def require_record(film_dir: Path, shot_id: str) -> dict:
@@ -71,7 +89,9 @@ def save_record(film_dir: Path, shot_id: str, rec: dict, command: str = "slate g
     rec = jsonio.mark_generated(rec, command)
     rec["updated_at"] = deps.now_iso()
     deps.require_part(rec, "generation", what=f"{shot_id}'s generation record")
-    return jsonio.write_atomic(record_path(film_dir, shot_id), rec)
+    path = jsonio.write_atomic(record_path(film_dir, shot_id), rec)
+    deps.record_made(film_dir, deps.rel(film_dir, path), producer=command, inputs={})
+    return path
 
 
 def next_take_id(rec: dict) -> str:
@@ -114,4 +134,4 @@ def take_file(film_dir: Path, take: dict) -> Path:
     if not files:
         raise UsageError(f"Take {take.get('id')} has no output file yet.")
     path = Path(files[0])
-    return path if path.is_absolute() else Path(film_dir) / path
+    return deps.resolve_file(film_dir, path)

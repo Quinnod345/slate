@@ -24,17 +24,42 @@ def _requested(args: argparse.Namespace) -> tuple[list[str] | None, list[str]]:
 
 
 def _outs(videos: list[str], out: str | None) -> list[str | None]:
-    """One folder per video: --out itself for one video, --out/<name> for several (numbered if two share a name)."""
+    """Give each batch input its own folder without taking a later input's literal stem.
+
+    A single video still uses --out itself; without --out, the analyzer chooses its existing hash-bound defaults.
+    Empty, dot and dot-dot stems use the existing video fallback so each batch folder is a child of --out.
+    Batch identities use NFC and casefold conservatively so names do not alias on common case-insensitive or
+    Unicode-normalizing filesystems. A case-sensitive volume may therefore receive an extra suffix too.
+    """
     if not out or len(videos) == 1:
         return [out] * len(videos)
+    import unicodedata  # noqa: PLC0415
     from pathlib import Path  # noqa: PLC0415
 
-    seen: dict[str, int] = {}
+    def folder_key(name: str) -> str:
+        return unicodedata.normalize("NFC", name.casefold())
+
+    stems = []
+    for video in videos:
+        stem = Path(video).stem
+        stems.append(stem if stem not in ("", ".", "..") else "video")
+    reserved = {folder_key(stem) for stem in stems}
+    allocated: set[str] = set()
+    next_suffix: dict[str, int] = {}
     folders = []
-    for v in videos:
-        stem = Path(v).stem or "video"
-        seen[stem] = seen.get(stem, 0) + 1
-        folders.append(str(Path(out) / (stem if seen[stem] == 1 else f"{stem}-{seen[stem]}")))
+    for stem in stems:
+        key = folder_key(stem)
+        name = stem
+        if key in allocated:
+            suffix = next_suffix.get(key, 2)
+            name = f"{stem}-{suffix}"
+            # Reserve all literal stems before allocation: a later a-2.mov keeps a-2, even after two a.mov inputs.
+            while folder_key(name) in reserved or folder_key(name) in allocated:
+                suffix += 1
+                name = f"{stem}-{suffix}"
+            next_suffix[key] = suffix + 1
+        allocated.add(folder_key(name))
+        folders.append(str(Path(out) / name))
     return folders
 
 

@@ -82,15 +82,17 @@ def test_both_record_shapes_are_read(slate_home, tmp_path):
     assert effects.status()["approved"]
 
 
-def test_past_the_gate_the_engine_says_it_is_next_instead_of_pretending(slate_home, sound_film, tmp_path):
+def test_past_the_gate_the_engine_checks_real_inputs(slate_home, sound_film, tmp_path):
     p, sha = _proof(tmp_path)
     _approvals({"approvals": [{"what": "proof3", "path": str(p), "sha256": sha, "approved_by": "A. Person"}]})
     code, out, _ = run_cli(["sfx", "status", "--json"])
     assert code == 0 and json.loads(out)["approved"]
     code, out, _ = run_cli(["sfx", "spot", "--film", str(sound_film), "--json"])
     res = json.loads(out)
-    assert code == 1 and "effects engine is next" in res["message"]
-    with pytest.raises(Refused):
+    assert code == 1 and "visual events" in res["message"]
+    assert all(row["status"] == "missing" for row in res["details"]["input_report"])
+    from slate.errors import MissingPrerequisite
+    with pytest.raises(MissingPrerequisite, match="cue sheet"):
         engine.render(sound_film)
 
 
@@ -111,15 +113,21 @@ def test_the_starting_palette_is_proof_2(slate_home):
     assert "chimes" in pal["banned_timbres"] and "woodblock" in pal["materials"]
 
 
-def test_a_brand_palette_extends_the_starting_point(slate_home):
+def test_a_brand_palette_replaces_explicit_material_and_ban_lists(slate_home):
     brand = {"name": "b", "sound": {"palette": {"levels": {"lu_vs_voice": {"ui": -19.0}}, "rules": {"no_drone": False}},
                                     "materials": ["glass marbles"], "banned_timbres": ["kazoo"]}}
     pal = palette.from_brand(brand)
     assert pal["levels"]["lu_vs_voice"] == {"ui": -19.0, "fx": -11.2}
     assert pal["rules"]["no_drone"] is False and pal["rules"]["no_glides"] is True
-    assert "glass marbles" in pal["materials"] and "woodblock" in pal["materials"]
-    assert "kazoo" in pal["banned_timbres"] and "chimes" in pal["banned_timbres"]
+    assert pal["materials"] == ["glass marbles"]
+    assert pal["banned_timbres"] == ["kazoo"]
     assert pal["from_brand"] and palette.from_brand(None)["from_brand"] is False
+
+
+def test_empty_ban_list_and_nested_palette_are_deliberate_overrides():
+    assert palette.from_brand({"sound": {"banned_timbres": []}})["banned_timbres"] == []
+    pal = palette.from_brand({"sound": {"materials": ["wood"], "palette": {"materials": ["bell"]}}})
+    assert pal["materials"] == ["bell"]
 
 
 SOUND_SRC = Path(__file__).resolve().parents[2] / "src" / "slate" / "sound"

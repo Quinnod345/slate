@@ -87,7 +87,7 @@ def _approved(film_dir: Path, shot_id: str) -> tuple[dict, dict, Path]:
     digest = jsonio.sha256(path)
     if digest != take.get("sha256"):
         raise Refused(f"{shot_id}'s approved take changed on disk since it was picked, so it isn't the approved file.")
-    if not deps.approvals().is_approved(film_dir, f"plate-take:{shot_id}", deps.rel(film_dir, path)):
+    if not deps.approvals().is_approved(film_dir, f"plate-take:{shot_id}", take["files"][0]):
         raise Refused(f"There's no recorded approval for {shot_id}'s take {take['id']}.",
                       hint=f"slate gen pick --shot {shot_id} --take {take['id']} --by <who>")
     return rec, take, path

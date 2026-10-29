@@ -1,8 +1,9 @@
 # Staging signature moments
 
-Each act has one signature moment (slate-story chooses it). This is how to stage it so it lands: stillness before it,
-one clean landing, an echo after, and the sound on the same frame. Stay inside the brand's language: no glows, flares,
-particles or bounce.
+The earlier product-film recipe gave each act one signature moment (slate-story chooses the structure). A useful
+landing pattern is stillness before it, one clear contact, an echo after and sound on the same frame. The current brief
+can choose another rhythm, sustained energy or several peaks. Glows, flares, particles and bounce are available
+creative materials when the selected direction calls for them; their intended use still needs legible, measured motion.
 
 ## Anatomy of a landing
 
@@ -25,8 +26,8 @@ so the page remembers the moment.
 
 ## Other patterns
 
-- **A signature move uses the act's one signature duration** and carries follow-through: the leading part first, the
-  rest a beat behind, the camera moving with it.
+- **A signature move can use the signature duration** and follow-through: the leading part first, the rest a beat
+  behind, the camera moving with it. A token's explicit `max_per_act` is a gate; an assumed one-per-act quota is not.
 - **An impact can be a small, damped camera hit**, with the lines shuddering at the stress point, once per act.
 - **Land the impact at the end of a sentence**, so its sound and ripple play in the voice's pause.
 - **A world can dissolve into the ground and leave its imprint**: the far distance mists away while the words hold, then
@@ -44,7 +45,7 @@ so the page remembers the moment.
 - Give the moment room: still frames before (the held breath) and a settle after, before anything else moves.
 - Everything decorative from the impact settles out before the act's contract frame (at least the last 0.6 s), or it
   blinks out on the cut.
-- The sound's one big landing (slate-sound) and the picture's contact frame are the same frame.
+- Each designed sound landing (slate-sound) and its picture contact share the same frame.
 
 ## Reviewing it
 

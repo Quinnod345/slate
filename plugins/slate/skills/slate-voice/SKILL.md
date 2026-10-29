@@ -1,6 +1,6 @@
 ---
 name: slate-voice
-description: Cast, direct and record the voice of a Slate film, then clean, polish, align and caption it. Covers casting and Voice Design with measured ranking, eleven_v4 audio tags (never whisper, soft, quiet or gentle) and tag optimization, voicing lines in context, cleanup, pacing, the studio polish (de-esser, EQ, compression, room), measured inflection and A/B spectrograms, word timings, captions, the voice checks and the cloning policy (the owner's own verified clone, never anyone else's). Use when a Slate film needs a narrator chosen or designed, lines voiced or re-voiced, tags tested, a take cleaned, polished or re-timed, a read measured, captions made, or an answer on which voices may be used.
+description: Cast, direct and record the voice of a Slate film, then clean, polish, align and caption it. Covers casting and Voice Design with measured ranking, eleven_v4 audio tags and a scoped delivery policy, tag optimization, voicing lines in context, cleanup, pacing, studio polish, measured inflection and A/B spectrograms, word timings, captions, voice checks and the cloning policy. Use when a film needs a narrator chosen or designed, lines voiced or re-voiced, tags tested, a take cleaned, polished or re-timed, a read measured, captions made, or an answer on which voices may be used.
 ---
 
 # slate-voice
@@ -39,21 +39,28 @@ The policy is enforced before any request is sent: a refused voice exits 1 with 
 - The **shortlist** goes to the pre-production sitting. The owner picks by ear; the pick is recorded with its model,
   settings and seed.
 
+An unchanged approved brand voice already answers casting in every mode. Reuse it when the film's effective
+profile and synthesis pins match the approved provider, voice, model, settings, seed and cloning claims. A changed
+choice needs its own casting approval. Casting approval does not create narration or approve a script, a take,
+spending or a final cut; supervised films finish pre-production before recording their missing lines.
+
 ## 3. Direct it
 
 Direction on eleven_v4 is **audio tags**: short instructions in square brackets where the delivery should change,
 such as `[warmly, with a smile]` or `[confident]` before a line, or `[short pause]` for a beat.
 
-- **Never use a tag that lowers vocal effort or adds breath**: whisper, soft, quiet, gentle, hushed, murmuring, breath,
-  intimate, calm or a low voice, in any form. They make a read sound whispery and a little scary. Slate refuses them
-  before any request is sent, for every brand.
-- Emotion comes through a full, clear voice: warm, with a smile, bright, confident, reassuring, encouraging, sincere,
-  matter-of-fact, hopeful.
+- **Delivery follows the voice's explicit policy.** Quiet and gentle delivery is available by default. A profile
+  with `tag_policy.avoid_low_effort: true` refuses whisper, soft, quiet, gentle, hushed, murmuring, breath, intimate,
+  calm or a low voice before a request is sent. The original full-voice preference belongs to that production;
+  read `slate history context --topic voice` for its scope and newer listening feedback.
+- For a voice that requires full delivery, emotion comes through a full, clear voice: warm, with a smile, bright,
+  confident, reassuring, encouraging, sincere, matter-of-fact, hopeful. Other voices follow their own brief.
 - A tagged line strips back to the script exactly: tags never change a word. Tag sparingly (about half the lines or
   fewer), one emotion per phrase; a tag at the head of a line carries across it.
 - If a line doesn't land, swap the tag rather than rewriting the words.
-- Every tagged take is measured against the voice's own untagged takes of the same words, and one that measures
-  breathier, softer, creaky, repeated or too long is rejected, however good its tag.
+- Every tagged take is measured against the voice's own untagged takes of the same words. A full-voice policy rejects
+  increased breathiness; other deliveries retain that measurement for listening. Creak, repeated words and fit have
+  their own checks. A tag's wording does not establish the quality of its result.
 
 The tagged script lives in `voice/direction.json`. `slate voice tags rules` prints the banned tags and the rules;
 `slate voice tags set <shot> "<tagged line>"` sets a line's direction (refused when it breaks a rule or changes a word),
@@ -75,7 +82,7 @@ slate voice tags adopt S01 N1s101      # the owner's pick goes in as that exact 
 ```
 
 Each take is measured against the voice's untagged reads of the same words on three spans (the tag's words, the words
-where the feeling should show, the whole line), gated (full voice, words, creak, fits, no question rise, no mid-word
+where the feeling should show, the whole line), gated (full voice when explicitly required, words, creak, fits, no question rise, no mid-word
 stop) and checked for its feeling (a smile, reassurance, a calmer read). The best passing takes go to the owner as a
 level-matched ABC reel, and the pick goes into the film as that exact file, never re-voiced. See
 [the tag loop](references/tag-loop.md).
@@ -139,8 +146,9 @@ The **analysis** stage measures any take (a WAV, or a shot) and compares takes a
 and contour, breath and effort (voiced fraction, CPPS, HNR, H1-H2, tilt), brightness, sibilance and edge, loudness,
 creak, pacing, the last word's movement, a clean ending, and the Whisper checks. With a sheet it draws every take's
 spectrogram, words, pitch and level on one time and colour scale beside its numbers. Use it before the owner hears a
-tagged take, to choose a polish strength, and to check a re-voice against the approved take. Emotion comes through a
-full voice, checked by measurement; the owner still picks by ear. See [measuring a read](references/measuring-reads.md).
+tagged take, to choose a polish strength, and to check a re-voice against the approved take. Measurements check the
+chosen delivery policy and help identify where to listen; the owner still picks by ear. See
+[measuring a read](references/measuring-reads.md).
 
 ```
 slate voice analyze S03 --stage polished --ab S03 --sheet   # one take's polish, raw against polished
@@ -171,9 +179,9 @@ Before the owner hears a take, it passes the voice checks (listed in `slate voic
 - **words**: Whisper hears every word, and every brand word in full, with no repeats and no tag read aloud;
 - **tails**: no sound from the next line leaking into the end of a take;
 - **fit**: each read fits its shot, starting a short lead in and ending before the cut;
-- **inflection**: nothing whisper-like, no tagged read breathier than the voice's untagged reads of the same words, no
-  statement ending that rises like a question, no read that stops mid-word; a tagged line nobody has measured waits for
-  the owner's ear;
+- **inflection**: a voice with `tag_policy.avoid_low_effort` rejects whisper-like delivery and a tagged read breathier
+  than its untagged reads of the same words. Every voice checks statement endings and mid-word cuts. A tagged line
+  nobody has measured waits for the owner's ear;
 - **polish**: every polished take verified by measurement (same length, loudness back within 0.5 LU, S and edge down
   within the chain's reach, not over-processed, made with the film's pinned polish); a film that doesn't polish passes
   and says so.

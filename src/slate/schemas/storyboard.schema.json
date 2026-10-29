@@ -51,7 +51,12 @@
         "transition": {"description": "how the shot hands to the next, as script.json gives it: words, or {kind, note} in the motion law's kinds",
                        "oneOf": [{"type": "string"}, {"type": "object", "required": ["kind"], "properties": {"kind": {"type": "string"}, "note": {"type": "string"}}}]},
         "engine": {"enum": ["remotion", "web", "ae"], "description": "the engine that draws the shot when it isn't its act's, from script.json, carried through to timing/shots.json"},
-        "reading": {"type": "object", "description": "the shot's reading declaration from script.json (voice_matched, not_for_reading, labels, reason), for the script gates and `slate qa readtime`"}
+        "reading": {"type": "object", "description": "the shot's reading declaration from script.json (voice_matched, not_for_reading, labels, reason, count_events), for the script gates and `slate qa readtime`; count metadata grants no exemption",
+                    "properties": {"count_events": {"type": "array", "minItems": 1,
+                      "items": {"type": "object", "required": ["text", "events"], "additionalProperties": false,
+                                "properties": {"text": {"type": "string", "minLength": 1, "pattern": "\\S"},
+                                               "events": {"type": "array", "minItems": 1, "uniqueItems": true,
+                                                          "items": {"type": "string", "minLength": 1, "pattern": "\\S"}}}}}}}
        }
       }
      }

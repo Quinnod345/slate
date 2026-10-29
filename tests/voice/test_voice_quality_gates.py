@@ -108,11 +108,20 @@ def test_full_voice_reads_pass(voice_film, fake_whisper):
     assert set(r.details["untagged_baseline"]) == set(LINES)
 
 
-def test_a_whisper_like_read_fails(voice_film, fake_whisper):
+def test_a_whisper_like_read_fails_when_this_voice_requires_full_delivery(voice_film, fake_whisper, full_voice_policy):
     _film(voice_film, fake_whisper, special={"S02": {"whisper": True}})
     align.align(voice_film)
     r = _gate(voice_film, "voice_inflection")
     assert r.status == "FAIL" and "S02: whisper-like" in r.summary
+
+
+def test_a_quiet_read_is_measured_without_a_universal_delivery_failure(voice_film, fake_whisper):
+    _film(voice_film, fake_whisper, special={"S02": {"whisper": True}})
+    align.align(voice_film)
+    r = _gate(voice_film, "voice_inflection")
+    assert r.details["lines"]["S02"]["vs_other_lines"]["whisper"] is True
+    assert not any("S02: whisper-like" in e for e in r.evidence)
+    assert "full voice" not in r.summary and "nothing whisper-like" not in r.summary
 
 
 def test_a_read_that_stops_mid_word_fails(voice_film, fake_whisper):

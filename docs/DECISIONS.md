@@ -1,7 +1,7 @@
 # Decisions
 
-The twelve decisions Quinn made while planning Slate, as short records: what was decided, why, and what it means for
-the code. All twelve were made on 2026-09-30. Decisions 1 to 4 were taken first; 5 to 12 came from his answers to
+Quinn's decisions, as short records: what was decided, why, and what it means for the code. The twelve founding
+decisions were made on 2026-09-30; later decisions follow in order. Decisions 1 to 4 were taken first; 5 to 12 came from his answers to
 four concrete questions per decision, and decision 5 was revised the same day after his note on it. `docs/PLAN.md` has
 the full plan they belong to.
 
@@ -144,3 +144,69 @@ says which one it replaces; old records stay as they were.
 - **Consequences:** autonomous mode runs only for brands whose four references are approved, parks the film on any
   REVIEW verdict, marks every output "not approved for publishing" until that exact SHA-256 is approved, and masters
   with ffmpeg.
+
+## ADR-013: Port the approved sound references
+
+- **Date:** 2026-10-04. **Status:** accepted.
+- **Context:** the effects renderer deliberately waited for approval of proof 3 and the full p3 mix. Both exact
+  reference files were presented in the completion chat, with independent copies and SHA-256 receipts.
+- **Decision:** Quinn approved both sound references: “Yeah I like the sound files a lot. I approve that definitely
+  for the sound decisions.” The approved proof is the v2 balance revision. The full p3 mix is approved alongside it.
+- **Consequences:** re-inventory and port the approved effects design now, with measured regression evidence.
+  Preserve the real sampled instruments, timing, balance and approved-work rules. The runtime proof-3 record carries
+  the exact proof hash and the full mix's hash; the private review receipt retains both artifacts. This decision
+  approves sound references only. Brand onboarding, live AE acceptance and publication keep their own decisions.
+
+## ADR-014: Use the latest B redesign as an additional craft reference
+
+- **Date:** 2026-10-04. **Status:** accepted.
+- **Context:** Quinn added B's latest redesigned sound and its Remotion craft to the approved basis, highlighting the
+  passport ending. A private snapshot binds the latest picture, polished-voice mix, cue choices and balance records.
+- **Decision:** preserve the new mix's cue design, write-on onset alignment and composed-score practice. An approved
+  cue can stay fixed while unpinned rides are recalculated around revised narration. Carry the physical book's
+  front/back registration, curling leaves and continuous shadows into reusable kit components. Carry its story
+  principle into the craft guidance: one meaningful object can accumulate evidence and connect several perspectives.
+- **Consequences:** keep each reference's exact provenance and approval scope. B supplements the approved proof; it
+  does not replace its record. The kit exposes caller-owned faces and brand tokens, not the source film's artwork,
+  scenes, camera path or copy. Review both raster modes in a neutral motion proof. Approved spans never relocate
+  silently; moving one needs an explicit revision and renewed approval.
+
+## ADR-015: Learn from iterations and keep creative restrictions contextual
+
+- **Date:** 2026-10-05. **Status:** accepted.
+- **Context:** Quinn said that too many rules were limiting Slate's creative output. A final reference loses the
+  process that made it good: what he requested, what changed, what regressed, and why he preferred one version.
+  Earlier sound decisions already described the palette as a starting point per brand (ADR-007).
+- **Decision:** preserve the full available source history, including rewinds, branches and answered questions.
+  Derive scoped guidance with source evidence and counterexamples. Keep it in private data outside the checkout and
+  make it available through `slate history context`, including the MCP read surface. A new brief and newer feedback
+  take priority. A requested redesign becomes work without asking the same creative question again. Quiet or gentle
+  voice delivery is allowed unless a particular voice's explicit policy restricts it. Motion and sound presets
+  guide exploration; they do not define every future brand's style.
+- **Consequences:** revision starts and finishes append notes with baseline and result hashes to the film's creative
+  history. Drafts can record feedback before they have an approval. An unavailable history never blocks production.
+  Preview approval, a preferred draft and a measured result remain distinct from approval of a delivered file.
+  This supersedes blanket creative bans and the interpretation of ADR-013/014 that prohibited a requested change
+  of approach; it preserves their source approvals. Exact script words, source truth, secret handling, cloning,
+  budget accounting, publication approval, After Effects controls and honest technical checks remain in force.
+  An unchanged approved brand voice answers the casting choice in every mode when the film profile and synthesis
+  pins match it. Reusing that cast approval never approves new narration, spending, a script or a delivered file.
+  Explicit sound material and banned-timbre lists replace the starter lists; measured timbre limits are configurable
+  per palette. Detector evidence remains visible even when a chosen timbre is permitted.
+
+## ADR-016: Serve public file leaves as regular bytes while keeping large media in place
+
+- **Date:** 2026-10-06. **Status:** accepted.
+- **Context:** the bundle linked every top-level public entry through a generated folder. Remotion 4.0.521's static
+  handler uses `lstat` and refuses a final-file symlink, so an ordinary public logo and nested cached font or image
+  links could produce HTTP 404 despite existing on disk. The earlier test established link existence rather than
+  actual serving. Copying capture and plate trees would restore the disk duplication this design originally avoided.
+- **Decision:** prepare a bundle-owned public view. Copy regular top-level public files and final-file link targets
+  as exact regular bytes. Inspect directory-link targets and overlay subtrees containing file links; retain clean
+  directory subtrees as aliases. Captures and plates remain opaque directory aliases, read in place. Preserve the
+  film's public sources and unmanaged legacy `.slate/public` entries, including their collision precedence.
+- **Consequences:** bump the bundle format and include copied-leaf bytes, source and resolved target identities, and
+  effective alias structure in the cache hash. Rebuilding replaces only the owned view, and existing temporary,
+  lease and prune ownership rules govern its cleanup. The HTTP regressions exercise the pinned handler against
+  ordinary files, nested links and actual bundle output. Regular capture and plate leaves retain their existing
+  serving path; final-file symlinks within those opaque media trees are not claimed as supported by this change.

@@ -13,6 +13,10 @@ time, with the same brief and the same hand-in check. The discipline below matte
 - **The product truth**: every screen, label, number and flow the act may show, cited from the product's code
   (slate-story's truth pack).
 - **The motion law** (the brand's) and the look.
+- **The reference sequence and representation**: the selected version and time window, which object carries the
+  change, its source and destination geometry, and how its content, camera and sound stay connected. Read the source
+  when available and identify any gap between that source and the rendered reference. Choose scene objects that can
+  express the intended transformation rather than assuming an image of the whole screen supplies its moving parts.
 - **The locked timing**: shot lengths and word timings, generated; never edited by builders.
 - **Files and ownership**: who owns which act folder, and what's read-only.
 - **The contracts** at each boundary, specified exactly.
@@ -33,8 +37,9 @@ builder followed it.
   changes the kit.
 - **Each builder has its own scratch folder**: parallel builders overwrite each other's scratch otherwise.
 - **Builders make stills and half-scale previews only**, never full-resolution finals, never inside the film folder.
-- **When an act is handed in, the builder cleans its scratch folder** and keeps only the final preview and its contact
-  sheet.
+- **Preserve reviewed comparisons before cleaning scratch.** Give the coordinator the comparison previews, their
+  source revisions and exact feedback for the film's versioned iteration history. After that handoff, remove disposable
+  scratch and keep the final preview and its contact sheet.
 - **Facts several acts show** (a tally, a standing, a sample value) come from one shared source; an act that picks a
   value records it for the coordinator, and a change to a shared surface goes to every act that shows it.
 
@@ -64,6 +69,8 @@ working version of every shot onto disk quickly, then refine, and keep NOTES.md 
   finished, the builder re-reads the brief's original words against it.
 - Superseded cuts stay recorded in the notes as a record of what was delivered and why it changed; they're never
   silently erased.
+- A technical PASS is not a creative verdict. Review the moving choreography and the requester's feedback alongside
+  the checks, and carry the successful construction into the remaining scenes and output compositions.
 - Intentionality degrades across parallel acts: judge each act against the best act's code and notes, tie every move to
   a word or an idea, and prefer fewer, better moves.
 

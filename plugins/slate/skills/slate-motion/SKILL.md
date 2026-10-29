@@ -15,38 +15,61 @@ The law is data, the kit enforces it, and a gate checks it:
 - the Remotion kit moves things only by the law's names and exact-endpoint eases, and records every move;
 - `slate emit-events` writes each act's motion trace, and `slate qa motion` checks it.
 
+Read `slate history context --topic motion` when a private history is selected. Preserve what each correction was
+about: jitter, depth conflicts and unreadable text are defects; fast travel, flutter, bounce and stillness are
+creative choices. The values below are starting presets. The current brief can choose a different grammar; record
+that choice in the brand's motion data and measure the result against it. Do not turn one film's fixes into universal
+bans or smooth away the energy the requester wanted to keep.
+
 ## 1. The north star and the bar
 
+- **The current brief's references govern the creative direction.** Study their sequence, construction and iteration
+  history, then pursue that level of craft inside the current brand. The references below are useful starting points;
+  they do not replace the requester's selected benchmark or prescribe one appearance for every film.
 - **The Browser Company's craft and warmth** is the north star: motion that feels hand-made, where every move has one
   reason and lands with its sound. Borrow the feeling, never their brand; express it inside the brand's own tokens.
-- **The visionary bar:** beautiful enough to make someone cry. One signature moment per act; correct but ordinary
-  isn't enough (slate-story sets the moment, this skill stages it).
-- **Intentionality:** one carrier per act, one idea per beat, every move tied to the voice's word or to the idea.
-  Fewer, better moves. Stillness is part of the design.
+- **The visionary bar:** beautiful enough to make someone cry. One signature moment per act is a useful starting
+  structure, not a quota for every film (slate-story chooses the structure, this skill stages it).
+- **Intentionality:** make the viewer's attention and the movement's purpose clear. Earlier product films used one
+  carrier per act and one idea per beat; the current brief may call for several voices, sustained motion or a still
+  frame. Preserve the requested energy while keeping words, objects and transitions legible.
 
 ## 2. The motion law
 
-Every brand's law names its eases by **job**, and scenes move things only with those names:
+Every brand's law names its eases by **job**. The kit also supports known curves by motion class; the trace must use a
+curve the gate recognizes and match its measured shape. These role shapes are a starting recipe:
 
 | Job (kit role) | What it moves | Shape |
 |---|---|---|
 | entrance | type, cards, UI arriving, draw-ons, count-ups | fast start, long settle |
 | move | rest-to-rest moves: camera push, pull and truck; carries | starts and ends at rest |
-| relayout | short make-room re-layouts (0.4 s or less) | quick, soft |
+| relayout | short make-room re-layouts | quick, soft; earlier films used 0.4 s or less |
 | state | a chip flips, a check lands, a toggle | the product's own state-change ease, unchanged |
-| exit | anything leaving | accelerates away, 0.75 times its entrance |
-| settle spring | named container morphs only | a settle, never a bounce |
+| exit | anything leaving | accelerates away; the starter uses 0.75 times its entrance |
+| settle spring | container morphs and gestures where the brief calls for it | a controlled settle; bounce is a deliberate choice |
 
-Durations come from the brand's scale (tick, quick, base, broad, camera, signature), exits are 0.75 times their
-entrance, nothing but a state flip moves in under 0.2 s, and an act gets at most one signature duration. Staggers are
-capped (a group's spread at most 0.6 s and half its entrance). A move lands (90% of its travel) within 2 frames of the
-word it illustrates: the kit's `landOn` and `startFor` do the maths. A brand with no law draws with the kit's neutral
-law until onboarding writes one, and the kit records that as a problem.
+The starting duration scale uses tick, quick, base, broad, camera and signature. Earlier product films used exits at
+0.75 times their entrance, a 0.2 s floor outside state flips, at most one signature duration per act, and a stagger
+spread of at most 0.6 s and half the entrance. Choose the brand's scale and caps for the current direction; a signature
+count is enforced when its duration token declares `max_per_act`. Current QA restricts stagger groups to entrance,
+exit and state roles. A move illustrates a word by landing (90% of its travel) within 2 frames of that word: the kit's
+`landOn` and `startFor` do the maths. A brand with no law draws with the neutral law until onboarding writes one, and
+the kit records the missing law as a problem.
+
+The current brief and authorized feedback govern creative revisions. Keep the original, the feedback and the revised
+law together. A requested exploration does not need another approval of the same creative choice; the resulting
+evidence and any separately required source or delivery approval still have to be current.
 
 In depth: [motion law](references/motion-law.md), [eases](references/eases.md),
 [durations and staggers](references/durations-and-staggers.md).
 
 ## 3. Look and motion development
+
+Study a reference as a sequence. Name its rendered version and visible time window, the object that persists, and
+how its geometry, content, camera and sound reach the next state. Read the actual source when available, distinguish
+implementation evidence from notes, and record source-to-render gaps. Transfer the mechanism into this brand's own
+design language. A beautiful final frame is useful, but its transitions and the feedback that shaped them explain
+why the film works. See [morphs and shared elements](references/morphs-and-shared-elements.md).
 
 A brand's look is built from its own design language (its components, tokens and product motion), never from generic
 prompts, and it's approved from a **moving** 10 to 15 second test with sound: stills don't count. The kit's looks
@@ -54,36 +77,44 @@ library starts it (`flat` by default; `paper-2.5d` only for brands whose own lan
 `blueprint`; the After Effects bridge's looks by name). Onboarding runs this once per brand (slate-brand); a film's own
 look test happens only when the brand's look isn't approved yet.
 
-Composition: whole designed objects in generous space, one clear focal object and a clear hierarchy per frame. A thin
-line on a big empty field reads as empty. See [look development](references/look-development.md).
+The earlier composition recipe used whole designed objects in generous space with a clear focal object. Choose the
+composition for this film's purpose; sparse, dense and abstract frames can all work when attention is clear. The
+earlier thin-line test read as empty because it did not carry its idea. See [look development](references/look-development.md).
 
 ## 4. The craft, move by move
 
-- [camera](references/camera.md): drift to keep the world alive, rest for exact frames, one camera move per act.
-- [transitions](references/transitions.md): every scene change is a carry, a portal, a mask or a whip; no hard cuts
-  or crossfades except the reasoned ones.
+- [camera](references/camera.md): choose drift, travel or stillness for the idea; preserve exact contract frames.
+- [transitions](references/transitions.md): carries, portals, masks, whips, cuts and crossfades have different uses;
+  follow the film's chosen grammar and preserve its required handoffs.
 - [morphs and shared elements](references/morphs-and-shared-elements.md): one object across a cut, keeping its label.
 - [techniques](references/techniques.md): tilt-to-flat, component zoom and pull-back, mask reveals and mask morphs, paper
   techniques (ink, stamps, page turns), per-character type.
+- [physical books](references/physical-books.md): one object through cover, contact, comparison and audience views,
+  hinged paper, continuous shadows and settled read holds.
+- [continuous evidence](references/continuous-evidence.md): crowds becoming data, weighted objects becoming
+  navigation, distance-paced curves and closing objects that retain their history.
 - [signature moments](references/signature-moments.md): staging the held breath, the landing and its echo.
 - [logo build](references/logo-build.md): constructing a mark, and the bookend that replays it.
 
 ## 5. A brand mark as a character
 
-When a brand's motif or mark becomes a character, it gets a small, fixed gesture vocabulary, each gesture with one
-meaning and one word it keys to, and a pose that's a pure function of the film frame. Its parts move in whole-frame
-phases (unison, pairs or a wave), never faster than a 16-frame swing, at most 30 px a frame and 8 px a frame squared
-at a 1080-line frame, start and end at rest, draw as one flat plane in fixed sheets, never clip, and move as a whole at
-small sizes. Between gestures it is exactly the brand's mark: stillness is the default. The kit's `MarkCharacter`,
-`MotifMark` and `gesture()` implement the method. Full method: [character and motif motion](references/character-and-motif-motion.md);
+The kit's mark-character method uses a small gesture vocabulary and a pose that's a pure function of the film frame.
+Its rig parts use whole-frame phases (unison, pairs or a wave). Current motion QA requires symmetric rig waveforms and
+a loop period of at least 16 frames and no faster than 1.9 Hz; a brand can require a slower loop. Default rig limits are
+30 px a frame and 8 px a frame squared at a 1080-line frame, with supported brand speed overrides. The earlier paper
+character recipe starts and ends at rest, draws flat in fixed sheets and returns to the unchanged mark between
+gestures. These are useful choices for that character, not a universal requirement that every character stay quiet.
+The kit's `MarkCharacter`, `MotifMark` and `gesture()` implement this method; a different requested character still
+needs truthful traces and the current technical checks. Full method: [character and motif motion](references/character-and-motif-motion.md);
 one-page checklist: [character motion](references/character-motion.md).
 
 ## 6. Anti-glitch
 
 Most glitches that reached a review came from a handful of causes:
-- a move that starts at full speed (the entrance ease leaves rest fast) smears on one frame and goes sharp on the next
-  under motion blur: run big moves on the rest-to-rest ease;
-- oscillation near 4 Hz makes motion blur pulse near 8 Hz, where flicker is most visible: no wobbles, no idle loops;
+- a move that starts at full speed can smear on one frame and go sharp on the next under motion blur: a rest-to-rest
+  ease or a velocity-matched handoff often fixes the discontinuity;
+- periodic motion can make shutter sampling pulse: test intentional flutter or idle motion in the final render and
+  remove visible flicker without deleting the gesture;
 - sub-frame staggers put parts at different shutter phases: offsets are whole frames;
 - things that pop: an entrance starting part-way into the frame, a mask eased twice, a colour or shadow switching at a
   threshold, a label reflowing in one frame;
@@ -91,13 +122,14 @@ Most glitches that reached a review came from a handful of causes:
 - text that snaps to whole pixels while shapes glide, reading as jitter.
 
 Run the [glitch catalogue](references/glitch-catalogue.md) as a checklist before every render; the reasons and fixes
-are in [anti-glitch](references/anti-glitch.md), and what's banned (with its reasoned exceptions) in
+are in [anti-glitch](references/anti-glitch.md), and the contextual concerns and current checks are in
 [banned moves](references/banned-moves.md).
 
 ## 7. Read time and safe areas
 
-- Every on-screen statement holds, once fully built, at least max(1.5 s, 0.4 s + 0.3 s per word); numbers 2 s after
-  they land. Fix a short hold by extending the settled hold inside the shot, never by moving words or cuts
+- The starting read-time policy gives a statement at least max(1.5 s, 0.4 s + 0.3 s per word) once fully built;
+  format and script settings can choose its reading policy. Numbers still need 2 s after they land. Fix a short hold
+  inside the shot, or revise the script and rebuild its clock when an authorized timing change is needed
   ([read time](references/read-time.md)).
 - Text stays inside the title-safe area and each platform's safe zones; body text at least 28 px at a 1080-line frame;
   text contrast from the brand's colour pairs; no more than three flashes a second ([safe areas](references/safe-areas.md)).
@@ -114,13 +146,22 @@ carries over directly from character animation to interface motion. See [motion 
 
 ## 9. Checking motion
 
+Technical checks establish the properties they measure, including truthful content, valid timing, stable geometry
+and legibility. They do not establish beauty. Review a moving example of the intended transformations with sound in
+the target composition, and use the requester's specific feedback to improve the next version. Preserve comparison
+versions and feedback, then extend successful choreography across the requested outputs with staging suited to each
+aspect and duration. This is creative iteration within the authorized brief, not an additional approval gate.
+
 - `slate emit-events` writes each act's visual events and motion trace; `slate check <act>` is the builder's hand-in
   check; `slate qa motion` checks every trace: the brand's eases, durations and stagger caps, entrances from at least
   85% scale, speed limits by what moves (at 1080 lines: a rig part 30 px a frame and 8 px a frame squared, a UI element
   60 and 16, a carried page, card or camera 170 and 45; a whip past those goes to a person), no loop faster than a
-  16-frame period, symmetric mark rigs, plus a pixel cross-check for fast motion the trace doesn't explain.
+  16-frame period or faster than 1.9 Hz, symmetric mark rigs, plus a pixel cross-check for fast motion the trace doesn't
+  explain. Brand speed limits can replace the defaults; the entrance scale floor and loop and rig checks remain
+  current technical constraints. Read [motion law](references/motion-law.md) for the exact supported controls.
 - **Tell the gate what moves.** A traced move names its `class` (rig, ui, carry or whip) when its name doesn't say it,
   and declares an exemption (`exempt`: a reading sweep, or a line whose steadiness is the meaning) with its `reason`.
+  Other deliberately linear properties belong in the brand's `linear_props`; naming a linear ease alone is not enough.
   Long carries and camera drifts can use the kit's `even` curve (a third of the travel in each third of the time),
   which the gate knows by name. See [eases](references/eases.md).
 - `slate qa stability` watches every act's render for judder a viewer feels before they can name it: pops, whole-pixel
@@ -136,6 +177,7 @@ carries over directly from character animation to interface motion. See [motion 
 - [motion-law](references/motion-law.md) · [eases](references/eases.md) · [durations-and-staggers](references/durations-and-staggers.md)
 - [look-development](references/look-development.md) · [camera](references/camera.md) · [transitions](references/transitions.md)
 - [morphs-and-shared-elements](references/morphs-and-shared-elements.md) · [techniques](references/techniques.md)
+- [physical-books](references/physical-books.md)
 - [signature-moments](references/signature-moments.md) · [logo-build](references/logo-build.md)
 - [character-and-motif-motion](references/character-and-motif-motion.md) · [character-motion](references/character-motion.md)
 - [anti-glitch](references/anti-glitch.md) · [glitch-catalogue](references/glitch-catalogue.md) · [banned-moves](references/banned-moves.md)

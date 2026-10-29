@@ -16,12 +16,15 @@ neutral scale, and what each token is for:
 
 A brand's own values come from its product's duration tokens and its measured references (slate-brand).
 
-**Rules**
-- Exits are 0.75 times their entrance.
-- Nothing moves in under 0.2 s except state flips.
-- Anything longer than the signature token is a continuous camera drift or time-based data.
-- At most one signature-length move per act. Signatures work because they're rare.
-- Big moves run long: a page scroll at the signature length, a large rise over about 2 s, so no frame jumps far.
+**Starting recipe**
+- Earlier product films used exits at 0.75 times their entrance and a 0.2 s floor outside state flips. The brand's
+  duration scale and `exit_factor` choose the actual values for this film.
+- Continuous drift and time-based data can run beyond a duration token. Other traced moves must match the chosen
+  scale; choose a suitable token instead of disguising the move's duration.
+- One signature-length move per act can make it feel rare. Current QA enforces a count only when the token declares
+  `max_per_act`; a different brief can choose a different structure.
+- Earlier large carries ran long to reduce screen speed. A requested fast carry can stay fast when its declared curve,
+  applicable speed policy, readability and rendered blur support it.
 
 ## Frame heuristics
 
@@ -34,11 +37,12 @@ stroke of about 10 frames reads as deliberate.
 **Units** (the neutral law; brands set their own): per character about 0.05 to 0.067 s, per word 0.1 s, per line, list
 row or card about 0.133 s, per major block 0.2 s. At a given frame rate these are whole frames.
 
-**Caps**
-- A group's total spread is at most 0.6 s and at most half of the group's own entrance duration.
-- More than 8 items are grouped; they're never staggered one by one.
+**Starting caps**
+- The neutral law caps a group's spread at 0.6 s and half of its entrance duration, and groups more than 8 items.
+  Brands can choose their own caps and item count; the gate checks the declared law.
 
-**What staggers:** only entrances, exits and state changes. Rest-to-rest moves travel as one piece.
+**Current gate:** stagger groups are limited to entrance, exit and state roles. The earlier recipe moved rest-to-rest
+objects as one piece. A requested treatment must still fit the supported trace roles rather than bypass this check.
 
 **Exits** stagger in reverse at two thirds of the unit, or leave together on the exit ease when a camera move is
 carrying the scene away.
@@ -57,8 +61,9 @@ carrying the scene away.
 
 ## Type
 
-- **Hero lines** (6 words or fewer, at most two per act) write on per character; lines write on per word; lists per
-  line.
-- Hero text must move at least 16 px or unmask; opacity alone is flat and cheap (fine for secondary labels).
+- **Hero lines** used a 6-word, two-per-act script preset, with per-character entrances; lines arrived per word and
+  lists per line. Script reading settings can change the hero limits, and the brief chooses the entrance treatment.
+- Current motion QA requires hero text to move at least 16 px at a 1080-line frame or unmask. Opacity-only remains
+  supported for secondary labels; a creative preference does not turn a failing hero entrance into a pass.
 - The kit's `PerChar`, `PerWord` and `Arrive` already cap their spread; don't re-implement them.
 - Lay out text with room for words that arrive later, so no make-room move is needed.

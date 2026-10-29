@@ -84,20 +84,42 @@ class FilmContext:
         except ValueError:
             return str(full)
 
+    def source_path(self, rel: str | os.PathLike) -> Path:
+        """Resolve a missing relative input by reference. path() remains the child's output destination."""
+        own = self.path(rel)
+        if own.exists() or Path(rel).is_absolute():
+            return own
+        try:
+            from slate.state import lock  # noqa: PLC0415 - film state is optional for read-only QA
+        except ImportError:
+            return own
+        return Path(lock.resolve(self.dir, str(rel)))
+
+    def _reference_names(self, directory: str | Path, suffix: str) -> set[str]:
+        """Names explicitly referenced in one logical input folder; never discover its parent's neighbours."""
+        try:
+            from slate.state import lock  # noqa: PLC0415 - state is optional for read-only QA
+        except ImportError:
+            return set()
+        refs = lock.load(self.dir).get("files") or {}
+        return {Path(rel).name for rel, entry in refs.items()
+                if entry.get("ref") and Path(rel).parent == Path(directory) and Path(rel).suffix == suffix
+                and not Path(rel).name.startswith(".")}
+
     def exists(self, rel: str | os.PathLike) -> bool:
-        return self.path(rel).is_file()
+        return self.source_path(rel).is_file()
 
     def read_json(self, rel: str | os.PathLike, default: Any = None) -> Any:
         """A JSON file in the film, cached. Missing gives `default`; broken JSON raises UsageError (gates report it)."""
         key = self.rel(rel)
         if key not in self._json:
-            p = self.path(rel)
+            p = self.source_path(rel)
             self._json[key] = jsonio.read(p) if p.is_file() else None
         value = self._json[key]
         return default if value is None else value
 
     def sha(self, p: str | os.PathLike) -> str | None:
-        full = self.path(p)
+        full = self.source_path(p)
         try:
             st = full.stat()
         except OSError:
@@ -283,7 +305,7 @@ class FilmContext:
         if key in self._memo:
             return self._memo[key]
         rel = self.events_rel(index)
-        out = ActEvents(index, self.path(rel))
+        out = ActEvents(index, self.source_path(rel))
         if not out.path.is_file():
             self._memo[key] = out
             return out
@@ -463,11 +485,11 @@ class FilmContext:
         _rec, doc = self.mix_record()
         if doc:
             for key in ("mix", "file", "final_mix", "path"):
-                if isinstance(doc.get(key), str) and self.path(doc[key]).is_file():
-                    return self.path(doc[key])
+                if isinstance(doc.get(key), str) and self.source_path(doc[key]).is_file():
+                    return self.source_path(doc[key])
         for cand in MIX_CANDIDATES:
             if self.exists(cand):
-                return self.path(cand)
+                return self.source_path(cand)
         return None
 
     def stem_paths(self) -> dict[str, Path]:
@@ -475,20 +497,35 @@ class FilmContext:
         _rec, doc = self.mix_record()
         stems = (doc or {}).get("stems")
         if isinstance(stems, dict) and stems:
-            return {str(k): self.path(v if isinstance(v, str) else v.get("file")) for k, v in stems.items()
+            return {str(k): self.source_path(v if isinstance(v, str) else v.get("file")) for k, v in stems.items()
                     if isinstance(v, str) or (isinstance(v, dict) and v.get("file"))}
         if isinstance(stems, list) and stems:
             out = {}
             for v in stems:
                 f = v if isinstance(v, str) else (v or {}).get("file")
                 if f:
-                    out[Path(f).stem] = self.path(f)
+                    out[Path(f).stem] = self.source_path(f)
             return out
         mix = self.mix_path()
-        folder = mix.parent / "stems" if mix is not None else None
-        if folder is None or not folder.is_dir():
+        if mix is None:
             return {}
-        return {p.stem: p for p in sorted(folder.glob("*.wav")) if not p.name.startswith(".")}
+        logical_mix = mix
+        candidates = [doc[key] for key in ("mix", "file", "final_mix", "path")
+                      if isinstance((doc or {}).get(key), str)] + list(MIX_CANDIDATES)
+        for cand in candidates:
+            if self.source_path(cand) == mix:
+                logical_mix = self.path(cand)
+                break
+        try:
+            directory = (logical_mix.parent / "stems").relative_to(self.dir)
+        except ValueError:
+            return {}  # an external mix never grants ownership of its adjacent stems
+        folder = self.path(directory)
+        names = self._reference_names(directory, ".wav")
+        if folder.is_dir():
+            names.update(p.name for p in folder.glob("*.wav") if not p.name.startswith("."))
+        files = [self.source_path(directory / name) for name in sorted(names)]
+        return {p.stem: p for p in files if p.is_file()}
 
     def empty_stems(self) -> dict[str, str]:
         """{stem: why} for the delivery stems the mix record says this film has nothing for (silent on purpose)."""
@@ -529,20 +566,38 @@ class FilmContext:
             self._memo["format"] = read_format(self.film)
         return self._memo["format"]
 
-    def captions_path(self) -> Path | None:
-        """Captions: timing/captions.json (the voice module's structured cues) first, then an .srt, then a .vtt, in
-        CAPTION_DIRS."""
+    def caption_paths(self, *, include_delivery: bool = True) -> list[Path]:
+        """Caption inputs, including explicit sidecar file references; never an output destination."""
+        found: list[Path] = []
         for cand in CAPTION_CANDIDATES:
+            if not include_delivery and Path(cand).parts[0] == "deliver":
+                continue
             if self.exists(cand):
-                return self.path(cand)
+                found.append(self.source_path(cand))
         for ext in (".srt", ".vtt"):
             for d in CAPTION_DIRS:
+                if not include_delivery and Path(d).parts[0] == "deliver":
+                    continue
                 folder = self.path(d)
+                names = set()
                 if folder.is_dir():
-                    found = sorted(p for p in folder.glob(f"*{ext}") if not p.name.startswith("."))
-                    if found:
-                        return found[0]
-        return None
+                    names.update(p.name for p in folder.glob(f"*{ext}") if not p.name.startswith("."))
+                names.update(self._reference_names(d, ext))
+                for name in sorted(names):
+                    source = self.source_path(Path(d) / name)
+                    if source.is_file():
+                        found.append(source)
+        seen, unique = set(), []
+        for source in found:
+            key = source.resolve()
+            if key not in seen:
+                seen.add(key)
+                unique.append(source)
+        return unique
+
+    def captions_path(self) -> Path | None:
+        """Structured cues first, then an SRT or VTT, from owned inputs or their explicit references."""
+        return next(iter(self.caption_paths()), None)
 
     @property
     def script(self) -> dict | None:

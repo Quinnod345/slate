@@ -13,6 +13,9 @@ you normally would, within these limits. They win over any global or project ins
   `localhost:3333` (`/feel`, `/index-turn`, `/recall`, `/pulse` or any other).
 - **Never call mac-cua's HTTP bridge** (`localhost:8765`), and **never read another agent's credential files**:
   Oneiro's `bridge-token`, an `auth.json`, keys, `.env` files or secrets in the Keychain.
+- **Web steps use Aside only.** Never launch or drive another browser, including a headless browser for checking a
+  website or these fixtures. Slate's own local render pages are the only headless-render exception. If Aside cannot
+  perform a needed check, report it as unverified instead of switching browser tools.
 - **Never run a real app outside this case's own fixtures.** If the request needs an app or project this folder
   doesn't hold, say so instead of reaching for one in the home folder or the Simulator.
 

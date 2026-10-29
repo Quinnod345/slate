@@ -52,6 +52,10 @@ In a paper look, materials behave like the real thing:
   the pages beneath that thins as it nears upright and grows again on the other page, instead of jumping across the
   spine.
 
+When the book carries a whole sequence, keep that one object through its cover hand-over, contact, comparison and
+audience views. Give each idea a useful framing and a settled read hold. The kit provides `HingedBook`; the staging
+and continuity checks are in [physical books](physical-books.md).
+
 ## Per-character type
 
 For hero lines only (6 words or fewer, at most two per act): each character rises a little (about 24 px at a 1080-line

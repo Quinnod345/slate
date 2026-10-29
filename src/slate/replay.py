@@ -84,8 +84,9 @@ def respond(provider: str, op: str, request: dict, key: str | None = None) -> di
     fixture = load(provider, key)
     if fixture is not None:
         response = dict(fixture.get("response", fixture))
-        response.setdefault("replay", True)
-        response.setdefault("replay_key", key)
+        # Reserved fields describe this replay, not the response when it was captured.
+        response["replay"] = True
+        response["replay_key"] = key
         return response
     faker = _FAKERS.get((provider, op))
     if faker is not None:

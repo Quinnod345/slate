@@ -359,7 +359,7 @@ def cmd_align(args) -> int:
         rows = [f"{s['shot']}: " + (s.get("status") or f"starts differ by {s['start_ms_mean']} ms on average "
                                                         f"(max {s['start_ms_max']})") for s in res["shots"]]
         log.result(res, "\n".join(rows) + f"\n{res['note']}")
-        return 0
+        return 0 if res["complete"] else 1
     res = align.align(film, only=args.only, engine=args.engine, model=args.model,
                       canonical=True if args.canonical else None)
     rows = [f"{r['shot']} {r['take']}: {r['engine']}" + (f": {r['heard']}" if r.get("heard") else "")
@@ -391,13 +391,15 @@ def cmd_tags(args) -> int:
 
     action, rest = args.action, list(args.rest or [])
     if action == "rules":
-        info = {"banned": [label for label, _ in tags.BANNED], "why": tags.WHY_BANNED,
+        info = {"default_banned": [], "optional_full_voice_restrictions": [label for label, _ in tags.BANNED],
+                "policy": "Quiet or gentle delivery is allowed unless this voice's explicit tag policy restricts it.",
                 "rules": ["A tagged line must strip back to the script exactly.",
                           "Neighbouring-line context carries plain words; a tag belongs to its own line.",
                           "No SSML on eleven_v4: pause with punctuation or a [pause] tag.",
                           "One emotion per phrase; a tag at the head of a line carries across it.",
                           "Tags describe something you hear, never a face, a gesture or music."]}
-        human = ("Never: " + ", ".join(info["banned"]) + f" ({tags.WHY_BANNED}).\n- " + "\n- ".join(info["rules"]))
+        human = (info["policy"] + " Full-voice restrictions (whisper, soft, quiet and kin) require "
+                 "tag_policy.avoid_low_effort=true.\n- " + "\n- ".join(info["rules"]))
         log.result(info, human)
         return 0
     if action == "strip":
@@ -410,7 +412,11 @@ def cmd_tags(args) -> int:
     if action == "check" and args.text is not None:
         if args.line is None:
             raise UsageError("--text needs --line (the plain script line) to check against.")
-        problems = tags.check(args.text, args.line)
+        from slate.voice.film import VoiceFilm  # noqa: PLC0415
+
+        film_dir = _maybe_film(args)
+        policy = VoiceFilm(film_dir).profile.get("tag_policy") if film_dir else None
+        problems = tags.check(args.text, args.line, policy=policy)
         log.result({"problems": problems, "ok": not problems}, "ok" if not problems else "\n".join(problems))
         return 1 if problems else 0
     from slate.voice.film import VoiceFilm  # noqa: PLC0415

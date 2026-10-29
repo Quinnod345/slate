@@ -13,7 +13,7 @@ in review/notes.json: the version it's about, and where the timecode lands on th
 Timecodes are the ones burned into the phone cut (HH:MM:SS:FF on the film's clock), the contact sheet's m:ss.s, plain
 seconds, `f123` for a film frame, or a range (`0:12-0:15`).
 
-`slate notes plan` turns a version's notes into the targeted fix plan. Perfect, don't replace: every step edits the
+`slate notes plan` turns a version's notes into the targeted fix plan. Preserve the baseline: every step edits the
 approved artifact in place. Re-voice only the lines that changed (the voice stage sends each line's neighbours as
 context), re-render only the affected frame range and splice it in with proof, re-mix, then re-run the same gates on
 what changed. A note that needs a new approach is asked as a question, never acted on.
@@ -267,7 +267,7 @@ def describe(note: dict) -> str:
             where += f", line {w['voice_shot']}: {w.get('voice_how')}"
         where += ")"
     num = f"direction {note['direction']}" if note.get("direction") else note.get("source_kind", "note")
-    stage = "new approach → question" if note.get("new_approach") else f"{note['stage']} ({note['stage_how']})"
+    stage = "requested new approach" if note.get("new_approach") else f"{note['stage']} ({note['stage_how']})"
     return f"{note['id']} [{num}, v{note['version']}, {stage}]{where}: “{note['text']}” — {note['by']}"
 
 
@@ -300,8 +300,7 @@ def _qa_gates(names: list[str]) -> list[str]:
 
 def _ask_question(film: Film, note: dict, reason: str) -> dict | None:
     text = (f"{reason} Note {note['id']}" + (f" (direction {note['direction']})" if note.get("direction") else "")
-            + f": “{note['text']}”. Perfect, don't replace: may Slate take a new approach here, or should the fix "
-              "edit the approved work as it is?")
+            + f": “{note['text']}”. Clarify the timing scope before invalidating rendered frames.")
     q = deps.ask(film.dir, text, source=f"slate notes ({note['id']})", evidence=[NOTES_FILE],
                  parks=film.mode == "autonomous", for_="direction")
     if q and film.mode == "autonomous":
@@ -316,7 +315,7 @@ def _ask_question(film: Film, note: dict, reason: str) -> dict | None:
 
 def plan(film_dir: Path, *, version: int | None = None, ask: bool = True, write: bool = True) -> dict:
     """The targeted fix plan for a version's notes (the current version by default). Writes review/vN/fix_plan.json
-    (and asks the questions a new approach needs) unless write/ask are off, as they are for --dry-run."""
+    (and asks about unresolved changes to a locked timeline) unless write/ask are off, as they are for --dry-run."""
     film = Film(Path(film_dir))
     n = version or film.version()
     data = load(film)
@@ -330,12 +329,10 @@ def plan(film_dir: Path, *, version: int | None = None, ask: bool = True, write:
             timeline_locked = False
     steps, questions, all_gates = [], [], []
     changed = False
-    # Questions first: a new approach, or a re-time once the timeline is locked.
+    # A requested redesign is work. A locked timeline still needs an explicit timing scope.
     for note in notes:
         needs = None
-        if note.get("new_approach"):
-            needs = "This note asks for a new approach."
-        elif note.get("stage") == "timing" and timeline_locked:
+        if note.get("stage") == "timing" and timeline_locked:
             needs = "Changing a shot's length unlocks the timeline: every frame after it moves and gets re-rendered."
         if needs:
             q_id = note.get("question")
@@ -449,7 +446,7 @@ def plan(film_dir: Path, *, version: int | None = None, ask: bool = True, write:
         _save(film, data)
     out = {"generated": "do not edit by hand: slate notes plan", "film": film.id, "version": n,
            "made_at": gates.now_iso(), "notes": len(notes),
-           "rule": "Perfect, don't replace: each step edits the approved work in place and keeps everything else as "
+           "rule": "Preserve the approved baseline: each step applies the requested change and keeps unrelated work as "
                    "it was; a note that needs a new approach is a question for the owner first.",
            "steps": steps, "questions": questions, "gates": uniq_gates, "then": then}
     if write:

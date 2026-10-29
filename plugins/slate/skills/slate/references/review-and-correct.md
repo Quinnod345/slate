@@ -32,7 +32,7 @@ iMessage with the phone cut plus a push notification.
 After every fix: re-run the gates on what changed (`slate qa` with the gates that cover it), rebuild the master when
 picture or sound changed, and rebuild the packet.
 
-## Perfect, don't replace
+## Preserve the baseline and the iteration
 
 When the owner approves something and adds notes:
 1. Write the notes as a checklist of changes to that exact artifact. Slate's revise stage (in `slate --help`) records
@@ -40,7 +40,8 @@ When the owner approves something and adds notes:
 2. Keep everything else as it was.
 3. Check the revision against the approved version by measurement: levels relative to the voice, sync, palette, and
    that nothing outside the checklist changed.
-4. A note that seems to need a new approach gets a question first. Research only fixes a named flaw.
+4. A requested new approach becomes work within its scope. Ask only for missing information. Keep the feedback and
+   resulting version in the creative history, including a rejected experiment or a return to an earlier proof.
 
 **Testing a voice change** (a polish, a re-voice, a new tag): test it on the clip the owner knows best, with every mix
 setting pinned to that clip's approved build. Prove the pin first by rebuilding the approved mix sample for sample, then

@@ -9,8 +9,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {ENGINE_DIR, KIT_DIR, NODE_MODULES, missing, readJson, usage, writeJsonAtomic} from '../../remotion/lib/common.mjs';
-import {actOf, loadFilm} from '../../remotion/lib/film.mjs';
+import {ENGINE_DIR, KIT_DIR, NODE_MODULES, missing, readJson, refused, sha256Buffer, usage, writeJsonAtomic} from '../../remotion/lib/common.mjs';
+import {actOf, loadFilm, realFile} from '../../remotion/lib/film.mjs';
 import {DEFAULT_GL, glFlags} from './browser.mjs';
 import {DELIVERY_SAMPLES, DRAFT_SAMPLES, MAX_SAMPLES, outputKind} from './encode.mjs';
 import {DEFAULT_EPOCH_MS, DEFAULT_SEED} from './page-clock.mjs';
@@ -143,7 +143,7 @@ function readBrand(brandPath) {
 /** Every arg web-render reads. Anything else is a typo, refused rather than quietly ignored. */
 export const KNOWN_ARGS = new Set([
   'film', 'act', 'scene', 'from', 'to', 'sub', 'samples', 'draft', 'shutter', 'out', 'codec', 'gl', 'concurrency',
-  'on_blocked', 'on_fonts', 'trace', 'emit', 'dry_run', 'scaffold', 'force', 'hashes', 'frames_dir', 'brand_path', 'frames',
+  'on_blocked', 'on_fonts', 'trace', 'trace_rows', 'emit', 'dry_run', 'scaffold', 'force', 'hashes', 'frames_dir', 'brand_path', 'frames',
   'fps_num', 'fps_den', 'width', 'height', 'seed', 'epoch', 'browser', 'load_timeout_ms', 'seek_timeout_ms',
   // passed by callers that also drive Remotion; the web renderer serves its own scene, so it's ignored
   'serve_url',
@@ -166,6 +166,10 @@ export function checkArgs(args) {
  */
 export async function resolveJob(args = {}, {cwd = process.cwd()} = {}) {
   const standalone = !args.film;
+  if (args.trace_rows !== undefined && typeof args.trace_rows !== 'boolean') throw usage('"trace_rows" must be a boolean.');
+  if (args.trace_rows && (!args.film || args.emit !== true || args.dry_run !== true || !args.scene)) {
+    throw usage('"trace_rows" is a read-only film-shot operation: give film, scene, emit: true and dry_run: true.');
+  }
   if (standalone && args.emit) {
     throw usage("Emitting events and the motion trace needs a film (\"film\": its folder): they're written into its timing/.");
   }
@@ -184,6 +188,19 @@ export async function resolveJob(args = {}, {cwd = process.cwd()} = {}) {
 function resolveWithFilm(args, filmDir, standalone, cwd) {
   const emit = Boolean(args.emit);
   const ctx = loadFilm(filmDir);
+  const contextSourceHashes = {};
+  // The generated @film/data module embeds these decoded values. Bind a snapshot only when it matches the
+  // loader's actual context, then let the trace reader check that snapshot again before returning.
+  if (args.trace_rows) {
+    for (const [file, expected] of [[path.join(ctx.dir, 'film.json'), ctx.film],
+                                  [realFile(ctx.dir, 'timing/shots.json'), ctx.shots]]) {
+      const bytes = fs.readFileSync(file);
+      if (JSON.stringify(JSON.parse(bytes.toString('utf8'))) !== JSON.stringify(expected)) {
+        throw refused('The film context changed while resolving the web-shot trace.');
+      }
+      contextSourceHashes[path.resolve(file)] = sha256Buffer(bytes);
+    }
+  }
   // Relative paths are the caller's, film or no film (engine/cli.mjs resolves them before they get here too).
   const base = cwd;
 
@@ -242,10 +259,20 @@ function resolveWithFilm(args, filmDir, standalone, cwd) {
   let brandPath = args.brand_path ? resolveFrom(cwd, args.brand_path) : null;
   if (!brandPath && standalone && fs.existsSync(path.join(DEMO_BRAND_DIR, 'brand.json'))) brandPath = DEMO_BRAND_DIR;
   const {brandJson, brandDir} = readBrand(brandPath);
+  if (args.trace_rows && brandPath) {
+    const file = fs.statSync(brandPath).isDirectory() ? path.join(brandPath, 'brand.json') : brandPath;
+    const bytes = fs.readFileSync(file);
+    if (JSON.stringify(JSON.parse(bytes.toString('utf8'))) !== JSON.stringify(brandJson)) {
+      throw refused('The brand context changed while resolving the web-shot trace.');
+    }
+    contextSourceHashes[path.resolve(file)] = sha256Buffer(bytes);
+  }
 
   return {
     mode: emit ? 'emit' : 'render',
     dryRun: emit && Boolean(args.dry_run),
+    traceRows: args.trace_rows === true,
+    contextSourceHashes,
     standalone,
     scratchDir: standalone ? ctx.dir : null,
     ctx,

@@ -35,6 +35,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -213,7 +214,12 @@ def live(pairs, configs: dict, *, run_id: str | None = None, out: Path | None = 
         log.info(f"evals: {case.id} on {cid} …")
         res = run_pair(inv, case, configs, host_films_check=not inv.env_reaches_tools)
         if record:
-            _record(Path(inv.pair_dir), case.id, cid, inv.transcript_format)
+            if res["status"] in ("PASS", "FAIL"):
+                _record(Path(inv.pair_dir), case.id, cid, inv.transcript_format)
+            else:
+                # An unavailable model or failed sign-in is evidence about this run, not new evidence about how
+                # the agent behaves. Keep it in the run folder without erasing a useful earlier recording.
+                res["recording"] = {"written": False, "reason": "inconclusive run; previous fixture preserved"}
         results.append(res)
         failed = escaped(res)
         if failed and not keep_going:
@@ -950,29 +956,87 @@ def sanitize_envelope(text: str) -> str:
     return neutral(json.dumps(env, ensure_ascii=False, indent=1)) + "\n"
 
 
-def _record(pair: Path, case_id: str, config_id: str, fmt: str | None = None) -> Path:
-    """Save a live run as a recorded fixture, scrubbed and sanitized, so later replays can grade it for free."""
-    dest = suite.recorded_fixture(case_id, config_id)
-    if dest.exists():
-        shutil.rmtree(dest)
-    dest.mkdir(parents=True)
-    for name in ("transcript.jsonl", "run.json", "probe.jsonl", "tripwire.log"):
-        src = pair / name
-        if src.exists():
-            text = src.read_text(encoding="utf-8", errors="replace")
-            if name == "transcript.jsonl" and fmt:
-                text = sanitize_recording(text, fmt)
-            elif name == "run.json":
-                text = sanitize_envelope(text)
-            else:
-                text = neutral(text)
-            (dest / name).write_text(scrub(text), encoding="utf-8")
-    meta = json.loads((pair / "meta.json").read_text(encoding="utf-8"))
-    meta.pop("argv", None)  # the prompt and paths are in the case; the argv would carry this Mac's paths
-    (dest / "meta.json").write_text(neutral(scrub(json.dumps(meta, indent=1, ensure_ascii=False))) + "\n",
-                                    encoding="utf-8")
-    return dest
+def _rename_recording(source: Path, destination: Path) -> None:
+    """Move a fixture tree without replacing any destination, including an empty directory."""
+    if os.name == "nt":
+        source.rename(destination)  # Windows rename refuses an existing destination
+        return
 
+    import ctypes  # noqa: PLC0415 (recording is the only caller of the platform primitive)
+    import errno  # noqa: PLC0415
+
+    libc = ctypes.CDLL(None, use_errno=True)
+    if sys.platform == "darwin":
+        rename = getattr(libc, "renamex_np", None)
+        if rename is not None:
+            rename.argtypes = (ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint)
+            rename.restype = ctypes.c_int
+            result = rename(os.fsencode(source), os.fsencode(destination), 0x00000004)  # RENAME_EXCL
+    elif sys.platform.startswith("linux"):
+        rename = getattr(libc, "renameat2", None)
+        if rename is not None:
+            rename.argtypes = (ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint)
+            rename.restype = ctypes.c_int
+            result = rename(-100, os.fsencode(source), -100, os.fsencode(destination), 1)  # AT_FDCWD, RENAME_NOREPLACE
+    else:
+        rename = None
+    if rename is None:
+        raise OSError(errno.ENOTSUP, "Recording needs an exclusive directory rename on this host.",
+                      os.fspath(destination))
+    if result != 0:
+        error = ctypes.get_errno()
+        raise OSError(error, os.strerror(error), os.fspath(source), None, os.fspath(destination))
+
+
+def _record(pair: Path, case_id: str, config_id: str, fmt: str | None = None) -> Path:
+    """Publish a complete sanitized fixture and retain the previous recording without changing its bytes."""
+    dest = suite.recorded_fixture(case_id, config_id)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    pending = Path(tempfile.mkdtemp(prefix=f".{dest.name}.recording-", dir=dest.parent))
+    history: Path | None = None
+    previous: Path | None = None
+    try:
+        for name in ("transcript.jsonl", "run.json", "probe.jsonl", "tripwire.log"):
+            src = pair / name
+            if src.exists():
+                text = src.read_text(encoding="utf-8", errors="replace")
+                if name == "transcript.jsonl" and fmt:
+                    text = sanitize_recording(text, fmt)
+                elif name == "run.json":
+                    text = sanitize_envelope(text)
+                else:
+                    text = neutral(text)
+                (pending / name).write_text(scrub(text), encoding="utf-8")
+        meta = json.loads((pair / "meta.json").read_text(encoding="utf-8"))
+        meta.pop("argv", None)  # the prompt and paths are in the case; the argv would carry this Mac's paths
+        (pending / "meta.json").write_text(neutral(scrub(json.dumps(meta, indent=1, ensure_ascii=False))) + "\n",
+                                           encoding="utf-8")
+        if dest.exists() or dest.is_symlink():
+            history = Path(tempfile.mkdtemp(prefix=f".{dest.name}.previous-", dir=dest.parent))
+            previous = history / "fixture"
+            _rename_recording(dest, previous)
+        _rename_recording(pending, dest)
+    except BaseException as exc:
+        if previous is not None and (previous.exists() or previous.is_symlink()):
+            if dest.exists() or dest.is_symlink():
+                exc.add_note(f"The recording destination changed during publication; the prior fixture is retained "
+                             f"at {previous}.")
+            else:
+                try:
+                    _rename_recording(previous, dest)
+                except OSError as restore_error:
+                    exc.add_note(f"The prior fixture is retained at {previous}; restoring its replay path failed: "
+                                 f"{restore_error}.")
+        raise
+    finally:
+        # These are exclusively created directories. Cleanup never removes the replay destination or an old fixture.
+        shutil.rmtree(pending, ignore_errors=True)
+        if history is not None:
+            try:
+                history.rmdir()  # only an empty container is removed; successful recordings retain its fixture
+            except OSError:
+                pass
+    return dest
 
 def require_mode(dry: bool, live_flag: bool, replay_flag: bool, record: bool) -> str:
     if sum(bool(x) for x in (dry, live_flag, replay_flag)) > 1:

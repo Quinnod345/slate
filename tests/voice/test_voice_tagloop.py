@@ -21,7 +21,7 @@ def write_candidates(film, lines):
     jsonio.write_atomic(film / "voice" / "tags" / "candidates.json", {"lines": lines})
 
 
-def test_banned_tags_and_changed_words_are_refused_before_any_spend(voice_film):
+def test_banned_tags_and_changed_words_are_refused_before_any_spend(voice_film, full_voice_policy):
     write_candidates(voice_film, {"S02": {"intent": "smile", "candidates": [
         {"key": "W1", "tagged": f"[whispering] {LINE}", "seeds": [1]},
         {"key": "C1", "tagged": "[confident] Slate hears every word, then fits it to the cut.", "seeds": [2]}]}})
@@ -85,7 +85,7 @@ def _real_round(film, *, candidates, baseline=3, intent="none", name="main"):
     return vf
 
 
-def test_real_reads_are_gated_and_a_whisper_like_take_is_out(voice_film):
+def test_real_reads_are_gated_and_a_whisper_like_take_is_out(voice_film, full_voice_policy):
     vf = _real_round(voice_film, candidates=[
         ("Good", f"[confident] {LINE}", {"seed": 9}),
         ("Wisp", f"[matter-of-fact] {LINE}", {"seed": 9, "whisper": True}),
@@ -126,7 +126,7 @@ def test_the_feelings_are_measured_against_the_untagged_reads():
     assert tagloop.emotion("none", {}, {}, {})[0]
 
 
-def test_abc_then_adopt_puts_the_exact_file_in_the_film(voice_film, fake_whisper):
+def test_abc_then_adopt_puts_the_exact_file_in_the_film(voice_film, fake_whisper, full_voice_policy):
     vf = VoiceFilm(voice_film)
     rich_take(vf, "S02", seed=11)  # the film's own take of the line (untagged): A in the reel, and a baseline
     vf = _real_round(voice_film, candidates=[("Good", f"[confident] {LINE}", {"seed": 9}),
@@ -184,3 +184,14 @@ def test_adopting_over_an_approved_line_needs_the_persons_go(voice_film):
         tagloop.adopt(vf, "main", "S02", "Goods1")
     res = tagloop.adopt(vf, "main", "S02", "Goods1", force=True)
     assert res["take"] == "t02"
+
+
+def test_breathy_delivery_stays_a_measurement_without_a_full_voice_policy(voice_film):
+    vf = _real_round(voice_film, candidates=[
+        ("Good", f"[confident] {LINE}", {"seed": 9}),
+        ("Wisp", f"[matter-of-fact] {LINE}", {"seed": 9, "whisper": True})])
+    tagloop.measure_round(vf, "main", tagloop.load_candidates(vf))
+    rows = {r["key"]: r for r in tagloop.pick_round(vf, "main")["ranking"]["S02"]}
+    assert rows["Wisps1"]["full_voice_measurement"] is False
+    assert rows["Wisps1"]["full_voice_required"] is False
+    assert "full_voice" not in rows["Wisps1"]["gates"]

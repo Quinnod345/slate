@@ -48,7 +48,13 @@
      "generate": {"type": "object", "description": "the script's generation request for this shot (slate gen reads it)"},
      "transition_out": {"description": "how the shot hands to the next, as the script gives it: words, or {kind, note} in the motion law's kinds (`slate qa cuts` reads it)",
                         "oneOf": [{"type": "string"}, {"type": "object", "required": ["kind"], "properties": {"kind": {"type": "string"}, "note": {"type": "string"}}}]},
-     "engine": {"enum": ["remotion", "web", "ae"], "description": "the engine that draws the shot when it isn't its act's (P074): slate render and slate check read it here"}
+     "engine": {"enum": ["remotion", "web", "ae"], "description": "the engine that draws the shot when it isn't its act's (P074): slate render and slate check read it here"},
+     "reading": {"type": "object", "description": "the storyboard's reading declaration, preserved for shot-list-only QA; count_events names literal display parts and exact canonical visual event ids without granting an exemption",
+                 "properties": {"count_events": {"type": "array", "minItems": 1,
+                   "items": {"type": "object", "required": ["text", "events"], "additionalProperties": false,
+                             "properties": {"text": {"type": "string", "minLength": 1, "pattern": "\\S"},
+                                            "events": {"type": "array", "minItems": 1, "uniqueItems": true,
+                                                       "items": {"type": "string", "minLength": 1, "pattern": "\\S"}}}}}}}
     }
    }
   }

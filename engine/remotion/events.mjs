@@ -23,10 +23,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {pathToFileURL} from 'node:url';
-import {ENGINE_DIR, EngineError, log, missing, readJson, refused, usage, writeJsonAtomic} from './lib/common.mjs';
+import {ENGINE_DIR, EngineError, log, missing, readJson, refused, sha256Buffer, sha256FileSync, usage, writeJsonAtomic} from './lib/common.mjs';
 import {actOf, realFile} from './lib/film.mjs';
 import {ensureEntry, missingIndexNote, sceneIndex, shotScenes} from './entry.mjs';
-import {actMarginList, declarations, loadAct, rigLint} from './load_act.mjs';
+import {actMarginList, declarations, loadAct, loadRemotionShot, rigLint} from './load_act.mjs';
+import {baseScene, canonicalSource, contextCapture, mixedScenesForAct, sourceCapture} from './lib/shot_scenes.mjs';
 
 /** An act built for the open web renderer: scenes/act<N>/web/index.html (and no Remotion module). */
 export function webScene(filmDir, act) {
@@ -186,7 +187,7 @@ export function spanProblems(list, fps = null) {
  * frame either side, as the kit's validateEvents() does, so the two never disagree about a beat on a boundary; a span
  * (start, dur) is held to spanProblems().
  */
-export function validateEvents(ctx, act, list) {
+export function validateEvents(ctx, act, list, {raw = false} = {}) {
   const problems = [];
   if (!Array.isArray(list)) return ['the events are not a list'];
   const a = actOf(ctx, act);
@@ -231,7 +232,7 @@ export function validateEvents(ctx, act, list) {
     if ('frame' in e && !(Number.isInteger(e.frame) && e.frame >= 0)) problems.push(`${where}: frame must be a whole film frame`);
     if ('pan' in e && !(typeof e.pan === 'number' && e.pan >= -1 && e.pan <= 1)) problems.push(`${where}: pan must be a number from -1 (left) to 1 (right)`);
   });
-  if (impacts > 1) problems.push(`${impacts} impacts in act ${a.act}: at most one (it is the act's one big landing)`);
+  if (!raw && impacts > 1) problems.push(`${impacts} impacts in act ${a.act}: at most one (it is the act's one big landing)`);
   problems.push(...spanProblems(list, fps));
   return problems;
 }
@@ -261,20 +262,24 @@ function actForBeat(ctx, e) {
  * Every placed capture's taps: {byAct: Map(act → beats), strays, notes, files}. A capture that isn't on the film clock
  * yet (film_in null) is a note, not a beat: its taps have no film time. A tap no act holds is a stray, never dropped.
  */
-export function captureBeats(ctx) {
+export function captureBeats(ctx, {recordSource = null} = {}) {
   const root = realFile(ctx.dir, 'captures');
   const byAct = new Map();
   const strays = [];
   const notes = [];
   const files = [];
-  if (!fs.existsSync(root)) return {byAct, strays, notes, files};
+  const sourceHashes = {};
+  if (!fs.existsSync(root)) return {byAct, strays, notes, files, ...(recordSource ? {source_hashes: sourceHashes} : {})};
   for (const name of fs.readdirSync(root).sort()) {
     const file = path.join(root, name, 'beats.json');
     if (!fs.existsSync(file)) continue;
     const rel = path.relative(ctx.dir, file);
     let data;
     try {
-      data = JSON.parse(fs.readFileSync(file, 'utf8'));
+      const bytes = fs.readFileSync(file);
+      recordSource?.(file, bytes);
+      if (recordSource) sourceHashes[path.resolve(file)] = sha256Buffer(bytes);
+      data = JSON.parse(bytes.toString('utf8'));
     } catch (e) {
       throw refused(`${rel} isn't valid JSON: ${e.message}`, `Run \`slate capture beatmap --name ${name}\` again.`);
     }
@@ -300,10 +305,254 @@ export function captureBeats(ctx) {
       byAct.get(act).push(e);
     }
   }
-  return {byAct, strays, notes, files};
+  return {byAct, strays, notes, files, ...(recordSource ? {source_hashes: sourceHashes} : {})};
 }
 
 // ---------------------------------------------------------------- computing an act's beats
+
+/** The Web owning page and every Remotion replacement are read once, before any active evidence is written. */
+export async function readReverseAct(ctx, act, args = {}) {
+  const replacements = mixedScenesForAct(ctx, act);
+  const base = baseScene(ctx, act);
+  if (base?.engine !== 'web' || !replacements.length || replacements.some((sc) => sc.engine !== 'remotion')) {
+    throw refused('There is no Web owning act with Remotion replacements to compose.');
+  }
+  const capture = contextCapture(ctx, {brandPath: args.brand_path ?? null});
+  mixedScenesForAct(ctx, act, {capture});
+  const entry = await ensureEntry(ctx, {brandPath: args.brand_path ?? null, recordSource: capture.record});
+  capture.record(path.join(ctx.dir, '.slate', 'film-data.ts'));
+  // The browser hashes its virtual module at the film root; the generated .slate module has different imports.
+  // Recreate that exact virtual context with the genuine producer helper and the same observed brand bytes.
+  const {filmDataFor} = await import('../web/render.mjs');
+  let brandJson = null;
+  if (args.brand_path) {
+    const requested = path.resolve(args.brand_path);
+    const file = fs.statSync(requested, {throwIfNoEntry: false})?.isDirectory() ? path.join(requested, 'brand.json') : requested;
+    const bytes = capture.record(file);
+    if (bytes === null) throw refused('The Web base brand context disappeared.');
+    brandJson = JSON.parse(bytes.toString('utf8'));
+  }
+  const virtual = filmDataFor(ctx, brandJson, entry.brand ?? null, {recordSource: capture.record});
+  const expectedFilmDataHash = sha256Buffer(Buffer.from(virtual.contents));
+  const webRender = await webRenderer(act);
+  const raw = await webRender({film: ctx.dir, act: Number(act), scene: base.scene, emit: true, dry_run: true,
+    trace_rows: true, trace: false, ...(args.brand_path ? {brand_path: args.brand_path} : {}),
+    ...(args.gl ? {gl: args.gl} : {}), ...(args.on_blocked ? {on_blocked: args.on_blocked} : {}),
+    ...(args.load_timeout_ms ? {load_timeout_ms: args.load_timeout_ms} : {})});
+  if (!Array.isArray(raw?.acts) || raw.acts.length !== 1 || raw.acts[0]?.act !== Number(act)) {
+    throw refused('The raw Web reader did not return exactly the owning act.');
+  }
+  const page = {...raw.acts[0], ...(raw.browser ? {browser: raw.browser} : {})};
+  const own = actOf(ctx, act);
+  const trace = page.trace_read;
+  if (!trace || trace.frame_base !== 'film' || trace.act !== own.act ||
+      !Array.isArray(trace.act_frames) || trace.act_frames.length !== 2 ||
+      trace.act_frames[0] !== own.frameIn || trace.act_frames[1] !== own.frameOut ||
+      trace.fps_num !== ctx.fps.num || trace.fps_den !== ctx.fps.den || !Array.isArray(trace.rows) ||
+      typeof trace.film_data_sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(trace.film_data_sha256)) {
+    throw refused('The Web base has no raw motion read on its actual film clock: ' + (trace?.reason ?? 'missing trace'));
+  }
+  if (trace.film_data_sha256 !== expectedFilmDataHash) {
+    throw refused('The Web base virtual film data does not match the observed owning context.');
+  }
+  const decl = page.raw_declarations;
+  if (!decl || typeof decl !== 'object' || Array.isArray(decl) ||
+      !Object.hasOwn(decl, 'events') || !Object.hasOwn(decl, 'silent') ||
+      !Array.isArray(decl.problems) || !Array.isArray(decl.misses)) {
+    throw refused('The Web reader did not expose typed raw declarations.');
+  }
+  const merge = (hashes, required) => {
+    if (!hashes || typeof hashes !== 'object' || Array.isArray(hashes) || !Object.keys(hashes).length) {
+      throw refused('Mixed evidence has no captured source map.');
+    }
+    const normalized = new Map();
+    for (const [file, digest] of Object.entries(hashes)) {
+      if (!file || digest !== null && (typeof digest !== 'string' || !/^[0-9a-f]{64}$/.test(digest))) {
+        throw refused('A captured mixed source path or hash is malformed.');
+      }
+      // The genuine Web producer uses film-relative keys for local files and absolute keys for dependencies.
+      const absolute = path.resolve(ctx.dir, file);
+      const identity = canonicalSource(absolute);
+      if (normalized.has(identity) && normalized.get(identity) !== digest) throw refused('Conflicting captured source aliases: ' + file);
+      normalized.set(identity, digest);
+      const bytes = capture.record(absolute);
+      const observed = bytes === null ? null : sha256Buffer(bytes);
+      if (observed !== digest) throw refused('Captured source changed or disappeared: ' + file);
+    }
+    if (typeof normalized.get(canonicalSource(required)) !== 'string') throw refused('Captured sources omit actual scene entry ' + required);
+  };
+  const pageKeys = Object.keys(page.source_hashes ?? {}).sort();
+  if (!Array.isArray(page.sources) || page.sources.length !== pageKeys.length ||
+      [...page.sources].sort().some((file, i) => file !== pageKeys[i])) throw refused('Web base source list and captured map disagree.');
+  merge(page.source_hashes, base.index);
+  const shots = [];
+  for (const sc of replacements) {
+    const loaded = await loadRemotionShot(ctx, sc, {contextSources: capture.hashes});
+    merge(loaded.source_hashes, sc.index);
+    shots.push({sc, loaded});
+  }
+  capture.verify();
+  return {act: own.act, base_engine: 'web', base, page, trace, declarations: decl, shots,
+    capture, inputs: Object.keys(capture.hashes).sort()};
+}
+
+async function rawRemotionEvents(ctx, act, loaded) {
+  const decl = declarations(loaded);
+  let events = decl.events;
+  if (typeof events === 'function') events = await events();
+  if (events != null && !Array.isArray(events)) throw refused('A replacement events export is not a list.');
+  const fromKit = loaded.hooks?.kitEvents ? loaded.hooks.kitEvents.fn() : [];
+  if (!Array.isArray(fromKit)) throw refused('A replacement kit event hook did not return a list.');
+  const problems = (loaded.hooks?.eventProblems ? loaded.hooks.eventProblems.fn() ?? [] : []).map((p) => 'the kit: ' + (typeof p === 'string' ? p : JSON.stringify(p)));
+  const missesRaw = loaded.hooks?.wordMisses ? loaded.hooks.wordMisses.fn() : [];
+  if (!Array.isArray(missesRaw)) throw refused('A replacement word-miss hook did not return a list.');
+  const misses = missesRaw.map((m) => typeof m === 'string' ? m : JSON.stringify(m));
+  if (misses.length) problems.push('Word lookups fell back to estimates: ' + misses.join(', '));
+  for (const margin of await actMarginList(loaded)) {
+    if (!(Number.isFinite(margin.slack) && margin.slack >= 0)) problems.push('A timing margin is broken: ' + margin.name);
+  }
+  problems.push(...rigLint(loaded).findings.map((finding) => 'the rig lint: ' + finding));
+  return {events: [...(events ?? []), ...fromKit], silent: decl.silent, problems, misses};
+}
+
+function silentReason(value, label) {
+  if (value === undefined || value === null || value === false) return null;
+  const reason = typeof value === 'string' ? value : value?.reason;
+  if (typeof reason !== 'string' || !reason.trim()) throw refused(label + ' says it is silent without a reason.');
+  return reason.trim();
+}
+
+export async function computeReverseEvents(ctx, act, {captures = null, args = {}, evidence = null} = {}) {
+  const read = evidence ?? await readReverseAct(ctx, act, args);
+  const rawBase = read.declarations.events ?? [];
+  if (!Array.isArray(rawBase)) throw refused('The raw Web base events are not a list.');
+  const problems = [...read.declarations.problems.map(String), ...read.declarations.misses.map((m) => 'A Web word lookup missed: ' + String(m))];
+  problems.push(...validateEvents(ctx, act, rawBase, {raw: true}).map((p) => 'the raw Web base: ' + p));
+  const replaced = new Set(read.shots.map((item) => item.sc.shot));
+  const all = rawBase.filter((event) => !replaced.has(event?.shot));
+  const misses = [...read.declarations.misses];
+  for (const item of read.shots) {
+    const own = await rawRemotionEvents(ctx, act, item.loaded);
+    problems.push(...own.problems.map((p) => 'shot ' + item.sc.shot + ': ' + p));
+    misses.push(...own.misses);
+    problems.push(...validateEvents(ctx, act, own.events, {raw: true}).map((p) => 'shot ' + item.sc.shot + ': ' + p));
+    for (const event of own.events) {
+      if (event?.shot !== item.sc.shot) problems.push('Replacement ' + item.sc.shot + ' emitted a beat owned by another shot.');
+      else all.push(event);
+    }
+    if (silentReason(own.silent, 'Shot ' + item.sc.shot) && own.events.length) {
+      problems.push('Shot ' + item.sc.shot + ' declares silence and beats together.');
+    }
+  }
+  // Captures are independent visible inputs. Read their bytes once and retain their source evidence.
+  const caps = captures ?? captureBeats(ctx, {recordSource: read.capture.record});
+  const fromCaptures = caps.byAct.get(Number(act)) ?? [];
+  if (captures && !captures.source_hashes) throw refused('A pre-read capture set has no observed source hashes for mixed composition.');
+  if (captures?.source_hashes) {
+    for (const [file, digest] of Object.entries(captures.source_hashes)) {
+      const bytes = read.capture.record(path.resolve(ctx.dir, file));
+      if ((bytes === null ? null : sha256Buffer(bytes)) !== digest) throw refused('Capture source changed after its read.');
+    }
+  }
+  all.push(...fromCaptures);
+  problems.push(...caps.strays.map((stray) => 'A capture tap has no owning act: ' + stray));
+  const reason = silentReason(read.declarations.silent, 'Act ' + act);
+  if (reason && all.length) problems.push('Act ' + act + ' declares whole-act silence but has visible beats or capture taps.');
+  const sorted = all.map((event) => ({...event})).sort(byTimeThenId);
+  problems.push(...validateEvents(ctx, act, sorted));
+  if (!reason && !sorted.length) problems.push('Act ' + act + ' has no visible beats and gives no whole-act silence reason.');
+  read.capture.verify();
+  const loaded = {mixed: read, inputs: Object.keys(read.capture.hashes).sort()};
+  return {...(reason ? {silent: true, reason} : {events: sorted}), problems, notes: caps.notes, misses, loaded,
+    webShots: [], captures: {beats: fromCaptures.length, files: caps.files}};
+}
+
+function checkedRawMotion(ctx, act, rows, label, shot = null) {
+  if (!Array.isArray(rows)) throw refused(label + ' has no raw motion list.');
+  const a = actOf(ctx, act);
+  const owners = new Set((ctx.shots?.shots ?? []).filter((item) => Number(item.act) === a.act).map((item) => item.id));
+  const ids = new Set();
+  for (const row of rows) {
+    if (!row || typeof row !== 'object' || Array.isArray(row) ||
+        !['id', 'prop', 'frame_in', 'frame_out', 'samples'].every((key) => Object.hasOwn(row, key)) ||
+        typeof row.id !== 'string' || !row.id || typeof row.prop !== 'string' || !Array.isArray(row.samples) ||
+        row.shot !== undefined && !owners.has(row.shot) || ids.has(row.id) ||
+        !Number.isFinite(row.frame_in) || !Number.isFinite(row.frame_out) || row.frame_out < row.frame_in ||
+        row.frame_in < a.frameIn || row.frame_out > a.frameOut) {
+      throw refused(label + ' contains a malformed, duplicate or out-of-act raw motion registration.');
+    }
+    ids.add(row.id);
+    if (shot && (row.shot !== shot.id || row.frame_in < shot.frame_in || row.frame_out > shot.frame_out)) {
+      throw refused(label + ' contains motion outside its explicit shot owner.');
+    }
+    let dimensions = null;
+    for (const sample of row.samples) {
+      if (!Array.isArray(sample) || sample.length !== 2 || typeof sample[0] !== 'number' ||
+          !Number.isFinite(sample[0]) || !motionValue(sample[1])) throw refused(label + ' contains malformed or nonfinite motion samples.');
+      const size = Array.isArray(sample[1]) ? sample[1].length : 1;
+      if (dimensions !== null && dimensions !== size) throw refused(label + ' mixes motion sample dimensions.');
+      dimensions = size;
+    }
+    // These two optional labels follow motion._entry_problem's existing accepted aliases; no motion threshold is changed.
+    const key = (value) => String(value).toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (row.class != null && !['rig', 'character', 'mark', 'ui', 'element', 'carry', 'page', 'camera', 'whip'].includes(key(row.class)) ||
+        row.exempt != null && !['readingsweep', 'steady'].includes(key(row.exempt))) throw refused(label + ' contains an unknown motion class or exemption.');
+    if (row.loop_period != null && !(Number.isFinite(row.loop_period) && row.loop_period > 0) ||
+        row.entrance !== undefined && typeof row.entrance !== 'boolean' ||
+        row.rig != null && typeof row.rig !== 'string') throw refused(label + ' contains malformed motion metadata.');
+  }
+  return rows;
+}
+
+export function writeReverseMotion(ctx, act, read, {dryRun = false} = {}) {
+  const base = checkedRawMotion(ctx, act, read.trace.rows, 'Raw Web base');
+  const replaced = read.shots.map((item) => item.sc.shot_record);
+  const retained = [];
+  for (const row of base) {
+    const owned = replaced.find((shot) => shot.id === row.shot);
+    const overlaps = replaced.some((shot) => row.frame_in < shot.frame_out && row.frame_out > shot.frame_in ||
+      row.frame_in === row.frame_out && row.frame_in >= shot.frame_in && row.frame_in < shot.frame_out);
+    if (owned) {
+      if (row.frame_in < owned.frame_in || row.frame_out > owned.frame_out) throw refused('Base motion straddles replacement ' + owned.id + '.');
+      continue;
+    }
+    if (overlaps) throw refused('Base motion crosses a replaced shot without explicit bounded ownership; curves are not clipped or resampled.');
+    retained.push(row);
+  }
+  const rows = [...retained];
+  const ids = new Set(rows.map((row) => row.id));
+  const proofs = [];
+  for (const item of read.shots) {
+    const raw = computeMotion(ctx, act, item.loaded, {raw: true});
+    if (!raw.rows) throw refused('Replacement ' + item.sc.shot + ' has unavailable motion coverage: ' + raw.reason);
+    checkedRawMotion(ctx, act, raw.rows, 'Remotion shot ' + item.sc.shot, item.sc.shot_record);
+    for (const row of raw.rows) {
+      const id = 'remotion:' + item.sc.shot + ':' + row.id;
+      if (ids.has(id)) throw refused('Composed motion id is repeated: ' + id);
+      ids.add(id);
+      rows.push({...row, id, source_id: row.id, engine: 'remotion', scene: item.sc.scene});
+    }
+    proofs.push({shot: item.sc.shot, frames: [item.sc.shot_record.frame_in, item.sc.shot_record.frame_out],
+      scene: item.sc.scene, index: item.sc.index, entries: raw.rows.length, source_hashes: {...item.loaded.source_hashes}});
+  }
+  read.capture.verify();
+  const hashes = {...read.capture.hashes};
+  const observed = Object.fromEntries(Object.entries(hashes).filter(([, digest]) => digest !== null));
+  const file = motionFile(ctx, act);
+  const baseFile = path.join(ctx.dir, 'timing', 'motion', 'sources', 'act' + act + '.base.json');
+  const compositionFile = path.join(ctx.dir, 'timing', 'motion', 'sources', 'act' + act + '.composition.json');
+  const meta = {act: Number(act), frame_base: 'film', base_engine: 'web', remotion_shots: proofs.map((item) => item.shot),
+    sources: Object.keys(hashes).sort(), source_hashes: observed};
+  if (dryRun) return {written: false, would_write: path.relative(ctx.dir, file), entries: rows.length, reason: 'dry run', ...meta};
+  writeJsonAtomic(baseFile, base);
+  writeJsonAtomic(compositionFile, {act: Number(act), frame_base: 'film', base_engine: 'web',
+    act_frames: [actOf(ctx, act).frameIn, actOf(ctx, act).frameOut], fps_num: ctx.fps.num, fps_den: ctx.fps.den,
+    source_hashes: hashes, remotion_shots: proofs, base_entries: base.length, visible_base_entries: retained.length,
+    limitation: 'Curves with ambiguous ownership across a splice are refused, not clipped or resampled.'});
+  writeJsonAtomic(file, rows);
+  return {written: true, file: path.relative(ctx.dir, file), entries: rows.length, ...meta,
+    base_file: path.relative(ctx.dir, baseFile), composition_file: path.relative(ctx.dir, compositionFile)};
+}
 
 const byTimeThenId = (x, y) => x.t - y.t || String(x.id).localeCompare(String(y.id));
 
@@ -343,6 +592,9 @@ export async function webShotPage(ctx, act, sc, args = {}, extra = {}) {
 }
 
 export async function computeEvents(ctx, act, loaded = null, {captures = null, args = {}} = {}) {
+  if (baseScene(ctx, act)?.engine === 'web' && mixedScenesForAct(ctx, act).length) {
+    return computeReverseEvents(ctx, act, {captures, args, evidence: loaded?.mixed ?? null});
+  }
   const mod = loaded ?? (await loadAct(ctx, act));
   if (mod.missing) {
     throw usage(`Act ${act} isn't built yet (${missingIndexNote(ctx.dir, act)}).`, 'A placeholder act has no beats to emit; build the act first.');
@@ -383,8 +635,10 @@ export async function computeEvents(ctx, act, loaded = null, {captures = null, a
   notes.push(...caps.notes);
   // the act's shots drawn in the open web renderer: their pages' beats, each inside its own shot
   const fromShots = [];
-  for (const sc of actShotScenes(ctx, act)) {
-    const page = await webShotPage(ctx, act, sc, args);
+  const webShots = [];
+  for (const sc of motionShotScenes(ctx, act)) {
+    const page = await webShotPage(ctx, act, sc, args, {trace_rows: true});
+    webShots.push({sc, ...page});
     if (page.error) problems.push(`shot ${sc.shot} (a web shot): its page didn't open: ${page.error}`);
     for (const p of page.problems) problems.push(`shot ${sc.shot} (a web shot): ${p}`);
     for (const e of page.beats) {
@@ -392,8 +646,16 @@ export async function computeEvents(ctx, act, loaded = null, {captures = null, a
       else fromShots.push({...e, shot: e.shot ?? sc.shot});
     }
   }
-  const all = [...(Array.isArray(events) ? events : []), ...(Array.isArray(fromKit) ? fromKit : []), ...fromCaptures, ...fromShots];
-  const extra = {problems, notes, misses, loaded: mod, captures: {beats: fromCaptures.length, files: caps.files}};
+  const rawBase = [...(Array.isArray(events) ? events : []), ...(Array.isArray(fromKit) ? fromKit : [])];
+  let visibleBase = rawBase;
+  if (webShots.length) {
+    // Validate source evidence before excluding replaced content. The act's impact limit applies after composition.
+    problems.push(...validateEvents(ctx, act, rawBase, {raw: true}).map((p) => `the base act: ${p}`));
+    const replaced = new Set(webShots.map((item) => item.sc.shot));
+    visibleBase = rawBase.filter((event) => !replaced.has(event?.shot));
+  }
+  const all = [...visibleBase, ...fromCaptures, ...fromShots];
+  const extra = {problems, notes, misses, loaded: mod, webShots, captures: {beats: fromCaptures.length, files: caps.files}};
   const silent = decl.silent;
   if (silent !== undefined && silent !== null && silent !== false) {
     const reason = typeof silent === 'string' ? silent : silent?.reason;
@@ -411,24 +673,258 @@ export async function computeEvents(ctx, act, loaded = null, {captures = null, a
 }
 
 /** The motion trace for an act, from the kit's registry, or why there isn't one. */
-export function computeMotion(ctx, act, loaded) {
+export function computeMotion(ctx, act, loaded, {raw = false} = {}) {
   if (!loaded || loaded.missing) return {written: false, reason: `act ${act} isn't built yet`};
   if (!loaded.usesKit) return {written: false, reason: "the act doesn't use the kit, so the kit's motion registry has nothing for it"};
   if (!loaded.hooks.motionTrace) return {written: false, reason: 'the kit has no motion registry (traceMotions())'};
   let rows = loaded.hooks.motionTrace.fn();
   if (!Array.isArray(rows)) return {written: false, reason: `the kit's ${loaded.hooks.motionTrace.name}() didn't return a list`};
   const a = actOf(ctx, act);
-  rows = rows.filter((r) => r && (r.shot === undefined || (ctx.shots?.shots ?? []).some((s) => s.id === r.shot && Number(s.act) === a.act)));
+  if (!raw) rows = rows.filter((r) => r && (r.shot === undefined || (ctx.shots?.shots ?? []).some((s) => s.id === r.shot && Number(s.act) === a.act)));
   return {rows};
 }
 
-export function writeMotion(ctx, act, loaded, {dryRun = false} = {}) {
-  const m = computeMotion(ctx, act, loaded);
+/** Keep the previous generated trace as failure evidence before making current QA coverage unavailable. */
+export function invalidateMotion(ctx, act, reason) {
+  const file = motionFile(ctx, act);
+  if (!fs.existsSync(file)) return null;
+  const previous = fs.readFileSync(file);
+  const root = path.join(ctx.dir, 'timing', 'motion', 'failures');
+  fs.mkdirSync(root, {recursive: true});
+  const folder = fs.mkdtempSync(path.join(root, `act${act}-`));
+  fs.writeFileSync(path.join(folder, 'previous.json'), previous, {flag: 'wx'});
+  writeJsonAtomic(path.join(folder, 'failure.json'), {
+    act, file: path.relative(ctx.dir, file), reason: String(reason),
+    previous_sha256: sha256Buffer(previous), previous_bytes: previous.length,
+  });
+  // A failed combined read must not leave an older base-only array looking current to QA.
+  fs.unlinkSync(file);
+  return path.relative(ctx.dir, folder);
+}
+
+/**
+ * Match render's routing: timing's explicit engine first, then the script's older declaration.
+ * A declared web shot with no readable page cannot quietly disappear from motion coverage.
+ */
+function motionShotScenes(ctx, act) {
+  const scenes = actShotScenes(ctx, act);
+  const scriptFile = path.join(ctx.dir, 'script', 'script.json');
+  const fallback = new Map();
+  const routingHashes = {};
+  if (fs.existsSync(scriptFile)) {
+    const bytes = fs.readFileSync(scriptFile);
+    let script;
+    try { script = JSON.parse(bytes.toString('utf8')); }
+    catch { throw refused('script/script.json cannot be read for per-shot motion ownership.'); }
+    for (const a of script?.acts ?? []) {
+      const shots = a?.shots?.length ? a.shots : a?.lines ?? [];
+      for (const shot of shots) {
+        if (shot?.id && shot.engine) fallback.set(String(shot.id), String(shot.engine));
+      }
+    }
+    routingHashes['script/script.json'] = sha256Buffer(bytes);
+  }
+  const wanted = (ctx.shots?.shots ?? []).filter((r) => Number(r.act) === Number(act));
+  for (const shot of wanted) {
+    const engine = shot.engine || fallback.get(String(shot.id));
+    const scene = scenes.find((sc) => sc.shot === String(shot.id));
+    if (engine === 'web' && !scene) {
+      throw refused(`Web shot ${shot.id} has no page to read into the act's motion trace.`,
+        `Restore scenes/shots/${shot.id}/web/index.html, then emit or trace the act again.`, {motion_incomplete: true});
+    }
+    if (scene && engine !== 'web') {
+      throw refused(`Motion ownership for shot ${shot.id} is ambiguous: its page exists, but the shot doesn't declare engine: web.`,
+        'Keep the script, resolved shot engine and scene directory consistent, then emit again.', {motion_incomplete: true});
+    }
+  }
+  return scenes.map((sc) => ({...sc, routing_source_hashes: routingHashes}));
+}
+
+const motionValue = (value) => typeof value === 'number' && Number.isFinite(value) ||
+  Array.isArray(value) && value.length > 0 && value.every((v) => typeof v === 'number' && Number.isFinite(v));
+const sameValueShape = (left, right) => Array.isArray(left) === Array.isArray(right) &&
+  (!Array.isArray(left) || left.length === right.length);
+
+/** Validate the producer's raw rows before selecting visible motion. No coercion or act-offset guess is safe here. */
+function webMotionRows(ctx, act, item) {
+  const {sc, page} = item;
+  const who = `web shot ${sc.shot}`;
+  const fail = (why) => { throw refused(`${who}: ${why}`, 'Fix the page or its trace registration, then emit or trace the act again.'); };
+  if (item.error) fail(`the page read failed: ${item.error}`);
+  if ((item.problems ?? []).length || (item.scene_problems ?? []).length || (item.misses ?? []).length) {
+    fail(`the producer reported problems: ${[...(item.problems ?? []), ...(item.scene_problems ?? []), ...(item.misses ?? [])].join('; ')}`);
+  }
+  const trace = page?.trace_read;
+  const a = actOf(ctx, act);
+  if (!trace || trace.frame_base !== 'film' || trace.act !== Number(act) ||
+      !Array.isArray(trace.act_frames) || trace.act_frames.length !== 2 ||
+      trace.act_frames[0] !== a.frameIn || trace.act_frames[1] !== a.frameOut ||
+      trace.fps_num !== ctx.fps.num || trace.fps_den !== ctx.fps.den) {
+    fail('there is no trace read bound to this act and its film clock');
+  }
+  if (!Array.isArray(trace.rows)) fail(trace.reason || 'the runtime did not return a motion list');
+  const ids = new Set();
+  for (const row of trace.rows) {
+    if (!row || typeof row !== 'object' || Array.isArray(row) ||
+        !['id', 'prop', 'ease'].every((k) => typeof row[k] === 'string' && row[k].trim()) ||
+        row.shot !== sc.shot) fail('a raw motion row is malformed or belongs to another shot');
+    if (ids.has(row.id)) fail(`motion id ${row.id} is repeated`);
+    ids.add(row.id);
+    if (!Number.isInteger(row.frame_in) || !Number.isInteger(row.frame_out) ||
+        row.frame_out < row.frame_in || row.frame_in < sc.shotRecord.frame_in ||
+        row.frame_out > sc.shotRecord.frame_out) fail(`motion ${row.id} has frames outside its owned shot`);
+    if (!motionValue(row.from) || !motionValue(row.to) || !sameValueShape(row.from, row.to)) {
+      fail(`motion ${row.id} has malformed or nonfinite endpoints`);
+    }
+    if (!Array.isArray(row.samples) || !row.samples.length) fail(`motion ${row.id} has no curve samples`);
+    let previous = -Infinity;
+    for (const sample of row.samples) {
+      if (!Array.isArray(sample) || sample.length !== 2 || !Number.isInteger(sample[0]) ||
+          sample[0] < row.frame_in || sample[0] > row.frame_out || sample[0] <= previous ||
+          !motionValue(sample[1]) || !sameValueShape(row.from, sample[1])) fail(`motion ${row.id} has malformed curve samples`);
+      previous = sample[0];
+    }
+    if (row.samples[0][0] !== row.frame_in || row.samples.at(-1)[0] !== row.frame_out) {
+      fail(`motion ${row.id} does not sample both declared endpoints`);
+    }
+  }
+  const hashes = page.source_hashes;
+  const sources = page.sources;
+  if (!hashes || typeof hashes !== 'object' || Array.isArray(hashes) || !Object.keys(hashes).length ||
+      !Array.isArray(sources) || sources.length !== Object.keys(hashes).length ||
+      [...sources].sort().some((name, i) => name !== Object.keys(hashes).sort()[i])) {
+    fail('the read has no complete captured-source hash map');
+  }
+  if (!fs.statSync(sc.index, {throwIfNoEntry: false})?.isFile()) fail('the HTML page is missing after the read');
+  const expectedIndex = fs.realpathSync(sc.index);
+  let sawIndex = false;
+  const captured = {...hashes};
+  for (const [name, digest] of Object.entries(captured)) {
+    const file = path.resolve(ctx.dir, name);
+    if (typeof name !== 'string' || !name || typeof digest !== 'string' || !/^[0-9a-f]{64}$/.test(digest) ||
+        !fs.statSync(file, {throwIfNoEntry: false})?.isFile() || sha256FileSync(file) !== digest) {
+      fail(`captured source ${name} is missing, changed or malformed`);
+    }
+    if (fs.realpathSync(file) === expectedIndex) sawIndex = true;
+  }
+  if (!sawIndex) fail('the captured sources do not include the actual HTML page');
+  for (const [name, digest] of Object.entries(sc.routing_source_hashes ?? {})) {
+    if (captured[name] && captured[name] !== digest) fail(`routing source ${name} changed between reads`);
+    if (sha256FileSync(path.resolve(ctx.dir, name)) !== digest) fail(`routing source ${name} changed between reads`);
+    captured[name] = digest;
+  }
+  return {rows: trace.rows, hashes: captured};
+}
+
+/** Compose only the motion drawn after the web shots are spliced; retain complete base authoring evidence separately. */
+function composedMotion(ctx, act, loaded, webShots) {
+  const base = computeMotion(ctx, act, loaded, {raw: webShots.length > 0});
+  if (!webShots.length) return base;
+  if (!base.rows) throw refused(`Act ${act}'s base motion coverage is unavailable: ${base.reason}.`,
+    'Register the base act motion before composing its web shots.');
+  const replaced = webShots.map((item) => item.sc.shotRecord);
+  const retained = [];
+  const baseIds = new Set();
+  for (const row of base.rows) {
+    const fail = (why) => { throw refused(`Base motion ownership: ${why}.`); };
+    if (!row || typeof row !== 'object' || Array.isArray(row) ||
+        !['id', 'prop', 'frame_in', 'frame_out', 'samples'].every((key) => Object.hasOwn(row, key)) ||
+        typeof row.id !== 'string' || !row.id || typeof row.prop !== 'string' || !Array.isArray(row.samples)) {
+      fail('a raw registration is missing the required trace shape');
+    }
+    if (baseIds.has(row.id)) fail(`id ${row.id} is repeated in the raw base registry`);
+    baseIds.add(row.id);
+    let dimensions = null;
+    for (const sample of row.samples) {
+      if (!Array.isArray(sample) || sample.length !== 2 || typeof sample[0] !== 'number' ||
+          !Number.isFinite(sample[0]) || !motionValue(sample[1])) fail(`row ${row.id} has malformed or nonfinite samples`);
+      const size = Array.isArray(sample[1]) ? sample[1].length : 1;
+      if (dimensions !== null && size !== dimensions) fail(`row ${row.id} mixes sample dimensions`);
+      dimensions = size;
+    }
+    if (row.loop_period != null && !(typeof row.loop_period === 'number' && Number.isFinite(row.loop_period) && row.loop_period > 0) ||
+        row.entrance !== undefined && typeof row.entrance !== 'boolean' ||
+        row.rig != null && typeof row.rig !== 'string') fail(`row ${row.id} has malformed trace metadata`);
+
+    if (!row || typeof row !== 'object' || Array.isArray(row) ||
+        typeof row.id !== 'string' || !row.id || row.shot !== undefined &&
+        !(ctx.shots?.shots ?? []).some((shot) => shot.id === row.shot && Number(shot.act) === Number(act))) {
+      throw refused('Base motion ownership contains a malformed or out-of-act raw registration.');
+    }
+    const owns = replaced.find((s) => row.shot === s.id);
+    if (typeof row.frame_in !== 'number' || !Number.isFinite(row.frame_in) ||
+        typeof row.frame_out !== 'number' || !Number.isFinite(row.frame_out) || row.frame_out < row.frame_in ||
+        row.frame_in < actOf(ctx, act).frameIn || row.frame_out > actOf(ctx, act).frameOut) {
+      throw refused(`Motion ownership for base row ${row.id ?? '(no id)'} cannot be resolved from its frames.`);
+    }
+    const overlaps = replaced.some((s) => row.frame_in < s.frame_out && row.frame_out > s.frame_in ||
+      row.frame_in === row.frame_out && row.frame_in >= s.frame_in && row.frame_in < s.frame_out);
+    if (owns) {
+      if (row.frame_in < owns.frame_in || row.frame_out > owns.frame_out) {
+        throw refused(`Motion ownership for base row ${row.id} straddles replaced shot ${owns.id}.`,
+          'Declare separate shot-owned registrations without changing their curve semantics.');
+      }
+      continue;
+    }
+    if (overlaps) throw refused(`Motion ownership for base row ${row.id} crosses a replaced web shot.`,
+      'Declare separate shot-owned registrations; this composer does not clip or relabel curves.');
+    retained.push(row);
+  }
+  const sources = {};
+  const proofs = [];
+  const rows = [...retained];
+  const ids = new Set(retained.map((row) => row.id));
+  const shots = new Set();
+  for (const item of webShots) {
+    if (shots.has(item.sc.shot)) throw refused(`Web shot ${item.sc.shot} was read twice for one motion composition.`);
+    shots.add(item.sc.shot);
+    const read = webMotionRows(ctx, act, item);
+    for (const [name, digest] of Object.entries(read.hashes)) {
+      if (sources[name] && sources[name] !== digest) throw refused(`Captured source ${name} changed between web-shot reads.`);
+      sources[name] = digest;
+    }
+    for (const row of read.rows) {
+      const id = `web:${item.sc.shot}:${row.id}`;
+      if (ids.has(id)) throw refused(`Composed motion id ${id} is repeated.`);
+      ids.add(id);
+      rows.push({...row, id, source_id: row.id, engine: 'web', scene: path.relative(ctx.dir, item.sc.dir)});
+    }
+    proofs.push({shot: item.sc.shot, frames: [item.sc.shotRecord.frame_in, item.sc.shotRecord.frame_out],
+      scene: path.relative(ctx.dir, item.sc.dir), entries: read.rows.length, source_hashes: read.hashes});
+  }
+  return {rows, base: base.rows, source_hashes: sources, webShots: proofs};
+}
+
+export function writeMotion(ctx, act, loaded, {dryRun = false, webShots = []} = {}) {
+  if (loaded?.mixed) return writeReverseMotion(ctx, act, loaded.mixed, {dryRun});
+  let m;
+  try { m = composedMotion(ctx, act, loaded, webShots); }
+  catch (error) {
+    if (!dryRun) {
+      const evidence = invalidateMotion(ctx, act, error.message);
+      if (evidence) error.details = {...(error.details ?? {}), motion_failure: evidence};
+    }
+    throw error;
+  }
   if (!m.rows) return m;
   const file = motionFile(ctx, act);
-  if (dryRun) return {written: false, would_write: path.relative(ctx.dir, file), entries: m.rows.length, reason: 'dry run'};
+  const mixed = webShots.length ? {frame_base: 'film', web_shots: m.webShots.map((s) => s.shot),
+    sources: Object.keys(m.source_hashes).sort(), source_hashes: m.source_hashes} : {};
+  if (dryRun) return {written: false, would_write: path.relative(ctx.dir, file), entries: m.rows.length, reason: 'dry run', ...mixed};
+  let evidence = {};
+  if (webShots.length) {
+    const baseFile = path.join(ctx.dir, 'timing', 'motion', 'sources', `act${act}.base.json`);
+    const compositionFile = path.join(ctx.dir, 'timing', 'motion', 'sources', `act${act}.composition.json`);
+    writeJsonAtomic(baseFile, m.base);
+    writeJsonAtomic(compositionFile, {act: Number(act), frame_base: 'film',
+      act_frames: [actOf(ctx, act).frameIn, actOf(ctx, act).frameOut],
+      fps_num: ctx.fps.num, fps_den: ctx.fps.den, web_shots: m.webShots,
+      base_entries: m.base.length, visible_base_entries: m.rows.length - m.webShots.reduce((n, sc) => n + sc.entries, 0),
+      limitation: 'Curves with ambiguous ownership across a splice are refused, not clipped or resampled.'});
+    evidence = {base_file: path.relative(ctx.dir, baseFile), composition_file: path.relative(ctx.dir, compositionFile)};
+  }
   writeJsonAtomic(file, m.rows);
-  return {written: true, file: path.relative(ctx.dir, file), entries: m.rows.length};
+  return {written: true, file: path.relative(ctx.dir, file), entries: m.rows.length, ...mixed, ...evidence};
 }
 
 // ---------------------------------------------------------------- what changed since the last emit
@@ -496,6 +992,7 @@ export function writeChanges(ctx, act, changes) {
 
 /** emit-events for one act: compute, check, write (or, in a dry run, say what would be written), report. */
 export async function emitAct(ctx, act, {dryRun = false, captures = null, args = {}} = {}) {
+  try {
   const res = await computeEvents(ctx, act, null, {captures, args});
   const file = eventsFile(ctx, act);
   const rel = path.relative(ctx.dir, file);
@@ -506,6 +1003,14 @@ export async function emitAct(ctx, act, {dryRun = false, captures = null, args =
       'Fix them in the act (or its timing), then emit again. `slate emit-events --dry-run` shows them without writing.',
       {problems: res.problems, misses: res.misses},
     );
+  }
+  // Read and validate the combined motion before changing the event files. The same page read supplies both.
+  let motion;
+  try { motion = writeMotion(ctx, act, res.loaded, {dryRun, webShots: res.webShots}); }
+  catch (error) {
+    if (!dryRun) throw error;
+    res.problems.push(error.message);
+    motion = {written: false, reason: error.message};
   }
   // what the new beats change against the ones they replace, reported before the file is replaced
   const previous = fs.existsSync(file) ? readJson(file) : null;
@@ -526,8 +1031,9 @@ export async function emitAct(ctx, act, {dryRun = false, captures = null, args =
   if (res.captures.beats) summary.capture_beats = res.captures.beats;
   if (res.captures.files.length) summary.captures = res.captures;
   if (res.notes.length) summary.notes = res.notes;
-  summary.motion = writeMotion(ctx, act, res.loaded, {dryRun});
-  summary.sources = res.loaded.inputs;
+  summary.motion = motion;
+  summary.sources = [...new Set([...(res.loaded.inputs ?? []), ...(motion.sources ?? [])])].sort();
+  if (motion.source_hashes) summary.source_hashes = motion.source_hashes;
   if (dryRun) {
     summary.dry_run = true;
     summary.written = false;
@@ -538,6 +1044,14 @@ export async function emitAct(ctx, act, {dryRun = false, captures = null, args =
     log(`act ${act}: ${summary.silent ? `silent (${summary.reason})` : `${summary.events} beats`} → ${summary.file}`);
   }
   return summary;
+  } catch (error) {
+    if (!dryRun && (error.details?.motion_incomplete || actShotScenes(ctx, act).length ||
+        (ctx.shots?.shots ?? []).some((shot) => Number(shot.act) === Number(act) && shot.engine === 'web') || webScene(ctx.dir, act))) {
+      const evidence = invalidateMotion(ctx, act, error.message);
+      if (evidence) error.details = {...(error.details ?? {}), motion_failure: evidence};
+    }
+    throw error;
+  }
 }
 
 /** The emit-events command: one act ({act: N}) or every built act. {dry_run: true} writes nothing. */
@@ -545,12 +1059,30 @@ export async function emitEvents(ctx, args) {
   const acts = args.act !== undefined && args.act !== null ? [actOf(ctx, args.act).act] : ctx.acts.map((a) => a.act);
   const dryRun = Boolean(args.dry_run);
   // Acts read '@film/data', which the entry writes: refresh it first (a fresh film has none yet).
-  await ensureEntry(ctx, {brandPath: args.brand_path ?? null});
-  const captures = captureBeats(ctx);
+  try { await ensureEntry(ctx, {brandPath: args.brand_path ?? null}); }
+  catch (error) {
+    if (!dryRun) {
+      for (const act of acts) {
+        const sourceRoot = path.join(ctx.dir, 'scenes', 'shots');
+        const hasSource = (ctx.shots?.shots ?? []).some((shot) => Number(shot.act) === Number(act) && fs.existsSync(path.join(sourceRoot, String(shot.id))));
+        const historical = fs.existsSync(path.join(ctx.dir, 'timing', 'motion', 'sources', 'act' + act + '.composition.json'));
+        if (hasSource || historical) invalidateMotion(ctx, act, error.message);
+      }
+    }
+    throw error;
+  }
+  const captureRead = sourceCapture();
+  const captures = captureBeats(ctx, {recordSource: captureRead.record});
   const results = [];
   const skipped = [];
   for (const act of acts) {
-    if (webScene(ctx.dir, act)) {
+    let replacements;
+    try { replacements = mixedScenesForAct(ctx, act); }
+    catch (error) {
+      if (!dryRun) invalidateMotion(ctx, act, error.message);
+      throw error;
+    }
+    if (webScene(ctx.dir, act) && !replacements.length) {
       // a web act's beats are read from its page: the open web renderer opens it (and writes nothing in a dry run)
       const file = eventsFile(ctx, act);
       const previous = fs.existsSync(file) ? readJson(file) : null;
@@ -585,9 +1117,23 @@ export async function emitEvents(ctx, args) {
  * scene files it read (`sources`), so a caller can record what made the trace.
  */
 export async function traceAct(ctx, act, {brandPath = null} = {}) {
-  await ensureEntry(ctx, {brandPath});
-  const loaded = await loadAct(ctx, act);
-  return {...writeMotion(ctx, act, loaded), sources: loaded.inputs ?? []};
+  try {
+    if (baseScene(ctx, act)?.engine === 'web' && mixedScenesForAct(ctx, act).length) {
+      return writeReverseMotion(ctx, act, await readReverseAct(ctx, act, {brand_path: brandPath}));
+    }
+    await ensureEntry(ctx, {brandPath});
+    const loaded = await loadAct(ctx, act);
+    const webShots = [];
+    for (const sc of motionShotScenes(ctx, act)) {
+      webShots.push({sc, ...(await webShotPage(ctx, act, sc, {brand_path: brandPath}, {trace_rows: true}))});
+    }
+    const trace = writeMotion(ctx, act, loaded, {webShots});
+    return {...trace, sources: [...new Set([...(loaded.inputs ?? []), ...(trace.sources ?? [])])].sort()};
+  } catch (error) {
+    const evidence = invalidateMotion(ctx, act, error.message);
+    if (evidence) error.details = {...(error.details ?? {}), motion_failure: evidence};
+    throw error;
+  }
 }
 
 export function readEventsFile(ctx, act) {

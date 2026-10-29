@@ -100,7 +100,7 @@ def test_design_spec_is_checked_before_any_call(voice_film):
     assert ledger.rows() == []
 
 
-def test_tag_ab_refuses_banned_variants_before_anything_is_sent(voice_film):
+def test_tag_ab_refuses_banned_variants_before_anything_is_sent(voice_film, full_voice_policy):
     code, out, err = run_cli(["voice", "tags", "ab", "S02", "--film", str(voice_film),
                               "--variant", "[confident] Slate hears each word, then fits it to the cut.",
                               "--variant", "[softly] Slate hears each word, then fits it to the cut."])
@@ -130,7 +130,7 @@ def test_tag_ab_in_replay_makes_level_matched_clips(voice_film):
     assert len(rows) == 3
 
 
-def test_tag_ab_rejects_a_breathier_take_by_measurement(voice_film, fake_whisper, monkeypatch):
+def test_tag_ab_rejects_a_breathier_take_by_measurement(voice_film, fake_whisper, monkeypatch, full_voice_policy):
     """A full-voice tag that still comes out whispery is measured out, however good the tag looks."""
     set_transcript, _ = fake_whisper
     rng = np.random.default_rng(5)

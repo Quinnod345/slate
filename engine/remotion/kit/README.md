@@ -101,6 +101,9 @@ export const Act2 = ({sub}: {sub: number}) => (
   `LineChart dots` does this, and `Axis` draws a chart's labels); `LogoBuild`, `LogoSting`, `Ripple` (`logo.tsx`);
   `MotifMark`, `MarkCharacter`, `gesture()` (`motif.tsx`); `KineticWords`, `KineticStack` (`kinetic.tsx`);
   `Captions`; `PlaceholderAct`; `KitReviewSheet`.
+- **Caption timing** (`Captions`): motion-blur samples select one cue at their master frame's time, so an averaged
+  frame cannot blend adjacent cue text. Fade opacity still follows the fractional sample clock. An explicit `t`
+  remains the caller's literal cue clock, and a single-sample preview keeps its fractional time. Cue data is unchanged.
 - **Counting** (`CountUp`): one value per master frame (`masterTime()`), so a frame's motion-blur samples show the same
   figures, and each figure holds for three frames (`countValue()`). It never re-centres, because it's drawn over an
   unseen box that holds still while its figures change (the films' refined rule, 2026-10-01): the count's own shape in

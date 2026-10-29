@@ -27,6 +27,7 @@ import {pathToFileURL} from 'node:url';
 import {build} from 'esbuild';
 import {ENGINE_DIR, EngineError, KIT_DIR, NODE_MODULES, run, usage} from './lib/common.mjs';
 import {actOf} from './lib/film.mjs';
+import {mixedScenesForAct} from './lib/shot_scenes.mjs';
 import {ensureEntry, sceneIndex} from './entry.mjs';
 import {esbuildOptions} from './load_act.mjs';
 
@@ -90,8 +91,8 @@ function markupPlugin(kitDir, tmp, tag) {
 }
 
 /** Build an act for markup with one kit; returns render(frame, sample) → markup. */
-async function markupRenderer(ctx, act, kitDir, tmp, tag) {
-  const index = sceneIndex(ctx.dir, act);
+async function markupRenderer(ctx, act, kitDir, tmp, tag, scene = null) {
+  const index = scene?.index ?? sceneIndex(ctx.dir, act);
   if (!index) throw usage(`Act ${act} isn't built yet: there's no markup to read.`);
   const a = actOf(ctx, act);
   const entry = path.join(tmp, `markup-${tag}.tsx`);
@@ -101,7 +102,7 @@ async function markupRenderer(ctx, act, kitDir, tmp, tag) {
       `import * as scene from ${JSON.stringify(index)};`,
       "import React from 'react';",
       "import {renderToStaticMarkup} from 'react-dom/server';",
-      `const C = (scene as Record<string, unknown>).default ?? (scene as Record<string, unknown>)[${JSON.stringify(`Act${act}`)}];`,
+      `const C = (scene as Record<string, unknown>).default ?? (scene as Record<string, unknown>)[${JSON.stringify(scene ? 'Shot' + scene.shot : `Act${act}`)}];`,
       "export const hasComponent = typeof C === 'function';",
       'export function render(props: Record<string, unknown>): string {',
       '  return renderToStaticMarkup(React.createElement(C as React.FC<Record<string, unknown>>, props));',
@@ -119,7 +120,7 @@ async function markupRenderer(ctx, act, kitDir, tmp, tag) {
   }
   const mod = await import(pathToFileURL(outfile).href);
   if (!mod.hasComponent) throw usage(`Act ${act}'s index has no component to draw (a default export, or Act${act}).`);
-  const config = {width: ctx.width, height: ctx.height, fps: ctx.fps.value, durationInFrames: a.frames * MARKUP_SAMPLES, id: `Act${act}`, defaultProps: {}, props: {}};
+  const config = {width: ctx.width, height: ctx.height, fps: ctx.fps.value, durationInFrames: a.frames * MARKUP_SAMPLES, id: scene?.comp ?? `Act${act}`, defaultProps: {}, props: {}};
   return (frame, k, inputProps = {}) => {
     globalThis.__slateMarkup = {frame: frame * MARKUP_SAMPLES + k, config, inputProps};
     return mod.render({sub: MARKUP_SAMPLES, act, firstFrame: a.frameIn});
@@ -330,12 +331,16 @@ export async function markupGate(ctx, act, args, name, inputs) {
   await ensureEntry(ctx, {brandPath: args.brand_path ?? null});
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), `slate-markup-act${act}-`));
   const a = actOf(ctx, act);
+  const scene = args.shot === undefined ? null : mixedScenesForAct(ctx, act).find((sc) => sc.shot === String(args.shot) && sc.engine === 'remotion');
+  if (args.shot !== undefined && !scene) throw usage('No Remotion replacement for the requested markup shot.');
+  const first = scene ? scene.frames[0] : 0;
+  const last = scene ? scene.frames[1] : a.frames - 1;
   try {
     let now;
     let then = null;
     try {
-      now = await markupRenderer(ctx, act, KIT_DIR, tmp, 'now');
-      if (args.against) then = await markupRenderer(ctx, act, kitFolder(args.against) ?? (await kitAtRef(String(args.against), tmp)), tmp, 'then');
+      now = await markupRenderer(ctx, act, KIT_DIR, tmp, 'now', scene);
+      if (args.against) then = await markupRenderer(ctx, act, kitFolder(args.against) ?? (await kitAtRef(String(args.against), tmp)), tmp, 'then', scene);
     } catch (e) {
       if (!(e instanceof EngineError)) throw e;
       return gate(name, e.kind === 'usage' ? 'UNCHECKED' : 'FAIL', e.message.split('\n')[0], {engine, inputs, details: {against: args.against ?? null}});
@@ -346,7 +351,7 @@ export async function markupGate(ctx, act, args, name, inputs) {
     let samples = 0;
     const HINT = {raster: 'hint'};
     const TILT = {raster: 'tilt'};
-    for (let f = 0; f < a.frames; f++) {
+    for (let f = first; f <= last; f++) {
       for (let k = 0; k < MARKUP_SAMPLES; k++) {
         let html;
         try {
@@ -375,7 +380,7 @@ export async function markupGate(ctx, act, args, name, inputs) {
     // the act again in tilt mode: drawn without errors or bad values, and, where it draws any tilt, held to the rules
     const audit = {samples: 0, tilted_samples: 0, texts: 0, findings: 0, exempt: new Set()};
     const findings = [];
-    for (let f = 0; f < a.frames; f++) {
+    for (let f = first; f <= last; f++) {
       for (let k = 0; k < MARKUP_SAMPLES; k++) {
         let html;
         try {
@@ -400,7 +405,7 @@ export async function markupGate(ctx, act, args, name, inputs) {
     const tiltAuditDetails = audit.tilted_samples
       ? {run: true, samples: audit.samples, tilted_samples: audit.tilted_samples, texts: audit.texts, findings: audit.findings, exempt: [...audit.exempt].slice(0, 20)}
       : {run: false, why: 'the act draws nothing in tilt mode (no RasterModeProvider): there is nothing to audit'};
-    const details = {frames: a.frames, samples, per_frame: MARKUP_SAMPLES, against: args.against ?? null, tilt_audit: tiltAuditDetails};
+    const details = {frames: last - first + 1, frame_range: [first, last], ...(scene ? {shot: scene.shot, comp: scene.comp} : {}), samples, per_frame: MARKUP_SAMPLES, against: args.against ?? null, tilt_audit: tiltAuditDetails};
     if (errors.length) return gate(name, 'FAIL', `${errors.length} sample${errors.length > 1 ? 's' : ''} couldn't be drawn; the first: ${errors[0]}`, {engine, evidence: [...errors.slice(0, 20), ...bad.slice(0, 20)], inputs, details});
     if (bad.length) return gate(name, 'FAIL', `NaN, Infinity or undefined in the markup; the first: ${bad[0]}`, {engine, evidence: bad, inputs, details});
     if (differ.length) return gate(name, 'FAIL', `the act draws differently from the kit at ${args.against}; the first: ${differ[0].slice(0, 300)}`, {engine, evidence: differ, inputs, details});

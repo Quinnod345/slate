@@ -99,7 +99,8 @@ def test_openclaw_reads_session_lines_history_json_and_the_envelope():
     ]
     t = transcript.parse("\n".join(json.dumps(x) for x in session), "openclaw")
     assert [e.kind for e in t.events] == ["read", "tool", "command", "text"]
-    assert t.events[1].name == "mcp__aside__aside_click" and t.events[2].exit_code == 0
+    assert t.events[1].name == "mcp__aside__aside_click"
+    assert t.events[2].exit_code is None and t.events[2].ok is None
     assert t.skills_loaded()[0][0] == "slate" and t.final == "Done."
 
     history = {"messages": [{"role": "assistant", "content": [{"type": "toolCall", "name": "browser",

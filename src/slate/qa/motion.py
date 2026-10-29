@@ -174,6 +174,10 @@ EXTRA_ALIASES = {"sine": "sway", "sineinout": "sway", "spring": "spring0", "even
 # first film's delivered act 4, a page carry the notes put at 136 px/frame measures 132 (tests: the golden test).
 PIXEL = {"short_side": 48, "fast_factor": 1.25, "search_factor": 5.0, "min_blocks": 2, "under_traced": 0.4,
          "texture": 0.004, "ambiguity": 0.7}
+# Diagnostic format and output bound only; neither value participates in the motion verdict.
+PIXEL_DIAGNOSTICS = {"schema": 2, "max_blocks_per_pair": 32}
+# A changed measurement producer invalidates whole-picture scans even when the movie and package version agree.
+PIXEL_PRODUCER = {"revision": 1, "method": "bandpass_sad_positive_gain_ambiguity"}
 
 
 def limits(width: int, height: int) -> dict[str, float]:
@@ -2221,15 +2225,36 @@ def _bandpass(frame):
     return ndi.gaussian_filter(frame, 0.8) - ndi.gaussian_filter(frame, 2.5)
 
 
-def block_motion(a, b, *, block: int, radius: int):
+def _positive_gain_fit(a, b):
+    """Fit one finite positive intensity gain per patch, then measure its absolute residual.
+
+    Both hypotheses use the same least-squares gain model. An empty, nonfinite or sign-inverted candidate supplies
+    no photometric explanation; its residual is infinite and its validity flag is false.
+    """
+    np = _np()
+    with np.errstate(over="ignore", divide="ignore", invalid="ignore"):
+        numerator = np.sum(a * b, axis=(-2, -1))
+        denominator = np.sum(b * b, axis=(-2, -1))
+        finite = np.isfinite(numerator) & np.isfinite(denominator) & (denominator > 1e-12)
+        gain = np.divide(numerator, denominator, out=np.zeros_like(denominator), where=finite)
+        residual = np.sum(np.abs(a - gain[..., None, None] * b), axis=(-2, -1))
+    valid = finite & np.isfinite(gain) & (gain > 0) & np.isfinite(residual)
+    return gain, np.where(valid, residual, np.inf), valid
+
+
+def block_motion(a, b, *, block: int, radius: int, diagnostics: dict | None = None):
     """Per-block motion from frame a to frame b by exhaustive block matching on band-passed frames.
 
     Returns (dx, dy, trusted, textured) arrays of shape (rows, cols): the displacement that best maps each block of a
     onto b (sub-pixel from a parabola through the best match), whether it can be trusted, and whether the block has
     texture at all. A match is trusted when the block has texture, its best match is clearly better than any match
     more than a pixel away (a straight edge or a repeating pattern matches in many places), and the move explains the
-    change (a fade or a cut isn't a move).
+    change (a fade or a cut isn't a move). A moved raw match is also ambiguous when a same-position positive gain
+    explains the change strictly better than the displaced patch under that same gain model. An optional collector
+    retains both the raw match and this photometric basis; opting into it leaves the four returned arrays unchanged.
     """
+    if diagnostics is not None:
+        diagnostics.clear()
     np = _np()
     from numpy.lib.stride_tricks import sliding_window_view  # noqa: PLC0415
 
@@ -2287,16 +2312,44 @@ def block_motion(a, b, *, block: int, radius: int):
     # at the edge of the search the true move may lie beyond it: nothing measured there can be trusted
     edge = (bx == 0) | (bx == n - 1) | (by == 0) | (by == n - 1)
     distinct = smin + 1e-6 * block * block <= PIXEL["ambiguity"] * second  # strictly better: ties never pass
-    trusted = textured & distinct & ~edge & (~moved | (smin <= 0.7 * s0))
+    # A broad blur halo can change brightness while every source pixel in this patch stays still. Raw SAD can
+    # explain that amplitude change by sliding along a gradient. Compare equal positive-gain models at the original
+    # position and at the selected displacement before treating the selected vector as physical movement.
+    patches = np.ascontiguousarray(Ac.reshape(rows, block, cols, block).transpose(0, 2, 1, 3))
+    same = np.ascontiguousarray(B[:rows * block, :cols * block].reshape(rows, block, cols, block)
+                               .transpose(0, 2, 1, 3))
+    yy = (np.arange(rows)[:, None, None, None] * block + by[:, :, None, None]
+          + np.arange(block)[None, None, :, None])
+    xx = (np.arange(cols)[None, :, None, None] * block + bx[:, :, None, None]
+          + np.arange(block)[None, None, None, :])
+    matched = Bp[yy, xx]
+    same_gain, same_gain_sad, same_gain_valid = _positive_gain_fit(patches, same)
+    matched_gain, matched_gain_sad, matched_gain_valid = _positive_gain_fit(patches, matched)
+    photometric_ambiguous = (moved & same_gain_valid & matched_gain_valid
+                            & (same_gain_sad + 1e-6 * block * block
+                               <= PIXEL["ambiguity"] * matched_gain_sad))
+    trusted = textured & distinct & ~edge & (~moved | (smin <= 0.7 * s0)) & ~photometric_ambiguous
+    if diagnostics is not None:
+        diagnostics.update({"zero_sad": s0, "best_sad": smin, "second_sad": second,
+                            "integer_dx": bx - radius, "integer_dy": by - radius,
+                            "texture": texture, "texture_floor": tex_floor, "textured": textured,
+                            "distinct": distinct, "search_edge": edge, "moved": moved,
+                            "explains_change": ~moved | (smin <= 0.7 * s0), "preferred_still": still,
+                            "trusted": trusted, "same_gain": same_gain, "same_gain_sad": same_gain_sad,
+                            "same_gain_valid": same_gain_valid, "matched_gain": matched_gain,
+                            "matched_gain_sad": matched_gain_sad, "matched_gain_valid": matched_gain_valid,
+                            "photometric_ambiguous": photometric_ambiguous})
     return dx, dy, trusted, textured
 
 
-def coherent(mask, dx, dy, tolerance: float = 1.0):
+def coherent(mask, dx, dy, tolerance: float = 1.0, *, diagnostics: dict | None = None):
     """Blocks in `mask` with at least one neighbouring block in `mask` moving the same way (to `tolerance` px): a
-    real object covers several blocks and moves as one; a lone block with a stray vector is a false match."""
+    real object covers several blocks and moves as one; a lone block with a stray vector is a false match. An
+    optional collector records the neighbour counts from these same comparisons without changing the mask."""
     np = _np()
     rows, cols = mask.shape
     out = np.zeros_like(mask)
+    neighbours = np.zeros_like(mask, dtype=np.uint8) if diagnostics is not None else None
     for oy in (-1, 0, 1):
         for ox in (-1, 0, 1):
             if oy == 0 and ox == 0:
@@ -2308,16 +2361,64 @@ def coherent(mask, dx, dy, tolerance: float = 1.0):
             agree = (mask[yd, xd] & mask[ys, xs] & (np.abs(dx[yd, xd] - dx[ys, xs]) <= tolerance)
                      & (np.abs(dy[yd, xd] - dy[ys, xs]) <= tolerance))
             out[yd, xd] |= agree
+            if neighbours is not None:
+                neighbours[yd, xd] += agree
+    if diagnostics is not None:
+        diagnostics.clear()
+        diagnostics.update({"tolerance": float(tolerance), "neighbours": neighbours})
     return out
 
 
+def _fast_block_diagnostics(mask, dx, dy, *, match: dict, coherence: dict, block: int, scale: float) -> dict:
+    """Retain a bounded, row-major sample of actual fast-block measurements, without assigning them to objects."""
+    np = _np()
+    rows, cols = np.nonzero(mask)
+    total = len(rows)
+    limit = int(PIXEL_DIAGNOSTICS["max_blocks_per_pair"])
+    retained = min(total, limit)
+    blocks = []
+    for r, c in zip(rows[:retained], cols[:retained]):
+        blocks.append({"row": int(r), "col": int(c), "origin": [int(c) * block, int(r) * block],
+                       "dx": float(dx[r, c]), "dy": float(dy[r, c]),
+                       "film_speed": float(np.hypot(dx[r, c], dy[r, c])) * scale,
+                       "integer_shift": [int(match["integer_dx"][r, c]), int(match["integer_dy"][r, c])],
+                       "residuals": {name: _num(float(match[f"{name}_sad"][r, c]))
+                                     for name in ("zero", "best", "second")},
+                       "texture": float(match["texture"][r, c]), "texture_floor": float(match["texture_floor"]),
+                       "trust": {name: bool(match[name][r, c]) for name in
+                                 ("textured", "distinct", "search_edge", "moved", "explains_change",
+                                  "preferred_still", "trusted")},
+                       "coherence": {"tolerance": coherence["tolerance"],
+                                     "fast_neighbours": int(coherence["neighbours"][r, c]),
+                                     "coherent_fast": bool(mask[r, c])}})
+        if "photometric_ambiguous" in match:
+            blocks[-1]["photometric"] = {
+                "model": "positive_gain",
+                "zero": {"gain": _num(float(match["same_gain"][r, c])),
+                         "sad": _num(float(match["same_gain_sad"][r, c])),
+                         "valid": bool(match["same_gain_valid"][r, c])},
+                "matched": {"gain": _num(float(match["matched_gain"][r, c])),
+                            "sad": _num(float(match["matched_gain_sad"][r, c])),
+                            "valid": bool(match["matched_gain_valid"][r, c])},
+                "ambiguous": bool(match["photometric_ambiguous"][r, c])}
+    return {"schema": PIXEL_DIAGNOSTICS["schema"], "block_size": block, "blocks_total": total,
+            "blocks_retained": retained, "blocks_truncated": total - retained, "block_limit": limit,
+            "truncation_notice": (f"Showing {retained} of {total} fast blocks in row-major order."
+                                  if retained < total else None),
+            "vector_units": "analysis pixels per frame", "coordinate_units": "analysis pixels",
+            "film_pixels_per_analysis_pixel": float(scale),
+            "residual_units": "sum of absolute band-passed luma differences; null means nonfinite",
+            "blocks": blocks}
+
+
 def fast_pairs(frames: Iterable, *, film_short: float, speed_limit: float, analysis_short: int,
-               block: int | None = None) -> tuple[list[dict], dict]:
+               block: int | None = None, diagnostics: bool = False) -> tuple[list[dict], dict]:
     """Frame pairs with fast motion: [{pair, speed (film px/frame), blocks, box}] and a summary of the scan.
 
     `pair` k is the move from frame k to frame k+1 of the source. A pair counts as fast when at least two
     neighbouring trusted blocks move the same way faster than 1.25 times the speed limit. Cuts (most of the picture
-    changing with no move to explain it) are skipped.
+    changing with no move to explain it) are skipped. Opting into diagnostics adds capped match evidence to each
+    retained pair; the legacy fields and the scan's classification are unchanged.
     """
     np = _np()
     scale = film_short / float(analysis_short)  # film px per analysis px
@@ -2336,7 +2437,11 @@ def fast_pairs(frames: Iterable, *, film_short: float, speed_limit: float, analy
             if change < 1e-4:
                 prev = frame
                 continue
-            dx, dy, trusted, textured = block_motion(prev, frame, block=block, radius=radius)
+            match = {} if diagnostics else None
+            if diagnostics:
+                dx, dy, trusted, textured = block_motion(prev, frame, block=block, radius=radius, diagnostics=match)
+            else:
+                dx, dy, trusted, textured = block_motion(prev, frame, block=block, radius=radius)
             if change > 0.12 and trusted.sum() < 0.3 * max(1, int(textured.sum())):
                 cuts += 1  # most of the picture changed and no move explains it: a cut, not motion
                 prev = frame
@@ -2345,23 +2450,34 @@ def fast_pairs(frames: Iterable, *, film_short: float, speed_limit: float, analy
             steady = coherent(trusted, dx, dy)
             if steady.any():  # a high percentile, so one stray block can't set the record
                 top = max(top, float(np.percentile(speed[steady], 90)) * scale)
-            fast = coherent(trusted & (speed > fast_a), dx, dy)
+            coherence = {} if diagnostics else None
+            if diagnostics:
+                fast = coherent(trusted & (speed > fast_a), dx, dy, diagnostics=coherence)
+            else:
+                fast = coherent(trusted & (speed > fast_a), dx, dy)
             if int(fast.sum()) >= PIXEL["min_blocks"]:
                 rows, cols = np.nonzero(fast)
                 h, w = frame.shape
                 box = [float(cols.min() * block / w), float(rows.min() * block / h),
                        float((cols.max() + 1) * block / w), float((rows.max() + 1) * block / h)]
-                out.append({"pair": k - 1, "speed": round(float(np.median(speed[fast])) * scale, 2),
-                            "blocks": int(fast.sum()), "box": [round(x, 3) for x in box]})
+                pair = {"pair": k - 1, "speed": round(float(np.median(speed[fast])) * scale, 2),
+                        "blocks": int(fast.sum()), "box": [round(x, 3) for x in box]}
+                if diagnostics:
+                    pair["diagnostics"] = _fast_block_diagnostics(fast, dx, dy, match=match, coherence=coherence,
+                                                                 block=block, scale=scale)
+                out.append(pair)
         prev = frame
     # a real move is fast for at least two frame pairs running; a lone fast pair is a false match (or a one-frame
     # pop, which the glitch gate judges)
     flagged = {p["pair"] for p in out}
     lone = [p for p in out if p["pair"] - 1 not in flagged and p["pair"] + 1 not in flagged]
     out = [p for p in out if p not in lone]
-    return out, {"pairs": pairs, "cuts": cuts, "fastest_measured": round(top, 2), "block": block, "search": radius,
-                 "analysis_short_side": analysis_short, "fast_over": round(fast_a * scale, 2),
-                 "measurable_up_to": round(radius * scale, 1), "lone_fast_pairs_ignored": len(lone)}
+    summary = {"pairs": pairs, "cuts": cuts, "fastest_measured": round(top, 2), "block": block, "search": radius,
+               "analysis_short_side": analysis_short, "fast_over": round(fast_a * scale, 2),
+               "measurable_up_to": round(radius * scale, 1), "lone_fast_pairs_ignored": len(lone)}
+    if diagnostics:
+        summary["diagnostic_format"] = dict(PIXEL_DIAGNOSTICS)
+    return out, summary
 
 
 def traced_activity(data: MotionData) -> tuple[dict[int, bool], dict[int, float], dict[int, bool]]:
@@ -2506,11 +2622,12 @@ def check_pixels(ctx, data: MotionData, *, render: str | None = None, render_act
                         hint="Install it with Homebrew (`brew install ffmpeg`), or run `slate doctor --install`.")
         key = {"file": ctx.rel(src.path), "sha256": source_digest(ctx, src.path), "film_frame": src.film_frame,
                "frames": src.frames, "analysis": list(size), "film_short": min(w, h),
-               "speed_limit": round(lim["speed"], 6), "pixel": PIXEL, "version": __version__}
+               "speed_limit": round(lim["speed"], 6), "pixel": PIXEL, "version": __version__,
+               "diagnostic_format": dict(PIXEL_DIAGNOSTICS), "pixel_producer": dict(PIXEL_PRODUCER)}
 
         def scan(src=src):
             pairs, summary = fast_pairs(read_gray(src.path, size, count=src.frames), film_short=min(w, h),
-                                        speed_limit=lim["speed"], analysis_short=min(size))
+                                        speed_limit=lim["speed"], analysis_short=min(size), diagnostics=True)
             return {"pairs": pairs, "summary": summary}
 
         try:
@@ -2520,7 +2637,11 @@ def check_pixels(ctx, data: MotionData, *, render: str | None = None, render_act
         except SlateError as exc:
             return _sub("pixels", "UNCHECKED", f"{ctx.rel(src.path)} couldn't be decoded: {exc}", [str(src.path)])
         pairs, summary = done["pairs"], done["summary"]
-        scans.append({"act": src.act, "file": ctx.rel(src.path), "film_frame": src.film_frame, **summary})
+        pair_diagnostics = [{"source_frames": [p["pair"], p["pair"] + 1],
+                             "film_frames": [src.film_frame + p["pair"], src.film_frame + p["pair"] + 1],
+                             **p["diagnostics"]} for p in pairs]
+        scans.append({"act": src.act, "file": ctx.rel(src.path), "film_frame": src.film_frame, **summary,
+                      "fast_pair_diagnostics": pair_diagnostics, "pixel_producer": dict(PIXEL_PRODUCER)})
         evidence.append(f"{ctx.rel(src.path)}: {summary['pairs']} frame pairs, fastest measured "
                         f"{summary['fastest_measured']} px/frame")
         flagged = []
@@ -2644,7 +2765,8 @@ def evaluate(film_dir: Path, *, acts: Iterable[int] | None = None, render: str |
     fn_sources = sorted({e.fn_source for e in (law.eases.values() if law else []) if e.fn_source})
     engine = gates.engine("slate qa motion", __version__, eases=", ".join(fn_sources) or None,
                           pixels="block matching on band-passed luma"
-                                 + (f" ({_media_version()})" if pixels and run_pixels else ""))
+                                 + (f" ({_media_version()})" if pixels and run_pixels else ""),
+                          pixel_producer=dict(PIXEL_PRODUCER), rule_revision=gates.rule_revision(GATE))
     inputs_paths = ["film.json", "timing/shots.json", "renders/registry.json"]
     inputs_paths += [data.files[a] for a in sorted(data.files)]
     inputs_paths += [f"{TRACE_DIR}/act{a}.json" for a in data.missing]

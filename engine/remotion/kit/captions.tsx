@@ -4,9 +4,10 @@
 // over the brand's shortest step: captions never animate for show.
 import {captions as filmCaptions, cueAt, type Cue} from './core/captions';
 import {alpha} from './core/color';
+import {secOf} from './core/film';
 import {durRank, easeNamed, roleEase} from './core/motion';
 import {clamp01} from './core/spline';
-import {useFilmTime, useFrameSize, useTokens, useType} from './context';
+import {useKit, useFrameSize, useTokens, useType} from './context';
 
 export type CaptionsProps = {
   /** safe zone as fractions of the frame: bottom inset and side insets (the format's platform safe zone) */
@@ -21,12 +22,14 @@ export type CaptionsProps = {
 };
 
 export function Captions({safe = {}, role = 'caption', plate = true, maxLines = 2, cues, t: tOverride}: CaptionsProps) {
-  const clock = useFilmTime();
+  const {t: clock, frame, sub} = useKit();
   const {width, height, short} = useFrameSize();
   const tk = useTokens();
   const t = tOverride ?? clock;
   const list = cues ?? filmCaptions().cues;
-  const cue = cueAt(list, t);
+  // Master-frame cue. Fractional fade.
+  const cueTime = tOverride ?? (sub > 1 ? secOf(Math.round(frame)) : t);
+  const cue = cueAt(list, cueTime);
   const fg = plate ? tk.color.onInverse : tk.color.ink;
   const s = useType(role, fg);
   if (!cue) return null;

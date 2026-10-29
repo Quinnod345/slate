@@ -24,7 +24,7 @@ the review. The builder never grades its own film.
 |---|---|
 | The look | the brand's approved look and motion reference: palette, surfaces, motion, composition |
 | The sound | the brand's sound reference and levels against the voice; the owner's taste (no chimes, nothing buried, sound locked to picture) |
-| The voice | the brand's approved voice: every word clear, brand words in full, no whispery or strained delivery |
+| The voice | the brand's approved voice: every word clear, brand words in full, delivery matching its brief and explicit policy |
 | Truth | only approved claims; sample data labelled; nothing invented |
 | The bar | one signature moment per act that meets the visionary bar; nothing generic |
 | The brief | every ask in GOAL.md delivered |

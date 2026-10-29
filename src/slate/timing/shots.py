@@ -9,6 +9,8 @@ the engines read one file and never re-derive a boundary.
 
 from __future__ import annotations
 
+import copy
+
 from slate.clock import Clock
 from slate.gates import GateResult, engine
 
@@ -55,6 +57,8 @@ def make_shots(storyboard: dict, *, clock: Clock, width: int, height: int, cues:
             rec["generate"] = sh["generate"]  # the script's generation request for this shot (read by `slate gen`)
         if sh.get("engine"):
             rec["engine"] = sh["engine"]  # the engine that draws it when it isn't its act's (slate.render.shot_engines)
+        if sh.get("reading") is not None:
+            rec["reading"] = copy.deepcopy(sh["reading"])
         shots.append(rec)
         t += d
     total_f = clock.frame_of(t)

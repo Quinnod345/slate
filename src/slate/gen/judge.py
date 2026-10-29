@@ -173,7 +173,7 @@ def pick(film_dir: Path, shot_id: str, *, take_id: str | None, by: str, reject: 
                              verdict_why=f"superseded by {take_id}")
         path = store.take_file(film_dir, take)
         take.update(verdict="approved", verdict_by=by, verdict_at=now, verdict_why=note, sha256=jsonio.sha256(path))
-        rel = deps.rel(film_dir, path)
+        rel = take["files"][0]  # the child's logical path still names an inherited take in the approval store
         record = deps.approvals().record(film_dir, what=f"plate-take:{shot_id}", path=rel, approved_by=by, note=note)
         locked = deps.is_locked(film_dir, rel)  # the state module locks an approved plate take by its hash
         if not locked:
@@ -189,7 +189,7 @@ def pick(film_dir: Path, shot_id: str, *, take_id: str | None, by: str, reject: 
         gate = gates.GateResult.pass_(gate_name, f"{take_id} picked by {by}" +
                                       (f"; {', '.join(rejected)} rejected" if rejected else ""),
                                       evidence=evidence + [approved["file"]], engine=engine,
-                                      inputs=gates.inputs_for(film_dir, [approved["file"]]),
+                                      inputs=gates.inputs_for(film_dir, [store.take_file(film_dir, take)]),
                                       details={"picked": take_id, "rejected": rejected, "why": why, "note": note})
     elif not left:
         gate = gates.GateResult.fail(gate_name, f"every take of {shot_id} was rejected: generate more, or build the "

@@ -152,21 +152,21 @@ def test_fix_plan_targets_each_stage(film):
     assert by["captions"]["commands"] == ["slate voice captions"]
     assert set(p["gates"]) >= {"sync", "captions", "loudness", "frames", "glitch", "psnr"}
     assert p["then"][0] == "slate master" and p["then"][1].startswith("slate qa ")
-    assert "Perfect, don't replace" in p["rule"]
+    assert "Preserve the approved baseline" in p["rule"]
     assert (film.dir / "review/v1/fix_plan.json").is_file()
     assert "Re-voice S01 only" in notes.plan_text(p)
 
 
-def test_a_new_approach_is_a_question_once(film):
+def test_an_explicitly_requested_new_approach_becomes_work_without_an_extra_question(film):
     from slate.state import approvals
 
     filmkit.cli(film.dir, "notes", "add", "honestly, start over with a whole new look", "--at", "f20")
     code, p = filmkit.cli_json(film.dir, "notes", "plan")
-    assert p["steps"] == [] and len(p["questions"]) == 1 and p["questions"][0]["question"] == "q1"
+    assert p["steps"] and p["questions"] == []
     qs = approvals.open_questions(film.dir)
-    assert len(qs) == 1 and "new approach" in qs[0]["text"] and qs[0]["parks"] is False  # a draft film
+    assert qs == []
     filmkit.cli(film.dir, "notes", "plan")
-    assert len(approvals.open_questions(film.dir)) == 1  # asked once
+    assert approvals.open_questions(film.dir) == []
 
 
 def test_retime_after_renders_is_a_question(make_film):
@@ -199,7 +199,7 @@ def test_plan_dry_run_asks_and_writes_nothing(film):
 
     filmkit.cli(film.dir, "notes", "add", "start over from scratch", "--at", "f20")
     code, p = filmkit.cli_json(film.dir, "notes", "plan", "--dry-run")
-    assert code == 0 and p["questions"][0]["question"] is None
+    assert code == 0 and p["questions"] == [] and p["steps"]
     assert approvals.open_questions(film.dir) == []
     assert not (film.dir / "review/v1/fix_plan.json").exists()
 

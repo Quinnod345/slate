@@ -78,7 +78,7 @@ export const fontUrl = (absPath) => `/_slate/font/${b64url(path.resolve(absPath)
  * Start the server. `mounts` maps a URL prefix ('/', '/_slate/film/', '/_slate/brand/') to a folder. `bundler` is
  * lib/bundle.mjs's bundler. Returns {origin, urlFor(absPath), served(), problems, close()}.
  */
-export async function startServer({mounts, bundler}) {
+export async function startServer({mounts, bundler, recordSource = null}) {
   const table = Object.entries(mounts)
     .filter(([, dir]) => dir)
     .map(([prefix, dir]) => ({prefix: prefix.endsWith('/') ? prefix : `${prefix}/`, dir: realOrNull(dir) ?? path.resolve(dir)}))
@@ -155,6 +155,7 @@ export async function startServer({mounts, bundler}) {
         return;
       }
       const body = fs.readFileSync(file);
+      recordSource?.(file, body);
       send(res, 200, TYPES[ext] ?? 'application/octet-stream', body, urlPath);
     } catch (err) {
       problems.push({kind: 'server', message: String(err?.message ?? err)});

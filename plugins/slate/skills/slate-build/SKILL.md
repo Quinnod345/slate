@@ -20,6 +20,12 @@ duration scale, the clock, cameras and surfaces in the brand's look, UI parts, c
 and the film's sample data. Most of that is the kit plus the brand pack; anything film-specific that several acts share
 (a report surface, a recurring card, a named rest state) is built once, before the builders start, and then read-only.
 Reuse surfaces already matched to the product rather than redrawing them. See [kit](references/kit.md).
+Choose the representation for the transformations the scene needs. An object that opens, folds, reshapes, splits or
+travels into another screen needs parts whose geometry, content and identities can survive that move. React/SVG,
+DOM surfaces, meshes, footage and plates each have uses. A faithful screenshot can establish visual truth without
+being the scene's animation structure. Keep product values, states and hierarchy truthful while staging the film.
+For a recurring physical book, use the kit's `HingedBook` with shared caller-owned faces:
+[building hinged books](references/hinged-books.md).
 
 ## 2. The act scaffold
 
@@ -74,6 +80,10 @@ trace, so a broken law fails here, before a render. A web act hands in through t
 renderer the same way, plus its page loading and drawing, no network, and its fonts. Only PASS counts. The full
 hand-in checklist, and how to check your work with stills and previews: [hand-in](references/hand-in.md).
 
+Passing the technical hand-in establishes the checked properties; it does not establish beauty. Review the intended
+transformations in motion with sound, then improve the choreography from the requester's specific feedback. Keep
+the comparison versions and feedback so the next builder can understand what changed and why (slate-motion).
+
 Builders make stills and half-scale previews only, in their own scratch folder. Finals render centrally, one at a time
 (slate-finish).
 
@@ -90,7 +100,8 @@ and end with the hand-in checklist. See [builder briefs](references/builder-brie
 - **Real app footage**: `slate capture ios --spec <file>` records a pinned build on an isolated Simulator with a demo
   account and a 9:41 status bar; `slate capture web --spec <file>` captures a page through Aside at a fixed viewport,
   frame by frame. Both conform to the film's frame rate and map taps onto the voice's words. Capture for truth and
-  speed; rebuild in code when a shot needs camera moves, restaging, motion blur or exact type. See
+  speed; choose code when the intended move needs independently transforming product objects, restaging,
+  motion blur or exact type. A camera move alone can also work with a capture. See
   [captures](references/captures.md).
 - **Product UI drawn in code** follows the product exactly: its copy, its states, its order, its hierarchy. See
   [app UI](references/app-ui.md) and [charts](references/charts.md).
@@ -123,7 +134,8 @@ override Remotion's own skills where they disagree: [Remotion overrides](referen
 ## Rules that hold everywhere
 
 - Keep the script's beats, words, timing and on-screen text; restage the picture freely, and say so in NOTES.md.
-- Work the owner approved is not rebuilt; build around it, keeping its outer geometry.
+- Preserve the approved baseline, exact feedback and revised version. Follow requested redesigns within their scope;
+  keep outer geometry or other parts unchanged when the brief calls for that continuity.
 - Never fake motion blur in scene code: the renderer averages sub-frame samples.
 - One heavy process at a time; never a full-resolution final from a builder; never render on another machine.
 - Nothing opens a browser: web pages are captured through Aside only.
@@ -131,6 +143,7 @@ override Remotion's own skills where they disagree: [Remotion overrides](referen
 ## References
 
 - [kit](references/kit.md): what the kit reads and draws, the rules it keeps for you, review sheets.
+- [hinged-books](references/hinged-books.md): physical book surfaces, page coordinates, state, raster rules and review.
 - [act-scaffolds](references/act-scaffolds.md): the act's files, beats at module level, a worked act, NOTES.md.
 - [contracts](references/contracts.md): named rest states, holds, settling out, checking joins.
 - [events](references/events.md): the beat vocabulary, sizes, silent acts, captures' taps.

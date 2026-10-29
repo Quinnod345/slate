@@ -250,13 +250,38 @@ def _new_record(prep: Prepared) -> dict:
             "takes": [], "judge": None, "picked": None}
 
 
+def _check_request_identity(prep: Prepared, rec: dict | None) -> None:
+    """A generation record describes one request's takes, so a rerun cannot mix in a different request.
+
+    The approval fingerprint includes the number of takes. That number may grow on a rerun, but the model, exact
+    body and uploaded bytes must stay the same: judge and conform use the record's shared provenance for each take.
+    Even --force only buys more takes of that request; it never rewrites the provenance of existing media.
+    """
+    if not rec or not rec.get("takes"):
+        return
+    current = _new_record(prep)
+
+    def identity(record: dict) -> dict:
+        return {"model": record.get("model"), "body": record.get("body"),
+                "uploads": [(u.get("field"), u.get("sha256")) for u in record.get("uploads") or []]}
+
+    if identity(rec) != identity(current):
+        raise Refused(
+            f"{prep.shot_id}'s generation request changed since its existing takes were submitted (model, prompt, "
+            "settings or input files). These takes keep their original provenance; --force cannot mix requests.",
+            hint=f"Restore the request recorded in plates/{prep.shot_id}/generation.json to resume it, or give the "
+                 "revised generated shot its own id. Existing takes are kept.")
+
+
 def run(film_dir: Path, shot_id: str, *, takes: int | None = None, approval: str | None = None, force: bool = False,
         client: higgsfield.Client | None = None, timeout_s: float = WAIT_TIMEOUT_S, dry_run: bool = False) -> dict:
     """Generate (or finish generating) a shot's takes. Returns a summary; generation.json has the detail."""
     film_dir = Path(film_dir)
+    store.require_owned_requests(film_dir, shot_id)
     client = client or higgsfield.Client()
     prep = prepare(film_dir, shot_id, takes=takes, client=client)
     rec = store.load_record(film_dir, shot_id)
+    _check_request_identity(prep, rec)
     if rec and adopt_orphans(film_dir, rec) and not dry_run:  # a dry run sees the adoption, never writes it
         store.save_record(film_dir, shot_id, rec)
     if rec and store.approved_take(rec) and not force:
@@ -512,6 +537,7 @@ def takes(film_dir: Path, shot_id: str, *, refresh: bool = False, client: higgsf
     """The shot's takes; with refresh, poll the ones still running once and fetch any missing downloads."""
     rec = store.require_record(film_dir, shot_id)
     if refresh:
+        store.require_owned_requests(film_dir, shot_id)
         adopt_orphans(film_dir, rec)
         client = client or higgsfield.Client()
         for take in rec["takes"]:
@@ -538,6 +564,7 @@ def cancel(film_dir: Path, *, shot_id: str | None = None, take_id: str | None = 
         return {"results": [client.cancel(request_id)]}
     if not shot_id:
         raise UsageError("Say what to cancel: --shot (and --take), or --request.")
+    store.require_owned_requests(film_dir, shot_id)
     rec = store.require_record(film_dir, shot_id)
     targets = [store.find_take(rec, take_id)] if take_id else store.live_takes(rec)
     if request_id:
@@ -554,4 +581,3 @@ def cancel(film_dir: Path, *, shot_id: str | None = None, take_id: str | None = 
         results.append({"take": take["id"], **answer})
     store.save_record(film_dir, shot_id, rec)
     return {"shot": shot_id, "results": results}
-

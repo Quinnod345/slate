@@ -24,15 +24,18 @@ miss list is empty.
 - An entrance ease leaves rest at several times its average speed: a strong one covered a third of a 16-frame move in
   its first frame, so under motion blur the streak goes from nothing to long in one frame.
 - An exit ease that ends fast does the same at the other end.
-- So big moves (camera, carries, anything travelling far) run on the rest-to-rest ease, and characters use only curves
-  with zero velocity at both ends.
+- Rest-to-rest curves often fix this discontinuity for large carries and character gestures. A fast move or a
+  velocity-matched handoff can be deliberate; choose its curve for the current brief, declare it accurately and inspect
+  its rendered start and stop. Do not remove requested speed merely because a previous film needed a softer carry.
 
-## Springs settle, they don't bounce
+## Springs and deliberate follow-through
 
 - Good motion systems use springs that settle: Material 3 fires even its bounciest spring once per transition, and its
   effects springs never overshoot; Apple defaults to a bounce of 0, calls about 0.3 noticeable and above about 0.4
   exaggerated for UI, and starts every spring at full damping.
-- Container morphs (one container changing size) use a gentle damped settle, not a bounce.
+- The earlier product-film recipe used a gentle damped settle for container morphs. Bounce and overshoot can serve a
+  different character or graphic treatment. The brand's `overshoot` policy must allow the measured peak; its `where`
+  text describes intent but does not implement an object-specific allowance.
 - Ease curves stop abruptly where springs keep their velocity; when two moves hand over, pass the exact velocity or
   start and end both at rest.
 
@@ -65,14 +68,19 @@ contaminated measure (blur, clipping at the frame edge) is read qualitatively, n
 
 `slate qa motion` holds each traced move to the speed limits of what it is, so say so when the name doesn't:
 
-- `class`: `rig` (a mark's or character's part: 30 px a frame at 1080p), `ui` (an element: 60), `carry` (a page, card
+- `class`: `rig` (a mark's or character's part: by default 30 px a frame at 1080p), `ui` (an element: 60), `carry` (a page, card
   or camera carried across the frame: 170) or `whip` (a deliberate whip past the carry limits, which a person signs
   off). A rig part is a rig without saying so, and a move whose id or property starts with the camera's name is a
   carry.
+- Brand `speed_limits` can replace these class defaults. Current rig symmetry and minimum loop-period checks remain;
+  speed configuration does not disable them.
 - `exempt`: `reading_sweep` (a highlight that moves at reading pace) or `steady` (a line whose steadiness is the
   meaning), always with its `reason`.
 - `exception`: a reason for a deliberate break; its findings become review items a person accepts, never a pass.
 - `size` (and `unit`): the element's size in pixels, so a scale or a rotation is speed-checked at its edges.
+
+Linear position, scale and rotation need a recognized time-based use, a supported trace exemption, a whole-shot drift,
+or a property listed in the brand's `linear_props`. Naming a linear curve alone does not supply that allowance.
 
 Besides the brand's named eases, the kit knows `even`: rest to rest through a third of the travel at each third of the
 time, its peak speed 4/3 of the average. Use it for long carries and camera drifts; a carry may use it without the

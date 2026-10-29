@@ -76,8 +76,9 @@ A **product demo film** that uses real app footage is Slate's: the footage comes
 
 ## Editing and reviewing
 
-- **Editing a Slate film:** notes on approved work are a revision of that exact artifact (perfect, don't replace); a
-  cut-down, a new aspect or a new language is a derived film (slate-finish).
+- **Editing a Slate film:** follow the requested change within its scope, whether it refines or redesigns the approved
+  work. Preserve the approved baseline and keep unrelated work stable (review-and-correct.md). A cut-down, a new
+  aspect or a new language is a derived film (slate-finish).
 - **Editing an outside video:** `slate analyze <video>` breaks it down (transcript, scenes, measured eases); then either
   rebuild it as a Slate film or, for a trivial trim, make the trim and say that's all it was.
 - **Reviewing a cut:** a Slate film's review packet comes from `slate review`; an outside film gets `slate analyze` and

@@ -25,6 +25,16 @@ from voice_helpers import BRAND, FAKE_WHISPER, GUARD_WHISPER, make_film
 LIVE_WHISPER = "whisper"
 
 
+@pytest.fixture
+def full_voice_policy(voice_film):
+    """Opt this test into a voice's explicit full-voice preference; other films keep the open default."""
+    path = voice_film / "film.json"
+    doc = json.loads(path.read_text())
+    doc.setdefault("voice", {}).setdefault("profile", {}).setdefault("tag_policy", {})["avoid_low_effort"] = True
+    path.write_text(json.dumps(doc))
+    return voice_film
+
+
 def pytest_configure(config):
     config.addinivalue_line("markers", f"{LIVE_WHISPER}: runs the real Whisper CLI and model (minutes on a CPU); "
                                        "opt in with -m whisper or SLATE_WHISPER_LIVE=1")

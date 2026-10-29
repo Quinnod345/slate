@@ -27,7 +27,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {EXIT, EngineError, KIT_DIR, NODE_MODULES, log, missing, refused, relTo, requireTool, sha256Buffer, sha256File, slateData, usage, useEngineTmp, writeJsonAtomic} from '../remotion/lib/common.mjs';
+import {EXIT, EngineError, KIT_DIR, NODE_MODULES, log, missing, refused, relTo, requireTool, sha256Buffer, sha256File, sha256FileSync, slateData, usage, useEngineTmp, writeJsonAtomic} from '../remotion/lib/common.mjs';
 import {actOf, loadFilm, realFile} from '../remotion/lib/film.mjs';
 import {filmDataSource, inlineBrand} from '../remotion/entry.mjs';
 import {GENERATED, eventsFile, motionFile, validateEvents} from '../remotion/events.mjs';
@@ -154,8 +154,24 @@ function globalsFor(job, fonts) {
  * for files in dot-folders (.slate/spoken.json, which slate's bridge writes) come out without their "./" and would be
  * read as package names, so they get it back here.
  */
-export function filmDataFor(ctx, brandJson = null, brandDir = null) {
+export function filmDataFor(ctx, brandJson = null, brandDir = null, {recordSource = null} = {}) {
   const brand = brandJson ? inlineBrand(brandJson, brandDir) : null;
+  // inlineBrand embeds local SVG text rather than importing it. Bind an observed body only when it equals
+  // the text actually embedded in the virtual module.
+  if (recordSource && brand) {
+    const observe = (original, inlined) => {
+      if (typeof original === 'string') original = {path: original};
+      const name = original?.path ?? original?.file;
+      if (original?.svg || typeof name !== 'string' || !inlined?.svg) return;
+      const file = path.resolve(brandDir, name);
+      const bytes = fs.readFileSync(file);
+      if (bytes.toString('utf8') !== inlined.svg) throw refused('An inlined brand SVG changed during the web-shot read.');
+      recordSource(file, bytes);
+    };
+    if (Array.isArray(brandJson.logos)) brandJson.logos.forEach((logo, i) => observe(logo, brand.logos[i]));
+    else for (const [name, logo] of Object.entries(brandJson.logos ?? {})) observe(logo, brand.logos[name]);
+    if (brandJson.motif) observe(brandJson.motif, brand.motif);
+  }
   // written as if it sat at the film's root, so its imports ('./timing/shots.json', './.slate/spoken.json') resolve there
   const contents = filmDataSource(ctx, path.join(ctx.dir, 'slate-web-film-data.ts'), {brand, brandDir});
   return {contents, resolveDir: ctx.dir};
@@ -185,7 +201,14 @@ export function mediaMounts(ctx) {
  */
 async function openSession(job) {
   const browserInfo = await findBrowser(job.browser);
-  const filmData = filmDataFor(job.ctx, job.brandJson, job.brandDir);
+  const observed = new Map(Object.entries(job.contextSourceHashes ?? {}));
+  const recordSource = job.traceRows ? (file, bytes) => {
+    const absolute = path.resolve(file);
+    const digest = sha256Buffer(bytes);
+    if (observed.has(absolute) && observed.get(absolute) !== digest) throw refused(`Source ${absolute} changed during one web-shot read.`);
+    observed.set(absolute, digest);
+  } : null;
+  const filmData = filmDataFor(job.ctx, job.brandJson, job.brandDir, {recordSource});
   let server = null;
   const bundler = createBundler({
     runtimeDir: RUNTIME_DIR,
@@ -193,8 +216,18 @@ async function openSession(job) {
     nodeModules: NODE_MODULES,
     filmData: () => filmData,
     urlFor: (p) => (server ? server.urlFor(p) : null),
+    recordSource,
   });
   const session = {browserInfo, server: null, wall: null, browser: null, pages: [], strays: [], closed: false};
+  session.sourceProof = () => {
+    const result = {};
+    for (const [file, digest] of [...observed].sort(([a], [b]) => a.localeCompare(b))) {
+      if (!fs.statSync(file, {throwIfNoEntry: false})?.isFile() || sha256FileSync(file) !== digest) throw refused(`Captured source ${file} changed before the web-shot read completed.`);
+      result[relTo(job.ctx.dir, file)] = digest;
+    }
+    return result;
+  };
+  session.filmDataHash = sha256Buffer(Buffer.from(filmData.contents));
   const kill = () => {
     try {
       session.browser?.process()?.kill('SIGKILL');
@@ -216,7 +249,7 @@ async function openSession(job) {
     await session.wall?.close();
   };
   try {
-    server = await startServer({mounts: {'/': job.scene.dir, '/_slate/film/': job.ctx.dir, ...mediaMounts(job.ctx), '/_slate/brand/': job.brandDir}, bundler});
+    server = await startServer({mounts: {'/': job.scene.dir, '/_slate/film/': job.ctx.dir, ...mediaMounts(job.ctx), '/_slate/brand/': job.brandDir}, bundler, recordSource});
     session.server = server;
     session.wall = await startWall();
     try {
@@ -507,6 +540,7 @@ async function collectTrace(job, p) {
   }
   const rows = await p.page.evaluate(() => window.slateScene.trace());
   if (!Array.isArray(rows)) return {rows: null, reason: "the scene's trace() didn't return a list"};
+  if (job.traceRows) return {rows};
   const shots = new Set(job.act.shots);
   return {rows: rows.filter((r) => r && (r.shot === undefined || r.shot === null || shots.has(r.shot)))};
 }
@@ -734,6 +768,15 @@ async function emitJob(job) {
     } else {
       summary.motion = writeTrace(job, trace);
       log(`act ${act.act}: ${summary.silent ? `silent (${summary.reason})` : `${summary.events} beats`} → ${summary.file}`);
+    }
+    if (job.traceRows) {
+      // Expose the raw registry before act/shot filtering only for an explicit read-only composition request.
+      summary.raw_declarations = {events: decl.events, silent: decl.silent, misses: decl.misses, problems: decl.problems};
+      summary.source_hashes = session.sourceProof();
+      summary.sources = Object.keys(summary.source_hashes).sort();
+      summary.trace_read = {frame_base: 'film', act: act.act, act_frames: [act.frameIn, act.frameOut],
+        fps_num: ctx.fps.num, fps_den: ctx.fps.den, rows: trace.rows, reason: trace.reason ?? null,
+        film_data_sha256: session.filmDataHash};
     }
     summary.scene_problems = decl.problems;
     summary.engine = 'web';

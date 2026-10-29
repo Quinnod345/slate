@@ -148,7 +148,7 @@ def test_takes_gate_catches_changed_lines_and_direction(voice_film, fake_whisper
     assert any("line changed" in e for e in r.evidence)
 
 
-def test_direction_and_policy_gates(voice_film, brand):
+def test_direction_and_policy_gates(voice_film, brand, full_voice_policy):
     path = voice_film / "voice" / "direction.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps({"lines": {"S01": "[whispering] Every film starts with one line.",

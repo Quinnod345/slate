@@ -186,6 +186,63 @@ def test_script_put_checks_the_schema_and_leaves_approved_work_alone(studio):
     assert got["ok"] and got["result"]["script"] == SCRIPT
 
 
+def test_script_put_preserves_a_standard_storyboard_approval_until_its_hash_changes(studio):
+    from slate.state import approvals
+
+    film_dir = make_film(studio)
+    tools.script_put(SCRIPT, film="tide-pools")
+    board = film_dir / "script" / "storyboard.json"
+    jsonio.write_atomic(board, {"shots": [{"id": "S01", "vo": "The approved line."}]})
+    approvals.record(film_dir, what="script", path="script/storyboard.json", approved_by="Test Person")
+
+    changed = {**SCRIPT, "version": "draft-2"}
+    refused = tools.script_put(changed, film="tide-pools")
+    assert refused["exit_code"] == 1 and "slate revise start" in refused["error"]["hint"]
+    assert jsonio.read(film_dir / "script" / "script.json") == SCRIPT
+
+    jsonio.write_atomic(board, {"shots": [{"id": "S01", "vo": "Changed since approval."}]})
+    assert approvals.kind_state(film_dir, "script")["approved"] is False
+    edited = tools.script_put(changed, film="tide-pools")
+    assert edited["written"]
+    assert jsonio.read(film_dir / "script" / "script.json") == changed
+
+
+def test_script_put_preserves_an_inherited_storyboard_approval(studio):
+    from slate.state import approvals, derive
+
+    parent = make_film(studio)
+    tools.script_put(SCRIPT, film="tide-pools")
+    jsonio.write_atomic(parent / "script" / "storyboard.json", {"shots": [{"id": "S01", "vo": "Approved."}]})
+    approvals.record(parent, what="script", path="script/storyboard.json", approved_by="Test Person")
+    child = derive.create(parent, "wide", aspect="16:9", git=False)
+    assert not (child / "script" / "script.json").exists()
+
+    refused = tools.script_put({**SCRIPT, "version": "child-rewrite"}, film="wide")
+
+    assert refused["exit_code"] == 1 and "slate revise start" in refused["error"]["hint"]
+    assert not (child / "script" / "script.json").exists()
+    assert jsonio.read(parent / "script" / "script.json") == SCRIPT
+
+
+def test_script_get_reads_an_inherited_script_without_materializing_or_changing_it(studio):
+    from slate.state import derive
+
+    parent = make_film(studio)
+    tools.script_put(SCRIPT, film="tide-pools")
+    source = parent / "script" / "script.json"
+    before = source.read_bytes()
+    child = derive.create(parent, "wide", aspect="16:9", git=False)
+
+    result = tools.script_get(film="wide")
+
+    assert result["ok"] and result["result"]["script"] == SCRIPT
+    assert result["result"]["film_dir"] == str(child)
+    assert result["result"]["path"] == str(source)
+    assert result["command"] == f"cat {source}"
+    assert source.read_bytes() == before
+    assert not (child / "script" / "script.json").exists()
+
+
 # ---------------------------------------------------------------------------------------------------------------
 # Long work becomes a job
 

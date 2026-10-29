@@ -30,8 +30,9 @@ re-checked. Do research the same way.
 - **Motion and voice research** (how good marks move, how a voice should sound) produces a sourced spec or brief, cited
   by label; the sources stay with it.
 
-## When research is the wrong move
+## Keep research within the request
 
-Research fixes a specific, named flaw. It is never a way to redesign approved work. When the owner approves something
-and adds notes, apply the notes to that exact thing; if a note seems to need a new approach, ask first
-(review-and-correct.md).
+Research answers a specific question or supports a requested change. Preserve the approved baseline and the owner's
+notes. A requested new approach authorizes work within its scope; do not ask the owner to repeat that decision. Ask
+only when missing or conflicting information prevents the next step. Keep unrelated work stable and compare the
+resulting revision with its baseline (review-and-correct.md).

@@ -156,3 +156,97 @@ def test_the_python_side_reads_answers_from_the_terminal(monkeypatch):
 
     monkeypatch.setattr(core, "open", no_tty, raising=False)
     assert core.ask("Go?", default=True) is False, "no terminal means no, never a guess"
+
+
+
+def _run_fake_installer(co: Path, bin_dir: Path, home: Path, *args: str, piped: bool = False):
+    """Run only the fixture's shell and fake tools, with no inherited credentials or host client environment."""
+    from slate import procs
+
+    env = {"HOME": str(home), "PATH": f"{bin_dir}:/usr/bin:/bin:/usr/sbin:/sbin", "BROWSER": "none",
+           "SLATE_NONINTERACTIVE": "1", "SLATE_FAKE_VENDORS": "1", "GIT_TERMINAL_PROMPT": "0",
+           "SLATE_CHECKOUT": str(co)}
+    # env -i sets the shell's exact PATH after procs adds its normal global tool paths. Otherwise a real uv could
+    # precede the fixture's stand-in. The deliberate piped-script case is the only input passed to this child.
+    argv = ["/usr/bin/env", "-i", *(f"{key}={value}" for key, value in env.items()), "/bin/bash"]
+    argv += ["-s", "--", *args] if piped else [str(co / "install.sh"), *args]
+    return procs.run(argv, input=(co / "install.sh").read_text() if piped else None, timeout=30)
+
+
+@pytest.mark.parametrize("piped", [False, True], ids=["checkout", "piped"])
+def test_explicit_no_doctor_skips_every_doctor_call_in_an_agent(fake_checkout, tmp_path, piped):
+    co, bin_dir, log = fake_checkout
+    home = tmp_path / "home"
+    home.mkdir()
+    if piped:
+        # The piped entry checks for a git checkout and updates it. Model that command locally without cloning,
+        # downloading or touching the real repository; all Python and uv calls remain the existing stand-ins.
+        (co / ".git").mkdir()
+        git = bin_dir / "git"
+        git.write_text(f'#!/bin/bash\necho "git $*" >> "{log}"\nexit 0\n')
+        git.chmod(0o755)
+    ran = _run_fake_installer(co, bin_dir, home, "--home", str(home), "--no-doctor", piped=piped)
+    assert ran.returncode == 0, ran.stdout + ran.stderr
+    calls = log.read_text().splitlines()
+    assert any(c.startswith("python -m slate install --no-doctor") for c in calls), calls
+    assert not any(c.startswith("python -m slate doctor") for c in calls), calls
+    assert "Run `slate doctor --install` now?" not in ran.stdout + ran.stderr
+
+
+def test_explicit_no_doctor_dry_run_does_not_promise_a_later_doctor(fake_checkout, tmp_path):
+    co, bin_dir, log = fake_checkout
+    home = tmp_path / "home"
+    home.mkdir()
+    ran = _run_fake_installer(co, bin_dir, home, "--home", str(home), "--dry-run", "--no-doctor")
+    assert ran.returncode == 0, ran.stdout + ran.stderr
+    calls = log.read_text().splitlines()
+    assert any(c.startswith("python -m slate install") and "--dry-run" in c for c in calls), calls
+    assert not any(c.startswith("python -m slate doctor") for c in calls), calls
+    assert "then: slate doctor" not in ran.stdout
+
+
+def test_explicit_no_doctor_in_a_terminal_skips_the_doctor_prompt_only(fake_checkout, tmp_path):
+    co, bin_dir, log = fake_checkout
+    home = tmp_path / "home"
+    home.mkdir()
+    env = {"HOME": str(home), "PATH": f"{bin_dir}:/usr/bin:/bin:/usr/sbin:/sbin", "BROWSER": "none",
+           "TERM": "dumb", "SLATE_FAKE_VENDORS": "1"}
+    # Answer the old prompt if it appears so the baseline fails on its observable behavior without hanging.
+    code, out = _run_on_a_terminal(["/bin/bash", str(co / "install.sh"), "--home", str(home), "--no-doctor"],
+                                   env, {"Run `slate doctor --install` now?": "n"})
+    assert code == 0, out
+    calls = log.read_text().splitlines()
+    assert any(c.startswith("python -m slate install --no-doctor --interactive") for c in calls), calls
+    assert not any(c.startswith("python -m slate doctor") for c in calls), calls
+    assert "Run `slate doctor --install` now?" not in out
+
+
+def test_without_no_doctor_an_agent_still_runs_plain_doctor(fake_checkout, tmp_path):
+    co, bin_dir, log = fake_checkout
+    home = tmp_path / "home"
+    home.mkdir()
+    ran = _run_fake_installer(co, bin_dir, home, "--home", str(home))
+    assert ran.returncode == 0, ran.stdout + ran.stderr
+    calls = log.read_text().splitlines()
+    assert calls.count("python -m slate doctor --help") == 1, calls
+    assert calls.count("python -m slate doctor") == 1, calls
+    assert "python -m slate doctor --install" not in calls
+    assert "Run `slate doctor --install` now?" not in ran.stdout + ran.stderr
+
+
+def test_no_doctor_preserves_the_module_install_failure_exit_code(fake_checkout, tmp_path):
+    co, bin_dir, log = fake_checkout
+    home = tmp_path / "home"
+    home.mkdir()
+    python = co / ".venv" / "bin" / "python"
+    script = python.read_text()
+    end = script.rfind("exit 0\n")
+    assert end >= 0
+    script = (script[:end] + 'if [ "$1" = "-m" ] && [ "$2" = "slate" ] && [ "$3" = "install" ]; then exit 7; fi\n'
+              + script[end:])
+    python.write_text(script)
+    ran = _run_fake_installer(co, bin_dir, home, "--home", str(home), "--no-doctor")
+    assert ran.returncode == 7, ran.stdout + ran.stderr
+    calls = log.read_text().splitlines()
+    assert any(c.startswith("python -m slate install") for c in calls), calls
+    assert not any(c.startswith("python -m slate doctor") for c in calls), calls

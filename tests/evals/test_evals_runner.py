@@ -141,6 +141,23 @@ CODEX_CONFIG = ('model = "gpt-6-astra"\n\n[projects."/Users/someone/code"]\ntrus
                 '[mcp_servers.slate]\ncommand = "slate"\n')
 
 
+def test_failed_model_start_does_not_replace_a_useful_recording(fake_suite, slate_home):
+    root = fake_suite({"claude-code": "env"}, cases=["negative-email"])
+    case, configs = _one(root, "negative-email")
+    runs = slate_home["tmp"] / "runs"
+    runner.live([(case, "claude-code")], configs, out=runs, run_id="first", record=True)
+    saved = root / "fixtures/recorded/negative-email/claude-code"
+    before = {p.name: p.read_bytes() for p in saved.iterdir() if p.is_file()}
+    configs["configurations"]["claude-code"]["argv"][2] = "error"
+
+    result = runner.live([(case, "claude-code")], configs, out=runs, run_id="unavailable", record=True)
+
+    assert result["results"][0]["status"] == "UNCHECKED"
+    assert result["results"][0]["recording"]["written"] is False
+    assert {p.name: p.read_bytes() for p in saved.iterdir() if p.is_file()} == before
+    assert (runs / "unavailable/negative-email/claude-code/transcript.jsonl").is_file()
+
+
 def test_a_codex_run_leaves_codexs_config_as_it_found_it(fake_suite, slate_home, _scratch_codex_home):
     """`codex exec` adds a trusted-project table for its folder to config.toml; the runner takes exactly that out."""
     config = _scratch_codex_home / "config.toml"

@@ -13,16 +13,16 @@
 | `sound.gap` | no half-second window of music under −60 dBFS outside the planned stops |
 | `sound.voice_sync` | every take sits exactly on its cue (found again in the dialogue stem by cross-correlation) |
 | `sound.cue_sync` | every effect's audible anchor is within one frame of its beat |
-| `sound.repeats` | no identical sound plays twice in a row (the brand's sonic logo closing the film as it opened, or a cue marked bookend, is listed as intentional) |
-| `sound.glides` | no sustained tone slides in pitch |
-| `sound.drone` | no room-tone bed under the effects |
+| `sound.repeats` | the measured repeats match the palette's interaction rules; the starter rejects consecutive identical files, while a sonic logo or marked bookend is intentional |
+| `sound.glides` | no forbidden sustained pitch glide is measured; a palette with both `rules.no_glides` and `rules.no_slide_ups` false permits glides |
+| `sound.drone` | no forbidden room-tone bed is measured; `rules.no_drone: false` permits a bed |
 | `sound.levels` | each stem sits at its palette level against the voice, within tolerance |
 | `sound.reference` | the mix matches the brand's approved sound reference (UNCHECKED when there isn't one), and effects more than 25% brighter than the reference's (spectral centroid, or the share above 2 kHz) wait for a person |
 | `sound.clarity` | the voice stays clear: nothing louder than it, no bright noise under the words |
 | `sound.music_licence` | the score's licence covers the destination (broadcast formats need an Enterprise music licence) |
 | `sound.voice_limiter` | the voice-only limiter touches under 5% of the speech; past that it's shaping the read |
 | `sound.key` | every pitched note in the UI and tonal stems is on the brand key's pentatonic (each note's pitch over its first 60 ms); a stem with more than half its notes on one or two pitches waits for a person |
-| `sound.timbre` | each effect family's median spectral centroid at or under 1.5 kHz, no chime tails, nothing metallic or glassy |
+| `sound.timbre` | measured families meet `timbre.centroid_max_hz`, `no_chimes` and `no_metallic`; the warm starter uses 1.5 kHz, true and true, while null removes the centroid ceiling |
 | `sound.mix_words` | Whisper on the delivered mix hears the script word for word, after only the normalization a listener can't hear; a word heard over the music where the voice is quiet is set aside, never counted |
 | `sound.balance.clarity` | every word at least 12 dB clear of everything else in 1–5 kHz, and the score on its own 19 dB clear; a word under a half-ridden accent is the owner's trade: listed, a person listens under 8 dB, and under 6 dB it fails |
 | `sound.balance.never_over` | while the voice speaks, nothing is louder than it: each family, all the effects together and everything else together |
@@ -36,6 +36,11 @@ The seven balance gates measure word by word against the voice (phrase by phrase
 brand's sound palette (`sound.palette.balance`, mix.md). `slate sound balance` runs them on their own, and
 `--words` prints every word's clarity. A film whose effects arrive as one stem has the effect families' rules
 UNCHECKED until the effects engine writes a stem per family; a score-and-voice film is measured in full.
+
+The effective palette starts with the warm preset, takes the brand's settings and then the film's `sound.palette`
+overrides. Explicit material and banned-timbre lists replace the starter lists. A configured timbre allowance retains
+the detector flags in the report; it does not erase evidence, approve a source-bound clip or prove the detector correct.
+Follow the latest authorized sound direction and preserve its earlier proof and feedback for comparison.
 
 ## How sync is measured
 

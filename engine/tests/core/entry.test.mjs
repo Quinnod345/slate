@@ -252,9 +252,9 @@ describe('entry', () => {
     // captures are linked from the parent, never copied
     const {publicDir} = await import('../../remotion/bundle.mjs');
     const {loadFilm} = await import('../../remotion/lib/film.mjs');
-    const pub = publicDir(loadFilm(child));
+    const pub = publicDir(loadFilm(child), path.join(root, 'refs-child-public-view'));
     expect(pub.links).toContain('captures');
-    expect(fs.readlinkSync(path.join(pub.dir, 'captures'))).toBe(path.join(parent, 'captures'));
+    expect(fs.readlinkSync(path.join(pub.dir, 'captures'))).toBe(fs.realpathSync(path.join(parent, 'captures')));
     expect(fs.existsSync(path.join(pub.dir, 'captures/demo/frames/f00001.jpg'))).toBe(true);
     // without refs, a film with no timing is still a clear usage error
     fs.rmSync(path.join(child, '.slate/refs.json'));

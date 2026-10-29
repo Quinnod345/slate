@@ -149,6 +149,17 @@ def rel(film_dir: Path, path: Path) -> str:
         return str(Path(path).resolve())
 
 
+def resolve_file(film_dir: Path, path: str | Path) -> Path:
+    """Read a film file through its inherited reference, while leaving output paths in the child film."""
+    path = Path(path)
+    if path.is_absolute():
+        return path
+    lock = _module("slate.state.lock")
+    if lock is not None:
+        return lock.resolve(film_dir, str(path))
+    return Path(film_dir) / path
+
+
 # ---------------------------------------------------------------------------------------------------------------
 # Pins, locks, approvals (state)
 

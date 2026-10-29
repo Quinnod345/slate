@@ -1,8 +1,8 @@
 # App captures: real footage on the film's clock
 
 A product demo is often best told with the product itself. Slate records it deterministically (a pinned build, a
-seeded demo account, scripted steps), conforms it to the film's frame rate and size, and lands its taps on the voice's
-words, so a capture behaves like any other shot on the one clock.
+seeded demo account, scripted steps), conforms it to the film's frame rate and requested capture size, and lands its
+taps on the voice's words, so a capture behaves like any other shot on the one clock.
 
 ## iOS
 
@@ -15,18 +15,30 @@ that seed it), where it sits in the film (`place: {shot}`), and timed steps:
 
 ```json
 {"kind": "ios", "name": "save-entry", "duration": 8,
- "app": {"path": "build/Demo.app", "bundle_id": "com.example.demo", "build_sha256": "<64 hex characters>"},
+ "app": {"path": "build/Demo.app", "bundle_id": "com.example.demo", "build_sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
  "account": {"kind": "demo", "launch_args": ["-ui-testing", "-seed-demo-account"]},
  "place": {"shot": "S04"},
  "steps": [{"at": 0, "do": "launch"},
-           {"at": 2.4, "do": "tap", "id": "save", "x": 201, "y": 742, "word": {"shot": "S04", "text": "save"}, "size": "s"}]}
+           {"at": 2.4, "do": "tap", "id": "save", "x": 201, "y": 742, "word": {"shot": "S04", "text": "save"}, "size": "small"}]}
 ```
 
-- It runs on an isolated Simulator (a fresh device, deleted afterwards), with Apple's status bar: 9:41, full battery,
+Replace the example's zero hash with the actual app bundle's SHA-256 and use launch arguments that the app supports.
+Tap sizes are `small`, `medium` or `large`.
+
+- By default it creates or reuses a Slate-owned Simulator, erases it before recording, and shuts it down afterwards.
+  The device is retained for reuse; other devices are left alone. Apple's status bar shows 9:41, full battery and
   full bars.
-- A build whose hash doesn't match the spec is refused: the film shows the build that was approved.
-- Taps need a tap driver; without one, the app taps itself (`tap_driver: scripted`) and marks when it does.
+- A build whose hash doesn't match the spec is refused. The hash pins the recorded bytes; owner approval and the
+  build's correspondence to source are separate evidence.
+- Tap and type steps need an installed idb or AXe driver. Slate refuses when neither is available; it does not
+  silently simulate an interaction. Choose `tap_driver: scripted` only when the app actually plays its own demo
+  from launch arguments: those steps mark interactions the app performs, rather than injecting taps or text.
 - Booting a Simulator is heavy: run captures when the machine is quiet, one at a time.
+
+Prepare the demo profile's setup and privacy choices before recording. Record those choices and distinguish seeded
+content from actual feature output. Inspect startup frames and first-use tips before selecting film footage; allow
+the app to settle. Clear notices through the app's real demo state or controls, and keep optional sharing disabled
+when the intended demo declines it. Removing a notice is not a reason to grant sharing or manufacture AI output.
 
 ## Web
 
@@ -42,11 +54,15 @@ slate capture web --spec captures/pricing.json
 ## After capturing
 
 - The capture lands in `captures/<name>/`: `capture.json` (what, when, which build) and a JPEG sequence at the film's
-  rate and size, which scenes play from film time.
+  rate, which scenes play from film time. `fit: native` preserves the device's pixels; `contain` or `cover` fits to
+  the spec's size, or the film's size when no size is supplied. A native sequence is source footage, not a finished
+  film frame.
 - Taps and marks become visual events (kind `tap`, their size), beat-mapped onto the voice's words: holds and small
   retimes happen only in idle time, never inside a tap's response. A tap that still misses its word fails the capture's
   gate rather than warping the motion.
 - A recording made by hand can be conformed the same way, as its own capture.
+- Build previews from the capture record's frame count and rational frame rate. Keep the film's clock when copying
+  stills or encoding a review movie; do not round a fractional rate to an integer.
 
 ## Rules
 

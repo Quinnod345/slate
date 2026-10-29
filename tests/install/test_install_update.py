@@ -162,7 +162,7 @@ def _fake_engine(folder: Path, version: str) -> None:
     (folder / "cli.mjs").write_text("// engine\n")
 
 
-def test_engine_on_its_pin(tmp_path):
+def test_engine_on_its_pin(tmp_path, slate_home):
     repo = make_repo(tmp_path)
     _engine_files(repo)
     _fake_engine(repo / "engine", PIN)
@@ -186,6 +186,40 @@ def test_engine_off_its_pin_or_missing(tmp_path, slate_home):
     assert any("move together" in p for p in update.engine_check(repo)["problems"])
 
 
+@pytest.mark.parametrize("missing", ["cli.mjs", "node_modules/remotion/package.json"])
+def test_engine_check_does_not_fall_back_from_broken_explicit_override(tmp_path, slate_home, monkeypatch, missing):
+    repo = make_repo(tmp_path)
+    _engine_files(repo)
+    _fake_engine(repo / "engine", PIN)
+    override = tmp_path / "selected-engine"
+    _fake_engine(override, PIN)
+    (override / missing).unlink()
+    monkeypatch.setenv("SLATE_ENGINE_DIR", str(override))
+
+    checked = update.engine_check(repo)
+
+    assert checked["status"] == "off pin"
+    assert checked["engine"] is None
+    assert any("SLATE_ENGINE_DIR" in problem and missing in problem for problem in checked["problems"])
+    assert any("Unset SLATE_ENGINE_DIR" in step for step in checked["next"])
+
+
+def test_engine_check_refuses_override_with_interrupted_dependencies(tmp_path, slate_home, monkeypatch):
+    from slate import jsonio
+    from slate.engine import install
+
+    repo = make_repo(tmp_path)
+    _engine_files(repo)
+    _fake_engine(repo / "engine", PIN)
+    override = tmp_path / "partial-engine"
+    _fake_engine(override, PIN)
+    jsonio.write_atomic(override / install.MARKER, {"packages_ready": False})
+    monkeypatch.setenv("SLATE_ENGINE_DIR", str(override))
+    checked = update.engine_check(repo)
+    assert checked["status"] == "off pin" and checked["engine"] is None
+    assert any("did not finish" in problem for problem in checked["problems"])
+
+
 def test_update_command_refuses_on_this_checkout_without_an_upstream():
     """The real checkout has no remote yet (phase 7 creates the GitHub repo), so update says so, and moves nothing."""
     from slate import paths
@@ -205,3 +239,48 @@ def test_update_help():
     code, out, _ = run_cli(["update", "--help"])
     assert code == 0
     assert "--ff-only" in out and "re-link" in out and "Remotion pin" in out
+
+
+def test_update_refreshes_engine_sources_even_without_a_remotion_bump(clone, origin, slate_home):
+    from slate.engine import install
+
+    (origin / "engine/cli.mjs").write_text("// first engine\n")
+    (origin / "engine/package-lock.json").write_text('{}\n')
+    (origin / "engine/remotion").mkdir()
+    (origin / "engine/remotion/scene.mjs").write_text("// old scene\n")
+    _commit(origin, "add engine sources")
+    git(clone, "pull", "--ff-only")
+    dest = slate_home["data"] / "engine" / PIN
+    _fake_engine(dest, PIN)
+    # The actual installer provides the same layout and receipt as a real installation.
+    install.ensure(PIN, source=clone / "engine")
+    marker = json.loads((dest / install.MARKER).read_text())
+    from slate import jsonio
+
+    marker["npm_ci_lock_sha256"] = jsonio.sha256(clone / "engine/package-lock.json")
+    (dest / install.MARKER).write_text(json.dumps(marker))
+    (dest / "skills").mkdir()
+    (dest / "skills/keep.txt").write_text("installed vendor skill\n")
+    (origin / "engine/remotion/scene.mjs").write_text("// fixed scene\n")
+    _commit(origin, "fix engine without changing its Remotion pin")
+
+    res = update.run(repo=clone, doctor=False, sync_env=False, relink=False)
+
+    assert res["ok"]
+    assert (dest / "remotion/scene.mjs").read_text() == "// fixed scene\n"
+    assert (dest / "skills/keep.txt").read_text() == "installed vendor skill\n"
+    assert (dest / "node_modules/remotion/package.json").exists()
+    assert res["engine_refresh"]["did"] == "refreshed"
+
+
+def test_update_cannot_succeed_when_relink_process_failed(clone, monkeypatch):
+    monkeypatch.setattr(update, "_relink", lambda *a, **k: {"exit_code": 1, "tail": "installer failed"})
+    res = update.run(repo=clone, doctor=False, sync_env=False)
+    assert not res["ok"]
+
+
+@pytest.mark.parametrize("status,code", [("red", 1), ("unchecked", 0), ("green", 1)])
+def test_update_cannot_claim_verified_success_when_doctor_failed(clone, monkeypatch, status, code):
+    monkeypatch.setattr(core, "doctor_step", lambda *a, **k: {"status": status, "exit_code": code})
+    res = update.run(repo=clone, sync_env=False, relink=False)
+    assert not res["ok"]

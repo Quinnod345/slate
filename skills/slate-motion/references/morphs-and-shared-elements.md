@@ -1,19 +1,23 @@
 # Morphs and shared elements
 
 A shared element persists across a scene change and keeps its identity while the world changes around it. It's how
-the product itself carries objects between views, and it's the film's strongest grammar: the eye stays on one thing
-while everything else changes.
+the eye follows an object while everything else changes. Use it to show the product's real behavior or to connect
+truthful product states through editorial film staging; those are different uses of the same continuity.
 
 ## Shared elements
 
-- **Use hand-offs the way the product carries objects between views**: a mark landing as the nav logo, a value and its
-  chart carried from one screen to the next. Mirror the product's own view transitions.
+- **Use hand-offs the way the product carries objects between views** when demonstrating an app interaction: a mark
+  landing as the nav logo, a value and its chart carried from one screen to the next. Match the product's actual view
+  transitions when the film claims to show them.
 - **A carried object keeps its label**: a caption travels with the value it describes across the boundary.
-- **Carry by the product's own structure**: a checklist row lifts out and opens into its step (its header as the shared
-  element), new steps are dealt in from one side while old ones leave the other, and one home card is the place the act
-  keeps returning to.
-- **Carries follow the product's own navigation order** (scroll down to the next section) rather than inventing an
-  in-place transform.
+- **Carry by the product's own structure**: a checklist row can lift out and open into its step with its header as the
+  shared element; new steps can enter while old ones leave, or a home card can anchor the act. Choose connections that
+  preserve the product's real hierarchy, labels and data.
+- **Carries that demonstrate app navigation follow the product's actual order**, such as scrolling to the next section.
+  Do not present an invented in-place transform as an app interaction.
+- **Editorial carries can connect truthful states through an in-place transform or a shared camera.** Keep the source
+  and destination grounded in the product, carry the owning surface and its labels together, and record the editorial
+  restaging in NOTES.md. The film's choreography need not be an interaction the app offers.
 - **Draw a carried element over its destination for the whole carry**, and let the destination take it over on the
   landing frame. Switching its layer mid-carry makes it slip behind, then jump in front.
 - **Hand an object between components only at rest**, or on a morph's first moving frame, with one shared count

@@ -194,3 +194,108 @@ def test_qa_access_reads_the_packets_sheets(make_film):
         label = sheet.cell_label(row["frame"], row["shot"], row["timecode"])
         box = [0.02, 0.9, 0.9, 0.99]  # where the label sits: the cell's bottom-left corner
         assert access.is_stamp(label, box, c.stamp), (label, c.stamp)
+
+
+
+def _notification_hold_fixture(make_film, monkeypatch):
+    """Use real parking and send logs, with fixed grade/delivery boundaries and no media process."""
+    d = make_film("notification-hold", mode="autonomous", renders=False, mix=False, captions=False, voice=False)
+    film = Film(d)
+    folder = film.review_dir(1)
+    folder.mkdir(parents=True)
+    (folder / "phone.mp4").write_bytes(b"neutral phone-cut fixture; not production media")
+    rec = {"version": 1, "film": {"seconds": film.seconds, "width": film.size[0], "height": film.size[1]},
+           "changes": {"summary": []}, "questions": [], "sheet": {"step_s": 0.5},
+           "files": {"phone_cut": {"file": "phone.mp4"}, "contact_sheets": []}}
+    jsonio.write_atomic(folder / "packet.json", rec)
+    monkeypatch.setattr(review.grade, "require_pass",
+                        lambda *_: {"verdict": "PASS", "by": "Separate Fixture Reviewer", "at": "fixture"})
+    monkeypatch.setattr(review.versions, "delivered", lambda *_: True)
+    monkeypatch.setattr(review, "build", lambda *args, **kwargs:
+                        {"packet": folder / "packet.json", "version": 1, "built": False,
+                         "started_version": False, "record": rec})
+    return d, film, rec
+
+
+@pytest.mark.parametrize("initial_failure", ["transport", "missing"])
+def test_notification_hold_without_delivery_remains_retryable(make_film, settings_toml, monkeypatch, initial_failure):
+    from slate import notify
+    from slate.state import approvals
+
+    d, film, _rec = _notification_hold_fixture(make_film, monkeypatch)
+    configured = '[notify]\nimessage_handle = "+15550100200"\nimessage_route = "osascript"\n' \
+                 'push_command = ["fixture-push", "{title}", "{body}"]\n'
+    if initial_failure == "transport":
+        settings_toml(configured)
+    monkeypatch.setenv("SLATE_LIVE", "1")
+    seen = []
+    failing = True
+
+    def transport(argv, *, timeout):
+        seen.append("imessage" if argv[0] == "/usr/bin/osascript" else "push")
+        return {"returncode": 1 if failing else 0, "stdout": "", "stderr": "fixture route failed" if failing else ""}
+
+    monkeypatch.setattr(notify, "transport", transport)
+    code, first = filmkit.cli_json(d, "review")
+    assert code == 0 and first["sent"]["held"] is True and first["sent"]["sent"] is False
+    sends = first["sent"]["sends"]
+    assert [s["channel"] for s in sends] == ["imessage", "push"] and not any(s["sent"] for s in sends)
+    if initial_failure == "missing":
+        assert all(s["missing"] for s in sends) and seen == []
+    else:
+        assert all(s["error"] == "error" for s in sends) and seen == ["imessage", "push"]
+    assert not review.already_sent(film, 1, "imessage")
+    original_question = approvals.open_questions(d, parking=True)[0]
+    packet_sha = jsonio.sha256(film.review_dir(1) / "packet.json")
+    before_log = review.sent_log(film, 1)
+    assert len(before_log) == 1 and before_log[0]["held"] is True and before_log[0]["sent"] is False
+    assert before_log[0]["packet_sha256"] == packet_sha and before_log[0]["question"] == original_question["id"]
+
+    settings_toml(configured)
+    failing = False
+    seen.clear()
+    code, second = filmkit.cli_json(d, "review")
+    assert code == 0 and second["sent"]["sent"] is True and second["sent"]["held"] is True
+    assert seen == ["imessage", "push"] and review.already_sent(film, 1, "imessage")
+    questions = approvals.open_questions(d, parking=True)
+    assert len(questions) == 1
+    assert {k: questions[0][k] for k in ("id", "text", "source", "evidence", "parks")} == \
+           {k: original_question[k] for k in ("id", "text", "source", "evidence", "parks")}
+    after_log = review.sent_log(film, 1)
+    assert len(after_log) == 2 and after_log[0] == before_log[0]
+    assert all(e["question"] == original_question["id"] and e["packet_sha256"] == packet_sha for e in after_log)
+    seen.clear()
+    code, third = filmkit.cli_json(d, "review")
+    assert code == 0 and third["sent"] is None and seen == []
+    code, explicit = filmkit.cli_json(d, "review", "--to", "imessage")
+    assert code == 0 and explicit["sent"]["sent"] is True and seen == ["imessage", "push"]
+
+
+@pytest.mark.parametrize("failed_channel", ["imessage", "push"])
+def test_notification_hold_partial_success_keeps_existing_default_suppression(make_film, settings_toml,
+                                                                              monkeypatch, failed_channel):
+    from slate import notify
+
+    d, film, _rec = _notification_hold_fixture(make_film, monkeypatch)
+    settings_toml('[notify]\nimessage_handle = "+15550100200"\nimessage_route = "osascript"\n'
+                  'push_command = ["fixture-push"]\n')
+    monkeypatch.setenv("SLATE_LIVE", "1")
+    seen = []
+
+    def transport(argv, *, timeout):
+        channel = "imessage" if argv[0] == "/usr/bin/osascript" else "push"
+        seen.append(channel)
+        return {"returncode": 1 if channel == failed_channel else 0, "stdout": "", "stderr": "fixture failure"}
+
+    monkeypatch.setattr(notify, "transport", transport)
+    code, first = filmkit.cli_json(d, "review")
+    assert code == 0 and first["sent"]["held"] is True and first["sent"]["sent"] is True
+    assert seen == ["imessage", "push"] and review.already_sent(film, 1, "imessage")
+    sends = {s["channel"]: s for s in first["sent"]["sends"]}
+    assert not sends[failed_channel]["sent"] and sends[failed_channel]["error"] == "error"
+    assert len(review.sent_log(film, 1)) == 1
+    seen.clear()
+    code, second = filmkit.cli_json(d, "review")
+    assert code == 0 and second["sent"] is None and seen == []
+    code, explicit = filmkit.cli_json(d, "review", "--to", "imessage")
+    assert code == 0 and explicit["sent"]["sent"] is True and seen == ["imessage", "push"]

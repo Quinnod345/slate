@@ -87,7 +87,7 @@ describe('bundles', () => {
     expect(ok('bundle', {film: dir, release: true}, {data}).released).toEqual([]);
   });
 
-  it("links the film's public files, captures and plates into the served folder, never copying them", () => {
+  it("builds an owned public view with regular public files and read-in-place captures and plates", () => {
     const d = film(root, 'media', (f) => {
       fs.mkdirSync(path.join(f, 'public'), {recursive: true});
       fs.writeFileSync(path.join(f, 'public', 'mark.svg'), '<svg/>');
@@ -95,21 +95,24 @@ describe('bundles', () => {
       fs.mkdirSync(path.join(f, 'plates', 'S01', 'plate', 'frames'), {recursive: true});
     });
     const ctx = loadFilm(d);
-    const pub = publicDir(ctx);
-    expect(pub.dir).toBe(path.join(d, '.slate', 'public'));
-    expect(pub.links).toEqual(['captures', 'mark.svg', 'plates']);
-    expect(fs.readlinkSync(path.join(pub.dir, 'captures'))).toBe(path.join('..', '..', 'captures'));
-    expect(fs.readlinkSync(path.join(pub.dir, 'mark.svg'))).toBe(path.join('..', '..', 'public', 'mark.svg'));
+    const view = path.join(root, 'media-public-view');
+    const pub = publicDir(ctx, view);
+    expect(pub.dir).toBe(view);
+    expect(pub.links).toEqual(['captures', 'plates']);
+    expect(fs.readlinkSync(path.join(pub.dir, 'captures'))).toBe(fs.realpathSync(path.join(d, 'captures')));
+    expect(fs.lstatSync(path.join(pub.dir, 'mark.svg')).isFile()).toBe(true);
+    expect(fs.readFileSync(path.join(pub.dir, 'mark.svg'), 'utf8')).toBe('<svg/>');
     expect(fs.existsSync(path.join(pub.dir, 'captures', 'demo', 'frames'))).toBe(true);
-    // a name the film's own public/ uses wins, and says so
+    // A name the film's own public/ uses wins and retains its directory alias.
     fs.mkdirSync(path.join(d, 'public', 'plates'));
-    const again = publicDir(ctx);
-    expect(fs.readlinkSync(path.join(again.dir, 'plates'))).toBe(path.join('..', '..', 'public', 'plates'));
+    const again = publicDir(ctx, view);
+    expect(fs.readlinkSync(path.join(again.dir, 'plates'))).toBe(fs.realpathSync(path.join(d, 'public', 'plates')));
     expect(again.warnings).toEqual(["public/plates shadows the film's plates/ folder in staticFile() paths"]);
-    // links to what's gone are removed; the film's files never are
+    // Rebuilding removes stale entries from the owned view, without maintaining a generated folder in the film.
     fs.rmSync(path.join(d, 'captures'), {recursive: true});
-    expect(publicDir(ctx).links).toEqual(['mark.svg', 'plates']);
+    expect(publicDir(ctx, view).links).toEqual(['plates']);
     expect(fs.existsSync(path.join(again.dir, 'captures'))).toBe(false);
+    expect(fs.existsSync(path.join(d, '.slate', 'public'))).toBe(false);
     fs.rmSync(again.dir, {recursive: true});
     expect(fs.existsSync(path.join(d, 'public', 'mark.svg'))).toBe(true);
     expect(fs.existsSync(path.join(d, 'plates', 'S01', 'plate', 'frames'))).toBe(true);

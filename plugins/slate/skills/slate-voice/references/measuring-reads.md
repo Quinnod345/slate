@@ -59,8 +59,9 @@ polish's trial mode draws the same chart for the unpolished lines against each s
 
 ## When to use it
 
-- **Before the owner hears a tagged take**: against the voice's untagged reads of the same words. A tagged read that
-  measures breathier is out, however good its tag looks.
+- **Before the owner hears a tagged take**: against the voice's untagged reads of the same words. A voice that opts
+  into `tag_policy.avoid_low_effort` rejects a breathier read. Other deliveries keep the comparison as listening
+  evidence and follow their own brief.
 - **Choosing a polish strength**: the unpolished take against each strength, on a 0-12 kHz sheet (the polish stage's
   trial mode draws these for every line). Read the sibilance, edge and spectrum there, not the breath: the room and
   the EQ move CPPS and H1-H2 without any change of breath, so those sheets leave the breath verdict out.
@@ -69,10 +70,12 @@ polish's trial mode draws the same chart for the unpolished lines against each s
 
 ## The gate it backs
 
-The inflection gate holds every line to the no-whisper rule by measurement:
-- **fails**: a whisper-like read (the voice dropping out, against the film's other lines); a tagged read breathier than
-  the voice's own untagged reads of the same words (when a tag round measured it); a statement ending that rises like a
-  question (past the voice's own endings plus 3 semitones); a read that stops mid-word;
+The inflection gate measures every line and applies the voice's explicit delivery policy:
+- **fails for a full-voice policy**: a whisper-like read (the voice dropping out, against the film's other lines); a
+  tagged read breathier than the voice's own untagged reads of the same words (when a tag round measured it). These
+  restrictions apply when `tag_policy.avoid_low_effort` is true;
+- **fails for every voice**: a statement ending that rises like a question (past the voice's own endings plus 3
+  semitones); a read that stops mid-word;
 - **asks for an ear**: a tagged line nobody has measured against untagged reads of the same words, until the owner
   approves the take by ear;
 - **notes, not verdicts**: breathiness or creak against the film's other lines (other words differ, so these only
