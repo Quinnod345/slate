@@ -202,7 +202,7 @@ def install(*, home: str | os.PathLike | None = None, agents: list[str] | str | 
     `client_path` and `run_clients` exist for tests (fake agent CLIs in a temp folder); leave them alone.
     """
     lay = layout_mod.resolve(home, repo=repo, root=root)
-    chosen = layout_mod.parse_agents(agents) if agents is not None else links.detect_agents(lay)
+    chosen = links.chosen_agents(agents, lay)
     out: dict = {"layout": lay.to_dict(), "agents": chosen, "dry_run": dry_run, "sandbox": lay.sandbox,
                  "next_steps": []}
     p = links.plan(lay=lay, agents=chosen, higgsfield=higgsfield)

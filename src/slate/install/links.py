@@ -244,6 +244,16 @@ def detect_agents(lay: Layout, search_path: str | None = None) -> list[str]:
     return found
 
 
+def chosen_agents(agents: str | list[str] | tuple[str, ...] | None, lay: Layout) -> list[str]:
+    """The agents to wire: the ones on this machine when none are named. A list already chosen stays as it is, empty
+    included (a Mac with no agent yet still gets Slate's command line); an empty --agents a person typed is refused."""
+    if agents is None:
+        return detect_agents(lay)
+    if isinstance(agents, (list, tuple)) and not agents:
+        return []
+    return layout_mod.parse_agents(agents)
+
+
 def _roots_for(agents: list[str], lay: Layout) -> list[tuple[str, Path]]:
     roots: list[tuple[str, Path]] = []
     if "claude" in agents:
@@ -294,7 +304,7 @@ def plan(home: str | os.PathLike | None = None, agents: list[str] | str | None =
     """Everything the installer would link for these agents (default: the ones on this machine), with each target's
     current state. Reads only; `apply` does the work."""
     lay = lay or layout_mod.resolve(home, repo=repo, root=root)
-    chosen = layout_mod.parse_agents(agents) if agents is not None else detect_agents(lay)
+    chosen = chosen_agents(agents, lay)
     data = manifest_mod.load(lay)
     p = Plan(layout=lay, agents=list(chosen))
     skills = slate_skills(lay)
@@ -456,7 +466,7 @@ def audit(home: str | os.PathLike | None = None, agents: list[str] | str | None 
     (the same name in `~/.agents/skills` and `~/.codex/skills`: both Codex binaries read both folders).
     """
     lay = lay or layout_mod.resolve(home, repo=repo)
-    chosen = layout_mod.parse_agents(agents) if agents is not None else detect_agents(lay)
+    chosen = chosen_agents(agents, lay)
     p = plan(lay=lay, agents=chosen, higgsfield=True)
     problems: list[str] = []
     rows = []

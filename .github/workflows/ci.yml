@@ -93,6 +93,9 @@ jobs:
           cache: npm
           cache-dependency-path: engine/package-lock.json
 
+      - name: Install ffmpeg (the renderers encode and the stills decode with it)
+        run: brew install ffmpeg
+
       - name: Install the engine's pinned packages
         run: npm ci
 

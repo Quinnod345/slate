@@ -253,6 +253,16 @@ def test_unknown_agent_is_a_usage_error():
     assert layout.parse_agents("claude-code, Codex ,oneiro") == ["claude", "codex", "openclaw"]
 
 
+def test_a_mac_with_no_agent_yet_still_gets_the_command_line(home, repo, monkeypatch):
+    """Detection finding no agent is a choice already made, not an empty --agents (a fresh CI runner has none)."""
+    monkeypatch.setattr(links, "detect_agents", lambda lay, search_path=None: [])
+    p = links.plan(home, repo=repo)
+    assert p.agents == []
+    assert {str(a.target) for a in p.actions} == {str(home / ".local/bin/slate"), str(home / "opt/homebrew/bin/slate")}
+    with pytest.raises(UsageError):
+        links.plan(home, "", repo=repo)  # a person who types an empty --agents is still told to name one
+
+
 def test_agents_are_detected_from_their_folders_and_clis(home, repo, tmp_path):
     lay = layout.resolve(home, repo=repo)
     assert links.detect_agents(lay, search_path="") == []
