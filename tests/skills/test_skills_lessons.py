@@ -87,9 +87,9 @@ LESSONS: dict[str, list[tuple[str, list[str]]]] = {
     "L-kit-D181": [(f"{BUILD}/contracts.md", ["Gate the rest state on the master frame",
                                               "every motion-blur sub-sample of a contract frame draws the rest "
                                               "picture"])],
-    "L-agents-D008": [(f"{BUILD}/builder-briefs.md", ["When an act is handed in, the builder cleans its scratch "
-                                                      "folder", "keeps only the final preview and its contact "
-                                                      "sheet"])],
+    "L-agents-D008": [(f"{BUILD}/builder-briefs.md", ["Preserve reviewed comparisons before cleaning scratch",
+                                                      "remove disposable scratch and keep the final preview and its "
+                                                      "contact sheet"])],
     "L-kit-D096": [(f"{BUILD}/headless-chrome.md", ["Centre a lockup", "visible extents and the type's cap height",
                                                     "never on its layout box"])],
     "L-kit-D166": [(f"{BUILD}/headless-chrome.md", ["text-rendering: geometricPrecision",

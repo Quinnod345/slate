@@ -28,6 +28,10 @@ style rule; the latest brief and authorized listening feedback govern creative r
 about 11 LU under, within about 2 LU. The voice is levelled by the loudness of its voiced part; every other cue by its
 peak.
 
+**The voice limiter's margin:** the voice is limited 0.9 dB under the true-peak ceiling when other stems sound, so
+they can sum on its peaks, and 0.4 dB when it's heard alone. `levels.voice_margin_db` sets the first for a film whose
+linked limiter keeps the sum under the ceiling transparently (one film's limiter touched 6.2% of the speech at 0.9).
+
 **Ducking under speech:** tonal and ambience about 6 dB, effects about 3 dB, reverb about 4 dB; the UI clicks stay crisp.
 
 **Rules the starter carries:** no glides, no slide-ups, no drone, one sound per kind, no sound shared between kinds, no
@@ -49,6 +53,21 @@ record their provenance and inspect the result. The current renderer still requi
 
 **Banned timbres:** bells, chimes, glockenspiel, celesta, crotales, tubular bells, vibraphone, music box, metallic hits,
 glass, buzzers.
+
+## Size, runs and an act's colour (opt-in)
+
+Three palette tables shape the engine's choices; without them a film spots exactly as before.
+
+- **`sizes`**: a beat's size as weight, e.g. `{"s": {"gain_db": -3}, "l": {"gain_db": 2, "octave": -1, "rate": 0.92}}`.
+  `octave` moves pitched wood and felt notes (layers included) by whole octaves, so a large land is a deeper knock;
+  `rate` darkens sampled swishes; a kind can set `size_weight: false` to opt out.
+- **`walk`**: bursts as gestures, e.g. `{"gap_s": 1.3, "min": 3, "kinds": ["tap", "snap", "land", "data", "stamp"]}`.
+  Beats of one kind in one shot, each within `gap_s` of the last, are one run, and its pitched items walk up the key's
+  pentatonic a step per item, from the tonic or a seeded step above it (`spread`, 2 by default). An explicit pitch
+  (an override, a kind's `pitch`) still wins.
+- **`acts`**: an act's own colour, e.g. `{"3": {"gain_db": -1, "kinds": {"snap": {"params": {"kind": "temple"}}}}}`.
+  It merges over the palette's kinds for that act's beats, before any event override, so a film can change register,
+  material or level act by act inside one vocabulary.
 
 ## A brand's palette
 

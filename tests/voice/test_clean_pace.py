@@ -86,6 +86,9 @@ def fake_rubberband(tmp_path, monkeypatch):
     exe.write_text(FAKE_RUBBERBAND.replace("{python}", sys.executable))
     exe.chmod(exe.stat().st_mode | stat.S_IEXEC)
     monkeypatch.setenv("PATH", f"{folder}:{__import__('os').environ['PATH']}")
+    # Slate puts Homebrew's folders ahead of the caller's PATH (the arm64 Rubber Band), so on a Mac that has the real
+    # one the stand-in has to lead the preferred folders too.
+    monkeypatch.setattr(procs, "PREFERRED_PATH", [str(folder), *procs.PREFERRED_PATH])
     return exe
 
 
